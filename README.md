@@ -7,8 +7,9 @@ After succeeding to convince the [CEN TC 434 WG1](https://standards.cen.eu/dyn/w
 
 ## Decimal-based floating-point
 
-Decimal-based floating-point missted the early IEEE 754 standard in the late 80ths and it took 20 years later in 2008 until decimal-based floating-point was embraced.
-Now being part of all major library as Java, .Net, etc.
+Decimal-based floating-point was invented for the commercial sector.
+It missed the early [IEEE 754 standard](https://ieeexplore.ieee.org/document/8766229) in the late 80ths and it took 20 years later in 2008 until decimal-based floating-point was embraced.
+Now being part of all major library as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), etc.
 
 For further information on Decimal floating points, see
 
