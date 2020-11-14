@@ -1,4 +1,4 @@
-# Saxon Home e-Commerce Edition 10.3
+# Saxon Home 10.3 e-Commerce Edition 
 
 ## Purpose
 This temporary fork of Michael Kay's Saxon is just a show case of using Saxon in the e-Commerce domain requiring best numeric accuracy.
