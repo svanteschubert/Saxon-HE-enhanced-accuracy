@@ -36,3 +36,6 @@ To make the JAR become useable in addition further artifacts had to be copied fr
 * src/main/resources/net/sf/saxon/data/
 
 I have added a test case to ease debugging from the IDE.
+
+## Report to Saxonica
+https://saxonica.plan.io/issues/4823
