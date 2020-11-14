@@ -3,9 +3,9 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>net.sf.saxon</groupId>
     <artifactId>Saxon-HE</artifactId>
-    <version>10.3-007-SNAPSHOT</version>
+    <version>10.3-decimal-based</version>
     <packaging>jar</packaging>
-    <name>Saxon-HE</name>
+    <name>Saxon-HE Commerce</name>
     <description>The XSLT and XQuery Processor</description>
     <url>http://www.saxonica.com/</url>
     <licenses>
@@ -72,7 +72,7 @@
         <dependency>
             <groupId>org.jdom</groupId>
             <artifactId>jdom</artifactId>
-            <version>1.1.3</version>
+            <version>2.0.2</version>
             <optional>true</optional>
         </dependency>
         <dependency>
@@ -87,11 +87,11 @@
             <version>1.2.10</version>
             <optional>true</optional>
         </dependency>
-<!--  https://mvnrepository.com/artifact/com.ibm.icu/icu4j  -->
+        <!--  https://mvnrepository.com/artifact/com.ibm.icu/icu4j  -->
         <dependency>
             <groupId>com.ibm.icu</groupId>
             <artifactId>icu4j</artifactId>
-            <version>63.1</version>
+            <version>68.1</version>
             <optional>true</optional>
         </dependency>
         <dependency>
@@ -109,21 +109,33 @@
         <dependency>
             <groupId>org.apache.ws.commons.axiom</groupId>
             <artifactId>axiom-impl</artifactId>
-            <version>1.2.15</version>
+            <version>1.2.22</version>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>jline</groupId>
             <artifactId>jline</artifactId>
-            <version>2.9</version>
+            <version>2.14.6</version>
             <optional>true</optional>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.jetbrains/annotations -->
         <dependency>
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
-            <version>16.0.1</version>
+            <version>19.0.0</version>
         </dependency>        
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>5.7.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-runner</artifactId>
+            <version>1.7.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <organization>
         <name>Saxonica</name>
@@ -132,29 +144,49 @@
     <parent>
         <groupId>org.sonatype.oss</groupId>
         <artifactId>oss-parent</artifactId>
-        <version>7</version>
+        <version>9</version>
     </parent>
   
-	<!-- Build Settings -->
+    <!-- Build Settings -->
     <build>
         <plugins>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.6.1</version><!--
+                <version>3.8.1</version><!--
 				<configuration>
 					<source>${jdk.version}</source>
 					<target>${jdk.version}</target>
 				</configuration>-->
             </plugin>
             <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.2</version>
+                <configuration>
+                    <!--<groups>fast</groups>-->
+                    <excludedGroups>slow</excludedGroups>
+                    <properties>
+                        <!--
+                        <configurationParameters>
+                            junit.jupiter.conditions.deactivate = *
+                        </configurationParameters>
+                        -->
+                    </properties>
+                </configuration>
+            </plugin>            
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.0.2</version>
+                <version>3.2.0</version>
+                <configuration>
+                    <archive>
+                        <manifestFile>src/main/resources/META-INF/MANIFEST.MF</manifestFile>
+                    </archive>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
-                <version>2.10.4</version>
+                <version>3.2.0</version>
                 <configuration>
                     <doctitle>${project.artifactId}</doctitle>
                     <links>
@@ -178,7 +210,7 @@
             </plugin>
             <plugin>
                 <artifactId>maven-source-plugin</artifactId>
-                <version>3.0.1</version>
+                <version>3.2.1</version>
                 <executions>
                     <execution>
                         <id>attach-sources</id>
@@ -189,51 +221,11 @@
                 </executions>
             </plugin>
             <plugin>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <archive>
-                        <index>true</index><!--
-						<manifest>
-							<mainClass>org.odftoolkit.odfdom.JarManifest</mainClass>
-						</manifest>-->
-                        <manifestEntries>
-                            <version>${project.version}</version>
-                        </manifestEntries>
-<!--												
-						<manifestSections>
-							<manifestSection>	
-								<name>ODFDOM</name>
-								<manifestEntries>
-									<ODFDOM-Name>odfdom</ODFDOM-Name>
-									<ODFDOM-Version>${project.version}</ODFDOM-Version>
-									<ODFDOM-Website>http://incubator.apache.org/odftoolkit/odfdom/index.html</ODFDOM-Website>
-									<ODFDOM-Built-Date>${build.timestamp}</ODFDOM-Built-Date>
-									<ODFDOM-Supported-Odf-Version>1.2</ODFDOM-Supported-Odf-Version>
-								</manifestEntries>
-							</manifestSection>
-						</manifestSections>
-						-->
-                    </archive>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>single</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>2.20</version>
+                <version>2.22.2</version>
                 <configuration>
-                	<!--
+                    <!--
                     <excludes>                                        
                         <exclude>**/PerformanceIT.java</exclude>
                     </excludes>
@@ -259,7 +251,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
-                <version>2.10.4</version>
+                <version>3.2.0</version>
                 <configuration>
                     <doctitle>${project.artifactId}</doctitle>
                     <minmemory>512m</minmemory>
@@ -272,11 +264,11 @@
                     <windowtitle>${project.artifactId} API v${project.version} - ${project.scm.url}</windowtitle>
                 </configuration>
             </plugin>
-			<!-- Reporting integration test results -->
+            <!-- Reporting integration test results -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>2.20</version>
+                <version>2.22.2</version>
                 <reportSets>
                     <reportSet>
                         <id>integration-tests</id>
