@@ -31,9 +31,9 @@ This Saxon update is achieved by several minor enhancements:
 ## Building Saxon from latest Sources
 
 As the Saxon HE sources do not exist on GitHub, I downloaded the sources and the pom.xml from the [Maven Repository](https://mvnrepository.com/artifact/net.sf.saxon/Saxon-HE) into a Maven directory structure.
-To make the JAR become useable in addition further artifacts had to be copied from the binary:
+To make the JAR become useable further artifacts had to be copied from the binary JAR:
 
-* META-INF folder - (removing signature info afterwards)
+* META-INF folder - (but removing all signature information)
 * src/main/resources/net/sf/saxon/data/
 
 I have added a [smoke test case](https://github.com/svanteschubert/Saxon-HE/blob/main/src/test/java/net/sf/saxon/DecimalBasedFloatingPointTest.java) to ease debugging from the IDE. The output XML file will be generated as target/generated-sources/out.xml file.
