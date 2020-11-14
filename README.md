@@ -1,7 +1,7 @@
 # Saxon Home 10.3 e-Commerce Edition 
 
 ## Purpose
-This temporary fork of Michael Kay's Saxon is just a show case of using Saxon in the e-Commerce domain requiring best numeric accuracy.
+This temporary fork of Michael Kay's Saxon is just a show case of using Saxon in the e-commerce domain requiring best numeric accuracy.
 
 After succeeding to convince the [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), I am now aiming to enhance also [its reference implementation of validation artifacts](https://github.com/ConnectingEurope/eInvoicing-EN16931) to support decimal-based floating-point.
 
