@@ -36,13 +36,7 @@ public abstract class NumericValue extends AtomicValue
 
     /*@NotNull*/
     public static NumericValue parseNumber(/*@NotNull*/ String in) {
-        if (in.indexOf('e') >= 0 || in.indexOf('E') >= 0) {
-            try {
-                return new DoubleValue(Double.parseDouble(in));
-            } catch (NumberFormatException e) {
-                return DoubleValue.NaN;
-            }
-        } else if (in.indexOf('.') >= 0) {
+        if (in.indexOf('e') >= 0 || in.indexOf('E') >= 0 || in.indexOf('.') >= 0) {
             ConversionResult v = BigDecimalValue.makeDecimalValue(in, true);
             if (v instanceof ValidationFailure) {
                 return DoubleValue.NaN;
