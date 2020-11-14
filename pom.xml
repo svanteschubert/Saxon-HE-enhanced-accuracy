@@ -5,7 +5,7 @@
     <artifactId>Saxon-HE</artifactId>
     <version>10.3-decimal-based</version>
     <packaging>jar</packaging>
-    <name>Saxon-HE Commerce</name>
+    <name>Saxon-HE e-Commerce</name>
     <description>The XSLT and XQuery Processor</description>
     <url>http://www.saxonica.com/</url>
     <licenses>
