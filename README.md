@@ -11,7 +11,7 @@ Decimal-based floating-point was invented for the commercial sector.
 It missed the early [IEEE 754 standard](https://ieeexplore.ieee.org/document/8766229) in the late 80ths and it took 20 years later in 2008 until decimal-based floating-point was embraced.
 Now being part of all major library as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), etc.
 
-For further information on Decimal floating points, see
+For further information on decimal-based floating-point, see
 
 * [http://speleotrove.com/decimal/decifaq.html](http://speleotrove.com/decimal/decifaq.html)
 * [https://github.com/svanteschubert/DecimalFloatingPointExample](https://github.com/svanteschubert/DecimalFloatingPointExample)
