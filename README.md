@@ -25,7 +25,7 @@ This Saxon update is achieved by several minor enhancements:
    The fix was to [disable Double creation in NumericValue](https://github.com/svanteschubert/Saxon-HE/commit/fe8ca45c54622b467eb58fbaeae0d3edbe4461c7).
 2. [Extending the existing BigDecimal implementation to full floating-point support](https://github.com/svanteschubert/Saxon-HE/commit/70d0a1197e298eb17dacf343553a2873352f2db2).
 3. [Adding highest Java precision decimal-based floating-point support to multiplication and division of BigDecimals](https://github.com/svanteschubert/Saxon-HE/commit/68c538a364e8bfd8aa5598077521ad87fb297e88).
-4. **NOTE:** As half-up rounding is the default in EU e-commerce, now added to the EN16931 specification and SAXON user functions are not an open-source feature, this implementation is not implementing the [W3C XSLT round() function](https://www.w3.org/TR/xpath-functions-31/#func-round) different by using a [half-up rounding}(https://docs.oracle.com/javase/8/docs/api/java/math/RoundingMode.html).
+4. **NOTE:** As half-up rounding is the default in EU e-commerce, now added to the EN16931 specification and SAXON user functions are not an open-source feature, this implementation is not implementing the [W3C XSLT round() function](https://www.w3.org/TR/xpath-functions-31/#func-round) but using a [half-up rounding](https://docs.oracle.com/javase/8/docs/api/java/math/RoundingMode.html) instead.
 
 ## Building Saxon from latest Sources
 
