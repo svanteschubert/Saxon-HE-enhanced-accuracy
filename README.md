@@ -12,6 +12,7 @@ It missed the early [IEEE 754 standard](https://ieeexplore.ieee.org/document/876
 Now being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), etc.
 
 ### Invoice Example
+
 ~~~
 quantity = 1000000000.0 
 priceAmount = 1.0 
@@ -19,12 +20,15 @@ baseQuantity = 3
 ~~~
 
 #### XSLT using binary floating-point
+
 ~~~
  $quantity * ($priceAmount div $baseQuantity)) = (1000000000.0 *(1.0 div 3 )) = 333333333.333333333333333333                                                                                                                                                          
 ($quantity *  $priceAmount div $baseQuantity)  = (1000000000.0 * 1.0 div 3 )  = 333333333.3333333333333333333333333333333333
 ~~~
 
-***NOTE:* The above values should be the same, but differ by 0.0000000000000003333333333333333.**
+##### Accuracy Problem
+
+The above values should be the same, but differ by 0.0000000000000003333333333333333.
 In the energy & pharma sector prices with 6 to 9 decimal places are often and also going along with high quantities. 
 By this, these errors show-up easily on Cent level.
 
