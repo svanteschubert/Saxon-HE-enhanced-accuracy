@@ -26,7 +26,7 @@
 		<xsl:param as="xs:decimal" name="val" />
 		<xsl:param as="xs:decimal" name="slack" />
 
-		<xsl:value-of select="xs:decimal($exp + $slack) >= $val and xs:decimal($exp - $slack) &lt;= $val" />
+		<xsl:sequence select="xs:decimal($exp + $slack) >= $val and xs:decimal($exp - $slack) &lt;= $val" />
 	</xsl:function>
 
 <!--DEFAULT RULES-->
