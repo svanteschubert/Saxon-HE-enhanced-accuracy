@@ -179,8 +179,33 @@
         <xsl:apply-templates />
       </svrl:active-pattern>
       <xsl:apply-templates mode="M8" select="/" />
-    </svrl:schematron-output>
-  </xsl:template>
+    </svrl:schematron-output>        
+    <xsl:call-template name="RoundingTest"/>    
+</xsl:template>
+  
+  
+  <xsl:template name="RoundingTest">
+    <xsl:message>-------------------------------------------------------------------------------------</xsl:message>
+    <xsl:message>Rounding  5.5 using round-half-to-even should be  6 and is <xsl:value-of select="round-half-to-even((5.5))"/>!</xsl:message>
+    <xsl:message>Rounding  2.5 using round-half-to-even should be  2 and is <xsl:value-of select="round-half-to-even((2.5))"/>!</xsl:message>
+    <xsl:message>Rounding  1.6 using round-half-to-even should be  2 and is <xsl:value-of select="round-half-to-even((1.6))"/>!</xsl:message>
+    <xsl:message>Rounding  1.1 using round-half-to-even should be  1 and is <xsl:value-of select="round-half-to-even((1.1))"/>!</xsl:message>
+    <xsl:message>Rounding  1.0 using round-half-to-even should be  1 and is <xsl:value-of select="round-half-to-even((1.0))"/>!</xsl:message>
+    <xsl:message>Rounding -1.0 using round-half-to-even should be -1 and is <xsl:value-of select="round-half-to-even((-1.0))"/>!</xsl:message>
+    <xsl:message>Rounding -1.1 using round-half-to-even should be -1 and is <xsl:value-of select="round-half-to-even((-1.1))"/>!</xsl:message>
+    <xsl:message>Rounding -1.6 using round-half-to-even should be -2 and is <xsl:value-of select="round-half-to-even((-1.6))"/>!</xsl:message>
+    <xsl:message>Rounding -2.5 using round-half-to-even should be -2 and is <xsl:value-of select="round-half-to-even((-2.5))"/>!</xsl:message>
+    <xsl:message>-------------------------------------------------------------------------------------</xsl:message>
+    <xsl:message>Rounding  5.5 using round-half-up should be  6 and is <xsl:value-of select="round-half-up((5.5))"/>!</xsl:message>
+    <xsl:message>Rounding  2.5 using round-half-up should be  3 and is <xsl:value-of select="round-half-up((2.5))"/>!</xsl:message>
+    <xsl:message>Rounding  1.6 using round-half-up should be  2 and is <xsl:value-of select="round-half-up((1.6))"/>!</xsl:message>
+    <xsl:message>Rounding  1.1 using round-half-up should be  1 and is <xsl:value-of select="round-half-up((1.1))"/>!</xsl:message>
+    <xsl:message>Rounding  1.0 using round-half-up should be  1 and is <xsl:value-of select="round-half-up((1.0))"/>!</xsl:message>
+    <xsl:message>Rounding -1.0 using round-half-up should be -1 and is <xsl:value-of select="round-half-up((-1.0))"/>!</xsl:message>
+    <xsl:message>Rounding -1.1 using round-half-up should be -1 and is <xsl:value-of select="round-half-up((-1.1))"/>!</xsl:message>
+    <xsl:message>Rounding -1.6 using round-half-up should be -2 and is <xsl:value-of select="round-half-up((-1.6))"/>!</xsl:message>
+    <xsl:message>Rounding -2.5 using round-half-up should be -3 and is <xsl:value-of select="round-half-up((-2.5))"/>!</xsl:message>
+  </xsl:template>  
 
 <!--SCHEMATRON PATTERNS-->
 <svrl:text>Rules for PEPPOL BIS 3.0 Billing</svrl:text>
@@ -218,7 +243,7 @@
             <xsl:text /> | <xsl:text />
             <xsl:value-of select="($quantity * $priceAmount div $baseQuantity)" />
             <xsl:text /> |  <xsl:text />
-            <xsl:value-of select="(($quantity * $priceAmount) div $baseQuantity)" />
+            <xsl:value-of select="(($quantity * $priceAmount) div $baseQuantity)" />            
             <xsl:text /> | </svrl:text>
         </svrl:failed-assert>
       </xsl:otherwise>
