@@ -294,7 +294,7 @@ public final class BigDecimalValue extends DecimalValue {
     }
 
     /**
-     * Does NOT implement the XPath round() function but HALF-UP rounding in accordance to basic commerce rules
+     * Does implement the XPath round() function
      */
 
     @Override
@@ -312,10 +312,15 @@ public final class BigDecimalValue extends DecimalValue {
         }
 
         switch (value.signum()) {
+            case -1:
+                return new BigDecimalValue(value.setScale(scale, RoundingMode.HALF_DOWN));
             case 0:
                 return this;
-            default:
+            case +1:
                 return new BigDecimalValue(value.setScale(scale, RoundingMode.HALF_UP));
+            default:
+                // can't happen
+                return this;
         }
 
     }
