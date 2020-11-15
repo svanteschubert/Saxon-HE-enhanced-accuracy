@@ -9,7 +9,7 @@ After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0:
 
 Decimal-based floating-point was invented for the commercial sector.
 It missed the early [IEEE 754 standard](https://ieeexplore.ieee.org/document/8766229) in the late 80ths and still took 20 years until it was embraced by IEEE 754 in 2008.
-Now being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), etc.
+Now being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), [Intel](https://software.intel.com/content/www/us/en/develop/articles/intel-decimal-floating-point-math-library.html), etc.
 
 ### Invoice Example
 
