@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>net.sf.saxon</groupId>
     <artifactId>Saxon-HE-decimal-based</artifactId>
-    <version>10.3-beta1</version>
+    <version>10.3-beta2-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>Saxon-HE e-Commerce</name>
     <description>The XSLT and XQuery Processor</description>
