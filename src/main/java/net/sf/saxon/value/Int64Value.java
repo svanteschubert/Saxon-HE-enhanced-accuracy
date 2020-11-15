@@ -485,7 +485,8 @@ public final class Int64Value extends IntegerValue {
      *
      * @param scale the scale (for example scale=2 rounds to 2 decimal places, scale=-2
      *              rounds to a multiple of 100); default value is zero which rounds to an integer
-     * @return the integer value, unchanged
+     * @return if the scale is gt;=0, return this value unchanged. Otherwise
+     *          round value to a multiple of 10**-scale
      */
 
     @Override
@@ -525,13 +526,16 @@ public final class Int64Value extends IntegerValue {
      *
      * @param scale number of digits required after the decimal point; the
      *              value -2 (for example) means round to a multiple of 100
-     * @return round value to a multiple of 10**-scale
+     * @return if the scale is gt;=0, return this value unchanged. Otherwise
+     *          round value to a multiple of 10**-scale
      */
 
     @Override
     public NumericValue roundHalfToEven(int scale) {
-        this.value = BigDecimal.valueOf(value).divide(BigDecimal.ONE, scale, RoundingMode.HALF_EVEN).longValue();
-        return this;
+        if (scale >= 0 || value == 0) {   
+            return this;
+        }        
+        return new Int64Value(BigDecimal.valueOf(value).divide(BigDecimal.ONE, scale, RoundingMode.HALF_EVEN).longValue());
     }
 
     /**
@@ -544,8 +548,10 @@ public final class Int64Value extends IntegerValue {
 
     @Override
     public NumericValue roundHalfUp(int scale) {
-        this.value = BigDecimal.valueOf(value).divide(BigDecimal.ONE, scale, RoundingMode.HALF_UP).longValue();
-        return this;
+        if (scale >= 0 || value == 0) {   
+            return this;
+        }             
+        return new Int64Value(BigDecimal.valueOf(value).divide(BigDecimal.ONE, scale, RoundingMode.HALF_UP).longValue());
    }
     
     /**

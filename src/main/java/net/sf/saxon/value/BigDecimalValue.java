@@ -334,9 +334,8 @@ public final class BigDecimalValue extends DecimalValue {
         if (scale >= value.scale()) {
             return this;
         }
-        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);
-        this.value = scaledValue.stripTrailingZeros();
-        return this;
+        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);        
+        return new BigDecimalValue(scaledValue.stripTrailingZeros());
     }
 
     
@@ -357,8 +356,7 @@ public final class BigDecimalValue extends DecimalValue {
             return this;
         }
         BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_UP);
-        this.value = scaledValue.stripTrailingZeros();
-        return this;
+        return new BigDecimalValue(scaledValue.stripTrailingZeros());
     }    
     
     /**

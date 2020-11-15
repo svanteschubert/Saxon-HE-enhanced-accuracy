@@ -264,8 +264,7 @@ public final class FloatValue extends NumericValue {
         }
         DoubleValue d = new DoubleValue(getDoubleValue());
         d = (DoubleValue) d.round(scale);
-        value = d.getFloatValue();
-        return this;
+        return new FloatValue(d.getFloatValue());
     }
 
     /**
@@ -275,9 +274,8 @@ public final class FloatValue extends NumericValue {
     @Override
     public NumericValue roundHalfToEven(int scale) {
         DoubleValue d = new DoubleValue(getDoubleValue());
-        d = (DoubleValue) d.roundHalfToEven(scale);
-        value = d.getFloatValue();
-        return this;
+        d = (DoubleValue) d.roundHalfToEven(scale);        
+        return new FloatValue(d.getFloatValue());
     }
     
     
@@ -288,8 +286,7 @@ public final class FloatValue extends NumericValue {
     @Override
     public NumericValue roundHalfUp(int scale) {
         DoubleValue d = new DoubleValue(getDoubleValue());
-        value = d.getFloatValue();
-        return this;
+        return new FloatValue(d.getFloatValue());
     }    
 
     /**

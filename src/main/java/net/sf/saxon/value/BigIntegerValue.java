@@ -361,9 +361,12 @@ public final class BigIntegerValue extends IntegerValue {
 
     @Override
     public NumericValue roundHalfToEven(int scale) {
-        BigDecimal scaledValue = new BigDecimal(value).setScale(scale, RoundingMode.HALF_EVEN);
-        value = scaledValue.stripTrailingZeros().toBigInteger();
-        return this;
+        if (scale >= 0) {
+            return this;
+        } else {
+            BigDecimal scaledValue = new BigDecimal(value).setScale(scale, RoundingMode.HALF_EVEN);        
+            return new BigIntegerValue(scaledValue.stripTrailingZeros().toBigInteger());            
+        }        
     }
     
     /**
@@ -379,9 +382,12 @@ public final class BigIntegerValue extends IntegerValue {
 
     @Override
     public NumericValue roundHalfUp(int scale){
-        BigDecimal scaledValue = new BigDecimal(value).setScale(scale, RoundingMode.HALF_UP);
-        value = scaledValue.stripTrailingZeros().toBigInteger();
-        return this;
+        if (scale >= 0) {
+            return this;
+        } else {        
+            BigDecimal scaledValue = new BigDecimal(value).setScale(scale, RoundingMode.HALF_UP);
+            return new BigIntegerValue(scaledValue.stripTrailingZeros().toBigInteger());
+        }
     }        
 
     /**
