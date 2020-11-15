@@ -18,6 +18,7 @@ import net.sf.saxon.type.ValidationFailure;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 
 /**
  * An integer value: note this is a subtype of decimal in XML Schema, not a primitive type.
@@ -360,25 +361,28 @@ public final class BigIntegerValue extends IntegerValue {
 
     @Override
     public NumericValue roundHalfToEven(int scale) {
-        if (scale >= 0) {
-            return this;
-        } else {
-            BigInteger factor = BigInteger.valueOf(10).pow(-scale);
-            BigInteger[] pair = value.divideAndRemainder(factor);
-            int up = pair[1].compareTo(factor.divide(BigInteger.valueOf(2)));
-            if (up > 0) {
-                // remainder is > .5
-                pair[0] = pair[0].add(BigInteger.valueOf(1));
-            } else if (up == 0) {
-                // remainder == .5
-                if (pair[0].mod(BigInteger.valueOf(2)).signum() != 0) {
-                    // last digit of quotient is odd: make it even
-                    pair[0] = pair[0].add(BigInteger.valueOf(1));
-                }
-            }
-            return makeIntegerValue(pair[0].multiply(factor));
-        }
+        BigDecimal scaledValue = new BigDecimal(value).setScale(scale, RoundingMode.HALF_EVEN);
+        value = scaledValue.stripTrailingZeros().toBigInteger();
+        return this;
     }
+    
+    /**
+     * Implement the round-half-up() function
+     *
+     * @param scale the decimal position for rounding: e.g. 2 rounds to a
+     *              multiple of 0.01, while -2 rounds to a multiple of 100
+     * @return a value, of the same type as the original, rounded towards the
+     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor" 
+     *         unless both neighbors are equidistant, in which case round up. 
+     *         Note that this is the rounding mode commonly taught at school.
+     */
+
+    @Override
+    public NumericValue roundHalfUp(int scale){
+        BigDecimal scaledValue = new BigDecimal(value).setScale(scale, RoundingMode.HALF_UP);
+        value = scaledValue.stripTrailingZeros().toBigInteger();
+        return this;
+    }        
 
     /**
      * Determine whether the value is negative, zero, or positive

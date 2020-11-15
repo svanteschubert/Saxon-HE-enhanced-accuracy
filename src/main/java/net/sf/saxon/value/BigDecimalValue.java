@@ -330,9 +330,32 @@ public final class BigDecimalValue extends DecimalValue {
             return this;
         }
         BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);
-        return new BigDecimalValue(scaledValue.stripTrailingZeros());
+        this.value = scaledValue.stripTrailingZeros();
+        return this;
     }
 
+    
+    /**
+     * Implement the round-half-up() function
+     *
+     * @param scale the decimal position for rounding: e.g. 2 rounds to a
+     *              multiple of 0.01, while -2 rounds to a multiple of 100
+     * @return a value, of the same type as the original, rounded towards the
+     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor" 
+     *         unless both neighbors are equidistant, in which case round up. 
+     *         Note that this is the rounding mode commonly taught at school.
+     */
+
+    @Override
+    public NumericValue roundHalfUp(int scale){
+        if (scale >= value.scale()) {
+            return this;
+        }
+        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_UP);
+        this.value = scaledValue.stripTrailingZeros();
+        return this;
+    }    
+    
     /**
      * Determine whether the value is negative, zero, or positive
      *

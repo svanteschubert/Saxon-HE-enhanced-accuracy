@@ -17,6 +17,8 @@ import net.sf.saxon.type.ValidationFailure;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
+import java.math.RoundingMode;
 
 /**
  * An integer value: note this is a subtype of decimal in XML Schema, not a primitive type.
@@ -523,45 +525,29 @@ public final class Int64Value extends IntegerValue {
      *
      * @param scale number of digits required after the decimal point; the
      *              value -2 (for example) means round to a multiple of 100
-     * @return if the scale is &gt;=0, return this value unchanged. Otherwise
-     *         round it to a multiple of 10**-scale
+     * @return round value to a multiple of 10**-scale
      */
 
     @Override
     public NumericValue roundHalfToEven(int scale) {
-        if (scale >= 0) {
-            return this;
-        } else {
-            if (scale < -15) {
-                return new BigIntegerValue(value).roundHalfToEven(scale);
-            }
-            long absolute = Math.abs(value);
-            long factor = 1;
-            for (long i = 1; i <= -scale; i++) {
-                factor *= 10;
-            }
-            long modulus = absolute % factor;
-            long rval = absolute - modulus;
-            long d = modulus * 2;
-            if (d > factor) {
-                rval += factor;
-            } else if (d < factor) {
-                // no-op
-            } else {
-                // round to even
-                if (rval % (2 * factor) == 0) {
-                    // no-op
-                } else {
-                    rval += factor;
-                }
-            }
-            if (value < 0) {
-                rval = -rval;
-            }
-            return new Int64Value(rval);
-        }
+        this.value = BigDecimal.valueOf(value).divide(BigDecimal.ONE, scale, RoundingMode.HALF_EVEN).longValue();
+        return this;
     }
 
+    /**
+     * Implement the XPath round-half-up() function
+     *
+     * @param scale number of digits required after the decimal point; the
+     *              value -2 (for example) means round to a multiple of 100
+     * @return round value to a multiple of 10**-scale
+     */
+
+    @Override
+    public NumericValue roundHalfUp(int scale) {
+        this.value = BigDecimal.valueOf(value).divide(BigDecimal.ONE, scale, RoundingMode.HALF_UP).longValue();
+        return this;
+   }
+    
     /**
      * Determine whether the value is negative, zero, or positive
      *

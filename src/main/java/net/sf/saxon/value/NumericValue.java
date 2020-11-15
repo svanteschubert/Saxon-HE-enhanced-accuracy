@@ -158,6 +158,20 @@ public abstract class NumericValue extends AtomicValue
 
     public abstract NumericValue roundHalfToEven(int scale);
 
+    
+    /**
+     * Implement the round-half-up() function
+     *
+     * @param scale the decimal position for rounding: e.g. 2 rounds to a
+     *              multiple of 0.01, while -2 rounds to a multiple of 100
+     * @return a value, of the same type as the original, rounded towards the
+     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor" 
+     *         unless both neighbors are equidistant, in which case round up. 
+     *         Note that this is the rounding mode commonly taught at school.
+     */
+
+    public abstract NumericValue roundHalfUp(int scale);    
+    
     /**
      * Ask whether the value is negative, zero, or positive
      *
