@@ -18,7 +18,7 @@ priceAmount = 1.0
 baseQuantity = 3
 ~~~
 
-### Using binary floating-point
+#### XSLT using binary floating-point
 ~~~
  $quantity * ($priceAmount div $baseQuantity)) = (1000000000.0 *(1.0 div 3 )) = 333333333.333333333333333333                                                                                                                                                          
 ($quantity *  $priceAmount div $baseQuantity)  = (1000000000.0 * 1.0 div 3 )  = 333333333.3333333333333333333333333333333333
@@ -28,13 +28,13 @@ baseQuantity = 3
 In the energy & pharma sector prices with 6 to 9 decimal places are often and also going along with high quantities. 
 By this, these errors show-up easily on Cent level.
 
-### Using decimal-based floating-point (IEEE 754:2008 or later)
+#### XSLT using decimal-based floating-point (IEEE 754:2008 or later)
 ~~~
  $quantity * ($priceAmount div $baseQuantity)) = (1000000000.0 *(1.0 div 3 )) = 333333333.3333333333333333333333333 
 ($quantity *  $priceAmount div $baseQuantity)  = (1000000000.0 * 1.0 div 3 )  = 333333333.3333333333333333333333333 
 ~~~
 
-For further information on decimal-based floating-point, see
+## For further information on decimal-based floating-point
 
 * [http://speleotrove.com/decimal/decifaq.html](http://speleotrove.com/decimal/decifaq.html)
 * [https://github.com/svanteschubert/DecimalFloatingPointExample](https://github.com/svanteschubert/DecimalFloatingPointExample)
