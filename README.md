@@ -53,12 +53,12 @@ This Saxon update is achieved by several minor enhancements:
    The fix was to [disable Double creation in NumericValue](https://github.com/svanteschubert/Saxon-HE/commit/fe8ca45c54622b467eb58fbaeae0d3edbe4461c7).
 2. [Extending the existing BigDecimal implementation to full floating-point support](https://github.com/svanteschubert/Saxon-HE/commit/70d0a1197e298eb17dacf343553a2873352f2db2).
 3. [Adding highest Java precision decimal-based floating-point support to multiplication and division of BigDecimals](https://github.com/svanteschubert/Saxon-HE/commit/68c538a364e8bfd8aa5598077521ad87fb297e88).
-4. Added [round-half-up() function](https://docs.oracle.com/javase/8/docs/api/java/math/RoundingMode.html) as integrated extension functions of SAXON, as half-up rounding is the default rounding in EU e-commerce, what we learn in school and now also added as default rounding to the EN16931 specification. The  [W3C XPath round() function](https://www.w3.org/TR/xpath-functions-31/#func-round) is different by always rounding in the direction of positives, e.g. -1.5 becomes -1.
+4. Added [round-half-up() function](https://docs.oracle.com/javase/8/docs/api/java/math/RoundingMode.html) as integrated extension functions of SAXON, as half-up rounding is the default rounding in EU e-commerce - the rounding that we had learned in school - and now also added as default rounding to the EN16931 specification. The  [W3C XPath round() function](https://www.w3.org/TR/xpath-functions-31/#func-round) is different by always rounding in the direction of positives, e.g. -1.5 becomes -1.
 
 ## Building Saxon from latest Sources
 
 As the Saxon HE sources do not exist on GitHub, I downloaded the sources and the pom.xml from the [Maven Repository](https://mvnrepository.com/artifact/net.sf.saxon/Saxon-HE) into a Maven directory structure.
-To make the JAR become useable, further artifacts had to be copied from the binary JAR:
+To make the JAR become useable, further artifacts had to be copied from the published SAXON JAR:
 
 * META-INF folder - (but removing all signature information)
 * src/main/resources/net/sf/saxon/data/
