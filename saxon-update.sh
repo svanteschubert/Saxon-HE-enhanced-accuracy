@@ -68,10 +68,17 @@ find . -type f \( -iname \*.dtd -o -iname \*.ent -o -iname \*.mod -o -iname \*.s
 git add .
 # The echo absorts the error if there is nothing to commit
 git commit -am"Saxon ${SAXON_VERSION}: Overtaking from the Maven binary JAR all none-class files." || echo "No changes to commit on new binaries"
+# files represented by this GIT tag should be equal to official Saxon deliverables
 git tag $GIT_TAG_NAME
-
-## Rebase 
+# removing MANIFEST file with hashes of singed JAVA files, as we are going to alter them anyway
+find . -type f \( -iname \*.mf -o -iname \*.sf -o -iname \*.rsa \) | xargs rm -rf
+git add .
+cd ../java
+rm -rf META-INF
+git add .
+# The echo absorts the error if there is nothing to commit
+git commit -am"Saxon-Merge-Prepration: Removing META-INF files to avoid merge conflicts (aside from services)." || echo "No changes to commit META-INF"
 git checkout en16931-accuracy
-## apply our changes on top of latest SAXON
+## Trying to rebase our changes on top of latest SAXON release
 git rebase saxon-releases
 git checkout main
