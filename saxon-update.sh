@@ -6,7 +6,7 @@ set -e -v
 
 
 # PLEASE UPDATE: Version number of the Saxon release to be downloaded/merged with!
-SAXON_VERSION="10.3"
+SAXON_VERSION="10.5"
 GIT_TAG_NAME=Saxon-HE-v${SAXON_VERSION}
 echo Going to add version $SAXON_VERSION of Saxon using the git tag "${GIT_TAG_NAME}"!
 # Updating the GIT branch 'saxon-releases' with the latest Saxon release
@@ -75,10 +75,11 @@ find . -type f \( -iname \*.mf -o -iname \*.sf -o -iname \*.rsa \) | xargs rm -r
 git add .
 cd ../java
 rm -rf META-INF
+cd ../../..
+rm pom.xml
 git add .
 # The echo absorts the error if there is nothing to commit
-git commit -am"SAXON-MERGE-PREPARATION: Removing META-INF files to avoid merge conflicts (aside from services)." || echo "No changes to commit META-INF"
+git commit -am"SAXON-MERGE-PREPARATION: Removing META-INF files and pom.xml to avoid merge conflicts (aside from services)." || echo "No changes to commit META-INF"
 git checkout en16931-accuracy
 ## Trying to rebase our changes on top of latest SAXON release
 git rebase saxon-releases
-git checkout main
