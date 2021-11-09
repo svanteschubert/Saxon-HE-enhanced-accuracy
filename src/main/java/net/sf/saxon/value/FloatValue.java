@@ -274,9 +274,20 @@ public final class FloatValue extends NumericValue {
     @Override
     public NumericValue roundHalfToEven(int scale) {
         DoubleValue d = new DoubleValue(getDoubleValue());
-        d = (DoubleValue) d.roundHalfToEven(scale);
+        d = (DoubleValue) d.roundHalfToEven(scale);        
         return new FloatValue(d.getFloatValue());
     }
+    
+    
+    /**
+     * Implement the round-half-up() function
+     */
+
+    @Override
+    public NumericValue roundHalfUp(int scale) {
+        DoubleValue d = new DoubleValue(getDoubleValue());
+        return new FloatValue(d.getFloatValue());
+    }    
 
     /**
      * Determine whether the value is negative, zero, or positive

@@ -19,6 +19,7 @@ import net.sf.saxon.z.IntHashMap;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
 import java.math.RoundingMode;
 
 /**
@@ -817,7 +818,7 @@ public abstract class Calculator {
                 return ((IntegerValue) a).times((IntegerValue) b);
             } else {
                 return new BigDecimalValue(
-                        ((NumericValue) a).getDecimalValue().multiply(((NumericValue) b).getDecimalValue()));
+                        ((NumericValue) a).getDecimalValue().multiply(((NumericValue) b).getDecimalValue(), MathContext.DECIMAL128));
             }
         }
 
@@ -846,12 +847,9 @@ public abstract class Calculator {
     public static BigDecimalValue decimalDivide(NumericValue a, NumericValue b) throws XPathException {
         final BigDecimal A = a.getDecimalValue();
         final BigDecimal B = b.getDecimalValue();
-//        int scale = Math.max(DecimalValue.DIVIDE_PRECISION,
-//                Math.max(A.scale(), B.scale()));
-        int scale = Math.max(BigDecimalValue.DIVIDE_PRECISION, A.scale() - B.scale() + BigDecimalValue.DIVIDE_PRECISION);
 
         try {
-            BigDecimal result = A.divide(B, scale, RoundingMode.HALF_DOWN);
+            BigDecimal result = A.divide(B, MathContext.DECIMAL128);
             return new BigDecimalValue(result);
         } catch (ArithmeticException err) {
             if (b.compareTo(0) == 0) {
