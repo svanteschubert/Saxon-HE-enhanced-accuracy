@@ -2,10 +2,10 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>net.sf.saxon</groupId>
-    <artifactId>Saxon-HE-decimal-based</artifactId>
-    <version>10.3-beta3-SNAPSHOT</version>
+    <artifactId>Saxon-HE-enhanced-accuracy</artifactId>
+    <version>10.3</version>
     <packaging>jar</packaging>
-    <name>Saxon-HE e-Commerce</name>
+    <name>Saxon-HE - european norm 16931 - enhanced financial accuracy</name>
     <description>The XSLT and XQuery Processor</description>
     <url>http://www.saxonica.com/</url>
     <licenses>
@@ -123,17 +123,17 @@
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
             <version>19.0.0</version>
-        </dependency>        
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <version>5.7.0</version>
+            <version>5.7.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.platform</groupId>
             <artifactId>junit-platform-runner</artifactId>
-            <version>1.7.0</version>
+            <version>1.7.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -146,7 +146,7 @@
         <artifactId>oss-parent</artifactId>
         <version>9</version>
     </parent>
-  
+
     <!-- Build Settings -->
     <build>
         <plugins>
@@ -160,7 +160,7 @@
             </plugin>
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.22.2</version>
+                <version>3.0.0-M5</version>
                 <configuration>
                     <!--<groups>fast</groups>-->
                     <excludedGroups>slow</excludedGroups>
@@ -172,21 +172,23 @@
                         -->
                     </properties>
                 </configuration>
-            </plugin>            
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.2.0</version>
                 <configuration>
                     <archive>
-                        <manifestFile>src/main/resources/META-INF/MANIFEST.MF</manifestFile>
+                	    <manifest>
+		                    <mainClass>net.sf.saxon.Transform</mainClass>
+	                    </manifest>
                     </archive>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
-                <version>3.2.0</version>
+                <version>3.3.0</version>
                 <configuration>
                     <doctitle>${project.artifactId}</doctitle>
                     <links>
@@ -226,7 +228,7 @@
                 <version>2.22.2</version>
                 <configuration>
                     <!--
-                    <excludes>                                        
+                    <excludes>
                         <exclude>**/PerformanceIT.java</exclude>
                     </excludes>
                     -->
@@ -251,7 +253,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
-                <version>3.2.0</version>
+                <version>3.3.0</version>
                 <configuration>
                     <doctitle>${project.artifactId}</doctitle>
                     <minmemory>512m</minmemory>
@@ -268,7 +270,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>2.22.2</version>
+                <version>3.0.0-M5</version>
                 <reportSets>
                     <reportSet>
                         <id>integration-tests</id>
