@@ -431,6 +431,13 @@ public class XPath20FunctionSet extends BuiltInFunctionSet {
                 .arg(0, NumericType.getInstance(), OPT, EMPTY)
                 .arg(1, BuiltInAtomicType.INTEGER, ONE, null);
 
+        register("round-half-up", 1, RoundHalfUp.class, NumericType.getInstance(), OPT, AS_PRIM_ARG0)
+                .arg(0, NumericType.getInstance(), OPT, EMPTY);
+
+        register("round-half-up", 2, RoundHalfUp.class, NumericType.getInstance(), OPT, AS_PRIM_ARG0)
+                .arg(0, NumericType.getInstance(), OPT, EMPTY)
+                .arg(1, BuiltInAtomicType.INTEGER, ONE, null);
+
         register("seconds-from-dateTime", 1, AccessorFn.SecondsFromDateTime.class, BuiltInAtomicType.DECIMAL, OPT, CARD0)
                 .arg(0, BuiltInAtomicType.DATE_TIME, OPT, EMPTY);
 
