@@ -6,7 +6,7 @@ set -e -v
 
 
 # PLEASE UPDATE: Version number of the Saxon release to be downloaded/merged with!
-SAXON_VERSION="10.4"
+SAXON_VERSION="10.5"
 GIT_TAG_NAME=Saxon-HE-v${SAXON_VERSION}
 echo Going to add version $SAXON_VERSION of Saxon using the git tag "${GIT_TAG_NAME}"!
 # Updating the GIT branch 'saxon-releases' with the latest Saxon release
