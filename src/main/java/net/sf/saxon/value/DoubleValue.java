@@ -319,7 +319,7 @@ public final class DoubleValue extends NumericValue {
 
         if (Double.isInfinite(d)) {
             // double arithmetic has overflowed - do it in decimal
-            BigDecimal dec = new BigDecimal(value);
+            BigDecimal dec = BigDecimal.valueOf(value);
             dec = dec.setScale(scale, RoundingMode.HALF_EVEN);
             return new DoubleValue(dec.doubleValue());
         }
@@ -346,10 +346,61 @@ public final class DoubleValue extends NumericValue {
         if (value < 0) {
             d = -d;
         }
-        return new DoubleValue(d);
+        value = d;
+        return this;
 
     }
+    
+    /**
+     * Implement the round-half-up() function
+     *
+     * @param scale the decimal position for rounding: e.g. 2 rounds to a
+     *              multiple of 0.01, while -2 rounds to a multiple of 100
+     * @return a value, of the same type as the original, rounded towards the
+     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor" 
+     *         unless both neighbors are equidistant, in which case round up. 
+     *         Note that this is the rounding mode commonly taught at school.
+     */
 
+    @Override
+    public NumericValue roundHalfUp(int scale){
+        if (Double.isNaN(value)) return this;
+        if (Double.isInfinite(value)) return this;
+        if (value == 0.0) return this;    // handles the negative zero case
+
+        // Convert to a scaled integer, by multiplying by 10^scale
+
+        double factor = Math.pow(10, scale + 1);
+        double d = Math.abs(value * factor);
+
+        if (Double.isInfinite(d)) {
+            // double arithmetic has overflowed - do it in decimal
+            BigDecimal dec = BigDecimal.valueOf(value);
+            dec = dec.setScale(scale, RoundingMode.HALF_UP);
+            return new DoubleValue(dec.doubleValue());
+        }
+
+        // Now apply any rounding needed, using the "round half to even" rule
+
+        double rem = d % 10;
+        if (rem > 5) {
+            d += 10 - rem;
+        } else if (rem < 5) {
+            d -= rem;
+        } else {
+            d += 5;
+        }
+
+        // Now convert back to the original magnitude
+
+        d /= factor;
+        if (value < 0) {
+            d = -d;
+        }
+        value = d;
+        return this;
+    }    
+    
     /**
      * Determine whether the value is negative, zero, or positive
      *

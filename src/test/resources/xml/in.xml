@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+ xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+ xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2">
+	<cac:InvoiceLine>
+		<cbc:ID>242</cbc:ID>
+		<cbc:InvoicedQuantity unitCode="ZZ">1000000000.0</cbc:InvoicedQuantity>
+		<cbc:LineExtensionAmount currencyID="EUR">333333333.3333</cbc:LineExtensionAmount>
+		<cac:Item>
+			<cbc:Name>Shoes</cbc:Name>
+			<cac:ClassifiedTaxCategory>
+				<cbc:ID>S</cbc:ID>
+				<cbc:Percent>21</cbc:Percent>
+				<cac:TaxScheme>
+					<cbc:ID>VAT</cbc:ID>
+				</cac:TaxScheme>
+			</cac:ClassifiedTaxCategory>
+		</cac:Item>
+		<cac:Price>
+			<cbc:PriceAmount currencyID="EUR">1.0</cbc:PriceAmount>
+			<cbc:BaseQuantity>3</cbc:BaseQuantity>
+		</cac:Price>
+	</cac:InvoiceLine>
+</Invoice>

@@ -14,9 +14,8 @@ import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.*;
 
 import java.math.BigDecimal;
-import java.math.BigInteger;
+import java.math.MathContext;
 import java.math.RoundingMode;
-import java.util.regex.Pattern;
 
 /**
  * An implementation class for decimal values other than integers
@@ -26,8 +25,6 @@ import java.util.regex.Pattern;
  */
 
 public final class BigDecimalValue extends DecimalValue {
-
-    public static final int DIVIDE_PRECISION = 18;
 
     private BigDecimal value;
     private Double doubleValue;
@@ -51,8 +48,6 @@ public final class BigDecimalValue extends DecimalValue {
         this.value = value.stripTrailingZeros();
         typeLabel = BuiltInAtomicType.DECIMAL;
     }
-
-    private static final Pattern decimalPattern = Pattern.compile("(\\-|\\+)?((\\.[0-9]+)|([0-9]+(\\.[0-9]*)?))");
 
     /**
      * Factory method to construct a DecimalValue from a string
@@ -86,92 +81,8 @@ public final class BigDecimalValue extends DecimalValue {
      */
 
     public static BigDecimalValue parse(CharSequence in) throws NumberFormatException {
-        FastStringBuffer digits = new FastStringBuffer(in.length());
-        int scale = 0;
-        int state = 0;
-        // 0 - in initial whitespace; 1 - after sign
-        // 3 - after decimal point; 5 - in final whitespace
-        boolean foundDigit = false;
-        int len = in.length();
-        for (int i = 0; i < len; i++) {
-            char c = in.charAt(i);
-            switch (c) {
-                case ' ':
-                case '\t':
-                case '\r':
-                case '\n':
-                    if (state != 0) {
-                        state = 5;
-                    }
-                    break;
-                case '+':
-                    if (state != 0) {
-                        throw new NumberFormatException("unexpected sign");
-                    }
-                    state = 1;
-                    break;
-                case '-':
-                    if (state != 0) {
-                        throw new NumberFormatException("unexpected sign");
-                    }
-                    state = 1;
-                    digits.cat(c);
-                    break;
-                case '0':
-                case '1':
-                case '2':
-                case '3':
-                case '4':
-                case '5':
-                case '6':
-                case '7':
-                case '8':
-                case '9':
-                    if (state == 0) {
-                        state = 1;
-                    } else if (state >= 3) {
-                        scale++;
-                    }
-                    if (state == 5) {
-                        throw new NumberFormatException("contains embedded whitespace");
-                    }
-                    digits.cat(c);
-                    foundDigit = true;
-                    break;
-                case '.':
-                    if (state == 5) {
-                        throw new NumberFormatException("contains embedded whitespace");
-                    }
-                    if (state >= 3) {
-                        throw new NumberFormatException("more than one decimal point");
-                    }
-                    state = 3;
-                    break;
-                default:
-                    throw new NumberFormatException("invalid character '" + c + "'");
-            }
-
-        }
-
-        if (!foundDigit) {
-            throw new NumberFormatException("no digits in value");
-        }
-
-        // remove insignificant trailing zeroes
-        while (scale > 0) {
-            if (digits.charAt(digits.length() - 1) == '0') {
-                digits.setLength(digits.length() - 1);
-                scale--;
-            } else {
-                break;
-            }
-        }
-        if (digits.isEmpty() || (digits.length() == 1 && digits.charAt(0) == '-')) {
-            return BigDecimalValue.ZERO;
-        }
-        BigInteger bigInt = new BigInteger(digits.toString());
-        BigDecimal bigDec = new BigDecimal(bigInt, scale);
-        return new BigDecimalValue(bigDec);
+          BigDecimal bigDec = new BigDecimal(in.toString(), MathContext.DECIMAL128);
+          return new BigDecimalValue(bigDec);
     }
 
     /**
@@ -182,8 +93,7 @@ public final class BigDecimalValue extends DecimalValue {
      */
 
     public static boolean castableAsDecimal(CharSequence in) {
-        CharSequence trimmed = Whitespace.trimWhitespace(in);
-        return decimalPattern.matcher(trimmed).matches();
+        return Boolean.TRUE;
     }
 
     /**
@@ -195,7 +105,7 @@ public final class BigDecimalValue extends DecimalValue {
 
     public BigDecimalValue(double in) throws ValidationException {
         try {
-            BigDecimal d = new BigDecimal(in);
+            BigDecimal d = BigDecimal.valueOf(in);
             value = d.stripTrailingZeros();
         } catch (NumberFormatException err) {
             // Must be a special value such as NaN or infinity
@@ -300,13 +210,7 @@ public final class BigDecimalValue extends DecimalValue {
      */
 
     public int hashCode() {
-        BigDecimal round = value.setScale(0, RoundingMode.DOWN);
-        long value = round.longValue();
-        if (value > Integer.MIN_VALUE && value < Integer.MAX_VALUE) {
-            return (int) value;
-        } else {
-            return Double.valueOf(getDoubleValue()).hashCode();
-        }
+        return value.hashCode();
     }
 
     @Override
@@ -331,7 +235,7 @@ public final class BigDecimalValue extends DecimalValue {
 
     @Override
     public CharSequence getCanonicalLexicalRepresentation() {
-        String s = getStringValue();
+        String s = value.stripTrailingZeros().toPlainString();
         if (s.indexOf('.') < 0) {
             s += ".0";
         }
@@ -347,7 +251,7 @@ public final class BigDecimalValue extends DecimalValue {
     /*@NotNull*/
     @Override
     public CharSequence getPrimitiveStringValue() {
-        return decimalToString(value, new FastStringBuffer(FastStringBuffer.C16));
+        return value.stripTrailingZeros().toPlainString();
     }
 
     /**
@@ -359,51 +263,7 @@ public final class BigDecimalValue extends DecimalValue {
      */
 
     public static FastStringBuffer decimalToString(BigDecimal value, FastStringBuffer fsb) {
-        // Can't use BigDecimal#toString() under JDK 1.5 because this produces values like "1E-5".
-        // Can't use BigDecimal#toPlainString() because it retains trailing zeroes to represent the scale
-        int scale = value.scale();
-        if (scale == 0) {
-            fsb.append(value.toString());
-            return fsb;
-        } else if (scale < 0) {
-            String s = value.abs().unscaledValue().toString();
-            if (s.equals("0")) {
-                fsb.cat('0');
-                return fsb;
-            }
-            //FastStringBuffer sb = new FastStringBuffer(s.length() + (-scale) + 2);
-            if (value.signum() < 0) {
-                fsb.cat('-');
-            }
-            fsb.append(s);
-            for (int i = 0; i < -scale; i++) {
-                fsb.cat('0');
-            }
-            return fsb;
-        } else {
-            String s = value.abs().unscaledValue().toString();
-            if (s.equals("0")) {
-                fsb.cat('0');
-                return fsb;
-            }
-            int len = s.length();
-            //FastStringBuffer sb = new FastStringBuffer(len+1);
-            if (value.signum() < 0) {
-                fsb.cat('-');
-            }
-            if (scale >= len) {
-                fsb.append("0.");
-                for (int i = len; i < scale; i++) {
-                    fsb.cat('0');
-                }
-                fsb.append(s);
-            } else {
-                fsb.append(s.substring(0, len - scale));
-                fsb.cat('.');
-                fsb.append(s.substring(len - scale));
-            }
-            return fsb;
-        }
+        return fsb.cat(value.stripTrailingZeros().toPlainString());
     }
 
     /**
@@ -434,7 +294,7 @@ public final class BigDecimalValue extends DecimalValue {
     }
 
     /**
-     * Implement the XPath round() function
+     * Does implement the XPath round() function
      */
 
     @Override
@@ -474,10 +334,31 @@ public final class BigDecimalValue extends DecimalValue {
         if (scale >= value.scale()) {
             return this;
         }
-        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);
+        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);        
         return new BigDecimalValue(scaledValue.stripTrailingZeros());
     }
 
+    
+    /**
+     * Implement the round-half-up() function
+     *
+     * @param scale the decimal position for rounding: e.g. 2 rounds to a
+     *              multiple of 0.01, while -2 rounds to a multiple of 100
+     * @return a value, of the same type as the original, rounded towards the
+     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor" 
+     *         unless both neighbors are equidistant, in which case round up. 
+     *         Note that this is the rounding mode commonly taught at school.
+     */
+
+    @Override
+    public NumericValue roundHalfUp(int scale){
+        if (scale >= value.scale()) {
+            return this;
+        }
+        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_UP);
+        return new BigDecimalValue(scaledValue.stripTrailingZeros());
+    }    
+    
     /**
      * Determine whether the value is negative, zero, or positive
      *
