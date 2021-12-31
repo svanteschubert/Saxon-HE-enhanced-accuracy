@@ -7,7 +7,6 @@
 
 package net.sf.saxon.expr.sort;
 
-import com.saxonica.ee.stream.adjunct.MergeInstrAdjunct;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;

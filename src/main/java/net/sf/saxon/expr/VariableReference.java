@@ -7,7 +7,6 @@
 
 package net.sf.saxon.expr;
 
-import com.saxonica.ee.stream.Streamability;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.flwor.LocalVariableBinding;

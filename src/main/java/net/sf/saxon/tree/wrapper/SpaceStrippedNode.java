@@ -7,7 +7,6 @@
 
 package net.sf.saxon.tree.wrapper;
 
-import com.saxonica.ee.validate.SkipValidator;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.Stripper;
 import net.sf.saxon.lib.NamespaceConstant;

@@ -7,7 +7,6 @@
 
 package net.sf.saxon.tree.tiny;
 
-import com.saxonica.ee.validate.SkipValidator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.CopyInformee;
 import net.sf.saxon.event.CopyNamespaceSensitiveException;

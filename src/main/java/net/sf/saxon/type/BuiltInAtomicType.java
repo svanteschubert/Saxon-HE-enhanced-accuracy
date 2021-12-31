@@ -7,7 +7,6 @@
 
 package net.sf.saxon.type;
 
-import com.saxonica.ee.schema.UserSimpleType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.StaticProperty;
