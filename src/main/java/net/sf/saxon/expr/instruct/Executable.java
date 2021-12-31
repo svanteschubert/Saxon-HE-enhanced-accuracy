@@ -36,7 +36,7 @@ import java.util.*;
  */
 
 public class Executable {
-
+                                  
     // the Configuration options
     /*@NotNull*/
     private Configuration config;
@@ -162,7 +162,7 @@ public class Executable {
     public HostLanguage getHostLanguage() {
         return hostLanguage;
     }
-
+    
     /**
      * Get the library containing all the in-scope functions in the static context
      *
@@ -273,7 +273,7 @@ public class Executable {
     public Properties getOutputProperties() {
         return new Properties(defaultOutputProperties);
     }
-
+    
     /**
      * Get a named output format
      *

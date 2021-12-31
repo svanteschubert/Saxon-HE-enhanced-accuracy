@@ -11,17 +11,21 @@ import net.sf.saxon.event.DocumentValidator;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
+import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.functions.OptionsParameter;
 import net.sf.saxon.functions.PushableFunction;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.om.Function;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.CharSequenceConsumer;
 import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.type.FunctionItemType;
+import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.EmptySequence;
@@ -35,11 +39,24 @@ import java.util.Map;
  */
 public class XMLToJsonFn extends SystemFunction implements PushableFunction {
 
+    private final static FunctionItemType formatterFunctionType = new SpecificFunctionType(
+            new SequenceType[]{SequenceType.SINGLE_STRING}, SequenceType.SINGLE_STRING
+    );
+
     public static OptionsParameter makeOptionsParameter() {
         OptionsParameter xmlToJsonOptions = new OptionsParameter();
         xmlToJsonOptions.addAllowedOption("indent", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
+        xmlToJsonOptions.addAllowedOption("number-formatter",
+                                          SequenceType.makeSequenceType(formatterFunctionType, StaticProperty.ALLOWS_ZERO_OR_ONE),
+                                          EmptySequence.getInstance());
         return xmlToJsonOptions;
     }
+
+    private static class Options {
+        public boolean indent;
+        public Function numberFormatter;
+    }
+
 
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
@@ -48,40 +65,51 @@ public class XMLToJsonFn extends SystemFunction implements PushableFunction {
             return EmptySequence.getInstance();
         }
 
-        boolean indent = isindentingRequested(context, arguments);
+        Options options = getOptions(context, arguments);
 
         PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
         pipe.setXPathContext(context);
         FastStringBuffer stringBuffer = new FastStringBuffer(2048);
-        convertToJson(xml, stringBuffer, indent, context);
+        convertToJson(xml, stringBuffer, options, context);
         return new StringValue(stringBuffer.condense());
+        
     }
 
-    private boolean isindentingRequested(XPathContext context, Sequence[] arguments) throws XPathException {
+    private Options getOptions(XPathContext context, Sequence[] arguments) throws XPathException {
         if (getArity() > 1) {
             MapItem suppliedOptions = (MapItem) arguments[1].head();
             Map<String, Sequence> options = getDetails().optionDetails.processSuppliedOptions(suppliedOptions, context);
-            return ((BooleanValue) options.get("indent").head()).getBooleanValue();
+            Options o = new Options();
+            o.indent = ((BooleanValue) options.get("indent").head()).getBooleanValue();
+            Sequence format = options.get("number-formatter");
+            if (format != null) {
+                o.numberFormatter = (Function) format.head();
+            }
+            return o;
+        } else {
+            return new Options();
         }
-        return false;
     }
 
     @Override
     public void process(Outputter destination, XPathContext context, Sequence[] arguments) throws XPathException {
         NodeInfo xml = (NodeInfo) arguments[0].head();
         if (xml != null) {
-            boolean indent = isindentingRequested(context, arguments);
+            Options options = getOptions(context, arguments);
             PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
             pipe.setXPathContext(context);
-            convertToJson(xml, destination.getStringReceiver(false), indent, context);
+            convertToJson(xml, destination.getStringReceiver(false), options, context);
         }
     }
 
-    private void convertToJson(NodeInfo xml, CharSequenceConsumer output, boolean indent, XPathContext context) throws XPathException {
+    private void convertToJson(NodeInfo xml, CharSequenceConsumer output, Options options, XPathContext context) throws XPathException {
         PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
         pipe.setXPathContext(context);
         JsonReceiver receiver = new JsonReceiver(pipe, output);
-        receiver.setIndenting(indent);
+        receiver.setIndenting(options.indent);
+        if (options.numberFormatter != null) {
+            receiver.setNumberFormatter(options.numberFormatter);
+        }
         Receiver r = receiver;
         if (xml.getNodeKind() == Type.DOCUMENT) {
             r = new DocumentValidator(r, "FOJS0006");

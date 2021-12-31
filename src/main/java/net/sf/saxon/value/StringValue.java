@@ -550,7 +550,7 @@ public class StringValue extends AtomicValue {
     }
 
     public static final class Builder implements CharSequenceConsumer {
-
+        
         FastStringBuffer buffer = new FastStringBuffer(256);
 
         @Override

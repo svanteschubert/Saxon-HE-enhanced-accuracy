@@ -249,7 +249,7 @@ public abstract class HTMLEmitter extends XMLEmitter {
         uri = elemName.getURI();
         super.startElement(elemName, type, attributes, namespaces, location, properties);
         parentElement = elementStack.peek();
-        if (elemName.hasURI("") &&
+        if (isHTMLElement(elemName) &&
                 (parentElement.equalsIgnoreCase("script") ||
                         parentElement.equalsIgnoreCase("style"))) {
             inScript = 0;
@@ -271,11 +271,14 @@ public abstract class HTMLEmitter extends XMLEmitter {
     @Override
     protected void writeAttribute(NodeName elCode, String attname, CharSequence value, int properties) throws XPathException {
         try {
-            if (uri.isEmpty()) {
+            if (isHTMLElement(elCode)) {
                 if (isBooleanAttribute(elCode.getLocalPart(), attname, value.toString())) {
                     writer.write(attname);
                     return;
                 }
+            }
+            if (inScript > 0) {
+                properties |= ReceiverOption.DISABLE_ESCAPING;
             }
             super.writeAttribute(elCode, attname, value, properties);
         } catch (java.io.IOException err) {
@@ -433,7 +436,11 @@ public abstract class HTMLEmitter extends XMLEmitter {
 
     @Override
     protected String emptyElementTagCloser(String displayName, NodeName nameCode) {
-        return "></" + displayName + ">";
+        if (isHTMLElement(nameCode)) {
+            return "></" + displayName + ">";
+        } else {
+            return "/>";
+        }
     }
 
     /**
@@ -450,6 +457,9 @@ public abstract class HTMLEmitter extends XMLEmitter {
         }
 
         if (isEmptyTag(name) && isHTMLElement(nodeName)) {
+            if (openStartTag) {
+                closeStartTag();
+            }
             // no end tag required
             elementStack.pop();
         } else {

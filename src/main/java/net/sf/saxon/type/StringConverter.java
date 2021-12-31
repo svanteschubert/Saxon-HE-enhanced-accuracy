@@ -59,7 +59,7 @@ public abstract class StringConverter extends Converter {
      * succeeded), or a {@link ValidationFailure} if conversion failed.
      */
 
-
+    
     public abstract ConversionResult convertString( CharSequence input);
 
     /**
@@ -77,7 +77,7 @@ public abstract class StringConverter extends Converter {
         return result instanceof ValidationFailure ? (ValidationFailure) result : null;
     }
 
-
+    
     @Override
     public ConversionResult convert(AtomicValue input) {
         return convertString(input.getStringValueCS());
@@ -105,7 +105,7 @@ public abstract class StringConverter extends Converter {
                     (DownCastingConverter) phaseTwo.setNamespaceResolver(resolver));
         }
 
-
+        
         public ConversionResult convert(StringValue input) {
             CharSequence in = input.getStringValueCS();
             try {
@@ -120,7 +120,7 @@ public abstract class StringConverter extends Converter {
             return phaseTwo.convert((AtomicValue) temp, in);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             try {
@@ -170,7 +170,7 @@ public abstract class StringConverter extends Converter {
             return new StringValue(input.getStringValueCS());
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return new StringValue(input);
@@ -200,7 +200,7 @@ public abstract class StringConverter extends Converter {
             return new UntypedAtomicValue(input.getStringValueCS());
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return new UntypedAtomicValue(input);
@@ -276,7 +276,7 @@ public abstract class StringConverter extends Converter {
         // See erratum E2-25 to XML Schema Part 2.
         public static final StringToLanguage INSTANCE = new StringToLanguage();
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             CharSequence trimmed = Whitespace.trimWhitespace(input);
@@ -314,7 +314,7 @@ public abstract class StringConverter extends Converter {
             this.targetType = targetType;
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             CharSequence trimmed = Whitespace.trimWhitespace(input);
@@ -344,7 +344,7 @@ public abstract class StringConverter extends Converter {
 
         public final static StringToNMTOKEN INSTANCE = new StringToNMTOKEN();
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             CharSequence trimmed = Whitespace.trimWhitespace(input);
@@ -378,7 +378,7 @@ public abstract class StringConverter extends Converter {
             super(BuiltInAtomicType.NAME);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             ValidationFailure vf = validate(input);
@@ -428,7 +428,7 @@ public abstract class StringConverter extends Converter {
             this.whitespaceAction = targetType.getWhitespaceAction();
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             CharSequence cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
@@ -475,7 +475,7 @@ public abstract class StringConverter extends Converter {
             builtInValidator = ((AtomicType) targetType.getBuiltInBaseType()).getStringConverter(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             CharSequence cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
@@ -509,7 +509,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             try {
@@ -557,7 +557,7 @@ public abstract class StringConverter extends Converter {
             return IntegerValue.stringToInteger(input.getStringValueCS());
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return IntegerValue.stringToInteger(input);
@@ -581,7 +581,7 @@ public abstract class StringConverter extends Converter {
             this.targetType = targetType;
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             ConversionResult iv = IntegerValue.stringToInteger(input);
@@ -656,7 +656,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return DateTimeValue.makeDateTimeValue(input, getConversionRules());
@@ -672,7 +672,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             ConversionResult val = DateTimeValue.makeDateTimeValue(input, getConversionRules());
@@ -696,7 +696,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return DateValue.makeDateValue(input, getConversionRules());
@@ -725,7 +725,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return GYearMonthValue.makeGYearMonthValue(input, getConversionRules());
@@ -741,7 +741,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return GYearValue.makeGYearValue(input, getConversionRules());
@@ -768,7 +768,7 @@ public abstract class StringConverter extends Converter {
     public static class StringToGDay extends StringConverter {
         public static final StringToGDay INSTANCE = new StringToGDay();
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             return GDayValue.makeGDayValue(input);
@@ -860,7 +860,7 @@ public abstract class StringConverter extends Converter {
             return nsResolver;
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             if (nsResolver == null) {
@@ -908,7 +908,7 @@ public abstract class StringConverter extends Converter {
             return nsResolver;
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             if (getNamespaceResolver() == null) {
@@ -943,7 +943,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(CharSequence input) {
             if (getConversionRules().isValidURI(input)) {
@@ -991,7 +991,7 @@ public abstract class StringConverter extends Converter {
          * @return either an {@link net.sf.saxon.value.AtomicValue} of the appropriate type for this converter (if conversion
          * succeeded), or a {@link net.sf.saxon.type.ValidationFailure} if conversion failed.
          */
-
+        
         @Override
         public ConversionResult convertString( CharSequence input) {
             try {

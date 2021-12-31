@@ -113,7 +113,7 @@ public class ElementAvailable extends SystemFunction {
                 return false;
         }
     }
-
+    
     /**
      * Special-case for element-available('xsl:evaluate') which may be dynamically-disabled,
      * and the spec says that this should be assessed at run-time.  By indicating that the

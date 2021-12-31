@@ -129,7 +129,7 @@ public class LookupAllExpression extends UnaryExpression {
         if (getBaseExpression() instanceof Literal) {
             return new Literal(iterate(visitor.makeDynamicContext()).materialize());
         }
-
+        
         // See W3C bug 30228. In the interests of keeping certain tests streamable, we do a rewrite of [A,B,C]?*
         // to (A, B, C).
         if (getBaseExpression() instanceof SquareArrayConstructor) {

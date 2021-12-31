@@ -21,6 +21,10 @@ import java.text.Collator;
 import java.text.RuleBasedCollator;
 import java.util.*;
 
+import static java.text.Collator.PRIMARY;
+import static java.text.Collator.SECONDARY;
+import static java.text.Collator.TERTIARY;
+
 
 /**
  * This class implements (an approximation to) the UCA Collation Algorithm
@@ -160,15 +164,15 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
             switch (strength) {
                 case "primary":
                 case "1":
-                    setStrength(Collator.PRIMARY);
+                    setStrength(PRIMARY);
                     break;
                 case "secondary":
                 case "2":
-                    setStrength(Collator.SECONDARY);
+                    setStrength(SECONDARY);
                     break;
                 case "tertiary":
                 case "3":
-                    setStrength(Collator.TERTIARY);
+                    setStrength(TERTIARY);
                     break;
                 case "quaternary":
                 case "4":
@@ -428,13 +432,13 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
     private void makeStrengthObject() {
         if (strengthLevel == null) {
             switch (getStrength()) {
-                case com.ibm.icu.text.Collator.PRIMARY:
+                case PRIMARY:
                     strengthLevel = new Primary();
                     break;
-                case com.ibm.icu.text.Collator.SECONDARY:
+                case SECONDARY:
                     strengthLevel = new Secondary();
                     break;
-                case com.ibm.icu.text.Collator.TERTIARY:
+                case TERTIARY:
                     strengthLevel = new Tertiary();
                     break;
                 default:

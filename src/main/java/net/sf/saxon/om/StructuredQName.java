@@ -171,6 +171,9 @@ public class StructuredQName implements IdentityComparable {
                 throw new IllegalArgumentException("Invalid EQName: local part is missing");
             }
             String uri = name.substring(2, endBrace);
+            if (uri.indexOf('{') >= 0) {
+                throw new IllegalArgumentException("Invalid EQName: open brace in URI part");
+            }
             String local = name.substring(endBrace + 1);
             return new StructuredQName("", uri, local);
         } else {

@@ -402,6 +402,7 @@ public class ConfigurationReader implements ContentHandler, NamespaceResolver {
         applyProperty(props, "validationWarnings", Feature.VALIDATION_WARNINGS);
         applyProperty(props, "versionOfXml", Feature.XML_VERSION);
         applyProperty(props, "xInclude", Feature.XINCLUDE);
+        applyProperty(props, "zipUriPattern", Feature.ZIP_URI_PATTERN);
     }
 
     private void applyProperty(Properties props, String attributeName, Feature feature) {
@@ -853,7 +854,7 @@ public class ConfigurationReader implements ContentHandler, NamespaceResolver {
      * Get an iterator over all the prefixes declared in this namespace context. This will include
      * the default namespace (prefix="") and the XML namespace where appropriate
      */
-
+    
     @Override
     public Iterator<String> iteratePrefixes() {
         Set<String> prefixes = new HashSet<>();

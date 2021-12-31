@@ -306,19 +306,17 @@ public class Optimizer {
         // rewriting a where clause as a predicate. We just have to bind a new variable:
         // for $x in P where abc[n = $x/m] ==> for $x in P[let $z := . return abc[n = $z/m]
         // We could probably do this in all cases and then let $z be optimized away where appropriate
-        if (exp instanceof ContextSwitchingExpression) {
-            Expression start = ((ContextSwitchingExpression) exp).getSelectExpression();
-            Expression step = ((ContextSwitchingExpression) exp).getActionExpression();
-            return isVariableReplaceableByDot(start, binding) &&
-                    !ExpressionTool.dependsOnVariable(step, binding);
-        } else {
-            for (Operand o : exp.operands()) {
+
+        for (Operand o : exp.operands()) {
+            if (o.hasSameFocus()) {
                 if (!isVariableReplaceableByDot(o.getChildExpression(), binding)) {
                     return false;
                 }
+            } else if (ExpressionTool.dependsOnVariable(o.getChildExpression(), binding)) {
+                return false;
             }
-            return true;
         }
+        return true;
     }
 
 

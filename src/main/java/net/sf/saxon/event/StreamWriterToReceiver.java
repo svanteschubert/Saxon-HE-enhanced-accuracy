@@ -211,7 +211,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                 if (!pendingTag.elementName.uri.isEmpty()) {
                     nsMap = nsMap.put(pendingTag.elementName.prefix, pendingTag.elementName.uri);
                 }
-
+                
                 for (Triple t : pendingTag.namespaces) {
                     if (t.prefix == null) {
                         t.prefix = "";

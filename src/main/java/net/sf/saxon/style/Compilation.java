@@ -315,7 +315,7 @@ public class Compilation {
         if (TIMING) {
             timer.report("Combine attribute sets");
         }
-
+        
         // Compile the stylesheet package
         if (getErrorCount() == 0) {
             try {

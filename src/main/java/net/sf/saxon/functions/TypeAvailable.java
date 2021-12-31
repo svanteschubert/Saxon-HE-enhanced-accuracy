@@ -15,6 +15,7 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.JavaExternalObjectType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.BooleanValue;
@@ -52,7 +53,12 @@ public class TypeAvailable extends SystemFunction {
             }
         } else {
             SchemaType type = config.getSchemaType(qName);
-            return type != null;
+            if (type == null) {
+                return false;
+            }
+            return config.getXsdVersion() != 10
+                    || !(type instanceof BuiltInAtomicType)
+                    || ((BuiltInAtomicType) type).isAllowedInXSD10();
         }
     }
 

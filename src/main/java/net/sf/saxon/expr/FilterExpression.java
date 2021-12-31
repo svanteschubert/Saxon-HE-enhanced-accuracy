@@ -318,7 +318,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
 
         getLhs().optimize(visitor, contextItemType);
         getBase().setFiltered(true);
-
+        
         ContextItemStaticInfo baseItemType = config.makeContextItemStaticInfo(getSelectExpression().getItemType(), false);
         baseItemType.setContextSettingExpression(getBase());
         getRhs().optimize(visitor, baseItemType);

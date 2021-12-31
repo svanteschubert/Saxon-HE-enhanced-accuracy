@@ -161,7 +161,7 @@ public interface ArrayItem extends Function {
     default Genre getGenre() {
         return Genre.ARRAY;
     }
-
+    
 }
 
 // Copyright (c) 2014-2020 Saxonica Limited

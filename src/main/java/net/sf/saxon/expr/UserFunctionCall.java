@@ -432,7 +432,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         super.resetLocalStaticProperties();
         argumentEvaluators = null;
     }
-
+    
     /**
      * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
      * by an expression in a source tree.

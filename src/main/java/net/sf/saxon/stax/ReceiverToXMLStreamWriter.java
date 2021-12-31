@@ -118,9 +118,9 @@ public class ReceiverToXMLStreamWriter implements Receiver {
                 if (attPrefix.equals("") && attUri.equals("")) {
                     writer.writeAttribute(attLocal, value);
                 } else if (attPrefix.equals("") & !attUri.equals("")) {
-                    writer.writeAttribute(uri, local, value);
+                    writer.writeAttribute(attUri, attLocal, value);
                 } else {
-                    writer.writeAttribute(prefix, uri, local, value);
+                    writer.writeAttribute(attPrefix, attUri, attLocal, value);
                 }
             }
         } catch (XMLStreamException e) {

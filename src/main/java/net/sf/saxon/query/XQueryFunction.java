@@ -432,7 +432,7 @@ public class XQueryFunction implements Declaration, Location {
                 throw err;
             }
         } else {
-            //body.checkForUpdatingSubexpressions();
+            //body.checkForUpdatingSubexpressions(); 
             if (body.isUpdatingExpression()) {
                 XPathException err = new XPathException(
                         "The body of a non-updating function must be a non-updating expression", "XUST0001");
@@ -477,7 +477,7 @@ public class XQueryFunction implements Declaration, Location {
                 body = body.optimize(visitor, ContextItemStaticInfo.ABSENT);
             }
         }
-
+        
         // mark tail calls within the function body
         if (opt.getOptimizerOptions().isSet(OptimizerOptions.TAIL_CALLS) && !isUpdating) {
             int tailCalls = ExpressionTool.markTailFunctionCalls(body, functionName, arity);

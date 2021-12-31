@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr.sort;
 
+import com.saxonica.ee.stream.ManualGroupIterator;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;

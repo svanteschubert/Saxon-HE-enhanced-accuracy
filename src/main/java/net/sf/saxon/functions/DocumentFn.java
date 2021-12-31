@@ -11,14 +11,11 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.lib.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.sort.DocumentOrderIterator;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
-import net.sf.saxon.lib.Feature;
-import net.sf.saxon.lib.ParseOptions;
-import net.sf.saxon.lib.RelativeURIResolver;
-import net.sf.saxon.lib.StandardErrorHandler;
 import net.sf.saxon.om.*;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.*;
@@ -162,7 +159,8 @@ public class DocumentFn extends SystemFunction implements Callable {
      * @param locator used to identify the location of the instruction in event of error
      * @param silent  if true, errors should not be notified to the ErrorListener
      * @return the root of the constructed document, or the selected element within the document
-     *         if a fragment identifier was supplied
+     *         if a fragment identifier was supplied, or null if the URIResolver returns an
+     *         instance of {@link EmptySource};
      * @throws XPathException if reading or parsing the document fails
      */
 
@@ -178,7 +176,7 @@ public class DocumentFn extends SystemFunction implements Callable {
         String fragmentId = null;
         if (hash >= 0) {
             if (hash == href.length() - 1) {
-                // # sign at end - just ignore it
+                // hash sign at end - just ignore it
                 href = href.substring(0, hash);
             } else {
                 fragmentId = href.substring(hash + 1);
@@ -246,6 +244,9 @@ public class DocumentFn extends SystemFunction implements Callable {
 
             Source source = resolveURI(href, baseURI, documentKey.toString(), c);
 
+            if (source instanceof EmptySource) {
+                return null;
+            }
 
             //System.err.println("URI resolver returned " + source.getClass() + " " + source.getSystemId());
             source = config.getSourceResolver().resolveSource(source, config);

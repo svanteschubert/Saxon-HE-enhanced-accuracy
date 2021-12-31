@@ -149,7 +149,7 @@ public class XSLSourceDocument extends StyleElement {
             int validation = validateValidationAttribute(validationAtt);
             parseOptions.setSchemaValidationMode(validation);
         }
-
+        
         if (typeAtt != null) {
             if (!isSchemaAware()) {
                 compileError("The @type attribute is available only with a schema-aware XSLT processor", "XTSE1660");

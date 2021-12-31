@@ -19,7 +19,6 @@ import net.sf.saxon.tree.util.CharSequenceConsumer;
 import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.StringValue;
 
 /**
  * fn:string-join(string* $sequence, string $separator)

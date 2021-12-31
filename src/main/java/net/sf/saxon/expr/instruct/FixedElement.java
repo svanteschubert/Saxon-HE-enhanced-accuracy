@@ -63,7 +63,7 @@ public class FixedElement extends ElementCreator {
         setValidationAction(validation, schemaType);
         preservingTypes = schemaType == null && validation == Validation.PRESERVE;
     }
-
+    
     @Override
     public Iterable<Operand> operands() {
         return contentOp;

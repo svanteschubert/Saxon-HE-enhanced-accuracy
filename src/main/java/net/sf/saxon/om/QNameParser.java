@@ -137,7 +137,6 @@ public class QNameParser {
             if (uri.contains("{")) {
                 throw new XPathException("Invalid EQName: URI contains opening brace", errorOnBadSyntax);
             }
-            //String uri = Whitespace.collapseWhitespace(name.substring(2, endBrace)).toString();
             if (unescaper != null && uri.contains("&")) {
                 uri = unescaper.unescape(uri).toString();
             }

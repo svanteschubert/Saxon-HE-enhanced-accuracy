@@ -306,10 +306,18 @@ public class ComputedElement extends ElementCreator {
             if (rawName.startsWith("Q{") && allowNameAsQName) {
                 // Unclear whether this is allowed: see https://github.com/w3c/qtspecs/issues/9
                 // It clearly is NOT allowed in XSLT 3.0 (though for no good reason)
-                StructuredQName qn = StructuredQName.fromEQName(rawName);
-                prefix = "";
-                localName = qn.getLocalPart();
-                uri = qn.getURI();
+                try {
+                    StructuredQName qn = StructuredQName.fromEQName(rawName);
+                    prefix = "";
+                    localName = qn.getLocalPart();
+                    uri = qn.getURI();
+                } catch (IllegalArgumentException e) {
+                    throw new XPathException("Invalid EQName in computed element constructor: " + e.getMessage(), "XQDY0074");
+                }
+                if (!NameChecker.isValidNCName(localName)) {
+                    throw new XPathException("Local part of EQName in computed element constructor is invalid", "XQDY0074");
+
+                }
             } else {
                 try {
                     String[] parts = NameChecker.getQNameParts(rawName);

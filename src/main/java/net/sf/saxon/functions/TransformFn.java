@@ -389,7 +389,7 @@ public class TransformFn extends SystemFunction implements Callable {
             }
             originalReporter.report(error);
         });
-
+        
         boolean cacheable = options.get("static-params") == null;
         if (options.get("cache") != null) {
             cacheable &= ((BooleanValue) options.get("cache").head()).getBooleanValue();
@@ -541,7 +541,7 @@ public class TransformFn extends SystemFunction implements Callable {
         Configuration targetConfig = context.getConfiguration();
         boolean allowTypedNodes = true;
         int schemaValidation = Validation.DEFAULT;
-
+        
         if (vendorOptions != null) {
             Sequence optionValue = vendorOptions.get(new QNameValue("", NamespaceConstant.SAXON, "configuration"));
             if (optionValue != null) {
@@ -729,7 +729,7 @@ public class TransformFn extends SystemFunction implements Callable {
             }
         }
 
-        Deliverer deliverer = Deliverer.makeDeliverer(deliveryFormat);
+        Deliverer deliverer = Deliverer.makeDeliverer(processor, deliveryFormat);
         deliverer.setTransformer(transformer);
         deliverer.setBaseOutputUri(baseOutputUri);
         deliverer.setPrincipalResultKey(principalResultKey);
@@ -892,12 +892,12 @@ public class TransformFn extends SystemFunction implements Callable {
         protected XPathContext context;
         protected HashTrieMap resultMap = new HashTrieMap();
 
-        public static Deliverer makeDeliverer(String deliveryFormat) {
+        public static Deliverer makeDeliverer(Processor processor, String deliveryFormat) {
             switch (deliveryFormat) {
                 case "document":
                     return new DocumentDeliverer();
                 case "serialized":
-                    return new SerializedDeliverer();
+                    return new SerializedDeliverer(processor);
                 case "raw":
                     return new RawDeliverer();
                 default:
@@ -959,8 +959,8 @@ public class TransformFn extends SystemFunction implements Callable {
          * @return a suitable Serializer
          */
 
-        protected Serializer makeSerializer(MapItem serializationParamsMap) throws XPathException {
-            Serializer serializer = transformer.newSerializer();
+        protected Serializer makeSerializer(Processor processor, MapItem serializationParamsMap) throws XPathException {
+            Serializer serializer = processor.newSerializer();
             if (serializationParamsMap != null) {
                 AtomicIterator paramIterator = serializationParamsMap.keys();
                 AtomicValue param;
@@ -1107,16 +1107,18 @@ public class TransformFn extends SystemFunction implements Callable {
      */
 
     private static class SerializedDeliverer extends Deliverer {
+        private final Processor processor;
         private Map<String, String> results = new ConcurrentHashMap<>();
         private Map<String, StringWriter> workInProgress = new ConcurrentHashMap<>();
         private StringWriter primaryWriter;
 
-        public SerializedDeliverer() {
+        public SerializedDeliverer(Processor processor) {
+            this.processor = processor;
         }
 
         @Override
         public Destination getPrimaryDestination(MapItem serializationParamsMap) throws XPathException {
-            Serializer serializer = makeSerializer(serializationParamsMap);
+            Serializer serializer = makeSerializer(processor, serializationParamsMap);
             primaryWriter = new StringWriter();
             serializer.setOutputWriter(primaryWriter);
             return serializer;
@@ -1138,7 +1140,7 @@ public class TransformFn extends SystemFunction implements Callable {
                 throw new XPathException("The location of output documents is undefined: use the transform option base-output-uri", "FOXT0002");
             }
             StringWriter writer = new StringWriter();
-            Serializer serializer = makeSerializer(null);
+            Serializer serializer = makeSerializer(processor, null);
             serializer.setCharacterMap(properties.getCharacterMapIndex());
             serializer.setOutputWriter(writer);
             serializer.onClose(() -> results.put(absolute.toASCIIString(), writer.toString()));
@@ -1184,7 +1186,10 @@ public class TransformFn extends SystemFunction implements Callable {
         public Receiver resolve(XPathContext context, String href, String baseUri, SerializationProperties properties) throws XPathException {
             URI absolute = getAbsoluteUri(href, baseUri);
             RawDestination destination = new RawDestination();
-            destination.onClose(() -> results.put(absolute.toASCIIString(), destination.getXdmValue()));
+            destination.onClose(() -> {
+                destination.close();
+                results.put(absolute.toASCIIString(), destination.getXdmValue());
+            });
             PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
             return destination.getReceiver(pipe, properties);
         }

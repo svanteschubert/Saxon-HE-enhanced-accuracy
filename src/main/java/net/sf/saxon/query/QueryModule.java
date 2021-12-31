@@ -1367,7 +1367,7 @@ public class QueryModule implements StaticContext {
             throw new XmlProcessingAbort(err.getFatalErrorMessage());
         }
     }
-
+    
     /**
      * Construct a dynamic context for early evaluation of constant subexpressions
      *

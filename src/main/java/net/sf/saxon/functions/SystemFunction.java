@@ -561,6 +561,6 @@ public abstract class SystemFunction extends AbstractFunction {
         return getFunctionName().getDisplayName() + '#' + getArity();
     }
 
-
+    
 }
 

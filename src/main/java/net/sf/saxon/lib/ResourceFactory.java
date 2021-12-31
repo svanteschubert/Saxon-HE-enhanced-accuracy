@@ -19,7 +19,7 @@ public interface ResourceFactory {
     /**
      * Create a Resource with given content
      * @param config the Saxon configuration
-     * @param details the stream of bytes making up the binary content of the resource
+     * @param details information about the resource, including some means of obtaining the content
      * @return the resource
      * @throws XPathException if a failure occurs creating the resource
      */

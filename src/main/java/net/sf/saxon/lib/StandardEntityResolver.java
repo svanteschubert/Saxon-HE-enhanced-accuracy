@@ -30,8 +30,8 @@ import java.util.Objects;
  */
 public class StandardEntityResolver implements EntityResolver {
 
-    private static HashMap<String, String> publicIds = new HashMap<>(30);
-    private static HashMap<String, String> systemIds = new HashMap<>(30);
+    private static final HashMap<String, String> publicIds = new HashMap<>(30);
+    private static final HashMap<String, String> systemIds = new HashMap<>(30);
 
     public Configuration config;
 
@@ -40,7 +40,8 @@ public class StandardEntityResolver implements EntityResolver {
      * entity resolver
      *
      * @param publicId the public identifier of the DTD or entity
-     * @param systemId the system identifier of the DTD or entity
+     * @param systemId the system identifier of the DTD or entity. For domains that are known
+     *                 to redirect http: to https:, either scheme is accepted.
      * @param fileName the fileName of the Saxon local copy of the
      *                 resource, relative to the data directory in the JAR file
      */
@@ -54,6 +55,10 @@ public class StandardEntityResolver implements EntityResolver {
         }
         if (systemId != null) {
             systemIds.put(systemId, fileName);
+            if (systemId.startsWith("http://www.w3.org/")) {
+                String httpsId = "https://" + systemId.substring(7);
+                systemIds.put(httpsId, fileName);
+            }
         }
     }
 
@@ -531,7 +536,7 @@ public class StandardEntityResolver implements EntityResolver {
         register("-//XML-DEV//ENTITIES RDDL Resource Module 1.0//EN",
                 "http://www.rddl.org/rddl-resource-1.mod",
                 "w3c/rddl/rddl-resource-1.mod");
-
+        
         register("-//XML-DEV//ELEMENTS RDDL Resource 1.0//EN",
                  "http://www.rddl.org/rddl-resource-1.mod",
                  "w3c/rddl/rddl-resource-1.mod");
@@ -648,7 +653,7 @@ public class StandardEntityResolver implements EntityResolver {
 
         // If this is a W3C URI, Saxon ought really to have a copy...
         if (systemId.startsWith("http://www.w3.org/") && config.isTiming()) {
-            config.getLogger().warning("Saxon does not have a local copy of PUBLIC " + publicId + " SYSTEM " + systemId);
+            config.getLogger().info("Saxon does not have a local copy of PUBLIC " + publicId + " SYSTEM " + systemId);
         }
 
         try {
@@ -662,7 +667,7 @@ public class StandardEntityResolver implements EntityResolver {
 
         // If it's a classpath URI, handle it here
         if (systemId.startsWith("classpath:") && systemId.length() > 10) {
-            return getResource(systemId.substring(10), config);
+            return fetch(systemId.substring(10), config);
         }
 
         // Otherwise, leave the parser to resolve the URI in the normal way

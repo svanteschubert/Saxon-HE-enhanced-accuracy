@@ -161,7 +161,7 @@ public final class NamePool {
      * The fingerprint omits information about the prefix, and is the same as the nameCode
      * for the same name with a prefix equal to "".
      */
-
+    
     public synchronized int allocateFingerprint(String uri, String local) {
         if (NamespaceConstant.isReserved(uri) || NamespaceConstant.SAXON.equals(uri)) {
             int fp = StandardNames.getFingerprint(uri, local);

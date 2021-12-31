@@ -299,8 +299,10 @@ public class HashTrieMap implements MapItem {
 
     @Override
     public HashTrieMap addEntry(AtomicValue key, GroundedValue value) {
+        AtomicMatchKey amk = makeKey(key);
+        boolean isNew = imap.get(amk) == null;
         boolean empty = isEmpty();
-        ImmutableMap<AtomicMatchKey, KeyValuePair> imap2 = imap.put(makeKey(key), new KeyValuePair(key, value));
+        ImmutableMap<AtomicMatchKey, KeyValuePair> imap2 = imap.put(amk, new KeyValuePair(key, value));
         HashTrieMap t2 = new HashTrieMap(imap2);
         t2.valueCardinality = this.valueCardinality;
         t2.keyUType = keyUType;
@@ -308,6 +310,9 @@ public class HashTrieMap implements MapItem {
         t2.keyAtomicType = keyAtomicType;
         t2.valueItemType = valueItemType;
         t2.updateTypeInformation(key, value, empty);
+        if (entries >= 0) {
+            t2.entries = isNew ? entries + 1 : entries;
+        }
         return t2;
     }
 

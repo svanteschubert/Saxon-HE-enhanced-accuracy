@@ -131,7 +131,7 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                     out.attribute(NameOfNode.makeName(node), (SimpleType)node.getSchemaType(), node.getStringValue(),
                                                     locationId, ReceiverOption.NONE);
                     return;
-
+                    
                 case Type.NAMESPACE:
                     out.namespace(node.getLocalPart(), node.getStringValue(), ReceiverOption.NONE);
                     return;

@@ -750,6 +750,9 @@ public final class XSLTemplate extends StyleElement implements StylesheetCompone
             setCompiledTemplateRuleProperties(rule, body);
             needToCopy = true;
             rule.updateSlaveCopies();
+            if (compilation.getCompilerInfo().getCodeInjector() != null) {
+                compilation.getCompilerInfo().getCodeInjector().process(rule);
+            }
         }
 
         // following code needed only for diagnostics

@@ -1835,6 +1835,25 @@ public class PackageLoaderHE implements IPackageLoader {
                               actions.toArray(new Expression[0]));
         });
 
+        eMap.put("coercedFn", (loader, element) -> {
+            ItemType type = loader.parseItemTypeAttribute(element, "type");
+            Expression target = loader.getFirstChildExpression(element);
+            Function targetFn;
+            CoercedFunction coercedFn;
+            if (target instanceof UserFunctionReference) {
+                coercedFn = new CoercedFunction((SpecificFunctionType) type);
+                final CoercedFunction coercedFn2 = coercedFn;
+                final SymbolicName name = ((UserFunctionReference) target).getSymbolicName();
+                loader.completionActions.add(() -> coercedFn2.setTargetFunction(loader.userFunctions.get(name)));
+            } else if (target instanceof FunctionLiteral) {
+                targetFn = (Function) ((Literal) target).getValue();
+                coercedFn = new CoercedFunction(targetFn, (SpecificFunctionType) type);
+            } else {
+                throw new AssertionError();
+            }
+            return Literal.makeLiteral(coercedFn);
+        });
+
         eMap.put("comment", (loader, element) -> {
             Expression select = loader.getFirstChildExpression(element);
             Comment inst = new Comment();
@@ -2363,7 +2382,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 Expression sep = loader.getExpressionWithRole(element, "separator");
                 if (sep != null) {
                     forEach.setSeparatorExpression(sep);
-                }
+                } 
                 return loader.getConfiguration().obtainOptimizer().generateMultithreadedInstruction(forEach);
             }
         });
@@ -2810,7 +2829,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 }
             }
 
-            return Literal.makeLiteral(new One(node));
+            return Literal.makeLiteral(new One<NodeInfo>(node));
         });
 
 
@@ -3026,6 +3045,9 @@ public class PackageLoaderHE implements IPackageLoader {
             ResultDocument instr = new ResultDocument(globals, locals, href, format, validation, schemaType,
                                                       dynamicProperties, loader.packStack.peek().getCharacterMapIndex());
             instr.setContentExpression(content);
+            if ("a".equals(element.getAttributeValue("", "flags"))) {
+                instr.setAsynchronous(true);
+            }
             return instr;
         });
 

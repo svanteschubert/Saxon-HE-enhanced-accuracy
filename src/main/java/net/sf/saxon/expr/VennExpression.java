@@ -634,7 +634,7 @@ public class VennExpression extends BinaryExpression {
                         getLhsExpression().toPattern(config),
                         getRhsExpression().toPattern(config));
             }
-        }
+        } 
     }
 
     private boolean isPredicatePattern(Expression exp) {

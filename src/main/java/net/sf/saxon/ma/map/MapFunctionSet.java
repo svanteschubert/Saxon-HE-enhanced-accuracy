@@ -320,7 +320,7 @@ public class MapFunctionSet extends BuiltInFunctionSet {
         public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
             AtomicValue key = (AtomicValue) arguments[0].head();
             assert key != null;
-            GroundedValue value = ((Sequence)arguments[1]).iterate().materialize();
+            GroundedValue value = arguments[1].iterate().materialize();
             return new SingleEntryMap(key, value);
         }
 
@@ -362,7 +362,10 @@ public class MapFunctionSet extends BuiltInFunctionSet {
             List<GroundedValue> results = new ArrayList<>();
             for (KeyValuePair pair : map.keyValuePairs()) {
                 Sequence seq = dynamicCall(fn, context, new Sequence[]{pair.key, pair.value});
-                results.add(seq.materialize());
+                final GroundedValue val = seq.materialize();
+                if (val.getLength() > 0) {
+                    results.add(val);
+                }
             }
             return new Chain(results);
         }
@@ -558,51 +561,89 @@ public class MapFunctionSet extends BuiltInFunctionSet {
                 if (baseMap == null) {
                     return new HashTrieMap();
                 } else {
-                    if (!(baseMap instanceof HashTrieMap)) {
-                        baseMap = HashTrieMap.copy(baseMap);
-                    }
                     MapItem next;
                     while ((next = (MapItem) iter.next()) != null) {
-                        for (KeyValuePair pair : next.keyValuePairs()) {
-                            Sequence existing = baseMap.get(pair.key);
+                        // Merge the next map and the base map. Merge the smaller of the two
+                        // maps into the larger. The complication is that this affects duplicates handling.
+                        // See bug #4865
+                        boolean inverse = next.size() > baseMap.size();
+                        MapItem larger = inverse ? next : baseMap;
+                        MapItem smaller = inverse ? baseMap : next;
+                        String dup = inverse ? invertDuplicates(duplicates) : duplicates;
+                        for (KeyValuePair pair : smaller.keyValuePairs()) {
+                            Sequence existing = larger.get(pair.key);
                             if (existing != null) {
-                                switch (duplicates) {
+                                switch (dup) {
                                     case "use-first":
                                     case "unspecified":
                                     case "use-any":
                                         // no action
                                         break;
                                     case "use-last":
-                                        baseMap = baseMap.addEntry(pair.key, pair.value);
+                                        larger = larger.addEntry(pair.key, pair.value);
                                         break;
-                                    case "combine":
+                                    case "combine": {
                                         InsertBefore.InsertIterator combinedIter =
                                                 new InsertBefore.InsertIterator(pair.value.iterate(), existing.iterate(), 1);
                                         GroundedValue combinedValue = combinedIter.materialize();
-                                        baseMap = baseMap.addEntry(pair.key, combinedValue);
+                                        larger = larger.addEntry(pair.key, combinedValue);
                                         break;
+                                    }
+                                    case "combine-reverse": {
+                                        InsertBefore.InsertIterator combinedIter =
+                                                new InsertBefore.InsertIterator(existing.iterate(), pair.value.iterate(), 1);
+                                        GroundedValue combinedValue = combinedIter.materialize();
+                                        larger = larger.addEntry(pair.key, combinedValue);
+                                        break;
+                                    }
                                     case "use-callback":
                                         assert onDuplicates != null;
-                                        Sequence[] args = onDuplicates.getArity() == 2 ?
-                                                new Sequence[]{existing, pair.value} :
-                                                new Sequence[]{existing, pair.value, pair.key};
+                                        Sequence[] args;
+                                        if (inverse) {
+                                            args = onDuplicates.getArity() == 2 ?
+                                                    new Sequence[]{pair.value, existing} :
+                                                    new Sequence[]{pair.value, existing, pair.key};
+                                        } else {
+                                            args = onDuplicates.getArity() == 2 ?
+                                                    new Sequence[]{existing, pair.value} :
+                                                    new Sequence[]{existing, pair.value, pair.key};
+                                        }
                                         Sequence combined = onDuplicates.call(context, args);
-                                        baseMap = baseMap.addEntry(pair.key, combined.materialize());
+                                        larger = larger.addEntry(pair.key, combined.materialize());
                                         break;
                                     default:
                                         throw new XPathException("Duplicate key in constructed map: " +
-                                                                         Err.wrap(pair.key.getStringValueCS()), duplicatesErrorCode);
+                                                                         Err.wrap(pair.key.getStringValue()), duplicatesErrorCode);
                                 }
                             } else {
-                                baseMap = baseMap.addEntry(pair.key, pair.value);
+                                larger = larger.addEntry(pair.key, pair.value);
                             }
                         }
+                        baseMap = larger;
                     }
                     return baseMap;
                 }
             }
 
         }
+
+        private String invertDuplicates(String duplicates) {
+            switch (duplicates) {
+                case "use-first":
+                case "unspecified":
+                case "use-any":
+                    return "use-last";
+                case "use-last":
+                    return "use-first";
+                case "combine":
+                    return "combine-reverse";
+                case "combine-reverse":
+                    return "combine";
+                default:
+                    return duplicates;
+            }
+        }
+
 
         @Override
         public String getStreamerName() {
@@ -641,7 +682,7 @@ public class MapFunctionSet extends BuiltInFunctionSet {
             }
 
             AtomicValue key = (AtomicValue) arguments[1].head();
-            GroundedValue value = ((Sequence)arguments[2]).materialize();
+            GroundedValue value = arguments[2].materialize();
             return baseMap.addEntry(key, value);
         }
     }

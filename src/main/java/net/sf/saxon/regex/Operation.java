@@ -962,7 +962,7 @@ public abstract class Operation {
                         } while (counter < min && pos >= 0);
                         return pos >= 0;
                     }
-
+                    
                     @Override
                     public int next() {
                         return pos;

@@ -1360,7 +1360,7 @@ public final class DateTimeValue extends CalendarValue
                 case HOUR_OF_DAY:
                     return hour;
                 case CLOCK_HOUR_OF_DAY:
-                    return (hour+23)%24 + 1;
+                    return (hour+23)%24 + 1; 
                 case AMPM_OF_DAY:
                     return hour/12; // specification is unclear about noon and midnight
                 case DAY_OF_WEEK:

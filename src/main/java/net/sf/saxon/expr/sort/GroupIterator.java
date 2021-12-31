@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr.sort;
 
+import com.saxonica.ee.stream.ManualGroupIterator;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.SequenceIterator;

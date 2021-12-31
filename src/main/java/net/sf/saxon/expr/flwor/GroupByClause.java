@@ -27,7 +27,6 @@ import net.sf.saxon.value.SequenceExtent;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedList;
 import java.util.List;
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.GROUP_BY;
@@ -119,14 +118,14 @@ public class GroupByClause extends Clause {
 
     @Override
     public void optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
-        LinkedList<LocalVariableBinding> list = new LinkedList<>(Arrays.asList(bindings));
-        LinkedList<LocalVariableReference> retainingExpr = new LinkedList<>();
+        ArrayList<LocalVariableBinding> list = new ArrayList<>(Arrays.asList(bindings));
+        ArrayList<LocalVariableReference> retainingExpr = new ArrayList<>();
         for (Operand o : getRetainedTupleExpression().operands()) {
             retainingExpr.add((LocalVariableReference)o.getChildExpression());
         }
 
         int groupingSize = getGroupingTupleExpression().getSize();
-        for (int i = groupingSize; i < list.size(); i++) {
+        for (int i = list.size() - 1; i >= groupingSize; i--) {
             if (list.get(i).getNominalReferenceCount() == 0) {
                 list.remove(i);
                 retainingExpr.remove(i - groupingSize);

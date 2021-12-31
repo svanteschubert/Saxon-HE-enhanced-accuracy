@@ -129,7 +129,7 @@ public class XMLIndenter extends ProxyReceiver {
                 suppressedAtLevel = level;
             }
         }
-
+        
         sameline = true;
         afterStartTag = true;
         afterEndTag = false;

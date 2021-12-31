@@ -14,10 +14,10 @@ package net.sf.saxon;
 public final class Version {
 
     private static final int MAJOR_VERSION = 10;
-    private static final int MINOR_VERSION = 3;
-    private static final int BUILD = 102815; //mddhh
+    private static final int MINOR_VERSION = 5;
+    private static final int BUILD = 41415; //mddhh
     private static final String MAJOR_RELEASE_DATE = "2020-03-16";
-    private static final String MINOR_RELEASE_DATE = "2020-10-28";
+    private static final String MINOR_RELEASE_DATE = "2021-04-14";
 
 
     private Version() {

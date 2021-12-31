@@ -22,7 +22,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.tree.util.Navigator;
-import net.sf.saxon.type.Type;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -165,7 +164,7 @@ public class AccumulatorData implements IAccumulatorData {
         c2.setTemporaryOutputState(StandardNames.XSL_ACCUMULATOR_RULE);
         value = Evaluator.EAGER_SEQUENCE.evaluate(delta, c2);
         //System.err.println("Node " + ((TinyNodeImpl) node).getNodeNumber() + " : " + value);
-        if (node.getNodeKind() == Type.DOCUMENT && !isPostDescent && values.size() == 1) {
+        if (node.getParent() == null && !isPostDescent && values.size() == 1) {
             // Overwrite the accumulator's initial value with the "before document start" value. Bug 4786.
             values.clear();
         }

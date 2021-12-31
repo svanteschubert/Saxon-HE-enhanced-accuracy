@@ -481,7 +481,7 @@ public abstract class TinyNodeImpl implements NodeInfo {
 
                 case AxisInfo.PRECEDING:
                     if (type == Type.ATTRIBUTE || type == Type.NAMESPACE) {
-                        return new PrecedingIterator(tree, getParent(), nodeTest, false);
+                        return getParent().iterateAxis(axisNumber, predicate);
                     } else if (tree.depth[nodeNr] == 0) {
                         return EmptyIterator.ofNodes();
                     } else {

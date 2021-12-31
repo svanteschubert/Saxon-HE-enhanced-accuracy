@@ -11,7 +11,6 @@ package net.sf.saxon.resource;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.Resource;
 import net.sf.saxon.lib.ResourceFactory;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.Base64BinaryValue;
 
@@ -24,11 +23,15 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
 
+/**
+ * A binary resource that might appear in a resource collection.
+ */
+
 
 public class BinaryResource implements Resource {
 
-    private String href;
-    private String contentType;
+    private final String href;
+    private final String contentType;
     private byte[] data;
     private URLConnection connection = null;
 
@@ -49,6 +52,13 @@ public class BinaryResource implements Resource {
         this.href = in.resourceUri;
         this.data = in.binaryContent;
     }
+
+    /**
+     * Create a binary resource supplying the actual content as a byte array
+     * @param href the URI of the resource
+     * @param contentType the media type
+     * @param content the actual content as a byte array
+     */
 
     public BinaryResource(String href, String contentType, byte[] content) {
         this.contentType = contentType;
@@ -149,8 +159,19 @@ public class BinaryResource implements Resource {
         }
     }
 
+    /**
+     * Get an XDM Item holding the contents of this resource.
+     *
+     * @param context the XPath evaluation context
+     * @return an item holding the contents of the resource. For a binary resource
+     * the value will always be a {@link Base64BinaryValue}. This does not mean that the
+     * content is actually encoded in Base64 internally; rather it means that when converted
+     * to a string, the content is presented in Base64 encoding.
+     * @throws XPathException if a failure occurs materializing the resource
+     */
+
     @Override
-    public Item getItem(XPathContext context) throws XPathException {
+    public Base64BinaryValue getItem(XPathContext context) throws XPathException {
         if (data != null) {
             return new Base64BinaryValue(data);
         } else if (connection != null) {
@@ -169,10 +190,16 @@ public class BinaryResource implements Resource {
 
     }
 
+    /**
+     * Get the media type (MIME type) of the resource if known,
+     * for example "image/jpeg".
+     *
+     * @return the media type if known; otherwise null
+     */
+
     @Override
     public String getContentType() {
         return contentType;
     }
-
-
+    
 }

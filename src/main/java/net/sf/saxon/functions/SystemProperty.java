@@ -7,6 +7,9 @@
 
 package net.sf.saxon.functions;
 
+import com.saxonica.functions.extfn.EXPathArchive.Archive;
+import com.saxonica.functions.extfn.EXPathBinary;
+import com.saxonica.functions.extfn.EXPathFile;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Version;
 import net.sf.saxon.expr.*;

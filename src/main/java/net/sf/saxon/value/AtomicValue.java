@@ -37,7 +37,7 @@ import java.util.Iterator;
  * @author Michael H. Kay
  */
 
-public abstract class AtomicValue
+public abstract class AtomicValue 
         implements Item, AtomicSequence, ConversionResult, IdentityComparable {
 
     protected AtomicType typeLabel;

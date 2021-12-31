@@ -167,7 +167,7 @@ public class XsltCompiler {
      *                 {@code ErrorListener} was also notified of run-time errors, unless a different
      *                 {@code ErrorListener} was supplied at run-time. This is no longer the case from
      *                 Saxon 10.0</i></p>
-     * @deprecated since 10.0. Use {@link #setErrorReporter(ErrorReporter)}
+     * @deprecated since 10.0. Use {@link #setErrorReporter(ErrorReporter)}                
      */
 
     public void setErrorListener(ErrorListener listener) {

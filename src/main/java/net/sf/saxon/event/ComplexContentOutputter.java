@@ -150,7 +150,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         super.setSystemId(systemId);
         nextReceiver.setSystemId(systemId);
     }
-
+    
     /**
      * Set the host language
      *

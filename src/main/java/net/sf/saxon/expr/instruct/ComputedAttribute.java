@@ -338,10 +338,18 @@ public final class ComputedAttribute extends AttributeCreator {
             String rawName = nameValue.getStringValue();
             rawName = Whitespace.trimWhitespace(rawName).toString(); // required in XSLT; possibly wrong in XQuery
             if (rawName.startsWith("Q{") && allowNameAsQName) { // not allowed in XSLT; a little unclear in XQuery
-                StructuredQName qn = StructuredQName.fromEQName(rawName);
-                prefix = "";
-                localName = qn.getLocalPart();
-                uri = qn.getURI();
+                try {
+                    StructuredQName qn = StructuredQName.fromEQName(rawName);
+                    prefix = "";
+                    localName = qn.getLocalPart();
+                    uri = qn.getURI();
+                } catch (IllegalArgumentException e) {
+                    throw new XPathException("Invalid EQName in computed attribute constructor: " + e.getMessage(), "XQDY0074");
+                }
+                if (!NameChecker.isValidNCName(localName)) {
+                    throw new XPathException("Local part of EQName in computed attribute constructor is invalid", "XQDY0074");
+
+                }
             } else {
                 try {
                     String[] parts = NameChecker.getQNameParts(rawName);

@@ -21,7 +21,7 @@ import net.sf.saxon.om.NodeInfo;
  */
 
 public class LocationCopier implements CopyInformee<Location> {
-
+    
     private final boolean wholeDocument;
 
     public LocationCopier(boolean wholeDocument) {

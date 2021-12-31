@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr.instruct;
 
+//import com.saxonica.expr.MemoFunction;
 
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.Outputter;
@@ -437,7 +438,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     public boolean isUpdating() {
         return isUpdating;
     }
-
+    
     /**
      * Set the declared streamability (XSLT 3.0 attribute)
      *

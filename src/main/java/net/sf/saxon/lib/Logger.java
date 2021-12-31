@@ -7,8 +7,6 @@
 
 package net.sf.saxon.lib;
 
-import org.jetbrains.annotations.NotNull;
-
 import javax.xml.transform.stream.StreamResult;
 import java.io.Writer;
 
@@ -113,7 +111,7 @@ public abstract class Logger {
             StringBuilder builder = new StringBuilder();
 
             @Override
-            public void write(@NotNull char[] cbuf, int off, int len) {
+            public void write(char[] cbuf, int off, int len) {
                 for (int i = 0; i < len; i++) {
                     char ch = cbuf[off + i];
                     if (ch == '\n') {

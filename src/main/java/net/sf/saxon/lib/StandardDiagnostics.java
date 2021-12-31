@@ -423,7 +423,7 @@ public class StandardDiagnostics {
      * method. The value can be assigned. Default value is 1000.
      */
 
-    public int MAX_MESSAGE_LENGTH = 1000;
+    public int MAX_MESSAGE_LENGTH = 2000;
 
     /**
      * Variable defining a threshold for word-wrapping a message. If a message

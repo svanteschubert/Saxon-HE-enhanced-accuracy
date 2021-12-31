@@ -13,9 +13,9 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.URIQueryParameters;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.om.SpaceStrippingRule;
-import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.trans.Maker;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XmlProcessingIncident;
 import org.xml.sax.XMLReader;
 
 import java.io.*;
@@ -35,6 +35,11 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
     protected Configuration config;
     protected String collectionURI;
     protected URIQueryParameters params = null;
+
+    /**
+     * Create a resource collection
+     * @param config the Saxon configuration
+     */
 
     public AbstractResourceCollection(Configuration config) {
         this.config = config;
@@ -80,6 +85,13 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
     public void registerContentType(String contentType, ResourceFactory factory) {
         config.registerMediaType(contentType, factory);
     }
+
+    /**
+     * Analyze URI query parameters and convert them to a set of parser options
+     * @param params the query parameters extracted from the URI
+     * @param context the XPath evaluation context
+     * @return a set of options to control document parsing
+     */
 
     protected ParseOptions optionsFromQueryParameters(URIQueryParameters params, XPathContext context) {
         ParseOptions options = new ParseOptions(context.getConfiguration().getParseOptions());
@@ -142,20 +154,59 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
         }
     }
 
+    /**
+     * Information about a resource
+     */
+
     public static class InputDetails {
+
+        /**
+         * The URI of the resource
+         */
         public String resourceUri;
+        /**
+         * The binary content of the resource
+         */
         public byte[] binaryContent;
+        /**
+         * The character content of the resource
+         */
         public String characterContent;
+        /**
+         * The media type of the resource
+         */
         public String contentType;
+        /**
+         * The encoding of the resource (if it is text, represented in binary)
+         */
         public String encoding;
+        /**
+         * Options for parsing the content of an XML resource
+         */
         public ParseOptions parseOptions;
+        /**
+         * Action to be taken in the event of an error, for example {@code URIQueryParameters#ON_ERROR_FAIL},
+         * {@code URIQueryParameters#ON_ERROR_WARNING}, or {@code URIQueryParameters#ON_ERROR_IGNORE}
+         */
         public int onError = URIQueryParameters.ON_ERROR_FAIL;
 
+        /**
+         * Get an input stream that delivers the binary content of the resource
+         * @return the content, as an input stream
+         * @throws IOException if the input cannot be read
+         */
         public InputStream getInputStream() throws IOException {
             URL url = new URL(resourceUri);
             URLConnection connection = url.openConnection();
             return connection.getInputStream();
         }
+
+        /**
+         * Get the binary content of the resource, either as stored,
+         * or by encoding the character content, or by reading the input stream
+         * @return the binary content of the resource
+         * @throws XPathException if the binary content cannot be obtained
+         */
 
         public byte[] obtainBinaryContent() throws XPathException {
             if (binaryContent != null) {
@@ -175,6 +226,13 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
                 }
             }
         }
+
+        /**
+         * Get the character content of the resource, either as stored, or by
+         * reading and decoding the input stream
+         * @return the character content of the resource
+         * @throws XPathException in the event of a failure
+         */
 
         public String obtainCharacterContent() throws XPathException {
             if (characterContent != null) {
@@ -200,6 +258,13 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
             }
         }
     }
+
+    /**
+     * Get details of a resource given the resource URI
+     * @param resourceURI the resource URI
+     * @return details of the resource
+     * @throws XPathException if the information cannot be obtained
+     */
 
     protected InputDetails getInputDetails(String resourceURI) throws XPathException {
 
@@ -258,6 +323,14 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
 
     }
 
+    /**
+     * Attempt to establish the media type of a resource, given the resource URI.
+     * This makes use of {@code URLConnection#guessContentTypeFromName}, and failing that
+     * the mapping from file extensions to media types held in the Saxon {@link Configuration}
+     * @param resourceURI the resource URI
+     * @return the media type if it can be gleaned, otherwise null.
+     */
+
     protected String guessContentTypeFromName(String resourceURI) {
         String contentTypeFromName = URLConnection.guessContentTypeFromName(resourceURI);
         String extension = null;
@@ -269,6 +342,14 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
         }
         return contentTypeFromName;
     }
+
+    /**
+     * Attempt to establish the media type of a resource, given the actual content.
+     * This makes use of {@code URLConnection#guessContentTypeFromStream}
+     * @param stream the input stream. This should be positioned at the start; the
+     *               reading position is not affected by the call.
+     * @return the media type if it can be gleaned, otherwise null.
+     */
 
     protected String guessContentTypeFromContent(InputStream stream) {
         try {
@@ -320,6 +401,15 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
 
         return factory.makeResource(config, details);
     }
+
+    /**
+     * Given a resource whose type may be unknown, create a Resource of a specific type,
+     * for example an XML or JSON resource
+     * @param config the Saxon Configuration
+     * @param basicResource the resource, whose type may be unknown
+     * @return a Resource of a specific type
+     * @throws XPathException if a failure occurs (for example an XML or JSON parsing failure)
+     */
 
     public Resource makeTypedResource(Configuration config, Resource basicResource) throws XPathException {
 

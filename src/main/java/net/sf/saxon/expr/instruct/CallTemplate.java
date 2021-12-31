@@ -31,11 +31,11 @@ import java.util.Arrays;
 
 public class CallTemplate extends Instruction implements ITemplateCall, ComponentInvocation {
 
-    private NamedTemplate template = null; // Null only for saxon:call-template
+    private NamedTemplate template; // Null only for saxon:call-template
     private StructuredQName calledTemplateName;   // the name of the called template
     private WithParam[] actualParams = WithParam.EMPTY_ARRAY;
     private WithParam[] tunnelParams = WithParam.EMPTY_ARRAY;
-    private boolean useTailRecursion = false;
+    private boolean useTailRecursion;
     private int bindingSlot = -1;
     private boolean isWithinDeclaredStreamableConstruct;
 
@@ -344,7 +344,6 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-
         NamedTemplate t;
         Component target = getFixedTarget();
         if (bindingSlot >= 0) {

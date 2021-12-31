@@ -7,17 +7,16 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.RebindingMap;
+import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.Cardinality;
+import net.sf.saxon.value.SequenceType;
 
 /**
  * Castable Expression: implements "Expr castable as atomic-type?".
@@ -47,37 +46,15 @@ public final class CastableExpression extends CastingExpression {
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         getOperand().typeCheck(visitor, contextInfo);
-
-        // We need to take care here. The usual strategy of wrapping the operand in an expression that
-        // does type-checking doesn't work here, because an error in the type checking should be caught,
-        // while an error in evaluating the expression as written should not.
-
-        Expression operand = getBaseExpression();
-        ItemType sourceItemType = operand.getItemType();
-
-        AtomicType atomizedType = (AtomicType) sourceItemType.getAtomizedItemType().getPrimitiveItemType();
-        if (!(atomizedType == BuiltInAtomicType.ANY_ATOMIC)) {
-            converter = visitor.getConfiguration().getConversionRules().getConverter(atomizedType, getTargetType());
-            if (converter == null) {
-                if (!allowsEmpty() || !Cardinality.allowsZero(operand.getCardinality())) {
-                    // Conversion from source to target type will never succeed
-                    return Literal.makeLiteral(BooleanValue.FALSE, this);
-                }
-            } else {
-                if (getTargetPrimitiveType().isNamespaceSensitive()) {
-                    converter = converter.setNamespaceResolver(getRetainedStaticContext());
-                }
-                if (converter.isAlwaysSuccessful() && !allowsEmpty() && operand.getCardinality() == StaticProperty.ALLOWS_ONE) {
-                    return Literal.makeLiteral(BooleanValue.TRUE, this);
-                }
-            }
-        }
-
+        SequenceType atomicType = SequenceType.ATOMIC_SEQUENCE;
+        Configuration config = visitor.getConfiguration();
+        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.TYPE_OP, "castable as", 0);
+        TypeChecker tc = config.getTypeChecker(false);
+        Expression operand = tc.staticTypeCheck(getBaseExpression(), atomicType, role, visitor);
         setBaseExpression(operand);
         if (operand instanceof Literal) {
             return preEvaluate();
         }
-
         return this;
     }
 
@@ -223,6 +200,8 @@ public final class CastableExpression extends CastingExpression {
                 if (!isCastable(av, getTargetType(), context)) {
                     return false;
                 }
+            } else if (item instanceof ArrayItem) {
+                return false;
             } else {
                 throw new XPathException("Input to cast cannot be atomized", "XPTY0004");
             }

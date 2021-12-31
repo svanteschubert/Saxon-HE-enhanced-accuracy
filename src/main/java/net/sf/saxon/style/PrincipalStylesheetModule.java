@@ -1007,7 +1007,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
                     } else if (usedMode.getVisibility() == Visibility.FINAL) {
                         bad = true;
                     }
-                }
+                } 
             }
             if (bad) {
                 template.compileError("A template rule cannot be added to a mode declared in a used package " +
@@ -1571,6 +1571,12 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
                 for (XSLExpose exposure : exposeDeclarations) {
                     for (ComponentTest test : exposure.getWildcardComponentTests()) {
                         if (test.isPartialWildcard() && test.matches(component.getActor())) {
+                            if (exposure.getVisibility() == Visibility.ABSTRACT && component.getVisibility() != Visibility.ABSTRACT) {
+                                XPathException err = new XPathException(
+                                        "The non-abstract component " + component.getActor().getSymbolicName() + " cannot be made abstract by means of xsl:expose", "XTSE3025");
+                                err.setLocation(exposure);
+                                throw err;
+                            }
                             component.setVisibility(exposure.getVisibility(), VisibilityProvenance.EXPOSED);
                             matched = true;
                             break partialWildcardSearch;
@@ -1582,6 +1588,12 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
                     for (XSLExpose exposure : exposeDeclarations) {
                         for (ComponentTest test : exposure.getWildcardComponentTests()) {
                             if (test.matches(component.getActor())) {
+                                if (exposure.getVisibility() == Visibility.ABSTRACT && component.getVisibility() != Visibility.ABSTRACT) {
+                                    XPathException err = new XPathException(
+                                            "The non-abstract component " + component.getActor().getSymbolicName() + " cannot be made abstract by means of xsl:expose", "XTSE3025");
+                                    err.setLocation(exposure);
+                                    throw err;
+                                }
                                 component.setVisibility(exposure.getVisibility(), VisibilityProvenance.EXPOSED);
                                 break anyWildcardSearch;
                             }
@@ -1593,7 +1605,6 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
 
         }
     }
-
 
     /**
      * Compile time error, specifying an error code

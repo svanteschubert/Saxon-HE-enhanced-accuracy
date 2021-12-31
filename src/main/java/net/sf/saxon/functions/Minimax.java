@@ -104,7 +104,7 @@ public abstract class Minimax extends CollatingFunctionFixed {
         }
         return base.getPrimitiveItemType();
     }
-
+    
     /**
      * Determine the cardinality of the function.
      */
@@ -132,6 +132,20 @@ public abstract class Minimax extends CollatingFunctionFixed {
                 } else {
                     return arguments[0];
                 }
+            }
+        }
+        if (arguments[0] instanceof RangeExpression) {
+            // typically the min/max is the start/end of the range. But we need to be careful about handling
+            // an empty sequence (A to B where A > B)
+            if (isMaxFunction()) {
+                Expression start = ((RangeExpression) arguments[0]).getLhsExpression();
+                Expression end = ((RangeExpression)arguments[0]).getRhsExpression();
+                if (start instanceof Literal && end instanceof Literal) {
+                    return end;
+                }
+                return new LastItemExpression(arguments[0]);
+            } else {
+                return FirstItemExpression.makeFirstItemExpression(arguments[0]);
             }
         }
         return null;

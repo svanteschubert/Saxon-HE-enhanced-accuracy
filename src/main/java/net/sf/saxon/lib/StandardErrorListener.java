@@ -392,7 +392,7 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
                 // Typical XQuery case; no extra information available from the outer location
 
                 String innerLoc = lineInfo + columnInfo;
-
+                
                 if (outerLoc.getLineNumber() > 1) {
                     innerLoc += "(" + langText + "on line " + outerLoc.getLineNumber() + ") ";
                 }

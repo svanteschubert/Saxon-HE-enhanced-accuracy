@@ -23,7 +23,7 @@ import net.sf.saxon.value.AtomicValue;
  * is a sequence of more than one item. When it is known that all input will be untyped,
  * an {@link UntypedAtomizingIterator} is used in preference.</p>
  */
-
+                                    
 public class AtomizingIterator implements SequenceIterator /* of AtomicValue */ {
 
     private SequenceIterator base;

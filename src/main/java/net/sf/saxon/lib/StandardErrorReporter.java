@@ -358,7 +358,7 @@ public class StandardErrorReporter
                 // Typical XQuery case; no extra information available from the outer location
 
                 String innerLoc = lineInfo + columnInfo;
-
+                
                 if (outerLoc.getLineNumber() > 1) {
                     innerLoc += "(" + langText + "on line " + outerLoc.getLineNumber() + ") ";
                 }
@@ -488,7 +488,7 @@ public class StandardErrorReporter
                     } else {
                         sb.append(". Caused by ").append(e.getClass().getName());
                     }
-                }
+                } 
                 String next = e.getMessage();
                 if (next != null) {
                     sb.append(": ").append(next);

@@ -315,8 +315,13 @@ public final class ValueOf extends SimpleNodeConstructor {
                 processValue(value.getStringValueCS(), output, context);
             }
             return null;
-        } else if (getSelect().getItemType() == BuiltInAtomicType.STRING && !isDisableOutputEscaping()) {
+        } else if (getSelect().getItemType() == BuiltInAtomicType.STRING &&
+                !isDisableOutputEscaping()
+                && !Cardinality.allowsZero(getCardinality())) {
             // Try to stream the value direct to the serializer where possible
+            // Note: see bug 4944, which is why we don't use this path if the select
+            //       expression might return an empty sequence.
+
             Outputter toText = new ProxyOutputter(output) {
                 @Override
                 public void append(Item item) throws XPathException {
@@ -332,10 +337,6 @@ public final class ValueOf extends SimpleNodeConstructor {
                 public CharSequenceConsumer getStringReceiver(boolean asTextNode) {
                     return getNextOutputter().getStringReceiver(true);
                 }
-
-//                @Override
-//                public CharSequenceConsumer getStringReceiver() {return getNextOutputter().getStringReceiver();
-//                }
             };
             getSelect().process(toText, context);
             // Send a zero-length text node to set previousAtomic=false

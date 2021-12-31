@@ -11,7 +11,10 @@ import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.*;
@@ -305,7 +308,6 @@ public class ApplyTemplates extends Instruction implements ITemplateCall, Compon
 
         Component.M targetMode = getTargetMode(context);
         Mode thisMode = targetMode.getActor();
-
         NodeInfo separator = null;
         if (separatorOp != null) {
             separator = makeSeparator(context);

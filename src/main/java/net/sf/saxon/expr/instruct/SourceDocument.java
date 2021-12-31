@@ -315,14 +315,16 @@ public class SourceDocument extends Instruction {
         String href = hrefOp.getChildExpression().evaluateAsString(context).toString();
         NodeInfo doc = DocumentFn.makeDoc(href, getStaticBaseURIString(), getPackageData(),
                                           parseOptions, context, getLocation(), false);
-        Controller controller = context.getController();
-        if (accumulators != null && controller instanceof XsltController) {
-            ((XsltController) controller).getAccumulatorManager().setApplicableAccumulators(
-                    doc.getTreeInfo(), accumulators);
+        if (doc != null) {
+            Controller controller = context.getController();
+            if (accumulators != null && controller instanceof XsltController) {
+                ((XsltController) controller).getAccumulatorManager().setApplicableAccumulators(
+                        doc.getTreeInfo(), accumulators);
+            }
+            XPathContext c2 = context.newMinorContext();
+            c2.setCurrentIterator(new ManualIterator(doc));
+            bodyOp.getChildExpression().process(output, c2);
         }
-        XPathContext c2 = context.newMinorContext();
-        c2.setCurrentIterator(new ManualIterator(doc));
-        bodyOp.getChildExpression().process(output, c2);
     }
 
 

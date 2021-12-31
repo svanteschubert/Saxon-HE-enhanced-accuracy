@@ -38,15 +38,28 @@ public class TextValueTemplateNode extends TextImpl {
         return staticContext;
     }
 
-    public void validate() throws XPathException {
+    /**
+     * Parse any XPath expressions contained in the content of the text value template
+     * @throws XPathException if parsing of an XPath expression fails
+     */
+    public void parse() throws XPathException {
         boolean disable = false;
         NodeInfo parent = getParent();
-        if (parent instanceof XSLText && isYes(parent.getAttributeValue("","disable-output-escaping"))) {
+        if (parent instanceof XSLText && isYes(parent.getAttributeValue("", "disable-output-escaping"))) {
             disable = true;
         }
         contentExp = AttributeValueTemplate.make(getStringValue(), getStaticContext());
         contentExp = new ValueOf(contentExp, disable, false);
-        contentExp.setRetainedStaticContext(((StyleElement)getParent()).makeRetainedStaticContext());
+        assert getParent() != null;
+        contentExp.setRetainedStaticContext(((StyleElement) getParent()).makeRetainedStaticContext());
+    }
+
+    /**
+     * Validate the text node; specifically, perform type checking of any contained expressions
+     * @throws XPathException if type checking finds any problems
+     */
+    public void validate() throws XPathException {
+        assert getParent() != null;
         contentExp = ((StyleElement)getParent()).typeCheck("tvt", contentExp);
     }
 }

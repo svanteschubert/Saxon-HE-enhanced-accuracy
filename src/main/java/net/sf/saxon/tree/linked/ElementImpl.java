@@ -712,7 +712,7 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
             ((ElementImpl)child).deepAddNamespaces(inheritedNamespaces);
         }
     }
-
+    
     /**
      * Get the namespace list for this element.
      *

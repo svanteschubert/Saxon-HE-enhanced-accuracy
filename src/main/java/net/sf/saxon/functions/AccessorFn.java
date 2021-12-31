@@ -19,12 +19,12 @@ import net.sf.saxon.value.IntegerValue;
  */
 
 public abstract class AccessorFn extends ScalarSystemFunction {
-
+    
     public enum Component {
         YEAR, MONTH, DAY, HOURS, MINUTES, SECONDS, TIMEZONE,
         LOCALNAME, NAMESPACE, PREFIX, MICROSECONDS, NANOSECONDS, WHOLE_SECONDS, YEAR_ALLOWING_ZERO
     }
-
+    
     public abstract Component getComponentId();
 
     /**
@@ -84,7 +84,7 @@ public abstract class AccessorFn extends ScalarSystemFunction {
         return "AccessorFnCompiler";
     }
 
-
+    
     public static class YearFromDateTime extends AccessorFn {
 
         @Override
@@ -244,7 +244,7 @@ public abstract class AccessorFn extends ScalarSystemFunction {
             return Component.MINUTES;
         }
     }
-
+    
 
     public static class SecondsFromDuration extends AccessorFn {
 

@@ -161,23 +161,32 @@ public class SerializationProperties {
         for (String prop : this.getProperties().stringPropertyNames()) {
             String value = this.getProperties().getProperty(prop);
             if (prop.equals(OutputKeys.CDATA_SECTION_ELEMENTS)
-                    || prop.equals(SaxonOutputKeys.SUPPRESS_INDENTATION)) {
-                String existing = defaults.getProperty(prop);
-                if (existing == null || existing.equals(value)) {
+                        || prop.equals(SaxonOutputKeys.SUPPRESS_INDENTATION)
+                        || prop.equals(SaxonOutputKeys.USE_CHARACTER_MAPS)) {
+                    String existing = defaults.getProperty(prop);
+                    if (existing == null || existing.equals(value)) {
+                        props.setProperty(prop, value);
+                    } else {
+                        props.setProperty(prop, existing + " " + value);
+                        if (prop.equals(SaxonOutputKeys.USE_CHARACTER_MAPS)) {
+                            CharacterMapIndex charMapIndex2 = charMap.copy();
+                            for (CharacterMap map : defaults.getCharacterMapIndex()) {
+                                charMapIndex2.putCharacterMap(map.getName(), map);
+                            }
+                            charMap = charMapIndex2;
+                        }
+                    }
+                } else{
                     props.setProperty(prop, value);
-                } else {
-                    props.setProperty(prop, existing + " " + value);
                 }
-            } else {
-                props.setProperty(prop, value);
             }
+            SerializationProperties newParams = new SerializationProperties(props, charMap);
+            newParams.setValidationFactory(validationFactory);
+            return newParams;
         }
-        SerializationProperties newParams = new SerializationProperties(props, charMap);
-        newParams.setValidationFactory(validationFactory);
-        return newParams;
-    }
 
-    public String toString() {
+
+        public String toString() {
         StringBuilder sb = new StringBuilder();
         for (String k : properties.stringPropertyNames()) {
             sb.append(k).append("=").append(properties.getProperty(k)).append(" ");

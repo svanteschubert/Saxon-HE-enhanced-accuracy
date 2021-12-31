@@ -46,7 +46,7 @@ public class StartsWith extends CollatingFunctionFixed {
         if (getStringCollator() == CodepointCollator.getInstance()) {
             // Performance fast path: bug 3209
             return new SystemFunctionCall.Optimized(this, arguments) {
-
+                
                 @Override
                 public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
                     String s0 = getArg(0).evaluateAsString(context).toString();

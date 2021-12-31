@@ -16,10 +16,8 @@ import javax.xml.transform.Source;
 /**
  * A SchemaURIResolver is used when resolving references to
  * schema documents. It takes as input the target namespace of the schema to be loaded, and a set of
- * location hints as input, and returns one or more Source obects containing the schema documents
+ * location hints as input, and returns one or more Source objects containing the schema documents
  * to be imported.
- *
- * @author Michael H. Kay
  */
 
 public interface SchemaURIResolver {

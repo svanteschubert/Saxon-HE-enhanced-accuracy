@@ -278,7 +278,7 @@ public class Normalizer {
 }
 
 // * The class is derived from the sample program Normalizer.java published by the
-// * Unicode consortium.
+// * Unicode consortium. 
 
 // * Updates for supplementary code points: Vladimir Weinstein & Markus Scherer
 // * Modified to remove dependency on ICU code: Michael Kay, Saxonica Limited

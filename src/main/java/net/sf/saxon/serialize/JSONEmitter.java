@@ -233,12 +233,8 @@ public class JSONEmitter {
 //        }
         emit(bracket);
         first = true;
-        if (isIndenting) {
-            if (oneLiner) {
-                emit(' ');
-            } else {
-                //indent(level + 1);
-            }
+        if (isIndenting && oneLiner) {
+            emit(' ');
         }
 
     }
@@ -249,7 +245,7 @@ public class JSONEmitter {
             if (oneLiner) {
                 emit(' ');
             } else {
-                indent(level);
+                indent(level-1);
             }
         }
         emit(bracket);
@@ -257,18 +253,20 @@ public class JSONEmitter {
 
     }
 
+
     private void conditionalComma(boolean opening) throws XPathException {
         boolean wasFirst = first;
+        boolean actuallyIndenting = isIndenting && level != 0 && !oneLinerStack.peek();
         if (first) {
             first = false;
         } else if (!afterKey) {
             emit(',');
         }
-        if (wasFirst && afterKey) {
+        if ((wasFirst && afterKey)) {
             emit(' ');
-        } else if (isIndenting && !afterKey && level != 0) {
+        } else if (actuallyIndenting && !afterKey) {
             emit('\n');
-            for (int i = 0; i < indentSpaces * (level + 1); i++) {
+            for (int i = 0; i < indentSpaces * level; i++) {
                 emit(' ');
             }
         }

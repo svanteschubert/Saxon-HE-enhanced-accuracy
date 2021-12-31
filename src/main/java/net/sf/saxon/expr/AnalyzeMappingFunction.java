@@ -57,4 +57,4 @@ public class AnalyzeMappingFunction implements ContextMappingFunction {
         return EmptyIterator.getInstance();
     }
 }
-
+    

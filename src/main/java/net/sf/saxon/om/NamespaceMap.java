@@ -400,7 +400,7 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
                     }
                     i2++;
                 } else { // c == 0
-                    if (!u2[i2].isEmpty()) {
+                    if (!u2[i2].isEmpty() || p2[i2].isEmpty()) {
                         prefixes.add(p2[i2]);
                         uris.add(u2[i2]);
                     }

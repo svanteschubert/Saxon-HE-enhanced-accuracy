@@ -505,7 +505,7 @@ public class XdmStream<T extends XdmItem> implements Stream<T> {
         });
         return new XdmStream<>(stoppable.filter(predicate.negate()));
     }
-
+    
 }
 
 

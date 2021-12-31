@@ -31,7 +31,7 @@ public class StaticQueryContextFactory {
      *                        in the Configuration
      * @return the new {@code StaticQueryContext} instance
      */
-
+    
     public StaticQueryContext newStaticQueryContext(Configuration config, boolean copyFromDefault) {
         return new StaticQueryContext(config, copyFromDefault);
     }

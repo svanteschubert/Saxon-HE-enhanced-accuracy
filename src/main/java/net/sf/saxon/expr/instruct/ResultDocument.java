@@ -458,7 +458,7 @@ public class ResultDocument extends Instruction
         }
 
         Receiver out = null;
-        ResultDocumentResolver resolver = null;
+        ResultDocumentResolver resolver;
         String hrefValue = "";
         if (getHref() != null) {
             hrefValue = IriToUri.iriToUri(getHref().evaluateAsString(context)).toString();
@@ -859,6 +859,9 @@ public class ResultDocument extends Instruction
         out.emitAttribute("local", exportProperties(localProperties));
         if (getValidationAction() != Validation.SKIP && getValidationAction() != Validation.BY_TYPE) {
             out.emitAttribute("validation", Validation.toString(getValidationAction()));
+        }
+        if (async) {
+            out.emitAttribute("flags", "a");
         }
         final SchemaType schemaType = getSchemaType();
         if (schemaType != null) {

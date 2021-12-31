@@ -9,9 +9,10 @@ package net.sf.saxon.ma.json;
 
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
+import net.sf.saxon.functions.SystemFunction;
+import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.CharSequenceConsumer;
@@ -20,6 +21,7 @@ import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.StringConverter;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.StringToDouble11;
+import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.Whitespace;
 
 import java.util.HashSet;
@@ -44,6 +46,7 @@ public class JsonReceiver implements Receiver {
     private boolean indenting = false;
     private boolean escaped = false;
     private Stack<Set<String>> keyChecker = new Stack<>();
+    private Function numberFormatter;
 
     private static final String ERR_INPUT = "FOJS0006";
 
@@ -75,6 +78,15 @@ public class JsonReceiver implements Receiver {
 
     public boolean isIndenting() {
         return indenting;
+    }
+
+    public void setNumberFormatter(Function formatter) {
+        assert formatter.getArity() == 1;
+        this.numberFormatter = formatter;
+    }
+
+    public Function getNumberFormatter() {
+        return this.numberFormatter;
     }
 
     @Override
@@ -247,14 +259,20 @@ public class JsonReceiver implements Receiver {
                 throw new XPathException("xml-to-json: Value of <boolean> element is not a valid xs:boolean", ERR_INPUT);
             }
         } else if (local.equals("number")) {
-            try {
-                double d = StringToDouble11.getInstance().stringToNumber(textBuffer);
-                if (Double.isNaN(d) || Double.isInfinite(d)) {
-                    throw new XPathException("xml-to-json: Infinity and NaN are not allowed", ERR_INPUT);
+            if (numberFormatter == null) {
+                try {
+                    double d = StringToDouble11.getInstance().stringToNumber(textBuffer);
+                    if (Double.isNaN(d) || Double.isInfinite(d)) {
+                        throw new XPathException("xml-to-json: Infinity and NaN are not allowed", ERR_INPUT);
+                    }
+                    output.cat(new DoubleValue(d).getStringValueCS());
+                } catch (NumberFormatException e) {
+                    throw new XPathException("xml-to-json: Invalid number: " + textBuffer, ERR_INPUT);
                 }
-                output.cat(new DoubleValue(d).getStringValueCS());
-            } catch (NumberFormatException e) {
-                throw new XPathException("xml-to-json: Invalid number: " + textBuffer, ERR_INPUT);
+            } else {
+                Sequence result = SystemFunction.dynamicCall(
+                        numberFormatter, pipe.getXPathContext(), new Sequence[]{new StringValue(textBuffer)});
+                output.cat(((StringValue) result).getStringValueCS());
             }
         } else if (local.equals("string")) {
             output.cat("\"");

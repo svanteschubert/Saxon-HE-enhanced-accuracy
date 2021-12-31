@@ -356,7 +356,7 @@ public class XPathContextMinor implements XPathContext {
         // This should not happen, and if it does, it means that the evaluation mode has been miscalculated.
         // But if it does happen, we recover by wrapping the Closure in a MemoSequence which remembers the
         // value as it is calculated.
-
+        
         value = value.makeRepeatable();
         try {
             stackFrame.slots[slotNumber] = value;

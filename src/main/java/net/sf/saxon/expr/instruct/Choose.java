@@ -55,7 +55,7 @@ public class Choose extends Instruction implements ConditionalInstruction {
     public final static OperandRole CHOICE_ACTION =
             new OperandRole(OperandRole.IN_CHOICE_GROUP, OperandUsage.TRANSMISSION, SequenceType.ANY_SEQUENCE);
 
-
+    
     /**
      * Construct an xsl:choose instruction
      *
@@ -152,11 +152,11 @@ public class Choose extends Instruction implements ConditionalInstruction {
     public int getNumberOfConditions() {
         return size();
     }
-
+    
     public Expression getCondition(int i) {
         return conditionOps[i].getChildExpression();
     }
-
+    
     public void setCondition(int i, Expression condition) {
         conditionOps[i].setChildExpression(condition);
     }
@@ -170,7 +170,7 @@ public class Choose extends Instruction implements ConditionalInstruction {
      * @param i the action number
      * @return the i'th action to be evaluated when the corresponding condition is true
      */
-
+    
     public Operand getActionOperand(int i) {
         return actionOps[i];
     }
@@ -185,7 +185,7 @@ public class Choose extends Instruction implements ConditionalInstruction {
     public Expression getAction(int i) {
         return actionOps[i].getChildExpression();
     }
-
+    
     public void setAction(int i, Expression action) {
         actionOps[i].setChildExpression(action);
     }

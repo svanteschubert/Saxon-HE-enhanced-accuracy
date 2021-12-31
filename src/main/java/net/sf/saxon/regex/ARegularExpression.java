@@ -66,6 +66,19 @@ public class ARegularExpression implements RegularExpression {
     }
 
     /**
+     * Static factory method intended for simple static regular expressions known to be correct
+     * @throws IllegalArgumentException if the pattern or flags are incorrect
+     */
+
+    public static ARegularExpression compile(String pattern, String flags) {
+        try {
+            return new ARegularExpression(pattern, flags, "XP31", null, null);
+        } catch (XPathException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    /**
      * Determine whether the regular expression matches a given string in its entirety
      *
      * @param input the string to match

@@ -7,6 +7,7 @@
 
 package net.sf.saxon.type;
 
+import com.saxonica.ee.schema.UserComplexType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.lib.NamespaceConstant;

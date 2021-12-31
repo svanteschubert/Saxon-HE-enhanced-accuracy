@@ -148,14 +148,27 @@ public final class MultipleNodeKindTest extends NodeTest {
         return fsb.toString();
     }
 
+    @Override
+    public String toShortString() {
+        if (nodeKindMask == CHILD_NODE.nodeKindMask) {
+            return "node()";
+        }
+        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        LinkedList<PrimitiveUType> types = new LinkedList<>(uType.decompose());
+        format(types, fsb, it -> ((NodeKindTest)it).toShortString());
+        return fsb.toString();
+    }
+
     private void format(LinkedList<PrimitiveUType> list, FastStringBuffer fsb, Function<ItemType, String> show) {
         if (list.size() == 1) {
             fsb.append(list.get(0).toItemType().toString());
         } else {
-            fsb.cat('(');
-            fsb.append(list.removeFirst().toItemType().toString());
-            fsb.cat('|');
-            format(list, fsb, show);
+            boolean first = true;
+            for (PrimitiveUType pu : list) {
+                fsb.cat(first ? '(' : '|');
+                first = false;
+                fsb.append(((NodeKindTest)pu.toItemType()).toShortString());
+            }
             fsb.cat(')');
         }
     }

@@ -150,7 +150,7 @@ public class StyleNodeFactory implements NodeFactory {
 //                );
 //            }
 
-            if (toplevel && !e.isDeclaration() && e.forwardsCompatibleModeIsEnabled()) {
+            if (toplevel && !e.isDeclaration() && !(e instanceof XSLExpose) && e.forwardsCompatibleModeIsEnabled()) {
                 DataElement d = new DataElement();
                 d.setNamespaceMap(namespaces);
                 d.initialise(elemName, elemType, attlist, parent, sequence);

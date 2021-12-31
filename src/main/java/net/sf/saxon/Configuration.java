@@ -160,7 +160,7 @@ public class Configuration implements SourceResolver, NotationSet {
     private transient DynamicLoader dynamicLoader = new DynamicLoader();
 
     private IntSet enabledProperties = new IntHashSet(64);
-
+    private String zipUriPattern = null;
     private List<ExternalObjectModel> externalObjectModels = new ArrayList<>(4);
     protected IndependentContext staticContextForSystemFunctions;
 
@@ -219,7 +219,7 @@ public class Configuration implements SourceResolver, NotationSet {
      */
 
     public static final int XML11 = 11;
-
+    
 
     /**
      * Language versions for XML Schema
@@ -889,7 +889,7 @@ public class Configuration implements SourceResolver, NotationSet {
     public void setErrorReporterFactory(java.util.function.Function<Configuration, ? extends ErrorReporter> factory) {
         errorReporterFactory = factory;
     }
-
+    
     public ErrorReporter makeErrorReporter() {
         return errorReporterFactory.apply(this);
     }
@@ -4798,6 +4798,10 @@ public class Configuration implements SourceResolver, NotationSet {
                     //getDefaultXsltCompilerInfo().setXsltVersion(v);
                     break;
 
+                case FeatureCode.ZIP_URI_PATTERN:
+                    zipUriPattern = (String) value;
+                    break;
+
                 default:
                     throw new IllegalArgumentException("Unknown configuration property " + name);
             }
@@ -5265,6 +5269,9 @@ public class Configuration implements SourceResolver, NotationSet {
 
             case FeatureCode.XSLT_VERSION:
                 return (T) Integer.valueOf(30);
+
+            case FeatureCode.ZIP_URI_PATTERN:
+                return zipUriPattern == null ? (T) Feature.ZIP_URI_PATTERN.defaultValue : (T) zipUriPattern;
 
         }
         throw new IllegalArgumentException("Unknown configuration property " + feature.name);

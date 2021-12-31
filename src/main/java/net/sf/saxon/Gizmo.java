@@ -191,7 +191,7 @@ public class Gizmo {
         List<String> sortedNames = new ArrayList<>(Arrays.asList(keywords));
         Collections.sort(sortedNames);
         talker.setAutoCompletion(sortedNames);
-
+        
         if (source != null) {
             try {
                 load(new StringBuffer(source));
@@ -463,7 +463,7 @@ public class Gizmo {
         "instance of", "intersect", "item()", "namespace::", "namespace-node()", "node()", "parent::",
         "preceding::", "preceding-sibling::", "processing-instruction()", "return", "satisfies",
         "schema-attribute", "schema-element", "self::", "some", "text()", "then", "treat as",
-        "union"
+        "union"    
     };
 
     private void load(StringBuffer source) throws XPathException {

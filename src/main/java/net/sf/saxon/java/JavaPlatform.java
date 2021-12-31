@@ -7,6 +7,7 @@
 
 package net.sf.saxon.java;
 
+import com.saxonica.ee.bytecode.util.GeneratedClassLoader;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Platform;
 import net.sf.saxon.dom.DOMEnvelope;

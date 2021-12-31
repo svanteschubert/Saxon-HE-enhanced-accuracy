@@ -901,6 +901,8 @@ public class AlphaCode {
                     result.argTypes = argMaps;
                 }
             }
+        } else if (primary instanceof ExternalObjectType) {
+            result.name = ((ExternalObjectType) primary).getName();
         }
         return result;
     }

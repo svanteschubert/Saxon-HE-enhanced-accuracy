@@ -461,7 +461,7 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
         super.resetLocalStaticProperties();
         if (argumentEvaluators != null) {
             allocateArgumentEvaluators(getArguments());
-        }
+        } 
     }
 
     @Override

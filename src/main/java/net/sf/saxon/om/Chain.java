@@ -121,8 +121,7 @@ public class Chain implements GroundedValue {
             throw new IllegalStateException();
         }
         if (item != null) {
-            //noinspection unchecked
-            children.add((GroundedValue)item);
+            children.add(item);
         }
     }
 
@@ -277,11 +276,11 @@ public class Chain implements GroundedValue {
             }
         }
 
-        private Queue<UnfailingIterator> queue = new LinkedList<>();
+        private final Queue<UnfailingIterator> queue = new LinkedList<>();
 
-        private Stack<ChainPosition> stack;
+        private final Stack<ChainPosition> stack;
 
-        private Chain thisChain;
+        private final Chain thisChain;
 
         public ChainIterator(Chain thisChain) {
             this.thisChain = thisChain;
@@ -321,13 +320,25 @@ public class Chain implements GroundedValue {
             // a Chain, then add it to the stack and repeat. If this Chain is exhausted, then pop it off the
             // stack and repeat.
 
+            outer:
             while (!stack.isEmpty()) {
+//                ChainPosition cp = stack.peek();
+//                GroundedValue gv;
+//                do {
+//                    if (cp.offset >= cp.chain.children.size()) {
+//                        stack.pop();
+//                        continue outer;
+//                    }
+//                    gv = cp.chain.children.get(cp.offset++);
+//                } while (gv.getLength() <= 0);
                 ChainPosition cp = stack.peek();
                 if (cp.offset >= cp.chain.children.size()) {
                     stack.pop();
                     continue;
                 }
                 GroundedValue gv = cp.chain.children.get(cp.offset++);
+
+
                 if (gv instanceof Chain) {
                     stack.push(new ChainPosition((Chain) gv, 0));
                 } else if (gv instanceof Item) {

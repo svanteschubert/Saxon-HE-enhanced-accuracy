@@ -239,6 +239,7 @@ public class Query {
         if (configFile != null) {
             try {
                 config = Configuration.readConfiguration(new StreamSource(configFile));
+                initializeConfiguration(config);
                 schemaAware = config.isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XQUERY);
             } catch (XPathException e) {
                 quit(e.getMessage(), 2);
@@ -251,11 +252,12 @@ public class Query {
 
         if (config == null) {
             config = Configuration.newConfiguration();
+            initializeConfiguration(config);
         }
 
         //config.setHostLanguage(Configuration.XQUERY);
         processor = new Processor(config);
-
+        config.setProcessor(processor);
 
         // Check the command-line arguments.
 
@@ -471,6 +473,23 @@ public class Query {
             quit("Fatal error during query: " + err2.getClass().getName() + ": " +
                          (err2.getMessage() == null ? " (no message)" : err2.getMessage()), 2);
         }
+    }
+
+    /**
+     * Customisation hook called immediately after the Configuration
+     * object is instantiated. The intended purpose of this hook is to allow
+     * a subclass to supply an OEM license key programmatically, but it can also
+     * be used for other initialization of the Configuration. This method is
+     * called before analyzing the command line options, so configuration settings
+     * made at this stage may be overridden when the command line options are processed.
+     * However, if a configuration file is used, the settings defined in the configuration
+     * file will have been applied.
+     *
+     * @param config the Configuration object
+     */
+
+    protected void initializeConfiguration(Configuration config) {
+        // no action: provided for subclasses to override
     }
 
     /**

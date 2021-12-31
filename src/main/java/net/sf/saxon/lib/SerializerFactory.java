@@ -306,6 +306,10 @@ public class SerializerFactory {
                     return customizeAdaptiveSerializer(je, props, characterMapExpander, normalizer);
                 }
                 default: {
+                    if (method.startsWith("{")) {
+                        // We should have an EQName name here rather than a Clark name, but handle both for robustness
+                        method = "Q" + method;
+                    }
                     if (method.startsWith("Q{" + NamespaceConstant.SAXON + "}")) {
                         CharacterMapExpander characterMapExpander = makeCharacterMapExpander(pipe, props, charMapIndex);
                         ProxyReceiver normalizer = makeUnicodeNormalizer(pipe, props);

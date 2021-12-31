@@ -7,6 +7,7 @@
 
 package net.sf.saxon.tree.tiny;
 
+import com.saxonica.ee.validate.SkipValidator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.CopyInformee;
 import net.sf.saxon.event.CopyNamespaceSensitiveException;
@@ -242,7 +243,6 @@ public class TinyElementImpl extends TinyParentNodeImpl {
 
     @Override
     public void copy(/*@NotNull*/ Receiver receiver, int copyOptions, Location location) throws XPathException {
-
         boolean copyTypes = CopyOptions.includes(copyOptions, CopyOptions.TYPE_ANNOTATIONS);
 
         short level = -1;

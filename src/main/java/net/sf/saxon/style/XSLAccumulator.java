@@ -7,6 +7,10 @@
 
 package net.sf.saxon.style;
 
+import com.saxonica.ee.stream.PostureAndSweep;
+import com.saxonica.ee.stream.Streamability;
+import com.saxonica.ee.stream.Sweep;
+import com.saxonica.ee.trans.ContextItemStaticInfoEE;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.Expression;
@@ -179,6 +183,7 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
             ExpressionTool.allocateSlots(init, 0, stackFrameMap);
             accumulator.setSlotManagerForInitialValueExpression(stackFrameMap);
             checkInitialStreamability(init);
+            accumulator.setInitialValueExpression(init);
             accumulator.addChildExpression(init);
         }
 

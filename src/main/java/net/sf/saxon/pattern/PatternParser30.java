@@ -132,6 +132,16 @@ public class PatternParser30 extends XPathParser implements PatternParser {
                 pat = PatternMaker.fromExpression(exp.simplify(), env.getConfiguration(), true);
             }
             pat.setOriginalText(pattern);
+
+            // Maintaining original text for the branches of a union pattern is difficult in the general case,
+            // but that shouldn't stop us handling a common special case...
+            if (pat instanceof UnionPattern) {
+                String[] branches = pattern.split("\\|");
+                if (branches.length == 2) {
+                    ((UnionPattern) pat).p1.setOriginalText(branches[0]);
+                    ((UnionPattern) pat).p2.setOriginalText(branches[1]);
+                }
+            }
             if (exp instanceof FilterExpression && ((FilterExpression)exp).getBase() instanceof ContextItemExpression) {
                 if (allowSaxonExtensions && (pattern.startsWith("tuple") || pattern.startsWith("map") || pattern.startsWith("array") || pattern.startsWith("union"))) {
                     // no action, this is OK

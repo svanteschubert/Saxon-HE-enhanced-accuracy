@@ -30,7 +30,7 @@ public class ImmutableArrayItem extends AbstractArrayItem {
     private ImmutableArrayItem(ImmList<GroundedValue> vector) {
         this.vector = vector;
     }
-
+    
     /**
      * Get a member of the array
      *
@@ -177,6 +177,6 @@ public class ImmutableArrayItem extends AbstractArrayItem {
         }
         return v2 == vector ? this : new ImmutableArrayItem(v2);
     }
-
+    
 }
 

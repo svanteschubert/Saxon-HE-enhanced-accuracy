@@ -133,7 +133,7 @@ public class SequenceSlice implements GroundedValue {
     public ListIterator<? extends Item> iterate() {
         return new ListIterator<>(value.subList(offset, offset+length));
     }
-
+    
     /**
      * Get a subsequence of the value
      *

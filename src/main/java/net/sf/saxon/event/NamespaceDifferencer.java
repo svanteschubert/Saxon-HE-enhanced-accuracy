@@ -53,7 +53,7 @@ public class NamespaceDifferencer extends ProxyReceiver {
         undeclareNamespaces = "yes".equals(details.getProperty(SaxonOutputKeys.UNDECLARE_PREFIXES));
         namespaceStack.push(NamespaceMap.emptyMap());
     }
-
+    
     /**
      * startElement. This call removes redundant namespace declarations, and
      * possibly adds an xmlns="" undeclaration.

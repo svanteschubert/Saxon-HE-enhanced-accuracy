@@ -99,7 +99,7 @@ public class CharacterMapIndex implements Iterable<CharacterMap> {
     public CharacterMapExpander makeCharacterMapExpander(
             String useMaps, Receiver next, SerializerFactory sf) throws XPathException {
         CharacterMapExpander characterMapExpander = null;
-        List<CharacterMap> characterMaps = new ArrayList<CharacterMap>(5);
+        List<CharacterMap> characterMaps = new ArrayList<>(5);
         StringTokenizer st = new StringTokenizer(useMaps, " \t\n\r", false);
         while (st.hasMoreTokens()) {
             String expandedName = st.nextToken();

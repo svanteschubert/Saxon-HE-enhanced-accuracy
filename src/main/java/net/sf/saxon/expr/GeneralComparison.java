@@ -289,7 +289,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
             Expression e0 = getLhsExpression();
             Expression e1 = getRhsExpression();
-
+            
             if (t0.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                 if (t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                     e0 = new CastExpression(getLhsExpression(), BuiltInAtomicType.STRING, Cardinality.allowsZero(c0));
@@ -519,7 +519,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         if (operator != Token.EQUALS &&
                 operator != Token.NE &&
                 (comparisonCardinality == ComparisonCardinality.MANY_TO_MANY ||
-                         comparisonCardinality == ComparisonCardinality.MANY_TO_ONE && manyOperandIsLiftable()) &&
+                         comparisonCardinality == ComparisonCardinality.MANY_TO_ONE && (manyOperandIsLiftable() || manyOperandIsRangeExpression())) &&
                 (NumericType.isNumericType(t0) || NumericType.isNumericType(t1))) {
 
             // System.err.println("** using minimax optimization **");
@@ -547,7 +547,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
             ExpressionTool.copyLocationInfo(this, vc);
             vc.setRetainedStaticContext(getRetainedStaticContext());
-            return vc.typeCheck(visitor, contextInfo);
+            return vc.typeCheck(visitor, contextInfo).optimize(visitor, contextInfo);
         }
 
         // evaluate the expression now if both arguments are constant
@@ -574,6 +574,17 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             return true;
         }
         return false;
+    }
+
+    private boolean manyOperandIsRangeExpression() {
+        for (Operand o : operands()) {
+            Expression e = o.getChildExpression();
+            if (Cardinality.allowsMany(e.getCardinality())) {
+                return (e instanceof RangeExpression ||
+                        e instanceof Literal && ((Literal)e).getValue() instanceof IntegerRange);
+            }
+        }
+        return false; // shouldn't reach here.
     }
 
     /**

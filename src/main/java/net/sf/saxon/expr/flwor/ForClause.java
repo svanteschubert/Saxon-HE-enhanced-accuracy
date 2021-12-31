@@ -244,6 +244,10 @@ public class ForClause extends Clause {
 
         boolean changed = false;
 
+        if (positionVariable != null && positionVariable.getNominalReferenceCount() == 0) {
+            positionVariable = null;
+        }
+
         // Process each term in the where clause independently
 
         if (positionVariable != null &&

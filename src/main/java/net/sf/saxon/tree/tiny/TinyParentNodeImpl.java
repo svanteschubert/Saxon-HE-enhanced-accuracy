@@ -18,7 +18,8 @@ import net.sf.saxon.type.Type;
  */
 
 
-public abstract class TinyParentNodeImpl extends TinyNodeImpl {
+public abstract class
+TinyParentNodeImpl extends TinyNodeImpl {
 
     /**
      * Determine if the node has children.

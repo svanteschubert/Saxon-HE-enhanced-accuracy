@@ -89,7 +89,7 @@ public final class Navigator {
         }
         return null;
     }
-
+    
     /**
      * Helper method to get the name of a node as a structuredQName. Used from bytecode
      * @param node the node
@@ -271,7 +271,7 @@ public final class Navigator {
                 pre = getPath(parent, context);
                 return (pre.equals("/") ? "" : pre) +
                             "/processing-instruction()" + (streamed ? "" : "[" + getNumberSimple(node, context) + "]");
-
+                
             case Type.NAMESPACE:
                 String test = node.getLocalPart();
                 if (test.isEmpty()) {
