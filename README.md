@@ -69,6 +69,35 @@ I have added a [smoke test case](https://github.com/svanteschubert/Saxon-HE/blob
 [JDK 1.8](https://openjdk.java.net/install/) is required by the original [Saxon of Saxonica](http://saxon.sourceforge.net/) and [Maven](https://maven.apache.org/download.cgi?Preferred=ftp://ftp.osuosl.org/pub/apache/) as build environment.
 Build & smoke test can be executed via command-line by calling: **mvn clean install**
 
+## Updating Saxon Version
+
+There is bash script '[saxon-update.sh](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/saxon-update.sh)', which download the latest Saxon from Maven and rebase our changes on top of it. Two variables of next & current version of Saxon needs to be adopted.
+
+## Git Branches
+
+1. **accuracy-feature** (main branch)</br>
+   Contains the script and latest changes should be worked here.
+2. **saxon-upstream**</br>
+   The required parts of the Maven Saxon sources and binaries JAR are being added on top of this branch.
+3. **SAXON-HE-v&lt;VERSION&gt;**</br>
+   Branch with original Saxon functionality. Extends the saxon-upstream of Saxon source & binary JARs with the Saxon pom.xml from Maven. Including commits to allow the Saxon sources to be able to build.
+4. **SAXON-HE-accuracy-v&lt;VERSION&gt;**</br>
+   Previous version of our functionality based on a previous SAXON version.
+5. **prototyping**</br>
+   Initial work before it was later refactored to be automated by bash script 'saxon-update.sh'.
+6. **basics**</br>
+   Branch the inital bash script was being started.
+
+## GiHub Actions
+There are two GitHub Actions
+
+1. [Build](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/maven.yml): Triggered by every push or pull-request on the default branch.
+2. [Deployment](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/deployment.yml): Triggered whenever a tag was pushed a GitHub release is being automated made using the version number extracted from the pom.xml file, for instance:
+   1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br> 
+       e.g. "*git tag -sm v10.6 v10.6*" # using -s to sign the tag & -m is taking the next parameter as message
+   2. **git push --follow-tags** # pushing also all tags
+
+
 ## Report to Saxonica
 
 [https://saxonica.plan.io/issues/4823](https://saxonica.plan.io/issues/4823)
