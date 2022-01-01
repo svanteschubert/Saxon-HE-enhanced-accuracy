@@ -5,9 +5,10 @@ name: Java CI with Maven
 
 on:
   push:
-    branches: [ $default-branch ]
+    branches:
+    - '**'        # matches every branch - see https://stackoverflow.com/questions/57699839/github-actions-how-to-target-all-branches-except-master
   pull_request:
-    branches: [ $default-branch ]
+    - '**'        # matches every branch - see https://stackoverflow.com/questions/57699839/github-actions-how-to-target-all-branches-except-master
 
 jobs:
   build:
