@@ -1,0 +1,49 @@
+name: Publish JAR on tagging
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 11
+      uses: actions/setup-java@v2
+      with:
+        java-version: '11'
+        distribution: 'adopt'
+        cache: maven
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml   
+      # This step reads the pom.xml from repo and use its version for the release
+      # This works on any self-hosted runner OS      
+    - name: Read pom.xml and use its version for new release
+      # run: |
+      # echo ::set-env name=VERSION::$(grep -a -m 1 "<version>" | sed 's/.*<version>//p' | head -1 | sed 's/<\/version>//p' | head -1)    
+      run: |
+        echo "release_version=$(cat pom.xml | grep -a -m 1 "<version>" | sed 's/.*<version>//p' | head -1 | sed 's/<\/version>//p' | head -1)" >> $GITHUB_ENV
+      #id: read_version
+      #shell: bash
+      #run: |
+      #  v=$(cat pom.xml)                                  # <--- Read pom.xml
+      #  v="${grep -a -m 1 "<version>" | sed 's/.*<version>//p' | head -1 | sed 's/<\/version>//p' | head -1 }"      # get version number from pom.xml        
+      #  echo "::set-output name=RELEASE_VERSION::$v"         # <--- Set environment variable
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: target/Saxon-HE-accuracy-${{ env.release_version }}.jar
+        asset_name: Saxon-HE-accuracy-${{ env.release_version }}.jar
+        tag: v${{ env.release_version }}  # <--- Use environment variables that was created earlier
+        overwrite: true
+        body: "This is a Saxon v10.3 release using decimal-based floating-point and offers half-up rounding as an extension function.
+The JAR might be called [Saxon via command-line](https://www.saxonica.com/html/documentation/using-xsl/commandline/).
+For instance, in the root of the GitHub repository after executing a build via 'mvn clean install' the following might be executed by command line:</br>(here using Linux file paths from Linux)
+~~~ Java 
+java -jar ./target/Saxon-HE-accuracy-10.5.jar -s:src/test/resources/xml/in.xml -xsl:src/test/resources/xsl/test.xsl -o:target/generated-sources/out.xml 
+~~~
+
+"
