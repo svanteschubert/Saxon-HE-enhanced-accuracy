@@ -39,12 +39,12 @@ jobs:
         asset_name: Saxon-HE-accuracy-${{ env.release_version }}.jar
         tag: v${{ env.release_version }}  # <--- Use environment variables that was created earlier
         overwrite: true
-        body: "This is a Saxon v10.3 release using decimal-based floating-point and offers half-up rounding as an extension function.
-The JAR might be called [Saxon via command-line](https://www.saxonica.com/html/documentation/using-xsl/commandline/).
-For instance, in the root of the GitHub repository after executing a build via 'mvn clean install' the following might be executed by command line:</br>(here using Linux file paths from Linux)</br>
-</br>
-~~~ Java</br> 
-java -jar ./target/Saxon-HE-accuracy-10.5.jar -s:src/test/resources/xml/in.xml -xsl:src/test/resources/xsl/test.xsl -o:target/generated-sources/out.xml</br> 
-~~~ </br>
-
-"
+        body: "This is a Saxon v10.3 release using decimal-based floating-point and offers half-up rounding as an extension function.\n
+The JAR might be called as [Saxon JAR via command-line](https://www.saxonica.com/html/documentation/using-xsl/commandline/).\n
+For instance, in the root of the GitHub repository after executing a build via 'mvn clean install' the following might be executed by command line:\n
+(here using Linux file paths from Linux)\n
+\n
+~~~ Java\n 
+java -jar ./target/Saxon-HE-accuracy-10.5.jar -s:src/test/resources/xml/in.xml -xsl:src/test/resources/xsl/test.xsl -o:target/generated-sources/out.xml\n
+~~~\n
+\n"
