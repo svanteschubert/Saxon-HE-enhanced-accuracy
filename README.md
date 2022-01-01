@@ -96,7 +96,7 @@ There are two GitHub Actions
    1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br> 
        e.g. "*git tag -sm v10.6 v10.6*" # using -s to sign the tag & -m is taking the next parameter as message
    2. **git push --follow-tags** # pushing also all tags
-
+*Note*: The overwrite function does not work a release have to be manually deleted for the same version from pom.xml!
 
 ## Report to Saxonica
 
