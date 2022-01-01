@@ -3,12 +3,7 @@
 
 name: Java CI with Maven
 
-on:
-  push:
-    branches:
-    - '**'        # matches every branch - see https://stackoverflow.com/questions/57699839/github-actions-how-to-target-all-branches-except-master
-  pull_request:
-    - '**'        # matches every branch - see https://stackoverflow.com/questions/57699839/github-actions-how-to-target-all-branches-except-master
+on: [push, pull_request]
 
 jobs:
   build:
