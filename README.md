@@ -98,6 +98,7 @@ There are two GitHub Actions
    2. **git push --follow-tags** # pushing also all tags
 *Note*: The overwrite function does not work a release have to be manually deleted for the same version from pom.xml!
 
-## Report to Saxonica
+## Reports to Saxonica
 
-[https://saxonica.plan.io/issues/4823](https://saxonica.plan.io/issues/4823)
+* [https://saxonica.plan.io/issues/4823](https://saxonica.plan.io/issues/4823)
+* [https://saxonica.plan.io/issues/5195](https://saxonica.plan.io/issues/5195)
