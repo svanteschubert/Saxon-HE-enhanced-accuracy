@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>net.sf.saxon</groupId>
   <artifactId>Saxon-HE</artifactId>
-  <version>10.5</version>
+  <version>10.7</version>
   <name>Saxon-HE</name>
   <description>The XSLT and XQuery Processor</description>
   <url>http://www.saxonica.com/</url>
@@ -46,22 +46,11 @@
       <email>norm@saxonica.com</email>
     </developer>
   </developers>
-  <mailingLists>
-    <mailingList>
-      <name>User List</name>
-      <post>saxon-help@lists.sourceforge.net</post>
-      <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=saxon-help</archive>
-    </mailingList>
-  </mailingLists>
   <scm>
-    <connection>scm:svn:https://dev.saxonica.com/repos/archive/opensource/</connection>
-    <developerConnection>scm:svn:https://dev.saxonica.com/repos/archive/opensource/</developerConnection>
-    <url>https://dev.saxonica.com/repos/archive/opensource/</url>
+    <connection>scm:git:https://saxonica.plan.io/projects/saxonmirrorhe/repository</connection>
+    <developerConnection>scm:git:https://saxonica.plan.io/projects/saxonmirrorhe/repository</developerConnection>
+    <url>https://saxonica.plan.io/projects/saxonmirrorhe/repository</url>
   </scm>
-  <issueManagement>
-    <system>Saxon Community</system>
-    <url>https://saxonica.plan.io/projects/saxon</url>
-  </issueManagement>
   <properties>
     <skipTests>false</skipTests>
     <maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss</maven.build.timestamp.format>
@@ -71,4 +60,60 @@
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
   </properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.jdom</groupId>
+      <artifactId>jdom</artifactId>
+      <version>1.1.3</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.jdom</groupId>
+      <artifactId>jdom2</artifactId>
+      <version>2.0.6.1</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>xom</groupId>
+      <artifactId>xom</artifactId>
+      <version>1.3.5</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.ibm.icu</groupId>
+      <artifactId>icu4j</artifactId>
+      <version>59.2</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>dom4j</groupId>
+      <artifactId>dom4j</artifactId>
+      <version>1.6.1</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>jline</groupId>
+      <artifactId>jline</artifactId>
+      <version>2.14.6</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.ws.commons.axiom</groupId>
+      <artifactId>axiom</artifactId>
+      <version>1.2.15</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.ws.commons.axiom</groupId>
+      <artifactId>axiom-dom</artifactId>
+      <version>1.2.15</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.ws.commons.axiom</groupId>
+      <artifactId>axiom-impl</artifactId>
+      <version>1.2.15</version>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
 </project>

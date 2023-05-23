@@ -6,7 +6,7 @@ set -e -v
 
 # !!! PLEASE UPDATE BOTH VARIABLES!!!
 # !! -> 1. Version number of the Saxon release to be downloaded/merged with!
-SAXON_NEXT_VERSION="10.5"
+SAXON_NEXT_VERSION="10.7"
 
 
 git checkout Saxon-HE-pom.xml-only
