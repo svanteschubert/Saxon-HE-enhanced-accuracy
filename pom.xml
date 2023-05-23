@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>net.sf.saxon</groupId>
   <artifactId>Saxon-HE</artifactId>
-  <version>10.7</version>
+  <version>10.8</version>
   <name>Saxon-HE</name>
   <description>The XSLT and XQuery Processor</description>
   <url>http://www.saxonica.com/</url>
