@@ -603,7 +603,7 @@ public abstract class Mode extends Actor {
     }
 
     /**
-     * Return a built-in rule set for a code string. 
+     * Return a built-in rule set for a code string.
      *
      * @param code the code used in export
      * @return a suitable ruleset

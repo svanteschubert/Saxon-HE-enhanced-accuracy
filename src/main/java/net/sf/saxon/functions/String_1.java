@@ -63,7 +63,7 @@ public class String_1 extends ScalarSystemFunction {
                 arg.getCardinality() == StaticProperty.EXACTLY_ONE) {
             return arg;
         }
-        if (arg instanceof SimpleNodeConstructor) {
+        if (arg instanceof SimpleNodeConstructor && arg.getCardinality() == StaticProperty.EXACTLY_ONE) {
             return ((SimpleNodeConstructor) arg).getSelect();
         }
         return null;

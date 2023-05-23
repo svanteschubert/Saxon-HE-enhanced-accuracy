@@ -20,7 +20,7 @@ import net.sf.saxon.value.Base64BinaryValue;
 public class CollationKeyFn extends CollatingFunctionFixed {
 
 
-    private static Base64BinaryValue getCollationKey(String s, StringCollator collator) {
+    public static Base64BinaryValue getCollationKey(String s, StringCollator collator) {
         AtomicValue val = collator.getCollationKey(s).asAtomic();
         if (val instanceof Base64BinaryValue) {
             return (Base64BinaryValue) val;

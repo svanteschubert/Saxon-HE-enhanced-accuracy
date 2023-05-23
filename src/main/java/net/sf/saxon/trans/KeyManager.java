@@ -344,7 +344,7 @@ public class KeyManager {
      */
 
     public KeyIndex obtainIndex(KeyDefinitionSet keySet, TreeInfo doc, XPathContext context) throws XPathException {
-        if (keySet.isReusable()) { 
+        if (keySet.isReusable()) {
             return obtainSharedIndex(keySet, doc, context);
         } else {
             return obtainLocalIndex(keySet, doc, context);

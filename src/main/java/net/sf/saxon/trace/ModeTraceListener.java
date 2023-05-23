@@ -63,7 +63,7 @@ public class ModeTraceListener extends AbstractTraceListener {
                     + '>';
             out.info(msg);
             indent++;
-        } 
+        }
     }
 
     @Override

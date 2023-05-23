@@ -138,20 +138,20 @@ public class XmlResource implements Resource {
             if (options == null) {
                 options = config.getParseOptions();
             }
-            StreamSource source;
-            if (details.characterContent != null) {
-                source = new StreamSource(new StringReader(details.characterContent), resourceURI);
-            } else if (details.binaryContent != null) {
-                source = new StreamSource(new ByteArrayInputStream(details.binaryContent), resourceURI);
-            } else {
-                try {
-                    InputStream stream = details.getInputStream();
-                    source = new StreamSource(stream, resourceURI);
-                } catch (IOException e) {
-                    throw new XPathException(e);
-                }
-            }
+            StreamSource source = null;
             try {
+                if (details.characterContent != null) {
+                    source = new StreamSource(new StringReader(details.characterContent), resourceURI);
+                } else if (details.binaryContent != null) {
+                    source = new StreamSource(new ByteArrayInputStream(details.binaryContent), resourceURI);
+                } else {
+                    try {
+                        InputStream stream = details.getInputStream();
+                        source = new StreamSource(stream, resourceURI);
+                    } catch (IOException e) {
+                        throw new XPathException(e);
+                    }
+                }
                 doc = config.buildDocumentTree(source, options).getRootNode();
             } catch (XPathException e) {
                 if (details.onError == URIQueryParameters.ON_ERROR_FAIL) {

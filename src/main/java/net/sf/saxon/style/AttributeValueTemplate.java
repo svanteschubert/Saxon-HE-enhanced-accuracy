@@ -81,7 +81,7 @@ public abstract class AttributeValueTemplate {
                 Expression exp;
                 XPathParser parser = env.getConfiguration().newExpressionParser("XP", false, languageLevel);
                 //parser.setDefaultContainer(container);
-                parser.setLanguage(XPathParser.ParsedLanguage.XPATH, 31);
+                parser.setLanguage(XPathParser.ParsedLanguage.XPATH, languageLevel);
                 parser.setAllowAbsentExpression(true);
                 exp = parser.parse(avt, i0 + 1, Token.RCURLY, env);
                 exp.setRetainedStaticContext(env.makeRetainedStaticContext());

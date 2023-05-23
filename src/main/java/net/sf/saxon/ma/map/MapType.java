@@ -130,7 +130,7 @@ public class MapType extends AnyFunctionType {
 
     @Override
     public boolean isAtomizable(TypeHierarchy th) {
-        return false; 
+        return false;
     }
 
     /**

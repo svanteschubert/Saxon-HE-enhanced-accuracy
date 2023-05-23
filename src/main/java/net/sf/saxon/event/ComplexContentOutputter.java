@@ -150,7 +150,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         super.setSystemId(systemId);
         nextReceiver.setSystemId(systemId);
     }
-    
+
     /**
      * Set the host language
      *
@@ -666,26 +666,26 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      * of the method, if called at an inner level, outputs the string as a sequence
      * of characters() events, with logic to include space separation where appropriate
      *
+     * @param asTextNode set to true if the concatenated string values are to be treated as a text node
+     * @param loc the location of the instruction that generates the content
      * @return an object that accepts xs:string values via a sequence of append() calls
-     * @param asTextNode set to true if the concatenated string values are to be treated
-     *      *                   as a text node item rather than a string
      */
 
     @Override
-    public CharSequenceConsumer getStringReceiver(boolean asTextNode) {
+    public CharSequenceConsumer getStringReceiver(boolean asTextNode, Location loc) {
         if (level >= 0) {
             return new CharSequenceConsumer() {
 
                 @Override
                 public void open() throws XPathException {
                     if (previousAtomic && !asTextNode) {
-                        ComplexContentOutputter.this.characters(" ", Loc.NONE, ReceiverOption.NONE);
+                        ComplexContentOutputter.this.characters(" ", loc, ReceiverOption.NONE);
                     }
                 }
 
                 @Override
                 public CharSequenceConsumer cat(CharSequence chars) throws XPathException {
-                    ComplexContentOutputter.this.characters(chars, Loc.NONE, ReceiverOption.NONE);
+                    ComplexContentOutputter.this.characters(chars, loc, ReceiverOption.NONE);
                     return this;
                 }
 
@@ -695,7 +695,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
                 }
             };
         } else {
-            return super.getStringReceiver(asTextNode);
+            return super.getStringReceiver(asTextNode, loc);
         }
 
     }

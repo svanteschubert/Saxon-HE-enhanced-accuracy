@@ -66,7 +66,13 @@ public class IntersectionEnumeration implements SequenceIterator {
         // main merge loop: iterate whichever sequence has the lower value, returning when a pair
         // is found that match.
 
-        if (nextNode1 == null || nextNode2 == null) {
+        if (nextNode1 == null) {
+            e2.close();
+            return null;
+        }
+
+        if (nextNode2 == null) {
+            e1.close();
             return null;
         }
 

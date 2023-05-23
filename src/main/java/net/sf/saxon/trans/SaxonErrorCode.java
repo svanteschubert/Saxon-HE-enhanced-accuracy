@@ -299,6 +299,18 @@ public class SaxonErrorCode {
 
     public static final String SXST0069 = "SXST0069";
 
+    /**
+     * SXST0070: Exporting a stylesheet containing static references to external Java objects
+     */
+
+    public static final String SXST0070 = "SXST0070";
+
+    /**
+     * SXST0071: Exporting a stylesheet containing static references to saxon:tabulate-maps instruction
+     */
+
+    public static final String SXST0071 = "SXST0071";
+
 
     /**
      * SXTA0001: unresolved type alias
@@ -433,6 +445,12 @@ public class SaxonErrorCode {
      */
 
     public static final String SXWN9017 = "SXWN9017";
+
+    /**
+     * SXWN9018: warning during schema processing
+     */
+
+    public static final String SXWN9018 = "SXWN9018";
 
 
 }

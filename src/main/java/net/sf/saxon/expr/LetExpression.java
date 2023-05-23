@@ -346,7 +346,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
         while (tries++ < 5) {
             Expression seq0 = getSequence();
             getSequenceOp().optimize(visitor, contextItemType);
-            if (getSequence() instanceof Literal && !isIndexedVariable) {
+            if (getSequence() instanceof Literal && !isIndexedVariable && opt.isOptionSet(OptimizerOptions.INLINE_VARIABLES)) {
                 return optimize(visitor, contextItemType);
             }
             if (seq0 == getSequence()) {

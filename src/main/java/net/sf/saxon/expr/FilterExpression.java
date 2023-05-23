@@ -317,8 +317,11 @@ public final class FilterExpression extends BinaryExpression implements ContextS
         final TypeHierarchy th = config.getTypeHierarchy();
 
         getLhs().optimize(visitor, contextItemType);
+        if (Literal.isEmptySequence(getSelectExpression())) {
+            return getSelectExpression();
+        }
         getBase().setFiltered(true);
-        
+
         ContextItemStaticInfo baseItemType = config.makeContextItemStaticInfo(getSelectExpression().getItemType(), false);
         baseItemType.setContextSettingExpression(getBase());
         getRhs().optimize(visitor, baseItemType);

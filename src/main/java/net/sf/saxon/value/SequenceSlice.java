@@ -37,7 +37,7 @@ public class SequenceSlice implements GroundedValue {
      * @param offset the zero-based position of the first item to be included in the sequence
      * @param length the number of items to be included in the sequence; if this exceeds the number
      *               of items available for inclusion, include all items up to the end of the sequence
-     * @throws IndexOutOfBoundsException if offset < 0 or length < 0 or offset + length < value.size()
+     * @throws IndexOutOfBoundsException if offset &lt; 0 or length &lt; 0 or offset + length &lt; value.size()
      */
 
     public SequenceSlice(List<? extends Item> value, int offset, int length) {
@@ -133,7 +133,7 @@ public class SequenceSlice implements GroundedValue {
     public ListIterator<? extends Item> iterate() {
         return new ListIterator<>(value.subList(offset, offset+length));
     }
-    
+
     /**
      * Get a subsequence of the value
      *

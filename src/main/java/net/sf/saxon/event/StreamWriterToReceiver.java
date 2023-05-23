@@ -7,7 +7,6 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.StandardURIChecker;
 import net.sf.saxon.om.*;
@@ -80,7 +79,6 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
      */
 
     private Receiver receiver;
-    private Configuration config;
 
     /**
      * The Checker used for testing valid characters
@@ -109,7 +107,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
     /**
      * inScopeNamespaces represents namespaces that have been declared in the XML stream
      */
-    private NamespaceReducer inScopeNamespaces;
+    private final NamespaceReducer inScopeNamespaces;
 
     /**
      * setPrefixes represents the namespace bindings that have been set, at each level of the stack,
@@ -117,7 +115,9 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
      * of NamespaceBinding objects, that is, prefix/uri pairs
      */
 
-    private Stack<List<NamespaceBinding>> setPrefixes = new Stack<>();
+    private final Stack<List<NamespaceBinding>> setPrefixes = new Stack<>();
+
+    private final Stack<NamespaceMap> namespaceStack = new Stack<>();
 
     /**
      * rootNamespaceContext is the namespace context supplied at the start, is the final fallback
@@ -139,23 +139,10 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         PipelineConfiguration pipe = receiver.getPipelineConfiguration();
         this.inScopeNamespaces = new NamespaceReducer(receiver);
         this.receiver = inScopeNamespaces;
-        this.config = pipe.getConfiguration();
-        //this.receiver = new TracingFilter(this.receiver);
         this.charChecker = pipe.getConfiguration().getValidCharacterChecker();
         this.setPrefixes.push(new ArrayList<>());
-        this.rootNamespaceContext = new NamespaceContextImpl(new NamespaceResolver() {
-            // See bug 2902; initialise rootNamespaceContext to an empty set of namespaces
-            @Override
-            public String getURIForPrefix(String prefix, boolean useDefault) {
-                return null;
-            }
-
-            @Override
-            public Iterator<String> iteratePrefixes() {
-                List<String> e = Collections.emptyList();
-                return e.iterator();
-            }
-        });
+        this.namespaceStack.push(NamespaceMap.emptyMap());
+        this.rootNamespaceContext = new NamespaceContextImpl(NamespaceMap.emptyMap());
     }
 
 
@@ -207,11 +194,11 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                     elemName = new FingerprintedQName(pendingTag.elementName.prefix, pendingTag.elementName.uri, pendingTag.elementName.local);
                 }
 
-                NamespaceMap nsMap = NamespaceMap.emptyMap();
+                NamespaceMap nsMap = namespaceStack.peek();
                 if (!pendingTag.elementName.uri.isEmpty()) {
                     nsMap = nsMap.put(pendingTag.elementName.prefix, pendingTag.elementName.uri);
                 }
-                
+
                 for (Triple t : pendingTag.namespaces) {
                     if (t.prefix == null) {
                         t.prefix = "";
@@ -246,6 +233,8 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                     depth--;
                     setPrefixes.pop();
                     receiver.endElement();
+                } else {
+                    namespaceStack.push(nsMap);
                 }
             } catch (XPathException e) {
                 throw new XMLStreamException(e);
@@ -284,24 +273,6 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         if (t.prefix.isEmpty() && !t.uri.isEmpty()) {
             t.prefix = getPrefixForUri(t.uri);
         }
-    }
-
-    private String getDefaultNamespace() {
-        for (Triple t : pendingTag.namespaces) {
-            if (t.prefix == null || t.prefix.isEmpty()) {
-                return t.uri;
-            }
-        }
-        return inScopeNamespaces.getURIForPrefix("", true);
-    }
-
-    private String getUriForPrefix(String prefix) {
-        for (Triple t : pendingTag.namespaces) {
-            if (prefix.equals(t.prefix)) {
-                return t.uri;
-            }
-        }
-        return inScopeNamespaces.getURIForPrefix(prefix, false);
     }
 
     private String getPrefixForUri(String uri) {

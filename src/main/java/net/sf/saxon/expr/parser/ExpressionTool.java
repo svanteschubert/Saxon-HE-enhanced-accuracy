@@ -18,6 +18,7 @@ import net.sf.saxon.expr.instruct.*;
 import net.sf.saxon.expr.sort.ConditionalSorter;
 import net.sf.saxon.expr.sort.DocumentSorter;
 import net.sf.saxon.functions.*;
+import net.sf.saxon.functions.hof.UserFunctionReference;
 import net.sf.saxon.lib.Logger;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StandardLogger;
@@ -167,10 +168,18 @@ public class ExpressionTool {
 
     public static Expression injectCode(Expression exp, CodeInjector injector) {
         if (exp instanceof FLWORExpression) {
-            ((FLWORExpression)exp).injectCode(injector);
-        } else if (!(exp instanceof TraceExpression)){
+            ((FLWORExpression) exp).injectCode(injector);
+        } else if (exp instanceof TraceExpression) {
+            for (Operand o : ((TraceExpression)exp).getChild().operands()) {
+                if (!o.getOperandRole().isConstrainedClass()) {
+                    o.setChildExpression(injectCode(o.getChildExpression(), injector));
+                }
+            }
+        } else {
             for (Operand o : exp.operands()) {
-                o.setChildExpression(injectCode(o.getChildExpression(), injector));
+                if (!o.getOperandRole().isConstrainedClass()) {
+                    o.setChildExpression(injectCode(o.getChildExpression(), injector));
+                }
             }
         }
         return injector.inject(exp);
@@ -1057,7 +1066,7 @@ public class ExpressionTool {
                 compileWithTracing = ((ExpressionContext) env).getStyleElement().getCompilation().getCompilerInfo().isCompileWithTracing();
             }
         }
-        if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS) && !compileWithTracing) {
+        if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS) /*&& !compileWithTracing*/) {
             ExpressionTool.resetPropertiesWithinSubtree(body);
             if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS)) {
                 body = body.optimize(visitor, cisi);
@@ -1303,7 +1312,7 @@ public class ExpressionTool {
                 o.setChildExpression(e2);
                 replaced = true;
             } else {
-                replaced = replaceSelectedSubexpressions(child, selector, replacement, mustCopy);
+                replaced |= replaceSelectedSubexpressions(child, selector, replacement, mustCopy);
             }
         }
         return replaced;
@@ -1321,7 +1330,10 @@ public class ExpressionTool {
     public static void replaceVariableReferences(Expression exp, final Binding binding, Expression replacement, boolean mustCopy) {
         ExpressionSelector selector =
                 child -> child instanceof VariableReference && ((VariableReference) child).getBinding() == binding;
-        replaceSelectedSubexpressions(exp, selector, replacement, mustCopy);
+        boolean changed = replaceSelectedSubexpressions(exp, selector, replacement, mustCopy);
+        if (changed) {
+            resetPropertiesWithinSubtree(exp);
+        }
     }
 
     /**
@@ -1378,6 +1390,10 @@ public class ExpressionTool {
         int total = 1;
         for (Operand o : exp.operands()) {
             total += expressionSize(o.getChildExpression());
+            if (o.getChildExpression() instanceof UserFunctionReference) {  // bug 5054
+                UserFunction uf = ((UserFunctionReference) o.getChildExpression()).getNominalTarget();
+                total += expressionSize(uf.getBody());
+            }
         }
         return total;
     }

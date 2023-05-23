@@ -6,7 +6,7 @@
  * Java application (that is, where there is no XSLT stylesheet), or it can be
  * used from within Java extension functions called from XPath expressions within
  * a stylesheet.</p>
- * <p>The API itself is defined by JAXP 1.3, in interfaces such as <code>javax.xml.xpath.XPath</code>.<
+ * <p>The API itself is defined by JAXP 1.3, in interfaces such as <code>javax.xml.xpath.XPath</code>.
  * These interfaces are included in Java Standard Edition from JDK 1.5 onwards.</p>
  * <p>The interfaces provided by Saxon extend the JAXP 1.3 interfaces in various ways. There
  * are three reasons for this:</p>

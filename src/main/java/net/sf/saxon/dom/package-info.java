@@ -18,7 +18,7 @@
  * <p>Note that Saxon's tree structures are immutable. Updating interfaces
  * in the DOM API are therefore not supported.</p></li>
  * </ul>
- * <p>The classes {@link net.sf.saxon.dom.NodeWrapper} and {@link net.sf.saxon.dom.DocumentWrapper} implement the Saxon
+ * <p>The classes {@code net.sf.saxon.dom.NodeWrapper} and {@link net.sf.saxon.dom.DocumentWrapper} implement the Saxon
  * interface
  * {@link net.sf.saxon.om.NodeInfo} on top of an underlying DOM
  * <code>Node</code> or <code>Document</code> object. This enables XPath expressions to be executed

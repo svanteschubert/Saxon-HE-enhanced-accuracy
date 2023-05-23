@@ -38,7 +38,7 @@ public class ClauseInfo implements Traceable {
     public Location getLocation() {
         return clause.getLocation();
     }
-    
+
     /**
      * Get a name identifying the object of the expression, for example a function name, template name,
      * variable name, key name, element name, etc. This is used only where the name is known statically.

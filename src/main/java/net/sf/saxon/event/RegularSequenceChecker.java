@@ -32,6 +32,7 @@ import java.util.Stack;
  *     and the final state must be <b>final</b>.</li>
  * </ol>
  * <table>
+ *     <caption>Permitted state transitions</caption>
  *     <thead>
  *         <tr><td>State</td><td>Events</td><td>Next State</td></tr>
  *     </thead>

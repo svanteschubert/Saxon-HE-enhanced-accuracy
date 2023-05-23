@@ -49,7 +49,7 @@ import java.util.Properties;
  */
 
 public class Serialize extends SystemFunction implements Callable {
-    
+
     public static OptionsParameter makeOptionsParameter() {
         SequenceType listOfQNames = BuiltInAtomicType.QNAME.zeroOrMore();
         OptionsParameter op = new OptionsParameter();
@@ -69,7 +69,7 @@ public class Serialize extends SystemFunction implements Callable {
         //json-node-output-method-param-type  json-node-output-method-type - xs:string or xs:QName
         op.addAllowedOption("media-type", SequenceType.SINGLE_STRING); //string-param-type
         op.addAllowedOption("method", SequenceType.SINGLE_STRING);
-        //method-param-type method-type - xs:string or xs:QName            
+        //method-param-type method-type - xs:string or xs:QName
         op.addAllowedOption("normalization-form", SequenceType.SINGLE_STRING);
         //NMTOKEN-param-type  BuiltInAtomicType.NMTOKEN
         op.addAllowedOption("omit-xml-declaration", SequenceType.SINGLE_BOOLEAN); //yes-no-param-type
@@ -99,7 +99,7 @@ public class Serialize extends SystemFunction implements Callable {
         op.addAllowedOption(sx("supply-source-locator"), SequenceType.SINGLE_BOOLEAN); //boolean
         return op;
     }
-    
+
     private static String sx(String s) {
         return "Q{" + NamespaceConstant.SAXON + "}" + s;
     }
@@ -530,7 +530,7 @@ public class Serialize extends SystemFunction implements Callable {
         if (props.getProperty(OutputKeys.OMIT_XML_DECLARATION) == null) {
             props.setProperty(OutputKeys.OMIT_XML_DECLARATION, "true");
         }
-                                                                                  
+
         // TODO add more spec-defined defaults here (for both cases)
         try {
             StringWriter result = new StringWriter();

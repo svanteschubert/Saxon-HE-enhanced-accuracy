@@ -7,7 +7,6 @@
 
 package net.sf.saxon.type;
 
-import com.saxonica.ee.schema.UserSimpleType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.StaticProperty;
@@ -964,8 +963,8 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      * types, the resulting converter needs to be supplied with a NamespaceResolver to handle prefix
      * resolution.
      */
- 
-    
+
+
     @Override
     public StringConverter getStringConverter(ConversionRules rules) {
         if (stringConverter != null) {

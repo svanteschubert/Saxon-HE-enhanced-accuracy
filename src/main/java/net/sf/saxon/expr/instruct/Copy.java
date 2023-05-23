@@ -414,7 +414,11 @@ public class Copy extends ElementCreator {
         Controller controller = context.getController();
         Item item = context.getContextItem();
         if (item == null) {
-            return null;
+            XPathException err = new XPathException("There is no context item for xsl:copy", "XTTE0945");
+            err.setIsTypeError(true);
+            err.setLocation(getLocation());
+            err.setXPathContext(context);
+            throw err;
         }
 
         if (!(item instanceof NodeInfo)) {

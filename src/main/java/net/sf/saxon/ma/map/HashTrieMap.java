@@ -356,11 +356,21 @@ public class HashTrieMap implements MapItem {
 //        if (Instrumentation.ACTIVE) {
 //            Instrumentation.count("remove");
 //        }
-        ImmutableMap<AtomicMatchKey, KeyValuePair> m2 = imap.remove(makeKey(key));
-        if (m2 == imap) {
+
+        // This code used to assume that if the key wasn't in the
+        // map, imap.remove() would return the original object
+        // unchanged. But that was only true if the hash bucket
+        // that would have contained the value was empty. That
+        // won't be the case if other values happen to have been
+        // assigned that bucket. So now we do an explicit check.
+        // This is probably slower, but remove() is an uncommon
+        // operation. And it gives the correct result!
+        if (imap.get(makeKey(key)) == null) {
             // The key is not present; the map is unchanged
             return this;
         }
+
+        ImmutableMap<AtomicMatchKey, KeyValuePair> m2 = imap.remove(makeKey(key));
         HashTrieMap result = new HashTrieMap(m2);
         result.keyUType = keyUType;
         result.valueUType = valueUType;

@@ -61,7 +61,7 @@ public class Block extends Instruction {
      * @param n the position of the child expression required (zero-based)
      * @return the child expression at that position
      */
-    
+
     private Expression child(int n) {
         return operanda[n].getChildExpression();
     }

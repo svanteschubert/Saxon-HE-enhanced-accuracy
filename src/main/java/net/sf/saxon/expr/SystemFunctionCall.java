@@ -97,7 +97,7 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
         return this;
     }
 
-    private void allocateArgumentEvaluators(Expression[] arguments) {
+    public void allocateArgumentEvaluators(Expression[] arguments) {
         for (int i = 0; i < arguments.length; i++) {
             Expression arg = arguments[i];
             int cardinality = isCallOn(Concat.class) ?
@@ -461,7 +461,7 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
         super.resetLocalStaticProperties();
         if (argumentEvaluators != null) {
             allocateArgumentEvaluators(getArguments());
-        } 
+        }
     }
 
     @Override

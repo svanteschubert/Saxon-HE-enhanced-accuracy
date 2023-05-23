@@ -347,6 +347,7 @@ public class XdmAtomicValue extends XdmItem {
      * Get the value as a Java object of the nearest equivalent type.
      * <p>The result type is as follows:</p>
      * <table>
+     *     <caption>XPath types and corresponding Java classes</caption>
      * <tr><th>XPath type</th>      <th>Java class</th></tr>
      * <tr><td>xs:string</td>       <td>String</td></tr>
      * <tr><td>xs:integer</td>      <td>java.math.BigInteger</td></tr>

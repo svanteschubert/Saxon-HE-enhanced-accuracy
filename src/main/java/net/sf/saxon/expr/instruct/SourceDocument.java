@@ -15,6 +15,7 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.DocumentFn;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
+import net.sf.saxon.om.AllElementsSpaceStrippingRule;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.pattern.NodeKindTest;
@@ -228,6 +229,8 @@ public class SourceDocument extends Instruction {
         String flags = "";
         if (parseOptions.getSpaceStrippingRule() == xsltStripSpace) {
             flags += "s";
+        } else if (parseOptions.getSpaceStrippingRule() == AllElementsSpaceStrippingRule.getInstance()) {
+            flags += "S";
         }
         if (parseOptions.isLineNumbering()) {
             flags += "l";

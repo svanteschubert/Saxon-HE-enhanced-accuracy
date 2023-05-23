@@ -299,7 +299,7 @@ public class AttributeImpl extends NodeImpl {
             if (n.getNodeKind() != Type.ATTRIBUTE) {
                 throw new IllegalArgumentException("Replacement nodes must be attributes");
             }
-            element.addAttribute(NameOfNode.makeName(n), BuiltInAtomicType.UNTYPED_ATOMIC, n.getStringValue(), ReceiverOption.NONE);
+            element.addAttribute(NameOfNode.makeName(n), BuiltInAtomicType.UNTYPED_ATOMIC, n.getStringValue(), ReceiverOption.NONE, inherit);
         }
     }
 
@@ -307,10 +307,11 @@ public class AttributeImpl extends NodeImpl {
      * Rename this node
      *
      * @param newNameCode the NamePool code of the new name
+     * @param inheritNamespaces
      */
 
     @Override
-    public void rename(NodeName newNameCode) {
+    public void rename(NodeName newNameCode, boolean inheritNamespaces) {
         // The attribute node itself is transient; we need to update the attribute collection held in the parent
         ElementImpl owner = (ElementImpl)getRawParent();
         if (owner != null && !isDeleted()) {
@@ -324,7 +325,7 @@ public class AttributeImpl extends NodeImpl {
                 NamespaceBinding newBinding = new NamespaceBinding(newPrefix, newURI);
                 String oldURI = ((ElementImpl) getRawParent()).getURIForPrefix(newPrefix, false);
                 if (oldURI == null) {
-                    owner.addNamespace(newBinding);
+                    owner.addNamespace(newBinding, inheritNamespaces);
                 } else if (!oldURI.equals(newURI)) {
                     throw new IllegalArgumentException(
                             "Namespace binding of new name conflicts with existing namespace binding");

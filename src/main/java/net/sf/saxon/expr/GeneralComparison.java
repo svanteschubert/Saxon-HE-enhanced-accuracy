@@ -289,7 +289,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
             Expression e0 = getLhsExpression();
             Expression e1 = getRhsExpression();
-            
+
             if (t0.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                 if (t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                     e0 = new CastExpression(getLhsExpression(), BuiltInAtomicType.STRING, Cardinality.allowsZero(c0));

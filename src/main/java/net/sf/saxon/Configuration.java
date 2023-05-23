@@ -43,7 +43,7 @@ import net.sf.saxon.serialize.charcode.XMLCharacterData;
 import net.sf.saxon.style.*;
 import net.sf.saxon.sxpath.IndependentContext;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trace.TraceCodeInjector;
+import net.sf.saxon.trace.XQueryTraceCodeInjector;
 import net.sf.saxon.trace.XSLTTraceCodeInjector;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.packages.IPackageLoader;
@@ -140,11 +140,7 @@ public class Configuration implements SourceResolver, NotationSet {
     private StaticQueryContextFactory staticQueryContextFactory = new StaticQueryContextFactory();
     protected OptimizerOptions optimizerOptions = OptimizerOptions.FULL_HE_OPTIMIZATION;
     protected CompilerInfo defaultXsltCompilerInfo = makeCompilerInfo();
-    private java.util.function.Function<Configuration, ? extends ErrorReporter> errorReporterFactory = config -> {
-        StandardErrorReporter reporter = new StandardErrorReporter();
-        reporter.setLogger(config.getLogger());
-        return reporter;
-    };
+    private java.util.function.Function<Configuration, ? extends ErrorReporter> errorReporterFactory;
 
     private String label = null;
 
@@ -219,7 +215,7 @@ public class Configuration implements SourceResolver, NotationSet {
      */
 
     public static final int XML11 = 11;
-    
+
 
     /**
      * Language versions for XML Schema
@@ -270,7 +266,9 @@ public class Configuration implements SourceResolver, NotationSet {
 
     /*@Nullable*/
     public static InputStream locateResource(String filename, List<String> messages, List<ClassLoader> loaders) {
+
         filename = "net/sf/saxon/data/" + filename;
+
         ClassLoader loader = null;
         try {
             loader = Thread.currentThread().getContextClassLoader();
@@ -677,6 +675,18 @@ public class Configuration implements SourceResolver, NotationSet {
     }
 
     /**
+     * Assert that a PE license is required, and fail if none is available
+     * @param featureName name of the required feature, to include in the error message
+     * @throws LicenseException if no license key is available
+     */
+
+    public void requireProfessionalLicense(String featureName) throws LicenseException {
+        if (!isLicensedFeature(LicenseFeature.PROFESSIONAL_EDITION)) {
+            throw new LicenseException("Use of " + featureName + " requires a license key for Saxon-PE or Saxon-EE", LicenseException.NOT_FOUND);
+        }
+    }
+
+    /**
      * Get the value of a named license feature
      *
      * @param name the name of the feature
@@ -889,8 +899,15 @@ public class Configuration implements SourceResolver, NotationSet {
     public void setErrorReporterFactory(java.util.function.Function<Configuration, ? extends ErrorReporter> factory) {
         errorReporterFactory = factory;
     }
-    
+
     public ErrorReporter makeErrorReporter() {
+        if (errorReporterFactory == null) {
+            errorReporterFactory = config -> {
+                StandardErrorReporter reporter = new StandardErrorReporter();
+                reporter.setLogger(config.getLogger());
+                return reporter;
+            };
+        }
         return errorReporterFactory.apply(this);
     }
 
@@ -1353,13 +1370,7 @@ public class Configuration implements SourceResolver, NotationSet {
                 defaultXsltCompilerInfo.setCodeInjector(null);
             }
         }
-        if (defaultStaticQueryContext != null) {
-            if (trace) {
-                defaultStaticQueryContext.setCodeInjector(new TraceCodeInjector());
-            } else {
-                defaultStaticQueryContext.setCodeInjector(null);
-            }
-        }
+        getDefaultStaticQueryContext().setCodeInjector(trace ? new XQueryTraceCodeInjector() : null);
     }
 
     /**

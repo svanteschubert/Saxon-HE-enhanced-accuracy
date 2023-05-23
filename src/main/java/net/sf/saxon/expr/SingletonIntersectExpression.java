@@ -11,7 +11,6 @@ import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
@@ -102,6 +101,7 @@ public class SingletonIntersectExpression extends VennExpression {
         NodeInfo n;
         while ((n = (NodeInfo) iter.next()) != null) {
             if (n.equals(m)) {
+                iter.close();
                 return SingletonIterator.makeIterator(m);
             }
         }

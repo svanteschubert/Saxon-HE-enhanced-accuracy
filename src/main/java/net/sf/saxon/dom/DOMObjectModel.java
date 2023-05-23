@@ -50,7 +50,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
     private static DocumentBuilderFactory factory = null;
 
     /**
-     * Get a reusable instance instance of this class.
+     * Get a reusable instance of this class.
      * <p>Note, this is not actually a singleton instance; the class also has a public constructor,
      * which is needed to support the automatic loading of object models into the Configuration.</p>
      *

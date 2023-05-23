@@ -328,7 +328,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
         keydef.setRangeKey(rangeKey);
         keydef.setIndexedItemType(useType);
         keydef.setStackFrameMap(stackFrameMap);
-        keydef.setLocation(getSystemId(), getLineNumber());
+        keydef.setLocation(getSystemId(), getLineNumber(), getColumnNumber());
         keydef.setBackwardsCompatible(xPath10ModeIsEnabled());
         keydef.setComposite(composite);
         keydef.obtainDeclaringComponent(this);

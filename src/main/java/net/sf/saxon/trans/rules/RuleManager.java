@@ -89,6 +89,15 @@ public final class RuleManager {
     }
 
     /**
+     * Get the stylesheet package
+     * @return the stylesheet package
+     */
+
+    public StylesheetPackage getStylesheetPackage() {
+        return stylesheetPackage;
+    }
+
+    /**
      * Get all registered modes
      *
      * @return a collection containing all registered modes excluding the unnamed mode
@@ -282,9 +291,9 @@ public final class RuleManager {
      */
 
     public void checkConsistency() throws XPathException {
-        unnamedMode.checkForConflictingProperties();
+        unnamedMode.checkForConflictingProperties(this);
         for (Mode mode : modes.values()) {
-            mode.getActivePart().checkForConflictingProperties();
+            mode.getActivePart().checkForConflictingProperties(this);
         }
     }
 

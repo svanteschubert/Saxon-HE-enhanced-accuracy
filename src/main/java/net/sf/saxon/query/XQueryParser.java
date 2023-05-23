@@ -1715,6 +1715,7 @@ public class XQueryParser extends XPathParser {
         GlobalVariable var = new GlobalVariable();
         var.setPackageData(env.getPackageData());
         var.setLineNumber(t.getLineNumber() + 1);
+        var.setColumnNumber(t.getColumnNumber() + 1);
         var.setSystemId(env.getSystemId());
         if (annotations != null) {
             var.setPrivate(annotations.includes(Annotation.PRIVATE));
@@ -1755,6 +1756,7 @@ public class XQueryParser extends XPathParser {
                 par.setPackageData(env.getPackageData());
                 //par.setExecutable(var.getExecutable());
                 par.setLineNumber(var.getLineNumber());
+                par.setColumnNumber(var.getColumnNumber());
                 par.setSystemId(var.getSystemId());
                 par.setVariableQName(var.getVariableQName());
                 par.setRequiredType(var.getRequiredType());
@@ -2248,6 +2250,7 @@ public class XQueryParser extends XPathParser {
                 nextToken();
                 Expression condition = parseExprSingle();
                 WhereClause clause = new WhereClause(flwor, condition);
+                setLocation(clause, t.currentTokenStartOffset);
                 clause.setRepeated(containsLoopingClause(clauseList));
                 clauseList.add(clause);
             } else if (isKeyword("stable") || isKeyword("order")) {
@@ -2534,24 +2537,22 @@ public class XQueryParser extends XPathParser {
      * @throws XPathException in the event of a syntax error
      */
     private void parseCountClause(List<Clause> clauseList) throws XPathException {
-        do {
-            CountClause clause = new CountClause();
-            setLocation(clause, t.currentTokenStartOffset);
-            clause.setRepeated(containsLoopingClause(clauseList));
-            clauseList.add(clause);
-            nextToken();
-            expect(Token.DOLLAR);
-            nextToken();
-            expect(Token.NAME);
-            String var = t.currentTokenValue;
+        CountClause clause = new CountClause();
+        setLocation(clause, t.currentTokenStartOffset);
+        clause.setRepeated(containsLoopingClause(clauseList));
+        clauseList.add(clause);
+        nextToken();
+        expect(Token.DOLLAR);
+        nextToken();
+        expect(Token.NAME);
+        String var = t.currentTokenValue;
 
-            StructuredQName varQName = makeStructuredQName(var, "");
-            SequenceType type = SequenceType.ANY_SEQUENCE;
-            nextToken();
-            LocalVariableBinding v = new LocalVariableBinding(varQName, type);
-            clause.setRangeVariable(v);
-            declareRangeVariable(v);
-        } while (t.currentToken == Token.COMMA);
+        StructuredQName varQName = makeStructuredQName(var, "");
+        SequenceType type = SequenceType.ANY_SEQUENCE;
+        nextToken();
+        LocalVariableBinding v = new LocalVariableBinding(varQName, type);
+        clause.setRangeVariable(v);
+        declareRangeVariable(v);
     }
 
     /**

@@ -201,5 +201,5 @@ public class BinaryResource implements Resource {
     public String getContentType() {
         return contentType;
     }
-    
+
 }

@@ -857,7 +857,7 @@ public class Serializer extends AbstractDestination {
                     throw new SaxonApiException("Failed while closing output file", err);
                 }
             }
-            Writer writer = result.getWriter();  
+            Writer writer = result.getWriter();
             if (writer != null) {
                 try {
                     writer.close();

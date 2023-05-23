@@ -750,7 +750,7 @@ public abstract class AbstractNumberer implements Numberer {
     public String toWords(long number, int wordCase) {
         String s;
         if (number == 0) {
-            s = "Zero";
+            s = zero();
         } else {
             s = toWords(number);
         }
@@ -762,6 +762,10 @@ public abstract class AbstractNumberer implements Numberer {
             default:
                 return s;
         }
+    }
+
+    public String zero() {
+        return "Zero";
     }
 
     /**

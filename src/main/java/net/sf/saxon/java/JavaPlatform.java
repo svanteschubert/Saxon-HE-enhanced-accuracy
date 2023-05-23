@@ -7,7 +7,6 @@
 
 package net.sf.saxon.java;
 
-import com.saxonica.ee.bytecode.util.GeneratedClassLoader;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Platform;
 import net.sf.saxon.dom.DOMEnvelope;
@@ -350,12 +349,12 @@ public class JavaPlatform implements Platform {
             if (semi >= 0) {
                 useJava = flags.indexOf('j', semi) >= 0;
                 useSaxon = flags.indexOf('s', semi) >= 0;
-                flags = flags.substring(0, semi);
             }
             if ("J".equals(config.getDefaultRegexEngine()) && !useSaxon) {
                 useJava = true;
             }
             if (useJava) {
+                flags = flags.substring(0, semi);
                 return new JavaRegularExpression(regex, flags);
             } else {
                 return new ARegularExpression(regex, flags, hostLanguage, warnings, config);

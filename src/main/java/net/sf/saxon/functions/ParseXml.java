@@ -16,9 +16,13 @@ import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ParseOptions;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.IgnorableSpaceStrippingRule;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.ZeroOrOne;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.linked.DocumentImpl;
 import net.sf.saxon.tree.tiny.TinyDocumentImpl;
 import net.sf.saxon.value.ObjectValue;
 import net.sf.saxon.value.SequenceExtent;
@@ -85,11 +89,18 @@ public class ParseXml extends SystemFunction implements Callable {
 
             Sender.send(source, s, options);
 
-            TinyDocumentImpl node = (TinyDocumentImpl) b.getCurrentRoot();
-            node.setBaseURI(baseURI);
-            node.getTreeInfo().setUserData("saxon:document-uri", "");
+            NodeInfo root = b.getCurrentRoot();
+            if (root instanceof TinyDocumentImpl) {
+                TinyDocumentImpl node = (TinyDocumentImpl) root;
+                node.setBaseURI(baseURI);
+                node.getTreeInfo().setUserData("saxon:document-uri", "");
+            } else if (root instanceof DocumentImpl) {
+                DocumentImpl node = (DocumentImpl) root;
+                node.setBaseURI(baseURI);
+                node.getTreeInfo().setUserData("saxon:document-uri", "");
+            }
             b.reset();
-            return node;
+            return root;
         } catch (XPathException err) {
             XPathException xe = new XPathException("First argument to parse-xml() is not a well-formed and namespace-well-formed XML document. XML parser reported: " +
                     err.getMessage(), "FODC0006");

@@ -7,10 +7,6 @@
 
 package net.sf.saxon.pattern;
 
-import com.saxonica.ee.stream.Posture;
-import com.saxonica.ee.stream.Streamability;
-import com.saxonica.ee.stream.Sweep;
-import com.saxonica.ee.trans.ContextItemStaticInfoEE;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.*;
@@ -89,7 +85,7 @@ public class NodeSetPattern extends Pattern {
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
         Expression checked = getSelectionExpression();
         try {
-            tc.staticTypeCheck(
+            checked = tc.staticTypeCheck(
                     getSelectionExpression(), SequenceType.NODE_SEQUENCE, role, visitor);
         } catch (XPathException e) {
             visitor.issueWarning("Pattern will never match anything. " + e.getMessage(), getLocation());
@@ -164,13 +160,20 @@ public class NodeSetPattern extends Pattern {
     @Override
     public boolean matches(Item item, XPathContext context) throws XPathException {
         if (item instanceof NodeInfo) {
-            Expression exp = getSelectionExpression();
-            if (exp instanceof GlobalVariableReference) {
-                GroundedValue value = ((GlobalVariableReference)exp).evaluateVariable(context);
-                return value.containsNode((NodeInfo)item);
-            } else {
-                SequenceIterator iter = exp.iterate(context);
-                return SingletonIntersectExpression.containsNode(iter, (NodeInfo) item);
+            try {
+                Expression exp = getSelectionExpression();
+                if (exp instanceof GlobalVariableReference) {
+                    GroundedValue value = ((GlobalVariableReference)exp).evaluateVariable(context);
+                    return value.containsNode((NodeInfo)item);
+                } else {
+                    SequenceIterator iter = exp.iterate(context);
+                    return SingletonIntersectExpression.containsNode(iter, (NodeInfo) item);
+                }
+            } catch (XPathException.Circularity | XPathException.StackOverflow e) {
+                throw e;
+            } catch (XPathException e) {
+                // treat pattern matching errors as a non-match
+                return false;
             }
         } else {
             return false;

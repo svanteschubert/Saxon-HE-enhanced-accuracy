@@ -44,7 +44,7 @@ public interface SchemaURIResolver {
      *                        declaration, however, a list of URIs may be specified.
      * @return an array of Source objects each identifying a schema document to be loaded.
      *         These need not necessarily correspond one-to-one with the location hints provided.
-     *         Returning a zero-length array indictates that no schema documents should be loaded (perhaps because
+     *         Returning a zero-length array indicates that no schema documents should be loaded (perhaps because
      *         the relevant schema components are already present in the schema cache).
      *         The method may also return null to indicate that resolution should be delegated to the standard
      *         (Saxon-supplied) SchemaURIResolver.

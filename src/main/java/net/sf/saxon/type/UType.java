@@ -77,9 +77,9 @@ public class UType {
 
     public static final UType ANY = ANY_NODE.union(ANY_ATOMIC).union(FUNCTION).union(EXTENSION);
 
-    
+
     private int bits;
-    
+
     public UType(int bits) {
         this.bits = bits;
     }
@@ -257,7 +257,7 @@ public class UType {
      * Produce a string representation of a UType
      * @return the string representation
      */
-    
+
     public String toString() {
         Set<PrimitiveUType> components = decompose();
         if (components.isEmpty()) {
@@ -284,7 +284,7 @@ public class UType {
             return "a " + s + " node";
         }
     }
-    
+
 
 
     /**
@@ -463,8 +463,8 @@ public class UType {
                 isGuaranteedComparable(t1, t2);
     }
 
-    
-    
+
+
 
 }
 

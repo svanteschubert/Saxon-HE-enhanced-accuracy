@@ -21,7 +21,7 @@
  * a large collection of useful implementations of <code>Step</code>, including support for all the
  * XPath axes (parent, child, descendant, following-sibling and so on).</li>
  * <li>The class <code>XdmStream</code> (which will typically not be used explicitly) implements
- * the standard Java 8 {@link java.util.streams.Stream} class; it does so by wrapping a standard
+ * the standard Java 8 {@code java.util.streams.Stream} class; it does so by wrapping a standard
  * Java 8 stream and delegating all standard methods to the wrapped stream. By subclassing the standard
  * <code>Stream</code> interface, however, it is able to supply additional methods appropriate to
  * streams of XDM items. For example, the <code>asNode()</code> example terminates the Stream pipeline
@@ -45,7 +45,7 @@
  * <li><code>child("ns", "lname")</code> selects all the children of a node that have the namespace URI "ns"
  * and local name "lname".</li>
  * <li><code>child(predicate)</code> selects all the children of a node that satisfy the given predicate.
- * The predicate may be any Java 8 {@link java.util.functions.Predicate}, but the class
+ * The predicate may be any Java 8 {@code java.util.functions.Predicate}, but the class
  * {@link net.sf.saxon.s9api.streams.Predicates} provides some off-the-shelf predicates that are
  * particularly designed for navigating XDM information.</li>
  * </ul>
@@ -119,7 +119,7 @@
  * <li><code>asString()</code> - deliver the contents as a single <code>String</code></li>
  * </ul>
  * <p>The choice of terminal operation determines the return type (for example <code>asOptionalNode()</code>
- * returns <code>Optional&lt;XdmNode>)</code>, and also causes a run-time check that the value actually
+ * returns <code>Optional&lt;XdmNode&gt;)</code>, and also causes a run-time check that the value actually
  * conforms to these expectations. For example, if <code>asNode()</code> is used, then an unchecked exception
  * occurs if the sequence has a length other than 1 (one), or if its single item is not a node.</p>
  * <p>Other ways of generating an <code>XdmStream</code> include:</p>

@@ -7,10 +7,13 @@
 
 package net.sf.saxon.expr.instruct;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
+import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
 
 import java.util.ArrayList;
@@ -166,6 +169,18 @@ public class GlobalContextRequirement {
 
     public boolean isExternal() {
         return external;
+    }
+
+
+    /**
+     * Make a ContextItemStaticInfo object describing the global context item
+     *
+     * @param config the Configuration
+     * @return a suitable ContextItemStaticInfo
+     */
+    public ContextItemStaticInfo makeGlobalContextInfo(Configuration config) {
+        ItemType type = isAbsentFocus() ? ErrorType.getInstance() : getRequiredItemType();
+        return config.makeContextItemStaticInfo(type, isMayBeOmitted());
     }
 }
 

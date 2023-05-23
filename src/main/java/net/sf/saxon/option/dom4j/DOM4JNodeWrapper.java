@@ -721,7 +721,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
 
     private final class AttributeEnumeration implements AxisIterator {
 
-        private Iterator<Node> atts;
+        private final Iterator<Attribute> atts;
         private int ix = 0;
         private DOM4JNodeWrapper start;
 

@@ -456,6 +456,9 @@ public abstract class SystemFunction extends AbstractFunction {
     public static Sequence dynamicCall(Function f, XPathContext context, Sequence[] args) throws XPathException {
         context = f.makeNewContext(context, null);
         context.setCurrentOutputUri(null);
+        if (context instanceof XPathContextMajor) {
+            ((XPathContextMajor) context).setCurrentRegexIterator(null);
+        }
         return f.call(context, args);
     }
 
@@ -561,6 +564,6 @@ public abstract class SystemFunction extends AbstractFunction {
         return getFunctionName().getDisplayName() + '#' + getArity();
     }
 
-    
+
 }
 

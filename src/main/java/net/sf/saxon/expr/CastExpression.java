@@ -142,7 +142,7 @@ public class CastExpression extends CastingExpression implements Callable {
             if (operand.isCallOn(String_1.class)) {
                 Expression e = ((SystemFunctionCall) operand).getArg(0);
                 if (e.getItemType() instanceof AtomicType && e.getCardinality() == StaticProperty.EXACTLY_ONE) {
-                    operand = e;
+                    return new CastExpression(e, BuiltInAtomicType.UNTYPED_ATOMIC, allowsEmpty());
                 }
             } else if (operand instanceof CastExpression) {
                 if (((CastExpression) operand).getTargetType() == BuiltInAtomicType.UNTYPED_ATOMIC) {

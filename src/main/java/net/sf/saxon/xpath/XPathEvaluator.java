@@ -198,6 +198,7 @@ public class XPathEvaluator implements XPath {
         }
         try {
             Executable exec = new Executable(getConfiguration());
+            exec.setSchemaAware(staticContext.getPackageData().isSchemaAware());
             Expression exp = ExpressionTool.make(expr, staticContext, 0, -1, null);
             ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
             final ContextItemStaticInfo contextItemType = getConfiguration().makeContextItemStaticInfo(Type.ITEM_TYPE, true);

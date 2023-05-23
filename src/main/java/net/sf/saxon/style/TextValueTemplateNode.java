@@ -8,6 +8,7 @@
 package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.instruct.ValueOf;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.trans.XPathException;
@@ -48,7 +49,13 @@ public class TextValueTemplateNode extends TextImpl {
         if (parent instanceof XSLText && isYes(parent.getAttributeValue("", "disable-output-escaping"))) {
             disable = true;
         }
-        contentExp = AttributeValueTemplate.make(getStringValue(), getStaticContext());
+        try {
+            contentExp = AttributeValueTemplate.make(getStringValue(), getStaticContext());
+        } catch (XPathException err) {
+            assert getParent() instanceof StyleElement;
+            ((StyleElement)getParent()).compileError(err);
+            contentExp = new StringLiteral(getStringValue());
+        }
         contentExp = new ValueOf(contentExp, disable, false);
         assert getParent() != null;
         contentExp.setRetainedStaticContext(((StyleElement) getParent()).makeRetainedStaticContext());

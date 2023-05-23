@@ -7,9 +7,6 @@
 
 package net.sf.saxon.pattern;
 
-import com.saxonica.ee.stream.Streamability;
-import com.saxonica.ee.stream.Sweep;
-import com.saxonica.ee.trans.ContextItemStaticInfoEE;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
@@ -25,6 +22,8 @@ import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
+
+import java.util.ArrayList;
 
 /**
  * Class for handling patterns with simple non-positional boolean predicates

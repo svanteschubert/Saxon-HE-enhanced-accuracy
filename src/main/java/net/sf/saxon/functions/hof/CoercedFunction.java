@@ -17,6 +17,7 @@ import net.sf.saxon.functions.AbstractFunction;
 import net.sf.saxon.om.Function;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.FunctionItemType;
@@ -134,6 +135,11 @@ public class CoercedFunction extends AbstractFunction {
     @Override
     public int getArity() {
         return targetFunction.getArity();
+    }
+
+    @Override
+    public AnnotationList getAnnotations() {     // Bug 5085
+        return targetFunction.getAnnotations();
     }
 
     /**

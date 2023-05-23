@@ -10,14 +10,8 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
-import net.sf.saxon.expr.instruct.Actor;
-import net.sf.saxon.expr.instruct.GlobalParam;
-import net.sf.saxon.expr.instruct.GlobalVariable;
-import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.Optimizer;
-import net.sf.saxon.expr.parser.RetainedStaticContext;
+import net.sf.saxon.expr.instruct.*;
+import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
@@ -134,6 +128,7 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
             gv.setVariableQName(sourceBinding.getVariableQName());
             gv.setSystemId(getSystemId());
             gv.setLineNumber(getLineNumber());
+            gv.setColumnNumber(getColumnNumber());
             RetainedStaticContext rsc = makeRetainedStaticContext();
             gv.setRetainedStaticContext(rsc);
             if (gv.getBody() != null) {
@@ -332,13 +327,16 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
         if (exp2 != null) {
             try {
                 ExpressionVisitor visitor = makeExpressionVisitor();
-                exp2 = select.simplify().typeCheck(visitor, getConfiguration().makeContextItemStaticInfo(Type.ITEM_TYPE, true));
+                GlobalContextRequirement gcr = getPackageData().getContextItemRequirements();
+                ContextItemStaticInfo cisi = gcr == null
+                        ? getConfiguration().getDefaultContextItemStaticInfo()
+                        : gcr.makeGlobalContextInfo(getConfiguration());
+                exp2 = select.simplify().typeCheck(visitor, cisi);
             } catch (XPathException err) {
                 compileError(err);
             }
 
-            // Add trace wrapper code if required
-            exp2 = makeTraceInstruction(this, exp2);
+            setInstructionLocation(this, exp2);
 
             allocateLocalSlots(exp2);
         }

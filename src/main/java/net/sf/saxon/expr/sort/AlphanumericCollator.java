@@ -7,10 +7,11 @@
 
 package net.sf.saxon.expr.sort;
 
+import net.sf.saxon.functions.CollationKeyFn;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.value.Base64BinaryValue;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -133,7 +134,8 @@ public class AlphanumericCollator implements StringCollator {
     public AtomicMatchKey getCollationKey(/*@NotNull*/ CharSequence cs) {
         // The string is normalized by removing leading zeros in a numeric component
         String s = cs.toString();
-        FastStringBuffer sb = new FastStringBuffer(s.length() * 2);
+        // See bug 5049
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         int pos1 = 0;
         Matcher m1 = pattern.matcher(s);
         while (true) {
@@ -145,24 +147,55 @@ public class AlphanumericCollator implements StringCollator {
 
             // handle an alphabetic part (even if zero-length)
 
-            sb.append(baseCollator.getCollationKey(s.substring(pos1, m1start)).toString());
+            Base64BinaryValue b64 = CollationKeyFn.getCollationKey(s.substring(pos1, m1start), baseCollator);
+            byte[] bin = b64.getBinaryValue();
+            baos.write(bin, 0, bin.length);
 
             // reached end?
 
             if (!b1) {
-                return UnicodeString.makeUnicodeString(sb);
+                return new Base64BinaryValue(baos.toByteArray());
             }
 
             // handle a numeric part
 
-            int n1 = Integer.parseInt(s.substring(m1start, m1.end()));
-            sb.append(n1 + "");
+            BigInteger n = new BigInteger(s.substring(m1start, m1.end()));
+            bin = n.toByteArray();
+            int len = bin.length;
+            // Assume max length of numeric part 255
+            baos.write(0); // separator from previous alpha part
+            baos.write((byte) len);
+            baos.write(bin, 0, bin.length); // written this way to avoid checked exceptions
 
             // move on to the next part of the string
 
             pos1 = m1.end();
         }
     }
+
+//    public AtomicMatchKey getCollationKey2(/*@NotNull*/ UnicodeString cs) {
+//        // See bug 5049
+//        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+//        RegexIterator iter = pattern.analyze(cs);
+//        for (StringValue sv; (sv = iter.next()) != null; ) {
+//            if (iter.isMatching()) {
+//                // numeric part
+//                BigInteger n = new BigInteger(sv.getStringValue());
+//                byte[] bin = n.toByteArray();
+//                int len = bin.length;
+//                // Assume max length of numeric part 255
+//                baos.write(0); // separator from previous alpha part
+//                baos.write((byte) len);
+//                baos.write(bin, 0, bin.length); // written this way to avoid checked exceptions
+//            } else {
+//                Base64BinaryValue b64 = CollationKeyFn.getCollationKey(sv.getUnicodeStringValue(), baseCollator);
+//                final byte[] bin = b64.getBinaryValue();
+//                baos.write(bin, 0, bin.length);
+//
+//            }
+//        }
+//        return new Base64BinaryValue(baos.toByteArray());
+//    }
 
 }
 

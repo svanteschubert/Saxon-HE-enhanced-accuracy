@@ -12,6 +12,7 @@ import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.oper.OperandArray;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
@@ -125,7 +126,7 @@ public class Concat extends SystemFunction implements PushableFunction {
 
     @Override
     public void process(Outputter destination, XPathContext context, Sequence[] arguments) throws XPathException {
-        CharSequenceConsumer output = destination.getStringReceiver(false);
+        CharSequenceConsumer output = destination.getStringReceiver(false, Loc.NONE);
         output.open();
         for (Sequence arg : arguments) {
             Item item = arg.head();

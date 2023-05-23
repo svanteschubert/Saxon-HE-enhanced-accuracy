@@ -41,7 +41,6 @@ import javax.xml.transform.Source;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.sax.SAXSource;
 import javax.xml.transform.stream.StreamSource;
-import java.io.File;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.net.URI;
@@ -389,7 +388,7 @@ public class TransformFn extends SystemFunction implements Callable {
             }
             originalReporter.report(error);
         });
-        
+
         boolean cacheable = options.get("static-params") == null;
         if (options.get("cache") != null) {
             cacheable &= ((BooleanValue) options.get("cache").head()).getBooleanValue();
@@ -541,7 +540,7 @@ public class TransformFn extends SystemFunction implements Callable {
         Configuration targetConfig = context.getConfiguration();
         boolean allowTypedNodes = true;
         int schemaValidation = Validation.DEFAULT;
-        
+
         if (vendorOptions != null) {
             Sequence optionValue = vendorOptions.get(new QNameValue("", NamespaceConstant.SAXON, "configuration"));
             if (optionValue != null) {
@@ -605,6 +604,7 @@ public class TransformFn extends SystemFunction implements Callable {
         XsltCompiler xsltCompiler = processor.newXsltCompiler();
         xsltCompiler.setURIResolver(context.getURIResolver());
         xsltCompiler.setJustInTimeCompilation(false);
+        xsltCompiler.setErrorReporter(context.getErrorReporter());
 
         // Set static params on XsltCompiler before compiling stylesheet (XSLT 3.0 processing only)
         if (options.get("static-params") != null) {
@@ -613,6 +613,7 @@ public class TransformFn extends SystemFunction implements Callable {
 
         XsltExecutable sheet = getStylesheet(options, xsltCompiler, styleOption, context);
         Xslt30Transformer transformer = sheet.load30();
+        transformer.setErrorReporter(context.getErrorReporter());
 
         //Destination primaryDestination = new XdmDestination();
         String deliveryFormat = "document";
@@ -624,8 +625,6 @@ public class TransformFn extends SystemFunction implements Callable {
         String baseOutputUri = null;
         Map<QName, XdmValue> stylesheetParams = new HashMap<>();
         MapItem serializationParamsMap = null;
-        StringWriter serializedResult = null;
-        File serializedResultFile = null;
         XdmItem globalContextItem = null;
         Map<QName, XdmValue> templateParams = new HashMap<>();
         Map<QName, XdmValue> tunnelParams = new HashMap<>();

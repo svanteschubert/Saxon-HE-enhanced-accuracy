@@ -10,6 +10,8 @@ package net.sf.saxon.trans;
 import net.sf.saxon.expr.ComponentBinding;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
+import net.sf.saxon.expr.accum.Accumulator;
+import net.sf.saxon.expr.accum.AccumulatorRegistry;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.instruct.TemplateRule;
 import net.sf.saxon.om.*;
@@ -113,11 +115,13 @@ public class SimpleMode extends Mode {
 
     /**
      * Check that the mode does not contain conflicting property values
-     *
+     * @param manager the containing RuleManager
      * @throws XPathException if there are conflicts
      */
 
-    public void checkForConflictingProperties() throws XPathException {
+    public void checkForConflictingProperties(RuleManager manager) throws XPathException {
+        boolean failOnMultipleMatch = false;
+        boolean warningOnMultipleMatch = true;
         for (Map.Entry<String, String> entry : getActivePart().explicitPropertyValues.entrySet()) {
             String prop = entry.getKey();
             String value = entry.getValue();
@@ -128,39 +132,78 @@ public class SimpleMode extends Mode {
                                 prop +
                                 " at the same import precedence", "XTSE0545");
             }
-            if (prop.equals("typed")) {
-                mustBeTyped = "yes".equals(value) || "strict".equals(value) || "lax".equals(value);
-                mustBeUntyped = "no".equals(value);
-            } else if (prop.equals("on-no-match")) {
-                BuiltInRuleSet base = null;
-                switch (value) {
-                    case "text-only-copy":
-                        base = TextOnlyCopyRuleSet.getInstance();
-                        break;
-                    case "shallow-copy":
-                        base = ShallowCopyRuleSet.getInstance();
-                        break;
-                    case "deep-copy":
-                        base = DeepCopyRuleSet.getInstance();
-                        break;
-                    case "shallow-skip":
-                        base = ShallowSkipRuleSet.getInstance();
-                        break;
-                    case "deep-skip":
-                        base = DeepSkipRuleSet.getInstance();
-                        break;
-                    case "fail":
-                        base = FailRuleSet.getInstance();
-                        break;
-                    default:
-                        // already validated
-                        break;
-                }
-                if ("yes".equals(explicitPropertyValues.get("warning-on-no-match"))) {
-                    base = new RuleSetWithWarnings(base);
-                }
-                setBuiltInRuleSet(base);
+
+            switch (prop) {
+                case "streamable":
+                    boolean streamable = "yes".equals(value);
+                    setStreamable(streamable);
+                    if (streamable) {
+                        Mode omniMode = manager.obtainMode(Mode.OMNI_MODE, true);
+                        omniMode.setStreamable(true);
+                    }
+                    break;
+                case "typed":
+                    mustBeTyped = "yes".equals(value) || "strict".equals(value) || "lax".equals(value);
+                    mustBeUntyped = "no".equals(value);
+                    break;
+                case "on-no-match":
+                    BuiltInRuleSet base = null;
+                    switch (value) {
+                        case "text-only-copy":
+                            base = TextOnlyCopyRuleSet.getInstance();
+                            break;
+                        case "shallow-copy":
+                            base = ShallowCopyRuleSet.getInstance();
+                            break;
+                        case "deep-copy":
+                            base = DeepCopyRuleSet.getInstance();
+                            break;
+                        case "shallow-skip":
+                            base = ShallowSkipRuleSet.getInstance();
+                            break;
+                        case "deep-skip":
+                            base = DeepSkipRuleSet.getInstance();
+                            break;
+                        case "fail":
+                            base = FailRuleSet.getInstance();
+                            break;
+                        default:
+                            // already validated
+                            break;
+                    }
+                    if ("yes".equals(explicitPropertyValues.get("warning-on-no-match"))) {
+                        base = new RuleSetWithWarnings(base);
+                    }
+                    setBuiltInRuleSet(base);
+                    break;
+                case "on-multiple-match":
+                    if (value.equals("fail")) {
+                        failOnMultipleMatch = true;
+                    }
+                    break;
+                case "warning-on-multiple-match":
+                    warningOnMultipleMatch = "yes".equals(value);
+                    break;
+                case "use-accumulators":
+                    AccumulatorRegistry registry = manager.getStylesheetPackage().getAccumulatorRegistry();
+                    Set<Accumulator> accumulators = new HashSet<>();
+                    if (!value.isEmpty()) {
+                        String[] tokens = value.split("[ \t\r\n]+");
+                        for (String eqname : tokens) {
+                            Accumulator acc = registry.getAccumulator(StructuredQName.fromEQName(eqname));
+                            accumulators.add(acc);
+                        }
+                    }
+                    setAccumulators(accumulators);
+                    break;
             }
+        }
+        if (failOnMultipleMatch) {
+            setRecoveryPolicy(RecoveryPolicy.DO_NOT_RECOVER);
+        } else if (warningOnMultipleMatch) {
+            setRecoveryPolicy(RecoveryPolicy.RECOVER_WITH_WARNINGS);
+        } else {
+            setRecoveryPolicy(RecoveryPolicy.RECOVER_SILENTLY);
         }
     }
 
@@ -975,7 +1018,7 @@ public class SimpleMode extends Mode {
             throw new AssertionError(e);
         }
     }
-    
+
     /**
      * Compute the streamability of all template rules. No action in Saxon-HE.
      */

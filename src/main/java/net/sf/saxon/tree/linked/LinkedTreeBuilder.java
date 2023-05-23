@@ -136,6 +136,12 @@ public class LinkedTreeBuilder extends Builder
             arrays = new ArrayList<NodeImpl[]>(20);
         }
         super.open();
+        if (useEventLocation) {
+            Object copier = getPipelineConfiguration().getComponent(CopyInformee.class.getName());
+            if (copier instanceof LocationCopier) {
+                setSystemId(((LocationCopier) copier).getSystemId());
+            }
+        }
     }
 
 

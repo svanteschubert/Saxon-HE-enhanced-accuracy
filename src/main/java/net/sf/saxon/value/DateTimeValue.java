@@ -1319,9 +1319,9 @@ public final class DateTimeValue extends CalendarValue
      * @throws DateTimeException                if a value for the field cannot be obtained
      * @throws UnsupportedTemporalTypeException if the field is not supported
      * @throws ArithmeticException              if numeric overflow occurs
-     * @implSpec Implementations must check and handle all fields defined in {@link ChronoField}.
+     * <p>Note: Implementations must check and handle all fields defined in {@link ChronoField}.
      * If the field is supported, then the value of the field must be returned.
-     * If unsupported, then an {@code UnsupportedTemporalTypeException} must be thrown.
+     * If unsupported, then an {@code UnsupportedTemporalTypeException} must be thrown.</p>
      * <p>If the field is not a {@code ChronoField}, then the result of this method
      * is obtained by invoking {@code TemporalField.getFrom(TemporalAccessor)}
      * passing {@code this} as the argument.</p>
@@ -1360,7 +1360,7 @@ public final class DateTimeValue extends CalendarValue
                 case HOUR_OF_DAY:
                     return hour;
                 case CLOCK_HOUR_OF_DAY:
-                    return (hour+23)%24 + 1; 
+                    return (hour+23)%24 + 1;
                 case AMPM_OF_DAY:
                     return hour/12; // specification is unclear about noon and midnight
                 case DAY_OF_WEEK:

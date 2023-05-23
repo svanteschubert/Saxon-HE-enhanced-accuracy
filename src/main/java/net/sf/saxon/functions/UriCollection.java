@@ -9,16 +9,11 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ResourceCollection;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.LazySequence;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.jiter.MappingJavaIterator;
 import net.sf.saxon.value.AnyURIValue;
 
-import java.io.Closeable;
-import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Iterator;
@@ -32,7 +27,7 @@ import java.util.Iterator;
 public class UriCollection extends SystemFunction {
 
     private SequenceIterator getUris(final String href, final XPathContext context) throws XPathException {
-        ResourceCollection rCollection = context.getConfiguration().getCollectionFinder().findCollection(context, href);
+        ResourceCollection rCollection = context.getController().getCollectionFinder().findCollection(context, href);
         if (rCollection == null) {
             // Should not happen, we're calling user code so we check for it.
             XPathException err = new XPathException("No collection has been defined for href: " + (href == null ? "" : href));
@@ -42,29 +37,8 @@ public class UriCollection extends SystemFunction {
 
         }
         final Iterator<String> sources = rCollection.getResourceURIs(context);
-        return new SequenceIterator() {
-
-            @Override
-            public AnyURIValue next() {
-                if (sources.hasNext()) {
-                    return new AnyURIValue(sources.next());
-                } else {
-                    return null;
-                }
-            }
-
-            @Override
-            public void close() {
-                if (sources instanceof Closeable) {
-                    try {
-                        ((Closeable) sources).close();
-                    } catch (IOException e) {
-                        throw new UncheckedXPathException(new XPathException(e));
-                    }
-                }
-            }
-
-        };
+        final Iterator<AnyURIValue> uris = new MappingJavaIterator<String, AnyURIValue>(sources, s -> new AnyURIValue(s));
+        return new IteratorWrapper(uris);
     }
 
     /**

@@ -125,10 +125,11 @@ public interface MutableNodeInfo extends NodeInfo {
      * @param attType    the type annotation of the new attribute
      * @param value      the string value of the new attribute
      * @param properties properties including IS_ID and IS_IDREF properties
+     * @param inheritNamespaces
      * @throws IllegalStateException if the element already has an attribute with the given name.
      */
 
-    void addAttribute(NodeName name, SimpleType attType, CharSequence value, int properties);
+    void addAttribute(NodeName name, SimpleType attType, CharSequence value, int properties, boolean inheritNamespaces);
 
     /**
      * Remove a namespace node from this node. The namespaces of its descendant nodes are unaffected.
@@ -149,9 +150,10 @@ public interface MutableNodeInfo extends NodeInfo {
      * prefix, the method throws an exception.
      *
      * @param prefix the namespace prefix.
+     * @param inherit
      */
 
-    default void addNamespace(String prefix, String uri) {
+    default void addNamespace(String prefix, String uri, boolean inherit) {
         // default: no action
     }
 
@@ -222,13 +224,14 @@ public interface MutableNodeInfo extends NodeInfo {
      * parent of the target attribute</p>
      *
      * @param newName the new name for the node
+     * @param inheritNamespaces
      * @throws IllegalArgumentException if the new name code is not present in the name pool, or if
      *                                  it has a (prefix, uri) pair in which the
      *                                  prefix is the same as that of an existing in-scope namespace binding and the uri is different from that
      *                                  namespace binding.
      */
 
-    void rename(NodeName newName);
+    void rename(NodeName newName, boolean inheritNamespaces);
 
     /**
      * Add a namespace binding (that is, a namespace node) to this element. This call has no effect if applied
@@ -243,7 +246,7 @@ public interface MutableNodeInfo extends NodeInfo {
      *                                  element already has a namespace binding for this prefix
      */
 
-    void addNamespace(NamespaceBinding nscode);
+    void addNamespace(NamespaceBinding nscode, boolean inheritNamespaces);
 
     /**
      * Remove type information from this node (and its ancestors, recursively).

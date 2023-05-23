@@ -149,6 +149,14 @@ public class OperandRole {
         this.constraint = constraint;
     }
 
+    public OperandRole withConstraint(Predicate<Expression> constraint) {
+        return new OperandRole(properties, usage, requiredType, constraint);
+    }
+
+    public OperandRole withConstrainedClass() {
+        return new OperandRole(properties | CONSTRAINED_CLASS, usage, requiredType, constraint);
+    }
+
     /**
      * Get any constraint on the expression that can be associated with this operand type
      * @return any constraint that has been registered, or null

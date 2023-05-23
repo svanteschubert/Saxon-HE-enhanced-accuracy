@@ -4,7 +4,7 @@
 // License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can
 // obtain one at http://mozilla.org/MPL/2.0/.
-// This Source Code Form is "Incompatible With Secondary Licenses", 
+// This Source Code Form is "Incompatible With Secondary Licenses",
 // as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////
 
@@ -18,7 +18,7 @@ package net.sf.saxon.lib;
  * FeatureCode defines a set of integer constants, representing unique identifiers for the
  * features that can be configured. This module is generated from the master XML
  * file listing all the features.
- * 
+ *
  * <p>The integer codes are intended to remain stable across Saxon releases so that compiled
  * code using these integer codes will continue to work without recompilation.</p>
  */
@@ -280,4 +280,3 @@ public abstract class FeatureCode {
     public final static int MAX = 128;
 
 }
-        

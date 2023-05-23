@@ -1287,6 +1287,11 @@ public class Transform {
                     if (getConfiguration().getBooleanProperty(Feature.DTD_VALIDATION_RECOVERABLE)) {
                         source = new AugmentedSource(source, getConfiguration().getParseOptions());
                     }
+                    if (top.isStripsTypeAnnotations()) {
+                        source = AugmentedSource.makeAugmentedSource(source);
+                        ((AugmentedSource)source).getParseOptions().addFilter(
+                                receiver -> getConfiguration().getAnnotationStripper(receiver));
+                    }
                     XdmNode node = builder.build(source);
                     transformer.setGlobalContextItem(node, true);
                     source = node.asSource();

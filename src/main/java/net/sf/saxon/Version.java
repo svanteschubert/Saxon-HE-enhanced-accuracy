@@ -7,6 +7,7 @@
 
 package net.sf.saxon;
 
+
 /**
  * The Version class holds the SAXON version information.
  */
@@ -14,10 +15,10 @@ package net.sf.saxon;
 public final class Version {
 
     private static final int MAJOR_VERSION = 10;
-    private static final int MINOR_VERSION = 5;
-    private static final int BUILD = 41415; //mddhh
+    private static final int MINOR_VERSION = 7;
+    private static final int BUILD = 22411; //mddhh
     private static final String MAJOR_RELEASE_DATE = "2020-03-16";
-    private static final String MINOR_RELEASE_DATE = "2021-04-14";
+    private static final String MINOR_RELEASE_DATE = "2022-02-28";
 
 
     private Version() {
@@ -147,8 +148,7 @@ public final class Version {
     public static Platform platform;
 
     static {
-            platform = new net.sf.saxon.java.JavaPlatform();
-
+              platform = new net.sf.saxon.java.JavaPlatform();
     }
 
 

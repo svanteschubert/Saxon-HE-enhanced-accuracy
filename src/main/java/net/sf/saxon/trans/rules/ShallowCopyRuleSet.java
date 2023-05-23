@@ -19,8 +19,10 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.type.AnyType;
 import net.sf.saxon.type.SimpleType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.Untyped;
 
 /**
  * The built-in rule set introduced in XSLT 3.0, which is effectively an identity template.
@@ -57,6 +59,7 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                         ParameterSet tunnelParams, Outputter out, XPathContext context,
                         Location locationId) throws XPathException {
         if (item instanceof NodeInfo) {
+            boolean schemaAware = context.getController().getExecutable().isSchemaAware();
             NodeInfo node = (NodeInfo) item;
             switch (node.getNodeKind()) {
                 case Type.DOCUMENT: {
@@ -84,7 +87,7 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                         out.setSystemId(node.getBaseURI());
                     }
                     NodeName fqn = NameOfNode.makeName(node);
-                    out.startElement(fqn, node.getSchemaType(), locationId, ReceiverOption.NONE);
+                    out.startElement(fqn, schemaAware ? AnyType.getInstance() : Untyped.getInstance(), locationId, ReceiverOption.NONE);
                     for (NamespaceBinding ns : node.getAllNamespaces()) {
                         out.namespace(ns.getPrefix(), ns.getURI(), ReceiverOption.NONE);
                     }
@@ -131,7 +134,7 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                     out.attribute(NameOfNode.makeName(node), (SimpleType)node.getSchemaType(), node.getStringValue(),
                                                     locationId, ReceiverOption.NONE);
                     return;
-                    
+
                 case Type.NAMESPACE:
                     out.namespace(node.getLocalPart(), node.getStringValue(), ReceiverOption.NONE);
                     return;

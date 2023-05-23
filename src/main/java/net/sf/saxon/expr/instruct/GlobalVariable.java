@@ -626,7 +626,7 @@ public class GlobalVariable extends Actor
         Expression select = getBody();
         if (select == null) {
             throw new AssertionError("*** No select expression for global variable $" +
-                    getVariableQName().getDisplayName() + "!!");
+                    getVariableQName().getDisplayName());
         } else if (select instanceof Literal) {
             // fast path for constant global variables
             return ((Literal)select).getValue();

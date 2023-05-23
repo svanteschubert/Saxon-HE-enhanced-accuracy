@@ -126,11 +126,8 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
                 onError = params.getOnError();
             }
             final Controller controller = context.getController();
-            //        final PipelineConfiguration oldPipe = context.getConfiguration().makePipelineConfiguration();
-            //        oldPipe.setController(context.getController());
-            //        final PipelineConfiguration newPipe = new PipelineConfiguration(oldPipe);
             final ErrorReporter oldErrorListener =
-                    controller == null ? new StandardErrorReporter() : controller.getErrorReporter();
+                    controller == null ? context.getConfiguration().makeErrorReporter() : controller.getErrorReporter();
 
             setupErrorHandlingForCollection(options, onError, oldErrorListener);
         }

@@ -224,11 +224,13 @@ public class KeyDefinition extends Actor implements ContextOriginator {
      *
      * @param systemId   the URI of the module containing the key definition
      * @param lineNumber the line number of the key definition
+     * @param columnNumber the column number of the key definition
      */
 
-    public void setLocation(String systemId, int lineNumber) {
+    public void setLocation(String systemId, int lineNumber, int columnNumber) {
         setSystemId(systemId);
         setLineNumber(lineNumber);
+        setColumnNumber(columnNumber);
     }
 
     /**
@@ -318,6 +320,12 @@ public class KeyDefinition extends Actor implements ContextOriginator {
         }
         if (composite) {
             flags += "c";
+        }
+        if (convertUntypedToOther) {
+            flags += "v";
+        }
+        if (strictComparison) {
+            flags += "s";
         }
         if (reusable) {
             flags += "u";

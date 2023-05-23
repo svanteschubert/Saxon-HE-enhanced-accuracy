@@ -104,7 +104,7 @@ public abstract class Minimax extends CollatingFunctionFixed {
         }
         return base.getPrimitiveItemType();
     }
-    
+
     /**
      * Determine the cardinality of the function.
      */
