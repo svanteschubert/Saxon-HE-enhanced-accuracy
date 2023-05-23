@@ -56,7 +56,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <skipTests>false</skipTests>
-        <maven.javadoc.skip>true</maven.javadoc.skip>
+        <maven.javadoc.skip>false</maven.javadoc.skip>
         <maven.javadoc.failOnError>false</maven.javadoc.failOnError>
         <maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss</maven.build.timestamp.format>
         <maven.compiler.source>1.8</maven.compiler.source>
