@@ -319,8 +319,8 @@ public class Message extends Instruction {
      */
 
     private static class MessageAdapter extends ProxyReceiver {
-        private String errorCode;
-        private Location location;
+        private final String errorCode;
+        private final Location location;
 
         public MessageAdapter(SequenceReceiver next, String errorCode, Location location) {
             super(next);

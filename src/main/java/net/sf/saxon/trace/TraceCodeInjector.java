@@ -22,9 +22,14 @@ import net.sf.saxon.expr.parser.ExpressionTool;
  */
 public class TraceCodeInjector implements CodeInjector {
 
+    public TraceCodeInjector() {}
+
     @Override
     public Expression inject(Expression exp) {
-        if (!(exp instanceof TraceExpression) && isApplicable(exp)) {
+        if (exp instanceof FLWORExpression) {
+            ((FLWORExpression) exp).injectCode(this);
+            return exp;
+        } else if (!(exp instanceof TraceExpression) && isApplicable(exp)) {
             return new TraceExpression(exp);
         } else {
             return exp;
@@ -37,10 +42,12 @@ public class TraceCodeInjector implements CodeInjector {
 
     @Override
     public void process(TraceableComponent component) {
-        Expression newBody = ExpressionTool.injectCode(component.getBody(), this);
-        component.setBody(newBody);
-        ComponentTracer trace = new ComponentTracer(component);
-        component.setBody(trace);
+        if (!(component.getBody() instanceof ComponentTracer)) {
+            Expression newBody = ExpressionTool.injectCode(component.getBody(), this);
+            component.setBody(newBody);
+            ComponentTracer trace = new ComponentTracer(component);
+            component.setBody(trace);
+        }
     }
 
     /**

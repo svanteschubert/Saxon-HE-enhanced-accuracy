@@ -53,7 +53,7 @@ public class DynamicQueryContext {
     public DynamicQueryContext(/*@NotNull*/ Configuration config) {
         this.config = config;
         uriResolver = config.getURIResolver();
-        errorReporter = new StandardErrorReporter();
+        errorReporter = config.makeErrorReporter();
         traceFunctionDestination = config.getLogger();
     }
 

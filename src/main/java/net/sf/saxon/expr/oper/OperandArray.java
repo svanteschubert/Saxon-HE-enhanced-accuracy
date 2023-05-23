@@ -59,7 +59,7 @@ public class OperandArray implements Iterable<Operand> {
      *
      * @return an Iterator.
      */
-    
+
     @Override
     public Iterator<Operand> iterator() {
         return Arrays.asList(operandArray).iterator();

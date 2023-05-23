@@ -8,11 +8,13 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.expr.CastExpression;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.CharSequenceConsumer;
@@ -84,7 +86,11 @@ public class StringJoin extends FoldingFunction implements PushableFunction {
         int card = arguments[0].getCardinality();
         if (!Cardinality.allowsMany(card)) {
             if (Cardinality.allowsZero(card) || arguments[0].getItemType().getPrimitiveItemType() != BuiltInAtomicType.STRING) {
-                return SystemFunction.makeCall("string", getRetainedStaticContext(), arguments[0]);
+                if (returnEmptyIfEmpty) {
+                    return new CastExpression(arguments[0], BuiltInAtomicType.STRING, true);
+                } else {
+                    return SystemFunction.makeCall("string", getRetainedStaticContext(), arguments[0]);
+                }
             } else {
                 return arguments[0];
             }
@@ -104,7 +110,7 @@ public class StringJoin extends FoldingFunction implements PushableFunction {
     @Override
     public void process(Outputter destination, XPathContext context, Sequence[] arguments) throws XPathException {
         CharSequence separator = arguments.length > 1 ? arguments[1].head().getStringValueCS() : "";
-        CharSequenceConsumer output = destination.getStringReceiver(false);
+        CharSequenceConsumer output = destination.getStringReceiver(false, Loc.NONE);
         output.open();
         boolean first = true;
         SequenceIterator iter = arguments[0].iterate();

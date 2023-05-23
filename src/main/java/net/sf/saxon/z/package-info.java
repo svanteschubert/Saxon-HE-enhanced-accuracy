@@ -7,9 +7,5 @@
  * integers.</p>
  * <p>The package name is a pun on the conventional use by mathematicians
  * of the symbol <b>Z</b> to denote the set of all natural integers.</p>
- * <hr>
- * <p align="center"><i>Michael H. Kay<br/>
- * Saxonica Limited<br/>
- * 9 January 2014</i></p>
  */
 package net.sf.saxon.z;

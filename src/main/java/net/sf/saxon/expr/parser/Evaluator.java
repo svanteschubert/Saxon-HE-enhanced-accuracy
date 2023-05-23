@@ -23,7 +23,7 @@ import java.util.List;
  * An Evaluator evaluates an expression to return a sequence
  */
 public abstract class Evaluator {
-    
+
     /**
      * Evaluate an expression to return a sequence
      * @param expr the expression to be evaluated

@@ -660,6 +660,7 @@ public final class XSLTemplate extends StyleElement implements StylesheetCompone
         compiledNamedTemplate.setStackFrameMap(stackFrameMap);
         compiledNamedTemplate.setSystemId(getSystemId());
         compiledNamedTemplate.setLineNumber(getLineNumber());
+        compiledNamedTemplate.setColumnNumber(getColumnNumber());
         compiledNamedTemplate.setHasRequiredParams(hasRequiredParams);
         compiledNamedTemplate.setRequiredType(requiredType);
         compiledNamedTemplate.setContextItemRequirements(requiredContextItemType, mayOmitContextItem, absentFocus);
@@ -742,16 +743,27 @@ public final class XSLTemplate extends StyleElement implements StylesheetCompone
         cisi = config.makeContextItemStaticInfo(contextItemType, false);
         body = refineTemplateBody(body, cisi);
 
-        boolean needToCopy = false;
-        for (TemplateRule rule : compiledTemplateRules.values()) {
-            if (needToCopy) {
-                body = body.copy(new RebindingMap());
-            }
-            setCompiledTemplateRuleProperties(rule, body);
-            needToCopy = true;
-            rule.updateSlaveCopies();
-            if (compilation.getCompilerInfo().getCodeInjector() != null) {
-                compilation.getCompilerInfo().getCodeInjector().process(rule);
+        boolean first = true;
+        for (Map.Entry<StructuredQName, TemplateRule> kvp : compiledTemplateRules.entrySet()) {
+            if (!kvp.getKey().equals(Mode.OMNI_MODE)) {
+                TemplateRule rule = kvp.getValue();
+                if (first) {
+                    rule.setMatchPattern(match);
+                    rule.setBody(body);
+                    if (compilation.getCompilerInfo().getCodeInjector() != null) {
+                        compilation.getCompilerInfo().getCodeInjector().process(rule);
+                        body = rule.getBody();
+                    }
+                    first = false;
+                } else {
+                    if (rule.getBody() == null) {
+                        body = body.copy(new RebindingMap());
+                    } else {
+                        body = rule.getBody();
+                    }
+                }
+                setCompiledTemplateRuleProperties(rule, body);
+                rule.updateSlaveCopies();
             }
         }
 
@@ -789,6 +801,7 @@ public final class XSLTemplate extends StyleElement implements StylesheetCompone
         templateRule.setStackFrameMap(stackFrameMap);
         templateRule.setSystemId(getSystemId());
         templateRule.setLineNumber(getLineNumber());
+        templateRule.setColumnNumber(getColumnNumber());
         templateRule.setHasRequiredParams(hasRequiredParams);
         templateRule.setRequiredType(requiredType);
         templateRule.setContextItemRequirements(requiredContextItemType, absentFocus);
@@ -1025,50 +1038,42 @@ public final class XSLTemplate extends StyleElement implements StylesheetCompone
             match = match.optimize(visitor, cisi);
 
             if (!isDeferredCompilation(getCompilation())) {
-                Expression body = compiledTemplateRules.values().stream().findFirst().map(TemplateRule::getBody).orElse(null);
-                // Until now, all template rules share the same body.
-
-                ExpressionTool.resetPropertiesWithinSubtree(body);
-                //        visitor.setOptimizeForStreaming(compiledNamedTemplate.isDeclaredStreamable());
                 Optimizer opt = getConfiguration().obtainOptimizer();
                 try {
-                    // We've already done the typecheck of each XPath expression, but it's worth doing again at this
-                    // level because we have more information now.
-                    //                body = body.typeCheck(visitor, cit);
-                    //                ExpressionTool.resetPropertiesWithinSubtree(body);
-
-
-                    for (TemplateRule compiledTemplateRule : compiledTemplateRules.values()) {
-                        Expression templateRuleBody = compiledTemplateRules.size() > 1 ? body.copy(new RebindingMap()) : body;
-                        visitor.setOptimizeForStreaming(compiledTemplateRule.isDeclaredStreamable());
-                        templateRuleBody = templateRuleBody.typeCheck(visitor, cisi);
-                        templateRuleBody = ExpressionTool.optimizeComponentBody(templateRuleBody, getCompilation(), visitor, cisi, true);
-                        compiledTemplateRule.setBody(templateRuleBody);
-                        opt.checkStreamability(this, compiledTemplateRule);
-                        allocateLocalSlots(templateRuleBody);
-                        for (Rule r : compiledTemplateRule.getRules()) {
-                            Pattern match = r.getPattern();
-                            ContextItemStaticInfo info = getConfiguration().makeContextItemStaticInfo(match.getItemType(), false);
-                            info.setContextPostureStriding();
-                            Pattern m2 = match.optimize(visitor, info);
-                            if (compiledTemplateRules.size() > 1) {
-                                m2 = m2.copy(new RebindingMap());
+                    for (Map.Entry<StructuredQName, TemplateRule> entry : compiledTemplateRules.entrySet()) {
+                        if (!entry.getKey().equals(Mode.OMNI_MODE)) {
+                            TemplateRule compiledTemplateRule = entry.getValue();
+                            Expression templateRuleBody = compiledTemplateRule.getBody();
+                            visitor.setOptimizeForStreaming(compiledTemplateRule.isDeclaredStreamable());
+                            templateRuleBody = templateRuleBody.typeCheck(visitor, cisi);
+                            templateRuleBody = ExpressionTool.optimizeComponentBody(templateRuleBody, getCompilation(), visitor, cisi, true);
+                            compiledTemplateRule.setBody(templateRuleBody);
+                            opt.checkStreamability(this, compiledTemplateRule);
+                            allocateLocalSlots(templateRuleBody);
+                            for (Rule r : compiledTemplateRule.getRules()) {
+                                Pattern match = r.getPattern();
+                                ContextItemStaticInfo info = getConfiguration().makeContextItemStaticInfo(match.getItemType(), false);
+                                info.setContextPostureStriding();
+                                Pattern m2 = match.optimize(visitor, info);
+                                if (compiledTemplateRules.size() > 1) {
+                                    m2 = m2.copy(new RebindingMap());
+                                }
+                                if (m2 != match) {
+                                    r.setPattern(m2);
+                                }
                             }
-                            if (m2 != match) {
-                                r.setPattern(m2);
+
+                            if (visitor.getConfiguration().isDeferredByteCode(HostLanguage.XSLT) && !isTailRecursive) {
+                                int evaluationModes = Expression.ITERATE_METHOD | Expression.PROCESS_METHOD;
+                                compiledTemplateRule.setBody(opt.makeByteCodeCandidate(compiledTemplateRule, templateRuleBody, diagnosticId, evaluationModes));
                             }
-                        }
 
-                        if (visitor.getConfiguration().isDeferredByteCode(HostLanguage.XSLT) && !isTailRecursive) {
-                            int evaluationModes = Expression.ITERATE_METHOD | Expression.PROCESS_METHOD;
-                            compiledTemplateRule.setBody(opt.makeByteCodeCandidate(compiledTemplateRule, templateRuleBody, diagnosticId, evaluationModes));
-                        }
-
-                        if (explaining) {
-                            Logger err = getConfiguration().getLogger();
-                            err.info("Optimized expression tree for template rule at line " +
-                                             getLineNumber() + " in " + getSystemId() + ':');
-                            templateRuleBody.explain(err);
+                            if (explaining) {
+                                Logger err = getConfiguration().getLogger();
+                                err.info("Optimized expression tree for template rule at line " +
+                                                 getLineNumber() + " in " + getSystemId() + ':');
+                                templateRuleBody.explain(err);
+                            }
                         }
                     }
                 } catch (XPathException e) {

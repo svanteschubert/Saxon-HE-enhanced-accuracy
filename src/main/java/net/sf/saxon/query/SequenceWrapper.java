@@ -14,6 +14,7 @@ import net.sf.saxon.event.SequenceReceiver;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
@@ -45,7 +46,11 @@ public class SequenceWrapper extends SequenceReceiver {
     private FingerprintedQName resultAtomicValue;
     private FingerprintedQName resultFunction;
     private FingerprintedQName resultArray;
+    private FingerprintedQName resultArrayMember;
     private FingerprintedQName resultMap;
+    private FingerprintedQName resultMapEntry;
+    private FingerprintedQName resultMapKey;
+    private FingerprintedQName resultMapValue;
     private FingerprintedQName resultExternalValue;
     private FingerprintedQName xsiType;
 
@@ -72,7 +77,8 @@ public class SequenceWrapper extends SequenceReceiver {
         out.startElement(name, Untyped.getInstance(),
                          Loc.NONE,
                          ReceiverOption.NONE);
-        out.namespace("", "", ReceiverOption.NONE);
+        out.namespace("xs", NamespaceConstant.SCHEMA, ReceiverOption.NONE);
+        out.namespace("xsi", NamespaceConstant.SCHEMA_INSTANCE, ReceiverOption.NONE);
         out.startContent();
     }
 
@@ -95,17 +101,16 @@ public class SequenceWrapper extends SequenceReceiver {
         resultAtomicValue = new FingerprintedQName("result", RESULT_NS, "atomic-value");
         resultFunction = new FingerprintedQName("result", RESULT_NS, "function");
         resultArray = new FingerprintedQName("result", RESULT_NS, "array");
+        resultArrayMember = new FingerprintedQName("result", RESULT_NS, "array-member");
         resultMap = new FingerprintedQName("result", RESULT_NS, "map");
+        resultMapEntry = new FingerprintedQName("result", RESULT_NS, "map-entry");
+        resultMapKey = new FingerprintedQName("result", RESULT_NS, "map-key");
+        resultMapValue = new FingerprintedQName("result", RESULT_NS, "map-value");
         resultExternalValue = new FingerprintedQName("result", RESULT_NS, "external-object");
         xsiType = new FingerprintedQName("xsi", NamespaceConstant.SCHEMA_INSTANCE, "type");
 
         out.open();
         out.startDocument(ReceiverOption.NONE);
-
-        namespaces = NamespaceMap.emptyMap()
-                .put("result", RESULT_NS)
-                .put("xs", NamespaceConstant.SCHEMA)
-                .put("xsi", NamespaceConstant.SCHEMA_INSTANCE);
 
         startWrapper(resultSequence);
 
@@ -144,7 +149,6 @@ public class SequenceWrapper extends SequenceReceiver {
             startWrapper(resultElement);
         }
         out.startElement(elemName, type, location, properties);
-        out.namespace("", "", properties);
         for (AttributeInfo att : attributes) {
             out.attribute(att.getNodeName(), att.getType(), att.getValue(),
                           att.getLocation(), att.getProperties());
@@ -219,7 +223,6 @@ public class SequenceWrapper extends SequenceReceiver {
         if (item instanceof AtomicValue) {
             final NamePool pool = getNamePool();
             out.startElement(resultAtomicValue, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
-            out.namespace("", "", ReceiverOption.NONE);
             AtomicType type = ((AtomicValue) item).getItemType();
             StructuredQName name = type.getStructuredQName();
             String prefix = name.getPrefix();
@@ -232,7 +235,6 @@ public class SequenceWrapper extends SequenceReceiver {
                 }
             }
             String displayName = prefix + ':' + localName;
-            out.namespace("", "", ReceiverOption.NONE);
             out.namespace(prefix, uri, ReceiverOption.NONE);
             out.attribute(xsiType, BuiltInAtomicType.UNTYPED_ATOMIC, displayName, locationId, ReceiverOption.NONE);
             out.startContent();
@@ -248,23 +250,43 @@ public class SequenceWrapper extends SequenceReceiver {
             } else {
                 ((NodeInfo) item).copy(this, CopyOptions.ALL_NAMESPACES | CopyOptions.TYPE_ANNOTATIONS, locationId);
             }
-        } else if (item instanceof Function) {
-            if (item instanceof MapItem) {
-                out.startElement(resultMap, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
-                out.startContent();
-                out.characters(item.toShortString(), locationId, ReceiverOption.NONE);
+        } else if (item instanceof MapItem) {
+            ComplexContentOutputter out = getDestination();
+            out.startElement(resultMap, Untyped.getInstance(), locationId, ReceiverOption.NONE);
+            MapItem map = (MapItem) item;
+            for (KeyValuePair pair : map.keyValuePairs()) {
+                out.startElement(resultMapEntry, Untyped.getInstance(), locationId, ReceiverOption.NONE);
+                out.startElement(resultMapKey, Untyped.getInstance(), locationId, ReceiverOption.NONE);
+                append(pair.key);
                 out.endElement();
-            } else if (item instanceof ArrayItem) {
-                out.startElement(resultArray, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
-                out.startContent();
-                out.characters(item.toShortString(), locationId, ReceiverOption.NONE);
+                out.startElement(resultMapValue, Untyped.getInstance(), locationId, ReceiverOption.NONE);
+                SequenceIterator value = pair.value.iterate();
+                Item valItem;
+                while ((valItem = value.next()) != null) {
+                    append(valItem);
+                }
                 out.endElement();
-            } else {
-                out.startElement(resultFunction, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
-                out.startContent();
-                out.characters(((Function)item).getDescription(), locationId, ReceiverOption.NONE);
                 out.endElement();
             }
+            out.endElement();
+        } else if (item instanceof ArrayItem) {
+            out.startElement(resultArray, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
+            out.startContent();
+            for (GroundedValue mem : ((ArrayItem)item).members()) {
+                out.startElement(resultArrayMember, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
+                SequenceIterator value = mem.iterate();
+                Item valItem;
+                while ((valItem = value.next()) != null) {
+                    append(valItem);
+                }
+                out.endElement();
+            }
+            out.endElement();
+        } else if (item instanceof Function) {
+            out.startElement(resultFunction, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
+            out.startContent();
+            out.characters(((Function)item).getDescription(), locationId, ReceiverOption.NONE);
+            out.endElement();
         } else if (item instanceof ObjectValue) {
             Object obj = ((ObjectValue)item).getObject();
             out.startElement(resultExternalValue, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);

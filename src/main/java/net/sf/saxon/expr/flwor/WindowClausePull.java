@@ -53,12 +53,11 @@ public class WindowClausePull extends TuplePull {
     @Override
     public boolean nextTuple(XPathContext context) throws XPathException {
 
-        boolean deliver = false;
-
         // First see if there are any windows waiting to be delivered
 
-        boolean pending = lookForEarliest();
-        if (pending) {
+        WindowClause.Window earliest = lookForEarliest();
+        if (earliest != null) {
+            processWindow(earliest, context);
             return true;
         }
 
@@ -82,7 +81,6 @@ public class WindowClausePull extends TuplePull {
             // advance the input sequence
 
             boolean autoclose = windowClause.isTumblingWindow() && windowClause.getEndCondition() == null;
-            deliver = false;
 
             Item oldPrevious = previous;
             previous = current;
@@ -105,7 +103,7 @@ public class WindowClausePull extends TuplePull {
                         w.endPreviousItem = oldPrevious;
                         w.endNextItem = current;
                         w.endPosition = position - 1;
-                        deliver = despatch(w, context);
+                        earliest = despatch(w, context);
                         currentWindows.clear();
                     }
                     // Create the new window
@@ -136,8 +134,8 @@ public class WindowClausePull extends TuplePull {
                             w.endPreviousItem = previous;
                             w.endNextItem = next;
                             w.endPosition = position;
-                            if (!deliver) {
-                                deliver = despatch(w, context);
+                            if (earliest == null) {
+                                earliest = despatch(w, context);
                                 if (w.isDespatched()) {
                                     removals.add(w);
                                 }
@@ -149,7 +147,8 @@ public class WindowClausePull extends TuplePull {
                     }
                 }
                 // if there's a window ready to be delivered, deliver it
-                if (deliver) {
+                if (earliest != null) {
+                    processWindow(earliest, context);
                     return true;
                 }
             }
@@ -166,7 +165,7 @@ public class WindowClausePull extends TuplePull {
      * @throws XPathException if anything goes wrong
      */
 
-    private boolean despatch(WindowClause.Window w, XPathContext context) throws XPathException {
+    private WindowClause.Window despatch(WindowClause.Window w, XPathContext context) throws XPathException {
 
         windowClause.checkWindowContents(w);
 
@@ -184,7 +183,7 @@ public class WindowClausePull extends TuplePull {
      * @throws XPathException if anything goes wrong
      */
 
-    private boolean lookForEarliest() throws XPathException {
+    private WindowClause.Window lookForEarliest() throws XPathException {
 
         int earliestStart = Integer.MAX_VALUE;
         WindowClause.Window earliestWindow = null;
@@ -197,12 +196,11 @@ public class WindowClausePull extends TuplePull {
 
         if (earliestWindow == null || !earliestWindow.isFinished()) {
             // if the earliest window is unfinished, we can't do anything yet
-            return false;
+            return null;
         } else {
             // otherwise we can process it now
-            processWindow(earliestWindow, context);
-            //earliestWindow.isDespatched = true;
-            return true;
+            earliestWindow.isDespatched = true;
+            return earliestWindow;
         }
     }
 

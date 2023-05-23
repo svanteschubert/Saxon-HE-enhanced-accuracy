@@ -219,6 +219,6 @@ public class BooleanExpressionPattern extends Pattern implements PatternWithPred
         //}
         presenter.endElement();
     }
-    
+
 }
 

@@ -8,11 +8,11 @@
 package net.sf.saxon.expr;
 
 
-import net.sf.saxon.functions.hof.FunctionLiteral;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.functions.hof.FunctionLiteral;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
@@ -21,6 +21,7 @@ import net.sf.saxon.pattern.NodeTestPattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.query.QueryResult;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
@@ -608,7 +609,7 @@ public class Literal extends Expression {
                 out.emitAttribute("class", ((ExternalObject)value).getObject().getClass().getName());
                 out.endElement();
             } else {
-                throw new XPathException("Cannot export a stylesheet containing literal values bound to external Java objects");
+                throw new XPathException("Cannot export a stylesheet containing literal values bound to external Java objects", SaxonErrorCode.SXST0070);
             }
         } else {
             out.startElement("literal");

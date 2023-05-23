@@ -842,7 +842,9 @@ public class AlphaCode {
             final CombinedNodeTest combi = (CombinedNodeTest) primary;
             String c = combi.getContentTypeForAlphaCode();
             if (c != null) {
-                result.content = c;
+                if (!c.startsWith("Q{" + NamespaceConstant.ANONYMOUS)) {  // bug 4969
+                    result.content = c;
+                }
                 result.name = combi.getMatchingNodeName().getEQName();
                 result.nillable = combi.isNillable();
             } else {

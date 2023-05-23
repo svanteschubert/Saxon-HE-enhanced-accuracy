@@ -16,6 +16,7 @@ import net.sf.saxon.expr.instruct.Bindery;
 import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.GlobalParameterSet;
 import net.sf.saxon.expr.instruct.GlobalVariable;
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.sort.GroupIterator;
@@ -97,8 +98,7 @@ public class Controller implements ContextOriginator {
     protected String principalResultURI;
     private UnparsedTextURIResolver unparsedTextResolver;
     private String defaultCollectionURI;
-    private ErrorReporter errorReporter = new StandardErrorReporter();
-    //protected UnfailingErrorListener errorListener;
+    private ErrorReporter errorReporter;
     private TreeModel treeModel = TreeModel.TINY_TREE;
     private DocumentPool sourceDocumentPool;
     private IntHashMap<Map<Long, KeyIndex>> localIndexes;
@@ -180,7 +180,7 @@ public class Controller implements ContextOriginator {
         userURIResolver = config.getURIResolver();
         unparsedTextResolver = config.getUnparsedTextURIResolver();
         validationMode = config.getSchemaValidationMode();
-        errorReporter = new StandardErrorReporter();
+        errorReporter = config.makeErrorReporter();
 
         traceListener = null;
         traceFunctionDestination = config.getLogger();
@@ -466,6 +466,15 @@ public class Controller implements ContextOriginator {
      */
 
     public void warning(String message, String errorCode, Location locator) {
+        if (locator == null) {
+            locator = Loc.NONE;
+        }
+        if (errorCode == null) {
+            errorCode = SaxonErrorCode.SXWN9000;
+        }
+        if (message == null) {
+            message = "Unspecified warning";
+        }
         XmlProcessingIncident warning = new XmlProcessingIncident(message, errorCode, locator).asWarning();
         errorReporter.report(warning);
     }
@@ -504,7 +513,7 @@ public class Controller implements ContextOriginator {
     public Executable getExecutable() {
         return executable;
     }
-    
+
     /**
      * Get the document pool. This is used only for source documents, not for stylesheet modules.
      * <p>This method is intended for internal use only.</p>
@@ -1373,7 +1382,7 @@ public class Controller implements ContextOriginator {
     public void preEvaluateGlobals(XPathContext context) throws XPathException {
         for (PackageData pack : getExecutable().getPackages()) {
             for (GlobalVariable var : pack.getGlobalVariableList()) {
-                if (!var.isUnused()) {
+                if (!var.isUnused() && var.getDeclaredVisibility() != Visibility.ABSTRACT) {
                     try {
                         var.evaluateVariable(context, var.getDeclaringComponent());
                     } catch (XPathException err) {

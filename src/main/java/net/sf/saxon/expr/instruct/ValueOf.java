@@ -321,21 +321,22 @@ public final class ValueOf extends SimpleNodeConstructor {
             // Try to stream the value direct to the serializer where possible
             // Note: see bug 4944, which is why we don't use this path if the select
             //       expression might return an empty sequence.
-
+            Location instructionLoc = getLocation();
             Outputter toText = new ProxyOutputter(output) {
                 @Override
                 public void append(Item item) throws XPathException {
-                    getNextOutputter().characters(item.getStringValueCS(), Loc.NONE, options);
+                    getNextOutputter().characters(item.getStringValueCS(), instructionLoc, options);
                 }
 
                 @Override
                 public void append(Item item, Location locationId, int properties) throws XPathException {
-                    getNextOutputter().characters(item.getStringValueCS(), locationId, properties | options);
+                    getNextOutputter().characters(item.getStringValueCS(), instructionLoc, properties | options);
                 }
 
                 @Override
-                public CharSequenceConsumer getStringReceiver(boolean asTextNode) {
-                    return getNextOutputter().getStringReceiver(true);
+                public CharSequenceConsumer getStringReceiver(boolean asTextNode, Location loc) {
+                    Location location = loc.getLineNumber() == -1 ? instructionLoc : loc;
+                    return getNextOutputter().getStringReceiver(true, location);
                 }
             };
             getSelect().process(toText, context);

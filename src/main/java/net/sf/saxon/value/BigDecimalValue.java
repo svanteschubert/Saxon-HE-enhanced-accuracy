@@ -511,7 +511,7 @@ public final class BigDecimalValue extends DecimalValue {
             if (value.isWholeNumber()) {
                 IntegerValue iv = Converter.DecimalToInteger.INSTANCE.convert(value);
                 return iv.getSchemaComparable().hashCode();
-                
+
             }
             return value.hashCode();
         }

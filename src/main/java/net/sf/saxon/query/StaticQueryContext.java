@@ -22,6 +22,7 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.TraceCodeInjector;
+import net.sf.saxon.trace.XQueryTraceCodeInjector;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
@@ -73,7 +74,7 @@ public class StaticQueryContext {
     private boolean preserveSpace = false;
     private boolean defaultEmptyLeast = true;
     /*@Nullable*/ private ModuleURIResolver moduleURIResolver;
-    private ErrorReporter errorReporter = new StandardErrorReporter();
+    private ErrorReporter errorReporter;
     /*@Nullable*/ private CodeInjector codeInjector;
     private boolean isUpdating = false;
     private String defaultCollationName;
@@ -118,6 +119,7 @@ public class StaticQueryContext {
     public StaticQueryContext(Configuration config, boolean initialize) {
         this.config = config;
         this.namePool = config.getNamePool();
+        this.errorReporter = config.makeErrorReporter();
         if (initialize) {
             copyFrom(config.getDefaultStaticQueryContext());
         } else {
@@ -190,7 +192,7 @@ public class StaticQueryContext {
 
     public void reset() {
         userDeclaredNamespaces = new HashMap<>(10);
-        errorReporter = new StandardErrorReporter();
+        errorReporter = config.makeErrorReporter();
         constructionMode = getConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XQUERY) ?
                 Validation.PRESERVE : Validation.STRIP;
         preserveSpace = false;
@@ -308,7 +310,8 @@ public class StaticQueryContext {
     /**
      * Set the Base URI of the query
      *
-     * @param baseURI the base URI of the query, or null to indicate that no base URI is available
+     * @param baseURI the base URI of the query, or null to indicate that no base URI is available.
+     *                This should be a valid absolute URI.
      * @since 8.4
      */
 
@@ -383,7 +386,7 @@ public class StaticQueryContext {
 
     public void setCompileWithTracing(boolean trace) {
         if (trace) {
-            codeInjector = new TraceCodeInjector();
+            codeInjector = new XQueryTraceCodeInjector();
         } else {
             codeInjector = null;
         }

@@ -9,6 +9,7 @@ package net.sf.saxon.expr.sort;
 
 import net.sf.saxon.lib.SubstringMatcher;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.StringConverter;
 import net.sf.saxon.type.ValidationFailure;
 import net.sf.saxon.value.AnyURIValue;
@@ -261,7 +262,11 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
     @Override
     public boolean comparesEqual(CharSequence s1, CharSequence s2) {
-        return uca.compare(s1, s2) == 0;
+        if (!(s1 instanceof String) || !(s2 instanceof String)) {
+            return uca.compare(s1.toString(), s2.toString()) == 0;
+        } else {
+            return uca.compare(s1, s2) == 0;
+        }
     }
 
     /**

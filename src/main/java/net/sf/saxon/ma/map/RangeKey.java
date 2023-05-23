@@ -59,15 +59,15 @@ public class RangeKey implements MapItem {
                 (max == null || max.compareTo(k) >= 0)) {
             Object value = index.get(k);
             if (value == null) {
-                return EmptySequence.getInstance();
+                return null;
             } else if (value instanceof NodeInfo) {
                 return ((NodeInfo)value);
             } else {
                 List<NodeInfo> nodes = (List<NodeInfo>)value;
-                return SequenceExtent.makeSequenceExtent(nodes);
+                return nodes.isEmpty() ? null : SequenceExtent.makeSequenceExtent(nodes);
             }
         }
-        return EmptySequence.getInstance();
+        return null;
     }
 
     /**

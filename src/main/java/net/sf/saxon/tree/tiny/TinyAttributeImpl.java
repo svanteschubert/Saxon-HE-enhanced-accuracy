@@ -303,6 +303,17 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
     }
 
     /**
+     * Determine whether the node has the is-nilled property
+     *
+     * @return true if the node has the is-nilled property
+     */
+
+    @Override
+    public boolean isNilled() {
+        return false;
+    }
+
+    /**
      * Ask whether the attribute results from expansion of attribute defaults
      *
      * @return true if this attribute resulted from expansion of default or fixed values defined

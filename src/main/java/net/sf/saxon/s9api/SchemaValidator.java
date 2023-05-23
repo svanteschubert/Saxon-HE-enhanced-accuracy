@@ -141,18 +141,18 @@ public abstract class SchemaValidator extends AbstractDestination {
      * Calling this method has the effect of setting an InvalidityHandler internally, which cancels any
      * user-defined InvalidityHandler or ErrorListener that has been set.
      *
-     * This option applies only to the next call of validate() or validateMultiple [or whatever we call it].
-     * After such a call, the registered InvalidityHandler is reset to its initial default state (which causes
-     * validation errors to be output to System.err), and setValidityReport() must be called again if reports
+     * This option applies only to the next call of {@link #validate} or {@link #validateMultiple}.
+     * After such a call, the registered {@code InvalidityHandler} is reset to its initial default state (which causes
+     * validation errors to be output to {@code System.err}), and {@link #setValidityReporting} must be called again if reports
      * are required for subsequent validations.
      *
-     * If multiple documents are validated using the validateMultiple method, the reports for each validation will
+     * If multiple documents are validated using the {@link #validateMultiple} method, the reports for each validation will
      * be combined into a single report. Using this mechanism when validating multiple documents simultaneously is
      * recommended, because with other mechanisms, validation failures for different source documents will be
      * interleaved, and it becomes an application responsibility to organize which failures relate to which
      * source document.
      *
-     * The setErrorReporter, setInvalidityHandler, and setValidityReporting
+     * The {@link #setErrorListener}, {@link #setInvalidityHandler}, and {@link #setValidityReporting}
      * are mutually exclusive - setting any one of them will cancel the others.
      * @param destination where XML will be sent
      * @throws SaxonApiException if the destination is unsuitable

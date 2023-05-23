@@ -8,6 +8,7 @@
 package net.sf.saxon.option.local;
 
 import net.sf.saxon.expr.number.AbstractNumberer;
+import net.sf.saxon.regex.LatinString;
 
 /**
  * Class Numberer_de provides localization for format-date() and xsl:number with language = "de" (German)
@@ -38,7 +39,16 @@ public class Numberer_de extends AbstractNumberer {
 
     @Override
     public String toWords(long number) {
-        if (number >= 1000000000) {
+        if (number >= 1000000000000000L) {
+            return format(number, new LatinString("1.000.000"), 3, ".", "", "");
+        }
+        if (number >= 1000000000000L) {
+            long rem = number % 1000000000000L;
+            long n = number / 1000000000000L;
+            String s = (n == 1 ? "Eine" : toWords(n));
+            return s + " Billion" +
+                    (rem == 0 ? "" : ' ' + toWords(rem));
+        } else if (number >= 1000000000) {
             long rem = number % 1000000000;
             long n = number / 1000000000;
             String s = (n == 1 ? "Eine" : toWords(n));
@@ -50,18 +60,17 @@ public class Numberer_de extends AbstractNumberer {
             String s = (n == 1 ? "Eine" : toWords(n));
             return s + " Million" +
                     (n == 1 ? "" : "en") +
-                    (rem == 0 ? "" : ' ' + toWords(rem));
+                    (rem == 0 ? "" : toWords(rem));
         } else if (number >= 1000) {
             long rem = number % 1000;
             long n = number / 1000;
             String s = (n == 1 ? "Ein" : toWords(n));
-            return s + "tausend" + (rem == 0 ? "" : ' ' + toWords(rem));
+            return s + "tausend" + (rem == 0 ? "" : toWords(rem, LOWER_CASE));
         } else if (number >= 100) {
             long rem = number % 100;
             long n = number / 100;
             String s = (n == 1 ? "Ein" : toWords(n));
-            return s + "hundert" +
-                    (rem == 0 ? "" : (rem > 20 ? "" : "und") + toWords(rem, LOWER_CASE));
+            return s + "hundert" + (rem == 0 ? "" : toWords(rem, LOWER_CASE));
         } else {
             if (number < 20) return (number == 1 ? "Eins" : germanUnits[(int) number]);
             int rem = (int) (number % 10);
@@ -70,6 +79,11 @@ public class Numberer_de extends AbstractNumberer {
                     (tens == 0 ? "" : (rem == 0 ? "" : "und") + germanTens[tens]);
 
         }
+    }
+
+    @Override
+    public String zero() {
+        return "Null";
     }
 
     private static String[] germanUnits = {

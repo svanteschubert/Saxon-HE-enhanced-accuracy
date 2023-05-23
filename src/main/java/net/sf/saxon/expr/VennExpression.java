@@ -357,7 +357,10 @@ public class VennExpression extends BinaryExpression {
                         (lhs.getSpecialProperties() & StaticProperty.ORDERED_NODESET) != 0) {
                     return lhs;
                 }
-                if (lhs instanceof CurrentGroupCall && rhs instanceof ContextItemExpression) {
+                if (contextItemWithCurrentGroup(lhs, rhs)) {
+                    return rhs;
+                }
+                if (contextItemWithCurrentGroup(rhs, lhs)) {
                     return lhs;
                 }
                 break;
@@ -368,7 +371,10 @@ public class VennExpression extends BinaryExpression {
                 if (Literal.isEmptySequence(rhs)) {
                     return rhs;
                 }
-                if (lhs instanceof CurrentGroupCall && rhs instanceof ContextItemExpression) {
+                if (contextItemWithCurrentGroup(lhs, rhs)) {
+                    return lhs;
+                }
+                if (contextItemWithCurrentGroup(rhs, lhs)) {
                     return rhs;
                 }
                 break;
@@ -380,7 +386,10 @@ public class VennExpression extends BinaryExpression {
                         (lhs.getSpecialProperties() & StaticProperty.ORDERED_NODESET) != 0) {
                     return lhs;
                 }
-                if (lhs instanceof CurrentGroupCall && rhs instanceof ContextItemExpression) {
+                if (contextItemWithCurrentGroup(lhs, rhs)) {
+                    return Literal.makeEmptySequence();
+                }
+                if (contextItemWithCurrentGroup(rhs, lhs)) {
                     // Test case si-group-055.
                     // The streaming code has problems with (current-group() except .) so we
                     // optimize it away. This is a bit of a hack, because the difficulty may
@@ -509,6 +518,25 @@ public class VennExpression extends BinaryExpression {
         return this;
     }
 
+    /**
+     * Return true if the operands are, respectively, "." and "current-group()", and
+     * if the context-setting scope for both operands is the same. This implies that the context
+     * item must necessarily be a member of the current group.
+     * @param lhs the left-hand operand
+     * @param rhs the right-hand operand
+     * @return true if the LHS is "." and the RHS is "current-group()" and they the focus
+     * setting container is the containing xsl:for-each-group instruction
+     */
+
+    private boolean contextItemWithCurrentGroup(Expression lhs, Expression rhs) {
+        if (lhs instanceof ContextItemExpression && rhs instanceof CurrentGroupCall) {
+            Expression focusSetter = ExpressionTool.getFocusSettingContainer(lhs);
+            Expression forEachGroup = ((CurrentGroupCall)rhs).getControllingInstruction();
+            return forEachGroup != null && focusSetter == forEachGroup;
+        }
+        return false;
+    }
+
     private boolean operandsAreDisjoint(TypeHierarchy th) {
         return th.relationship(getLhsExpression().getItemType(), getRhsExpression().getItemType()) == Affinity.DISJOINT;
     }
@@ -634,7 +662,7 @@ public class VennExpression extends BinaryExpression {
                         getLhsExpression().toPattern(config),
                         getRhsExpression().toPattern(config));
             }
-        } 
+        }
     }
 
     private boolean isPredicatePattern(Expression exp) {

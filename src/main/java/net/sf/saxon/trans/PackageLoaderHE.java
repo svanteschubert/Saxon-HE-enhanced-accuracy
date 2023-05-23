@@ -367,6 +367,8 @@ public class PackageLoaderHE implements IPackageLoader {
             boolean range = flags != null && flags.contains("r");
             boolean reusable = flags != null && flags.contains("u");
             boolean composite = flags != null && flags.contains("c");
+            boolean convertUntypedToOther = flags != null && flags.contains("v");
+            boolean strictComparison = flags != null && flags.contains("s");
             Pattern match = getFirstChildPattern(keyElement);
             Expression use = getSecondChildExpression(keyElement);
             String collationName = keyElement.getAttributeValue("", "collation");
@@ -391,6 +393,8 @@ public class PackageLoaderHE implements IPackageLoader {
             if (composite) {
                 keyDefinition.setComposite(true);
             }
+            keyDefinition.setConvertUntypedToOther(convertUntypedToOther);
+            keyDefinition.setStrictComparison(strictComparison);
             pack.getKeyManager().addKeyDefinition(keyName, keyDefinition, reusable, pack.getConfiguration());
             //pack.addComponent(keyComponent);
         }
@@ -2289,6 +2293,7 @@ public class PackageLoaderHE implements IPackageLoader {
             }
 
             if (e instanceof SystemFunctionCall) {
+                ((SystemFunctionCall) e).allocateArgumentEvaluators(args);
                 final SystemFunction fn = ((SystemFunctionCall) e).getTargetFunction();
                 fn.setRetainedStaticContext(rsc);
                 SequenceIterator iter = element.iterateAxis(AxisInfo.ATTRIBUTE);
@@ -2373,16 +2378,21 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("forEach", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-
+            ForEach forEach;
             Expression threads = loader.getExpressionWithRole(element, "threads");
             if (threads == null) {
-                return new ForEach(lhs, rhs);
-            } else {
-                ForEach forEach = new ForEach(lhs, rhs, false, threads);
+                forEach = new ForEach(lhs, rhs);
                 Expression sep = loader.getExpressionWithRole(element, "separator");
                 if (sep != null) {
                     forEach.setSeparatorExpression(sep);
-                } 
+                }
+                return forEach;
+            } else {
+                forEach = new ForEach(lhs, rhs, false, threads);
+                Expression sep = loader.getExpressionWithRole(element, "separator");
+                if (sep != null) {
+                    forEach.setSeparatorExpression(sep);
+                }
                 return loader.getConfiguration().obtainOptimizer().generateMultithreadedInstruction(forEach);
             }
         });
@@ -2528,6 +2538,9 @@ public class PackageLoaderHE implements IPackageLoader {
                     ((IntegratedFunctionCall) exp).getFunction().supplyStaticContext(ic, -1, args);
                     ((IntegratedFunctionCall) exp).setResultType(type);
                 }
+            }
+            if (exp instanceof SystemFunctionCall) {
+                ((SystemFunctionCall) exp).allocateArgumentEvaluators(args);
             }
             return exp;
         });
@@ -3122,12 +3135,13 @@ public class PackageLoaderHE implements IPackageLoader {
                 if (flags.contains("s")) {
                     loader.addCompletionAction(() -> options.setSpaceStrippingRule(loader.getPackage().getSpaceStrippingRule()));
                 }
+                if (flags.contains("S")) {
+                    options.setSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
+                }
                 if (flags.contains("l")) {
                     options.setLineNumbering(true);
                 }
-                if (flags.contains("a")) {
-                    options.setExpandAttributeDefaults(true);
-                }
+                options.setExpandAttributeDefaults(flags.contains("a"));
                 if (flags.contains("d")) {
                     options.setDTDValidationMode(Validation.STRICT);
                 }

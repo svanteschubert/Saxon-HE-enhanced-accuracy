@@ -1016,7 +1016,8 @@ public class XPathParser {
      * @param rhs the B expression
      * @return a conditional expression with the correct semantics
      */
-    private Expression makeOtherwiseExpression (Expression lhs, Expression rhs) {
+    private Expression makeOtherwiseExpression (Expression lhs, Expression rhs) throws XPathException {
+        checkSyntaxExtensions("otherwise");
         LetExpression let = new LetExpression();
         let.setVariableQName(new StructuredQName("vv", NamespaceConstant.ANONYMOUS, "n" + lhs.hashCode()));
         let.setSequence(lhs);
@@ -2594,6 +2595,7 @@ public class XPathParser {
             nextToken();
             result = lookupStar(lhs);
         } else if (token == Token.LPAR) {
+            t.setState(Tokenizer.DEFAULT_STATE);
             result = lookup(this, lhs, parseParenthesizedExpression());
         } else if (token == Token.STRING_LITERAL) {
             checkSyntaxExtensions("string literal after '?'");
@@ -3126,9 +3128,9 @@ public class XPathParser {
             default:
                 Expression[] entriesArray = new Expression[entries.size()];
                 Block block = new Block(entries.toArray(entriesArray));
-                DictionaryMap options = new DictionaryMap();
-                options.initialPut("duplicates", new StringValue("reject"));
-                options.initialPut("duplicates-error-code", new StringValue("XQDY0137"));
+                HashTrieMap options = new HashTrieMap();
+                options.initialPut(new StringValue("duplicates"), new StringValue("reject"));
+                options.initialPut(new QNameValue("", NamespaceConstant.SAXON, "duplicates-error-code"), new StringValue("XQDY0137"));
                 result = MapFunctionSet.getInstance().makeFunction("merge", 2).makeFunctionCall(block, Literal.makeLiteral(options));
                 break;
         }
@@ -3482,7 +3484,7 @@ public class XPathParser {
      */
 
     protected AnnotationList parseAnnotationsList() throws XPathException {
-        grumble("Inline functions are not allowed in Saxon-HE");
+        grumble("Function annotations are not allowed in XPath");
         return null;
     }
 

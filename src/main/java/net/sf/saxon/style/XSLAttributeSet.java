@@ -328,9 +328,7 @@ public class XSLAttributeSet extends StyleElement implements StylesheetComponent
             Expression inst = node.compile(compilation, decl);
             inst.setRetainedStaticContext(makeRetainedStaticContext());
             inst = inst.simplify();
-            if (compilation.getCompilerInfo().isCompileWithTracing()) {
-                inst = makeTraceInstruction(this, inst);
-            }
+            setInstructionLocation(this, inst);
             containedInstructions.add(inst);
         }
 

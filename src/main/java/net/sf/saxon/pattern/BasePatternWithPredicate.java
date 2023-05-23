@@ -23,6 +23,8 @@ import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
 
+import java.util.ArrayList;
+
 /**
  * Class for handling patterns with simple non-positional boolean predicates
  */

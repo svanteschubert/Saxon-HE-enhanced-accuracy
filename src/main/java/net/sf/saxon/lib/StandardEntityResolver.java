@@ -536,7 +536,7 @@ public class StandardEntityResolver implements EntityResolver {
         register("-//XML-DEV//ENTITIES RDDL Resource Module 1.0//EN",
                 "http://www.rddl.org/rddl-resource-1.mod",
                 "w3c/rddl/rddl-resource-1.mod");
-        
+
         register("-//XML-DEV//ELEMENTS RDDL Resource 1.0//EN",
                  "http://www.rddl.org/rddl-resource-1.mod",
                  "w3c/rddl/rddl-resource-1.mod");

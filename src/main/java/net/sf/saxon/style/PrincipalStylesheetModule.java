@@ -277,7 +277,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
     public void declareXQueryFunction(XQueryFunction function) throws XPathException {
         XQueryFunctionLibrary lib = getStylesheetPackage().getXQueryFunctionLibrary();
         if (getStylesheetPackage().getFunction(function.getUserFunction().getSymbolicName()) != null) {
-            throw new XPathException("Duplication declaration of " +
+            throw new XPathException("Duplicate declaration of " +
                                              function.getUserFunction().getSymbolicName(), "XQST0034");
         }
         lib.declareFunction(function);
@@ -866,6 +866,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
             StyleElement firstDecl = entry.getValue().get(0).getSourceElement();
             as.setSystemId(firstDecl.getSystemId());
             as.setLineNumber(firstDecl.getLineNumber());
+            as.setColumnNumber(firstDecl.getColumnNumber());
             index.put(entry.getKey(), as);
 
             Component declaringComponent = as.getDeclaringComponent();
@@ -1007,7 +1008,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
                     } else if (usedMode.getVisibility() == Visibility.FINAL) {
                         bad = true;
                     }
-                } 
+                }
             }
             if (bad) {
                 template.compileError("A template rule cannot be added to a mode declared in a used package " +
@@ -1209,6 +1210,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
                     registerImplicitModes(snode, getRuleManager());
                 }
             }
+            getRuleManager().checkConsistency();
 
             // Register template rules with the rule manager
 
@@ -1302,7 +1304,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
             // Check consistency of modes
 
             RuleManager ruleManager = getRuleManager();
-            ruleManager.checkConsistency();
+            //ruleManager.checkConsistency();  // Now done earlier - bug 5118
             ruleManager.computeRankings();
             if (!compilation.isFallbackToNonStreaming()) {
                 ruleManager.invertStreamableTemplates();
@@ -1544,6 +1546,9 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
         Map<SymbolicName, Component> componentIndex = stylesheetPackage.getComponentIndex();
         for (Component component : componentIndex.values()) {
             int fp = component.getComponentKind();
+            if (fp == StandardNames.XSL_MODE && ((Mode) component.getActor()).isUnnamedMode()) {
+                continue; // bug 5231
+            }
             ComponentTest exactNameTest =
                     new ComponentTest(fp,
                                       new NameTest(Type.ELEMENT, new FingerprintedQName(component.getActor().getComponentName(), pool), pool), -1);

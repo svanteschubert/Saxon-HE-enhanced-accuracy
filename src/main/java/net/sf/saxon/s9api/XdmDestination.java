@@ -7,7 +7,10 @@
 
 package net.sf.saxon.s9api;
 
-import net.sf.saxon.event.*;
+import net.sf.saxon.event.Builder;
+import net.sf.saxon.event.PipelineConfiguration;
+import net.sf.saxon.event.Receiver;
+import net.sf.saxon.event.SequenceNormalizer;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.TreeModel;
 import net.sf.saxon.serialize.SerializationProperties;
@@ -44,8 +47,13 @@ public class XdmDestination extends AbstractDestination {
 
     /**
      * Set the base URI for the document node that will be created when the XdmDestination is written to.
-     * This method must be called before writing to the destination; it has no effect on an XdmNode that
+     * If used, this method must be called before writing to the destination; it has no effect on any XdmNode that
      * has already been constructed.
+     *
+     * <p>If no base URI is set, nodes written to this destination will typically take their base URI from the
+     * location of the event that created the node. For a node written by a query or stylesheet, this will
+     * typically be the static base URI of the instruction that created the node. For a node written by
+     * a schema validator, it will typically be the base URI of the node being validated in the source document.</p>
      *
      * @param baseURI the base URI for the node that will be constructed when the XdmDestination is written to.
      *                This must be an absolute URI
@@ -58,6 +66,14 @@ public class XdmDestination extends AbstractDestination {
             throw new IllegalArgumentException("Supplied base URI must be absolute");
         }
         setDestinationBaseURI(baseURI);
+    }
+
+    @Override
+    public void setDestinationBaseURI(URI baseURI) {
+        super.setDestinationBaseURI(baseURI);
+        if (builder != null && baseURI != null) {
+            builder.setBaseURI(baseURI.toString());
+        }
     }
 
     /**

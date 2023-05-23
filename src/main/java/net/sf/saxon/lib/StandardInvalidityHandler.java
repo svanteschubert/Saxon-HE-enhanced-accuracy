@@ -144,7 +144,7 @@ public class StandardInvalidityHandler extends StandardDiagnostics implements In
         }
 
         systemId = err.getSystemId();
-      
+
         if (systemId != null && systemId.length() != 0) {
             locMessage += (containsLineNumber ? "of " : "in ") + abbreviateLocationURI(systemId) + ':';
         }

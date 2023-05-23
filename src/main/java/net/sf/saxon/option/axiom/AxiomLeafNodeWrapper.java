@@ -58,6 +58,7 @@ public class AxiomLeafNodeWrapper extends AbstractNodeWrapper implements Sibling
         int kind = node.getType();
         switch (kind) {
             case OMNode.TEXT_NODE:
+            case OMNode.SPACE_NODE:
                 nodeKind = Type.TEXT;
                 break;
             case OMNode.COMMENT_NODE:
@@ -82,7 +83,7 @@ public class AxiomLeafNodeWrapper extends AbstractNodeWrapper implements Sibling
         String str = node == null ?
                 "NULL" :
                 node.getClass() + " instance " + node;
-        throw new IllegalArgumentException("Bad node type in XOM! " + str);
+        throw new IllegalArgumentException("Bad node type in Axiom tree! " + str);
     }
 
     /**

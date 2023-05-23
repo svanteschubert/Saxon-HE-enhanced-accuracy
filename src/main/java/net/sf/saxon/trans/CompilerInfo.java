@@ -34,7 +34,7 @@ public class CompilerInfo {
     private Configuration config;
     private URIResolver uriResolver;
     private OutputURIResolver outputURIResolver = StandardOutputResolver.getInstance();
-    private ErrorReporter errorReporter = new StandardErrorReporter();
+    private ErrorReporter errorReporter;
     private CodeInjector codeInjector;
     private int recoveryPolicy = Mode.RECOVER_WITH_WARNINGS;
     private boolean schemaAware;
@@ -61,6 +61,7 @@ public class CompilerInfo {
 
     public CompilerInfo(Configuration config) {
         this.config = config;
+        errorReporter = config.makeErrorReporter();
         packageLibrary = new PackageLibrary(this);
         optimizerOptions = config.getOptimizerOptions();
     }

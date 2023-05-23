@@ -13,6 +13,7 @@ import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.QuitParsingException;
 import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XPathException;
@@ -390,6 +391,7 @@ public class ReceivingContentHandler
     }
 
     private AttributeMap makeAttributeMap(Attributes atts, Location location) throws SAXException {
+        boolean isAttributes2 = atts instanceof Attributes2;
         int length = atts.getLength();
         List<AttributeInfo> list = new ArrayList<>(atts.getLength());
         for (int a=0; a<length; a++) {
@@ -405,19 +407,46 @@ public class ReceivingContentHandler
                 continue;
             }
 
-            if (defaultedAttributesAction != 0
-                    && atts instanceof Attributes2
-                    && !((Attributes2) atts).isSpecified(qname)) {
+            if (isAttributes2 && !((Attributes2) atts).isSpecified(a)) {
+                // Attribute originates from DTD or schema defaulting.
                 if (defaultedAttributesAction == -1) {
                     // suppress defaulted attributes
                     continue;
-                } else {
+                } else if (defaultedAttributesAction == 1) {
                     // mark defaulted attributes
                     properties |= ReceiverOption.DEFAULTED_VALUE;
                 }
+                // Bug 4996 - if the attribute originates from Xerces schema processing,
+                // and if the attribute is namespaced, then the prefix and namespace declaration
+                // may be missing. Although Xerces is getting this wrong, we attempt to repair the damage.
+                if (atts.getURI(a) != null && !"".equals(atts.getURI(a)) && qname.indexOf(':') < 0) {
+                    // defaulted attribute has a URI but no prefix
+                    String uri = atts.getURI(a);
+                    String trialPrefix = getConfiguration().getNamePool().suggestPrefixForURI(uri);
+                    if (trialPrefix == null ) {
+                        String[] existingUris = currentNamespaceMap.getURIsAsArray();
+                        for (int u = 0; u < existingUris.length; u++) {
+                            if (existingUris[u].equals(uri)) {
+                                trialPrefix = currentNamespaceMap.getPrefixArray()[u];
+                            }
+                        }
+                    }
+                    if (trialPrefix == null) {
+                        trialPrefix = "p" + Err.abbreviateURI(atts.getURI(a)).replace("/", "").replace("...", ".");
+                        if (!NameChecker.isValidNCName(trialPrefix)) {
+                            trialPrefix = "p" + "_" + qname;
+                        }
+                    }
+                    while (currentNamespaceMap.getURI(trialPrefix) != null && !currentNamespaceMap.getURI(trialPrefix).equals(uri)) {
+                        trialPrefix = trialPrefix + "z";
+                    }
+                    currentNamespaceMap = currentNamespaceMap.put(trialPrefix, uri);
+                    qname = trialPrefix + ":" + qname;
+                    getConfiguration().getNamePool().suggestPrefix(trialPrefix, uri);
+                }
             }
 
-            NodeName attCode = getNodeName(atts.getURI(a), atts.getLocalName(a), atts.getQName(a));
+            NodeName attCode = getNodeName(atts.getURI(a), atts.getLocalName(a), qname);
             String type = atts.getType(a);
             SimpleType typeCode = BuiltInAtomicType.UNTYPED_ATOMIC;
             if (retainDTDAttributeTypes) {

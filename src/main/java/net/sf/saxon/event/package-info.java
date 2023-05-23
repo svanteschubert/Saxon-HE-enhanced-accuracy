@@ -34,7 +34,7 @@
  * filters to the pipeline.</p>
  * <p>Saxon's schema validator and serializer are both implemented using this push pipeline model.
  * The classes that perform
- * schema validation are part of package: {@link com.saxonica.validate}, while the serialization classes
+ * schema validation are part of package: {@link com.saxonica.ee.validate}, while the serialization classes
  * are in {@link net.sf.saxon.serialize}.</p>
  */
 package net.sf.saxon.event;

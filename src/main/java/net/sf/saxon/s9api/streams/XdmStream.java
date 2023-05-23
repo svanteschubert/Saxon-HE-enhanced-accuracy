@@ -29,7 +29,7 @@ import java.util.stream.*;
  * </ul>
  *
  * <p>The implementation is customized to streams of {@link XdmItem}s.</p>
- * @implNote This class is implemented by wrapping a base stream. Generally, the
+ * <p>Note: This class is implemented by wrapping a base stream. Generally, the
  *           methods on this class delegate to the base stream; those methods that
  *           return a stream wrap the stream returned by the base class. The context object can be used by a terminal
  *           method on the XdmStream to signal to the originator of the stream
@@ -505,7 +505,7 @@ public class XdmStream<T extends XdmItem> implements Stream<T> {
         });
         return new XdmStream<>(stoppable.filter(predicate.negate()));
     }
-    
+
 }
 
 

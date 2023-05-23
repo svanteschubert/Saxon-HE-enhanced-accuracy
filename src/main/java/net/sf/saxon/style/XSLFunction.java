@@ -442,8 +442,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
         }
         exp2 = ExpressionTool.optimizeComponentBody(exp2, getCompilation(), visitor, ContextItemStaticInfo.ABSENT, true);
 
-        // Add trace wrapper code if required
-        exp2 = makeTraceInstruction(this, exp2);
+        setInstructionLocation(this, exp2);
         compiledFunction.setBody(exp2);
 
         // Assess the streamability of the function body
@@ -637,6 +636,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
             setParameterDefinitions(fn);
             fn.setResultType(getResultType());
             fn.setLineNumber(getLineNumber());
+            fn.setColumnNumber(getColumnNumber());
             fn.setSystemId(getSystemId());
             fn.obtainDeclaringComponent(this);
             fn.setDeclaredVisibility(getDeclaredVisibility());

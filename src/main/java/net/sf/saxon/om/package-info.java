@@ -17,7 +17,7 @@
  * specialization of this interface whose main difference is that it cannot throw exceptions. The other
  * classes are implementations of SequenceIterator for use in particular circumstances.
  * </li>
- * <liul>Shared implementation classes: DocumentPool, NamePool, Navigator, XMLChar.
+ * <li>Shared implementation classes: DocumentPool, NamePool, Navigator, XMLChar.
  * These contain functionality that is shared between the various tree implementations. (However, there is
  * also some shared functionality in the <code>net.sf.saxon.tree</code> package). These classes are
  * not generally needed by applications, with the exception of NamePool, which complex applications may

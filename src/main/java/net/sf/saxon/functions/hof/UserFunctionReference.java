@@ -59,6 +59,19 @@ public class UserFunctionReference extends Expression
         this.nominalTarget = function;
     }
 
+
+    @Override
+    public Expression simplify() throws XPathException {
+        // if this is an inline function, simplify the body of that function now
+        if (nominalTarget.getFunctionName().hasURI(NamespaceConstant.ANONYMOUS) && typeCheckCounter == 0) {
+            // Prevent recursive simplification
+            typeCheckCounter++;
+            nominalTarget.setBody(nominalTarget.getBody().simplify());
+            typeCheckCounter--;
+        }
+        return this;
+    }
+
     /**
      * Perform type checking of an expression and its subexpressions. This is the second phase of
      * static optimization.
@@ -106,8 +119,9 @@ public class UserFunctionReference extends Expression
     @Override
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         // if this is an inline function, optimize that function now
-        if (nominalTarget.getFunctionName().hasURI(NamespaceConstant.ANONYMOUS) && optimizeCounter++ < 10) {
-            // Prevent recursive optimization: test case -s:misc-HigherOrderFunctions -t:xqhof2
+        if (nominalTarget.getFunctionName().hasURI(NamespaceConstant.ANONYMOUS) && optimizeCounter == 0) {
+            optimizeCounter++;
+            // Prevent recursive optimization: test case -s:misc-HigherOrderFunctions -t:xqhof2 ; see also bug #5054
             Expression o;
             o = nominalTarget.getBody().optimize(visitor, ContextItemStaticInfo.ABSENT);
             nominalTarget.setBody(o);
@@ -117,6 +131,7 @@ public class UserFunctionReference extends Expression
             }
             ExpressionTool.allocateSlots(o, getArity(), slotManager);
             nominalTarget.setStackFrameMap(slotManager);
+            optimizeCounter--;
         }
         return this;
     }
@@ -142,6 +157,10 @@ public class UserFunctionReference extends Expression
     @Override
     public Component getFixedTarget() {
         return nominalTarget.getDeclaringComponent();
+    }
+
+    public UserFunction getNominalTarget() {
+        return nominalTarget;
     }
 
     /**

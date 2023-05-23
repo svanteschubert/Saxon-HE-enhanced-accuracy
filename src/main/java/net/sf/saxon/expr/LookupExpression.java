@@ -145,11 +145,15 @@ public class LookupExpression extends BinaryExpression {
             if (th.relationship(containerType, MapType.ANY_MAP_TYPE) == Affinity.DISJOINT &&
                     th.relationship(containerType, ArrayItemType.getInstance()) == Affinity.DISJOINT &&
                     th.relationship(containerType, AnyExternalObjectType.THE_INSTANCE) == Affinity.DISJOINT) {
-                XPathException err = new XPathException("The left-hand operand of '?' must be a map or an array; the supplied expression is of type " + containerType, "XPTY0004");
-                err.setLocation(getLocation());
-                err.setIsTypeError(true);
-                err.setFailingExpression(this);
-                throw err;
+                if (Cardinality.allowsZero(getLhsExpression().getCardinality())) {
+                    visitor.issueWarning("The left-hand operand of '?' must be a map or an array; the expression can succeed only if the operand is an empty sequence " + containerType, getLocation());
+                } else {
+                    XPathException err = new XPathException("The left-hand operand of '?' must be a map or an array; the supplied expression is of type " + containerType, "XPTY0004");
+                    err.setLocation(getLocation());
+                    err.setIsTypeError(true);
+                    err.setFailingExpression(this);
+                    throw err;
+                }
             }
         }
 

@@ -11,7 +11,7 @@ package net.sf.saxon.type;
 import net.sf.saxon.pattern.NodeKindTest;
 
 public enum PrimitiveUType {
-    
+
     DOCUMENT (0),
     ELEMENT (1),
     ATTRIBUTE (2),

@@ -97,7 +97,7 @@ public class TemplatesImpl implements Templates {
      * @param forceStreaming true if streaming behaviour is to be enforced for any generated
      *                       Transformer object.
      */
-    
+
     public void setForceStreaming(boolean forceStreaming) {
         this.forceStreaming = forceStreaming;
     }

@@ -54,7 +54,7 @@ public class StaxBridge implements PullProvider {
     Event currentEvent = Event.START_OF_INPUT;
     int depth = 0;
     boolean ignoreIgnorable = false;
-    
+
     /**
      * Create a new instance of the class
      */
@@ -559,7 +559,7 @@ public class StaxBridge implements PullProvider {
             return new Loc(location.getSystemId(), location.getLineNumber(), location.getColumnNumber());
         }
     }
-    
+
     /**
      * Get a list of unparsed entities.
      *

@@ -44,6 +44,9 @@ public class ConditionalBlock extends Instruction {
         operanda = new Operand[children.length];
         for (int i=0; i<children.length; i++) {
             operanda[i] = new Operand(this, children[i], OperandRole.SAME_FOCUS_ACTION);
+            if (children[i] instanceof OnEmptyExpr) {
+                operanda[i].setOperandRole(OperandRole.SAME_FOCUS_ACTION.withConstrainedClass());
+            }
         }
     }
 

@@ -110,6 +110,17 @@ public abstract class AxiomParentNodeWrapper extends AbstractNodeWrapper
         return new DescendantWrappingIterator(this, nodeTest, includeSelf);
     }
 
+    private static boolean isIgnoredNode(OMNode node) {
+        switch (node.getType()) {
+            case OMNode.DTD_NODE:
+                return true;
+            case OMNode.SPACE_NODE:
+                return node.getParent() instanceof OMDocument;
+            default:
+                return false;
+        }
+    }
+
     /**
      * Abstract iterator that takes an iterator over nodes in the Axiom tree and
      * wraps it with an implementation of Saxon's AxisIterator that wraps each
@@ -129,10 +140,12 @@ public abstract class AxiomParentNodeWrapper extends AbstractNodeWrapper
         public NodeInfo next() {
             while (true) {
                 if (base.hasNext()) {
-                    Object node = base.next();
-                    NodeInfo wrapper = wrap(node);
-                    if (nodeTest.test(wrapper)) {
-                        return wrapper;
+                    OMNode node = (OMNode) base.next();
+                    if (!isIgnoredNode(node)) {
+                        NodeInfo wrapper = wrap(node);
+                        if (nodeTest.test(wrapper)) {
+                            return wrapper;
+                        }
                     }
                 } else {
                     return null;

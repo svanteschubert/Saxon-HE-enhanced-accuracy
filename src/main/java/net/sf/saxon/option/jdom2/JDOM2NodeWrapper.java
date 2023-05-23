@@ -380,6 +380,8 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
                 parent = null;
             } else if (node instanceof Namespace) {
                 throw new UnsupportedOperationException("Cannot find parent of JDOM namespace node");
+            } else if (node instanceof List) {
+                parent = makeWrapper(((List<?>)node).get(0), getTreeInfo());
             } else {
                 throw new IllegalStateException("Unknown JDOM node type " + node.getClass());
             }
@@ -432,7 +434,7 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
                     return index;
                 }
                 if (((JDOM2NodeWrapper) n).node instanceof List) {
-                    ix += ((List) ((JDOM2NodeWrapper) n).node).size();
+                    ix += ((List<?>) ((JDOM2NodeWrapper) n).node).size();
                 } else {
                     ix++;
                 }
@@ -479,8 +481,23 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
 
     @Override
     protected AxisIterator iterateDescendants(Predicate<? super NodeInfo> nodeTest, boolean includeSelf) {
+        UType uType = UType.ANY;
+        if (nodeTest instanceof NodeTest) {
+            uType = ((NodeTest) nodeTest).getUType();
+        }
+        if (uType.overlaps(UType.TEXT)) {
+            // if selecting text nodes, we have to handle adjacent sibling text nodes. The best way
+            // to achieve this is by using the recursive implementation of the descendant axis available
+            // in the Navigator class, which works in terms of the child axis only. See bug #5348.
+            AxisIterator allDescendants = new Navigator.DescendantEnumeration(this, includeSelf, true);
+            if (nodeTest == AnyNodeTest.getInstance()) {
+                return allDescendants;
+            } else {
+                return new Navigator.AxisFilter(allDescendants, nodeTest);
+            }
+        }
         Iterator<? extends Content> descendants;
-        if (nodeTest instanceof NodeTest && ((NodeTest)nodeTest).getUType() == UType.ELEMENT) {
+        if (uType == UType.ELEMENT) {
             // only select element nodes
             descendants = ((Parent) node).getDescendants(new ElementFilter());
         } else {

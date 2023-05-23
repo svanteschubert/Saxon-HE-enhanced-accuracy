@@ -427,12 +427,13 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
             ArrayItem array = (ArrayItem) arguments[0].head();
-            if (arguments[1] instanceof IntegerValue) {
-                int index = checkSubscript((IntegerValue) arguments[1], array.arrayLength()) - 1;
+            GroundedValue offsets = arguments[1].materialize();
+            if (offsets instanceof IntegerValue) {
+                int index = checkSubscript((IntegerValue) offsets, array.arrayLength()) - 1;
                 return array.remove(index);
             }
             IntSet positions = new IntHashSet();
-            SequenceIterator arg1 = arguments[1].iterate();
+            SequenceIterator arg1 = offsets.iterate();
             arg1.forEachOrFail(pos -> {
                 int index = checkSubscript((IntegerValue)pos, array.arrayLength()) - 1;
                 positions.add(index);

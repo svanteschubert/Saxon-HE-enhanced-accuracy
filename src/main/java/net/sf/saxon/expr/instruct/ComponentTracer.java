@@ -40,16 +40,12 @@ public class ComponentTracer extends Instruction {
     public ComponentTracer(TraceableComponent component) {
         this.component = component;
         baseOp = new Operand(this, component.getBody(), OperandRole.SAME_FOCUS_ACTION);
-        adoptChildExpression(component.getBody());
-        component.setBody(this);
         component.gatherProperties((k, v) -> properties.put(k, v));
     }
 
-    public Expression getChild() {
-        return baseOp.getChildExpression();
-    }
+    private ComponentTracer() {};
 
-    public Expression getBody() {
+    public Expression getChild() {
         return baseOp.getChildExpression();
     }
 
@@ -84,8 +80,10 @@ public class ComponentTracer extends Instruction {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        ComponentTracer t = new ComponentTracer(component);
-        Expression newBody = getBody().copy(rebindings);  // Bug 4642
+        ComponentTracer t = new ComponentTracer();
+        t.component = component;
+        t.properties = properties;
+        Expression newBody = getChild().copy(rebindings);  // Bug 4642
         t.baseOp = new Operand(t, newBody, OperandRole.SAME_FOCUS_ACTION);
         t.adoptChildExpression(newBody);
         t.setLocation(getLocation());   // Bug 3034

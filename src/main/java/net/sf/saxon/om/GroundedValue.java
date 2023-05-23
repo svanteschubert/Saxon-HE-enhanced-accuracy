@@ -20,7 +20,7 @@ import java.util.List;
 
 /**
  * A value that exists in memory and that can be directly addressed
- * @since 9.5.  Generified in 9.9.
+ * @since 9.5.  Generified in 9.9. De-generified in 10.0
  */
 public interface GroundedValue extends Sequence {
 

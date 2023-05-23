@@ -582,9 +582,11 @@ public class XsltController extends Controller {
 
     @Override
     public void preEvaluateGlobals(XPathContext context) throws XPathException {
-        openMessageEmitter();
-        super.preEvaluateGlobals(context);
-        closeMessageEmitter();
+//        if (getExecutable().getPackages().size() == 1) {
+//            openMessageEmitter();
+//            super.preEvaluateGlobals(context);
+//            closeMessageEmitter();
+//        }
     }
 
     /**

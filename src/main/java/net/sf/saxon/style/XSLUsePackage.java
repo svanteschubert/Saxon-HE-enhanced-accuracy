@@ -321,7 +321,7 @@ public class XSLUsePackage extends StyleElement {
                                 newCompoundMode.setDeclaringComponent(derivedComponent);
                                 ruleManager.registerMode(newCompoundMode);
                                 derivedComponent.setActor(newCompoundMode);
-                            }   
+                            }
                         }
                     }
 

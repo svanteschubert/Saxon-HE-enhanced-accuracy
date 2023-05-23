@@ -26,6 +26,7 @@ import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
+import net.sf.saxon.value.Cardinality;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -107,11 +108,15 @@ public class LookupAllExpression extends UnaryExpression {
         if (!isArrayLookup && !isMapLookup) {
             if (th.relationship(containerType, MapType.ANY_MAP_TYPE) == Affinity.DISJOINT &&
                     th.relationship(containerType, ArrayItemType.getInstance()) == Affinity.DISJOINT) {
-                XPathException err = new XPathException("The left-hand operand of '?' must be a map or an array; the supplied expression is of type " + containerType, "XPTY0004");
-                err.setLocation(getLocation());
-                err.setIsTypeError(true);
-                err.setFailingExpression(this);
-                throw err;
+                if (Cardinality.allowsZero(getBaseExpression().getCardinality())) {
+                    visitor.issueWarning("The left-hand operand of '?' must be a map or an array; the expression can succeed only if the operand is an empty sequence " + containerType, getLocation());
+                } else {
+                    XPathException err = new XPathException("The left-hand operand of '?' must be a map or an array; the supplied expression is of type " + containerType, "XPTY0004");
+                    err.setLocation(getLocation());
+                    err.setIsTypeError(true);
+                    err.setFailingExpression(this);
+                    throw err;
+                }
             }
         }
 
@@ -129,7 +134,7 @@ public class LookupAllExpression extends UnaryExpression {
         if (getBaseExpression() instanceof Literal) {
             return new Literal(iterate(visitor.makeDynamicContext()).materialize());
         }
-        
+
         // See W3C bug 30228. In the interests of keeping certain tests streamable, we do a rewrite of [A,B,C]?*
         // to (A, B, C).
         if (getBaseExpression() instanceof SquareArrayConstructor) {

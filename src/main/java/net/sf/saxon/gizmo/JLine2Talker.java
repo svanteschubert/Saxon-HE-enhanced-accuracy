@@ -8,6 +8,7 @@
 package net.sf.saxon.gizmo;
 
 import jline.console.ConsoleReader;
+import jline.console.completer.CandidateListCompletionHandler;
 import jline.console.completer.Completer;
 import jline.console.completer.FileNameCompleter;
 import jline.console.completer.StringsCompleter;
@@ -34,13 +35,14 @@ public class JLine2Talker implements Talker {
         }
     }
 
-    private ConsoleReader console;
+    private final ConsoleReader console;
     private Completer completer;
 
     public JLine2Talker() throws IOException {
         console = new ConsoleReader(System.in, System.out);
         console.setExpandEvents(false);
         console.setHistoryEnabled(true);
+        ((CandidateListCompletionHandler)console.getCompletionHandler()).setPrintSpaceAfterFullCompletion(false); // bug 5253
     }
 
     /**
@@ -119,10 +121,10 @@ public class JLine2Talker implements Talker {
                             } else if (translated.startsWith("~")) {
                                 translated = homeDir.getParentFile().getAbsolutePath();
                             } else if (!translated.contains(separator())) {
-                                String cwd = getUserDir().getAbsolutePath();
+                                String cwd = System.getProperty("user.dir");
                                 translated = cwd + separator() + translated;
                             } else if (!(new File(translated).isAbsolute())) {
-                                String cwd = getUserDir().getAbsolutePath();
+                                String cwd = System.getProperty("user.dir");
                                 translated = cwd + separator() + translated;
                             }
 

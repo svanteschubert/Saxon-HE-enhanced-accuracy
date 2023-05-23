@@ -76,7 +76,7 @@ public class PackageInspector extends ProxyReceiver {
             }
         }
     }
-    
+
     private VersionedPackageName getNameAndVersion() {
         if (packageName == null) {
             return null;

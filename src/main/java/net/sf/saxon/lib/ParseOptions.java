@@ -136,6 +136,12 @@ public class ParseOptions {
      */
 
     public void merge(/*@NotNull*/ ParseOptions options) {
+        if (options.parserFeatures != null) {
+            if (parserFeatures == null) {
+                parserFeatures = new HashMap<>();
+            }
+            parserFeatures.putAll(options.parserFeatures);
+        }
         if (options.dtdValidation != Validation.DEFAULT) {
             setDTDValidationMode(options.dtdValidation);
         }
@@ -180,12 +186,6 @@ public class ParseOptions {
                 filters = new ArrayList<>();
             }
             filters.addAll(options.filters);
-        }
-        if (options.parserFeatures != null) {
-            if (parserFeatures == null) {
-                parserFeatures = new HashMap<>();
-            }
-            parserFeatures.putAll(options.parserFeatures);
         }
         if (options.parserProperties != null) {
             if (parserProperties == null) {

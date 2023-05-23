@@ -34,6 +34,7 @@ public class TraceClause extends Clause {
 
     public TraceClause(FLWORExpression expression, Clause target) {
         this.target = target;
+        this.setLocation(target.getLocation());
         this.nsResolver = expression.getRetainedStaticContext();
     }
 

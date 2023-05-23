@@ -38,6 +38,7 @@ public class AxiomDocument extends GenericTreeInfo {
      */
     public AxiomDocument(OMDocument root, String baseURI, Configuration config) {
         super(config);
+        setRootNode(new AxiomDocumentNodeWrapper(root, baseURI, config, this));
         setSystemId(baseURI);
     }
 

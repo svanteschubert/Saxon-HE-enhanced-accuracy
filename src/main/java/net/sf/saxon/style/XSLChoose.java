@@ -110,9 +110,7 @@ public class XSLChoose extends StyleElement {
                     compileError(e);
                 }
 
-                if (getCompilation().getCompilerInfo().isCompileWithTracing()) {
-                    actions[w] = makeTraceInstruction((XSLWhen) curr, actions[w]);
-                }
+                setInstructionLocation((XSLWhen) curr, actions[w]);
 
                 // Optimize for constant conditions (true or false)
                 if (conditions[w] instanceof Literal && ((Literal) conditions[w]).getValue() instanceof BooleanValue) {
@@ -142,9 +140,7 @@ public class XSLChoose extends StyleElement {
                 } catch (XPathException e) {
                     compileError(e);
                 }
-                if (getCompilation().getCompilerInfo().isCompileWithTracing()) {
-                    actions[w] = makeTraceInstruction((XSLOtherwise) curr, actions[w]);
-                }
+                setInstructionLocation((XSLOtherwise) curr, actions[w]);
                 w++;
             } else {
                 // Ignore: problem has already been reported.

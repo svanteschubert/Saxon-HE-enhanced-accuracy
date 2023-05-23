@@ -245,7 +245,9 @@ public class XPathContextMinor implements XPathContext {
         if (last.value >= 0) {
             return last.value;
         }
-        return currentIterator.getLength();
+        int length = currentIterator.getLength();
+        last = new LastValue(length);
+        return length;
     }
 
     /**
@@ -356,7 +358,7 @@ public class XPathContextMinor implements XPathContext {
         // This should not happen, and if it does, it means that the evaluation mode has been miscalculated.
         // But if it does happen, we recover by wrapping the Closure in a MemoSequence which remembers the
         // value as it is calculated.
-        
+
         value = value.makeRepeatable();
         try {
             stackFrame.slots[slotNumber] = value;
@@ -567,7 +569,7 @@ public class XPathContextMinor implements XPathContext {
      */
 
     protected static class LastValue {
-        public int value = 0;
+        public final int value;
 
         public LastValue(int count) {
             value = count;

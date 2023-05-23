@@ -872,11 +872,12 @@ public abstract class NodeImpl
      * @param attType    the type annotation of the new attribute
      * @param value      the string value of the new attribute
      * @param properties properties including IS_ID and IS_IDREF properties
+     * @param inheritNamespaces
      * @throws IllegalStateException if the element already has an attribute with the given name.
      */
 
     @Override
-    public void addAttribute(NodeName name, SimpleType attType, CharSequence value, int properties) {
+    public void addAttribute(NodeName name, SimpleType attType, CharSequence value, int properties, boolean inheritNamespaces) {
         // No action, unless this is an element node
     }
 
@@ -884,16 +885,17 @@ public abstract class NodeImpl
      * Rename this node
      *
      * @param newNameCode the NamePool code of the new name
+     * @param inheritNamespaces
      */
 
     @Override
-    public void rename(NodeName newNameCode) {
+    public void rename(NodeName newNameCode, boolean inheritNamespaces) {
         // implemented for node kinds that have a name
     }
 
 
     @Override
-    public void addNamespace(NamespaceBinding nscode) {
+    public void addNamespace(NamespaceBinding nscode, boolean inheritNamespaces) {
         // implemented for element nodes only
     }
 

@@ -94,6 +94,9 @@ class MessageListener2Proxy extends SequenceWriter {
     public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
         if (target.equals("error-code") && errorCode == null) {
             errorCode = StructuredQName.fromEQName(data);
+            if (this.locationId == null) {
+                this.locationId = locationId;
+            }
         } else {
             super.processingInstruction(target, data, locationId, properties);
         }

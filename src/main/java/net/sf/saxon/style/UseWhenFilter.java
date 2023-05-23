@@ -226,7 +226,7 @@ public class UseWhenFilter extends ProxyReceiver {
             }
 
             if (inXsltNamespace) {
-                
+
                 if (defaultNamespaceStack.size() == 2) {
                     switch (fp) {
                         case StandardNames.XSL_VARIABLE:

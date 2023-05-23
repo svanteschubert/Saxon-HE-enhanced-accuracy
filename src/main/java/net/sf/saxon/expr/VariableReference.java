@@ -266,7 +266,7 @@ public abstract class VariableReference extends Expression implements BindingRef
             if (select instanceof Literal) {
                 binding = null;
                 Optimizer.trace(visitor.getConfiguration(), "Replaced static parameter " + getDisplayName() + " by its value", select);
-                return select;
+                return select.copy(new RebindingMap());
             }
         }
         return this;

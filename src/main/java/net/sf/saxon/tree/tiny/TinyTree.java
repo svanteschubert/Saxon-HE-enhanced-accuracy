@@ -1153,6 +1153,9 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
             systemIdMap = new SystemIdMap();
         }
         systemIdMap.setSystemId(seq, uri);
+        if (getSystemId(0) == null) {
+            setSystemId(0, uri);
+        }
     }
 
     void setUniformBaseUri(String base) {

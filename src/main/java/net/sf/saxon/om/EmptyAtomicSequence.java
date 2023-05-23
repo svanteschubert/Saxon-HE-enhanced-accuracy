@@ -69,8 +69,8 @@ public enum EmptyAtomicSequence implements AtomicSequence {
      * @return a Comparable that follows XML Schema comparison rules
      */
     @Override
-    public Comparable getSchemaComparable() {
-        return null;
+    public Comparable<?> getSchemaComparable() {
+        return AtomicArray.EMPTY_ATOMIC_ARRAY.getSchemaComparable();
     }
 
     @Override

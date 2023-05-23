@@ -59,6 +59,7 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
     private PackageData packageData;
     private String systemId;
     private int lineNumber;
+    private int columnNumber;
 
 
     private List<Rule> rules = new ArrayList<>();
@@ -271,9 +272,13 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
         this.lineNumber = line;
     }
 
+    public void setColumnNumber(int col) {
+        this.columnNumber = col;
+    }
+
     @Override
     public int getColumnNumber() {
-        return -1;
+        return columnNumber;
     }
 
     /**

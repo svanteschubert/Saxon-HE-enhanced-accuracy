@@ -167,7 +167,7 @@ public class XsltCompiler {
      *                 {@code ErrorListener} was also notified of run-time errors, unless a different
      *                 {@code ErrorListener} was supplied at run-time. This is no longer the case from
      *                 Saxon 10.0</i></p>
-     * @deprecated since 10.0. Use {@link #setErrorReporter(ErrorReporter)}                
+     * @deprecated since 10.0. Use {@link #setErrorReporter(ErrorReporter)}
      */
 
     public void setErrorListener(ErrorListener listener) {
@@ -445,6 +445,10 @@ public class XsltCompiler {
      * Set whether trace hooks are to be included in the compiled code. To use tracing, it is necessary
      * both to compile the code with trace hooks included, and to supply a TraceListener at run-time
      *
+     * <p>Setting tracing to true suppresses those optimizations that cause major reorganisation of the code,
+     * such as function inlining and loop-lifting. These optimizations can be reinstated, but this will tend
+     * to make trace output harder to interpret.</p>
+     *
      * @param option true if trace code is to be compiled in, false otherwise
      * @since 9.3
      */
@@ -452,6 +456,15 @@ public class XsltCompiler {
     public void setCompileWithTracing(boolean option) {
         if (option) {
             compilerInfo.setCodeInjector(new XSLTTraceCodeInjector());
+            compilerInfo.setOptimizerOptions(compilerInfo.getOptimizerOptions().except(
+                    new OptimizerOptions(OptimizerOptions.COMMON_SUBEXPRESSIONS |
+                            OptimizerOptions.CONSTANT_FOLDING |
+                            OptimizerOptions.INLINE_FUNCTIONS |
+                            OptimizerOptions.INLINE_VARIABLES |
+                            OptimizerOptions.LOOP_LIFTING |
+                            OptimizerOptions.EXTRACT_GLOBALS)
+                                             )
+            );
         } else {
             compilerInfo.setCodeInjector(null);
         }

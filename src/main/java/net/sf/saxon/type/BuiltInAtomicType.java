@@ -963,8 +963,8 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      * types, the resulting converter needs to be supplied with a NamespaceResolver to handle prefix
      * resolution.
      */
- 
-    
+
+
     @Override
     public StringConverter getStringConverter(ConversionRules rules) {
         if (stringConverter != null) {

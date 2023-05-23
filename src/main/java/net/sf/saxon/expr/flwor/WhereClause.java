@@ -15,7 +15,9 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.ItemType;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.WHERE;
 
@@ -153,6 +155,19 @@ public class WhereClause extends Clause {
         fsb.append("where ");
         fsb.append(getPredicate().toString());
         return fsb.toString();
+    }
+
+    /**
+     * Get information for inclusion in trace output
+     *
+     * @return a map containing the properties to be output
+     */
+
+    @Override
+    public Map<String, Object> getTraceInfo() {
+        Map<String, Object> info = new HashMap<>(1);
+        info.put("condition", getPredicate().toShortString());
+        return info;
     }
 }
 

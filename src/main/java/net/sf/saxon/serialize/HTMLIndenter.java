@@ -196,7 +196,9 @@ public class HTMLIndenter extends ProxyReceiver {
 
     @Override
     public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+        int withinSuppressed = level == 0 ? 0 : (propertyStack[level - 1] & IS_SUPPRESSED);
         if (inFormattedTag ||
+                withinSuppressed > 0 ||
                 ReceiverOption.contains(properties, ReceiverOption.USE_NULL_MARKERS) ||
                 ReceiverOption.contains(properties, ReceiverOption.DISABLE_ESCAPING)) {
             // don't split the text if in a tag such as <pre>, or if the text contains the result of

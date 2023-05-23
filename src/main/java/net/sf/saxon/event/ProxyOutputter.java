@@ -7,11 +7,12 @@
 
 package net.sf.saxon.event;
 
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.om.NamespaceMap;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
@@ -19,11 +20,16 @@ import net.sf.saxon.type.SimpleType;
 public class ProxyOutputter extends Outputter {
 
     private Outputter next;
+    private Location location = Loc.NONE;
 
     public ProxyOutputter(Outputter next) {
         this.next = next;
         setPipelineConfiguration(next.getPipelineConfiguration());
         setSystemId(next.getSystemId());
+    }
+
+    public void setLocation(Location location) {
+        this.location = location;
     }
 
     public Outputter getNextOutputter() {

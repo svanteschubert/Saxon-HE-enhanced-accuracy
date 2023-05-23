@@ -59,7 +59,7 @@ public final class EvaluateInstr extends Expression {
     private Operand namespaceContextOp;
     private Operand schemaAwareOp;
     private Operand optionsOp;
-    private Set<String> importedSchemaNamespaces;
+    private Set<String> importedSchemaNamespaces = new HashSet<>();
     private WithParam[] actualParams;
     private Operand dynamicParamsOp;
     private String defaultXPathNamespace = null;
@@ -200,7 +200,7 @@ public final class EvaluateInstr extends Expression {
     public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
         throw new UnsupportedOperationException("Cannot do document projection when xsl:evaluate is used");
     }
-    
+
     @Override
     public int getIntrinsicDependencies() {
         return StaticProperty.DEPENDS_ON_FOCUS | StaticProperty.DEPENDS_ON_XSLT_CONTEXT; // assume the worst

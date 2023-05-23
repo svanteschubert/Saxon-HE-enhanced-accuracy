@@ -193,7 +193,7 @@ public class LoadXqueryModule extends SystemFunction implements Callable {
         }
 
         Controller newController = xqe.newController(dqc);
-        
+
         XPathContext newContext = newController.newXPathContext();
 
         // Evaluate the global variables, and add values to the result.

@@ -854,7 +854,7 @@ public class ConfigurationReader implements ContentHandler, NamespaceResolver {
      * Get an iterator over all the prefixes declared in this namespace context. This will include
      * the default namespace (prefix="") and the XML namespace where appropriate
      */
-    
+
     @Override
     public Iterator<String> iteratePrefixes() {
         Set<String> prefixes = new HashSet<>();

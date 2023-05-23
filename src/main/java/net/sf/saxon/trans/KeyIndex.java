@@ -12,6 +12,8 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.DocumentOrderIterator;
+import net.sf.saxon.expr.sort.GlobalOrderComparer;
 import net.sf.saxon.expr.sort.LocalOrderComparer;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
@@ -25,9 +27,7 @@ import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.tree.iter.SingleNodeIterator;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.StringConverter;
-import net.sf.saxon.type.UType;
+import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.UntypedAtomicValue;
 
@@ -345,8 +345,32 @@ public class KeyIndex {
         if (untypedKeys != null && !keyTypesConvertedFromUntyped.subsumes(soughtValue.getUType())) {
             reindexUntypedValues(soughtValue.getPrimitiveType());
         }
-        Object value = index.get(getCollationKey(soughtValue, collation, implicitTimezone));
-        return entryIterator(value);
+
+        if (soughtValue instanceof UntypedAtomicValue) {
+            List<NodeInfo> resultNodes = new ArrayList<>();
+            int counter = 0;
+            for (PrimitiveUType type : keyTypesPresent.decompose()) {
+                AtomicType targetType = (AtomicType)type.toItemType();
+                AtomicValue converted = Converter.convert(soughtValue, targetType, rules);
+                Object value = index.get(getCollationKey(converted, collation, implicitTimezone));
+                if (value != null) {
+                    counter++;
+                    if (value instanceof NodeInfo) {
+                        resultNodes.add(((NodeInfo) value));
+                    } else {
+                        resultNodes.addAll((List<NodeInfo>) value);
+                    }
+                }
+            }
+            SequenceIterator result = new ListIterator<>(resultNodes);
+            if (counter > 1) {
+                result = new DocumentOrderIterator(result, GlobalOrderComparer.getInstance());
+            }
+            return result;
+        } else {
+            Object value = index.get(getCollationKey(soughtValue, collation, implicitTimezone));
+            return entryIterator(value);
+        }
     }
 
     private SequenceIterator entryIterator(Object value) {
