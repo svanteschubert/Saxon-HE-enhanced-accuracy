@@ -85,7 +85,8 @@ git commit -am"Saxon ${SAXON_NEXT_VERSION}: Overtaking from the Maven binary JAR
 
 
 ### UPDATE-SAXON-3: GET SAXON POM FROM "MAVEN POM"
-
+## Checking out existing branch locally for later git show command, otherwise error "fatal: invalid object name '${SAXON_CURRENT_VERSION}'
+git checkout Saxon-HE-v${SAXON_CURRENT_VERSION}
 ## Not able to build via Saxon Maven pom.xml - Saxon is build originally by ANT
 # Creating new branch for Saxon with the pom.xml to avoid merge conflicts
 git checkout -b Saxon-HE-v${SAXON_NEXT_VERSION}
