@@ -380,10 +380,9 @@ public final class DayTimeDurationValue extends DurationValue
     @Override
     public DurationValue multiply(long factor) throws XPathException {
         // Fast path for simple cases
-        if (Math.abs(factor) < 0x7fff_ffff && Math.abs(seconds) < 0x7fff_ffff) {
+        if (Math.abs(factor) < 0x7fff_ffff && Math.abs(seconds) < 0x7fff_ffff && nanoseconds == 0) {
             return new DayTimeDurationValue(0, 0, 0,
-                                            seconds * factor * (negative ? -1 : 1),
-                                            (int)(nanoseconds * factor * (negative ? -1 : 1)));
+                                            seconds * factor * (negative ? -1 : 1), 0);
         } else {
             return multiply(BigDecimal.valueOf(factor));
         }

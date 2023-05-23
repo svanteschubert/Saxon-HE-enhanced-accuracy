@@ -799,7 +799,32 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
                             } else if (attName.charAt(5) == ':') {
                                 nsMap = nsMap.bind(attName.substring(6), att.getValue());
                             }
+                        } else {
+                            // Bug 5859: with a programmatically-constructed DOM, we can never be sure that
+                            // all namespace declarations are present and correct. So we extract bindings from the
+                            // names of the element and its attributes as well.
+                            String prefix = att.getPrefix();
+                            if (prefix != null) {
+                                String declaredNs = nsMap.getURI(prefix);
+                                if (declaredNs == null) {
+                                    // if there's a binding present, assume it's OK
+                                    nsMap = nsMap.put(prefix, att.getNamespaceURI());
+                                }
+                            }
                         }
+                    }
+                }
+                // Ensure the namespace binding of the element name is present in the map
+                String nsURI = elem.getNamespaceURI();
+                if (nsURI != null) {
+                    String prefix = elem.getPrefix();
+                    if (prefix == null) {
+                        prefix = "";
+                    }
+                    String declaredNs = nsMap.getURI(prefix);
+                    if (declaredNs == null) {
+                        // if there's a binding present, assume it's OK
+                        nsMap = nsMap.put(prefix, nsURI);
                     }
                 }
                 return inScopeNamespaces = nsMap;

@@ -34,8 +34,8 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 /**
- * An value in the XDM data model. A value is a sequence of zero or more items,
- * each item being either an atomic value or a node.
+ * A value in the XDM data model. A value is a sequence of zero or more items,
+ * each item being an atomic value, a node, or a function item.
  * <p>An XdmValue is immutable.</p>
  * <p>A sequence consisting of a single item may be represented as an instance of {@link XdmItem},
  * which is a subtype of XdmValue. However, there is no guarantee that a sequence of length one

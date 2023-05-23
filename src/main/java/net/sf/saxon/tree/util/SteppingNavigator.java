@@ -202,6 +202,7 @@ public abstract class SteppingNavigator {
 
         private N start;
         private N current;
+        private boolean done;
 
         private Stepper<N> stepper;
 
@@ -262,13 +263,18 @@ public abstract class SteppingNavigator {
 
         @Override
         public N next() {
+            if (done) {
+                return null;
+            }
             if (current == null) {
                 // implies includeSelf: first time round, return the start node
                 current = start;
                 return start;
             }
             N curr = stepper.step(current);
-
+            if (curr == null) {
+                done = true;
+            }
             return current = curr;
         }
 

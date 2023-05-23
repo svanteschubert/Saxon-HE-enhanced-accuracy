@@ -137,9 +137,7 @@ public class StandardModuleURIResolver implements ModuleURIResolver {
                     throw se;
                 }
             } else {
-                URL absoluteURL = absoluteURI.toURL();
-                URLConnection connection = absoluteURL.openConnection();
-                connection.connect();
+                URLConnection connection = RedirectHandler.resolveConnection(absoluteURI.toURL());
                 is = connection.getInputStream();
 
                 // Get any external (HTTP) encoding label.

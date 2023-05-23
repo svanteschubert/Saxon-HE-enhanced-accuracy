@@ -10,10 +10,7 @@ package net.sf.saxon.expr.flwor;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.PathMap;
-import net.sf.saxon.expr.parser.RebindingMap;
+import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
@@ -43,7 +40,7 @@ public abstract class Clause {
      * @return the location
      */
     public Location getLocation() {
-        return location;
+        return location == null ? Loc.NONE : location;
     }
 
     /**

@@ -2582,7 +2582,7 @@ public class XQueryParser extends XPathParser {
             }
             if (t.currentToken == Token.ASSIGN) {
                 LetClause letClause = new LetClause();
-
+                setLocation(clause, t.currentTokenStartOffset);
                 clauseList.add(letClause);
                 nextToken();
 
@@ -4155,6 +4155,9 @@ public class XQueryParser extends XPathParser {
             c = t.nextChar();
             c = skipSpaces(c);
             char delim = c;
+            if (c != '"' && c != '\'') {
+                grumble("Expected ' or \" as attribute delimiter - found '" + c + "'");
+            }
             boolean isNamespace = "xmlns".equals(attName) || attName.startsWith("xmlns:");
             int end;
             if (isNamespace) {
@@ -4871,16 +4874,20 @@ public class XQueryParser extends XPathParser {
 
     @Override
     /*@NotNull*/
-    protected Literal makeStringLiteral(/*@NotNull*/ String token) throws XPathException {
-        StringLiteral lit;
-        if (token.indexOf('&') == -1) {
-            lit = new StringLiteral(token);
+    protected Literal makeStringLiteral(/*@NotNull*/ String token, boolean doUnescaping) throws XPathException {
+        if (doUnescaping) {
+            StringLiteral lit;
+            if (token.indexOf('&') == -1) {
+                lit = new StringLiteral(token);
+            } else {
+                CharSequence sb = unescape(token);
+                lit = new StringLiteral(StringValue.makeStringValue(sb));
+            }
+            setLocation(lit);
+            return lit;
         } else {
-            CharSequence sb = unescape(token);
-            lit = new StringLiteral(StringValue.makeStringValue(sb));
+            return super.makeStringLiteral(token, doUnescaping);
         }
-        setLocation(lit);
-        return lit;
     }
 
     /**

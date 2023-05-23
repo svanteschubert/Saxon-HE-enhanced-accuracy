@@ -44,7 +44,6 @@ public final class GeneralNodePattern extends Pattern {
     public GeneralNodePattern(Expression expr, NodeTest itemType) {
         equivalentExpr = expr;
         this.itemType = itemType;
-        makeTopNodeEquivalent();
     }
 
     /**
@@ -54,7 +53,7 @@ public final class GeneralNodePattern extends Pattern {
      * uses the self axis instead of child, and using this variant if matching a tree that satisfies
      * the other conditions.
      */
-    private void makeTopNodeEquivalent() {
+    public void makeTopNodeEquivalent() {
         if (equivalentExpr instanceof SlashExpression) {
             Expression head = ((SlashExpression) equivalentExpr).getFirstStep();
             if (ExpressionTool.getAxisNavigation(head) == AxisInfo.CHILD) {
@@ -119,6 +118,7 @@ public final class GeneralNodePattern extends Pattern {
     public Pattern typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
         ContextItemStaticInfo cit = new ContextItemStaticInfo(AnyNodeTest.getInstance(), false);
         equivalentExpr = equivalentExpr.typeCheck(visitor, cit);
+        makeTopNodeEquivalent();
         return this;
     }
 
@@ -358,6 +358,9 @@ public final class GeneralNodePattern extends Pattern {
         GeneralNodePattern n = new GeneralNodePattern(equivalentExpr.copy(rebindings), itemType);
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
+        if (topNodeEquivalent != null) {
+            n.topNodeEquivalent = topNodeEquivalent.copy(rebindings);
+        }
         return n;
     }
 

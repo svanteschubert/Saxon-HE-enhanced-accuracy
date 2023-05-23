@@ -311,6 +311,15 @@ public final class FilterExpression extends BinaryExpression implements ContextS
     /*@NotNull*/
     @Override
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
+
+        if (visitor.isOptimizeForStreaming() && getSelectExpression() instanceof GlobalVariableReference) {
+            // the leading variable reference can't be a streamed node, so ignore streaming for this expression (bug 5475)
+            visitor.setOptimizeForStreaming(false);
+            Expression eOpt = optimize(visitor, contextItemType);
+            visitor.setOptimizeForStreaming(true);
+            return eOpt;
+        }
+
         final Configuration config = visitor.getConfiguration();
         final Optimizer opt = visitor.obtainOptimizer();
         final boolean tracing = config.getBooleanProperty(Feature.TRACE_OPTIMIZER_DECISIONS);

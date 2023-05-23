@@ -125,7 +125,7 @@ public class StyleNodeFactory implements NodeFactory {
         if ((e instanceof XSLStylesheet || e instanceof XSLPackage) && parent.getNodeKind() != Type.DOCUMENT) {
             e = new AbsentExtensionElement();
             final XmlProcessingIncident reason =
-                    new XmlProcessingIncident(elemName.getDisplayName() + " can only appear at the outermost level", "XTSE0010");
+                    new XmlProcessingIncident(elemName.getDisplayName() + " can only appear at the outermost level", "XTSE0010", e);
             e.setValidationError(reason, StyleElement.OnFailure.REPORT_ALWAYS);
         }
 
@@ -187,12 +187,12 @@ public class StyleNodeFactory implements NodeFactory {
 
             String localname = elemName.getLocalPart();
             StyleElement temp = null;
-
+            int processorVersion = compilation.getCompilerInfo().getXsltVersion();
             // Detect a misspelt XSLT element, or a 3.0 element used in a 2.0 stylesheet
 
             if (uri.equals(NamespaceConstant.XSLT)) {
                 if (parent instanceof XSLStylesheet) {
-                    if (((XSLStylesheet) parent).getEffectiveVersion() <= 20) {
+                    if (((XSLStylesheet) parent).getEffectiveVersion() <= processorVersion) {
                         temp = new AbsentExtensionElement();
                         temp.setCompilation(compilation);
                         temp.setValidationError(new XmlProcessingIncident("Unknown top-level XSLT declaration"),
@@ -204,13 +204,12 @@ public class StyleNodeFactory implements NodeFactory {
                     temp.setLocation(baseURI, lineNumber, columnNumber);
                     temp.setCompilation(compilation);
                     temp.processStandardAttributes("");
-                    if (temp.getEffectiveVersion() > 20) {
-                        temp.setValidationError(new XmlProcessingIncident("Unknown XSLT instruction"),
-                                                StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE);
-                    } else {
-                        temp.setValidationError(new XmlProcessingIncident("Unknown XSLT instruction"),
-                                                StyleElement.OnFailure.REPORT_IF_INSTANTIATED);
-                    }
+                    final XmlProcessingIncident incident =
+                            new XmlProcessingIncident("Unknown XSLT instruction " + elemName.getDisplayName(), "XTSE0010");
+                    temp.setValidationError(incident,
+                                            temp.getEffectiveVersion() > processorVersion
+                                                ? StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE
+                                                : StyleElement.OnFailure.REPORT_ALWAYS);
                 }
             }
 
@@ -248,12 +247,13 @@ public class StyleNodeFactory implements NodeFactory {
             XmlProcessingIncident reason;
             Class actualClass;
 
-            if (uri.equals(NamespaceConstant.XSLT)) {
-                reason = new XmlProcessingIncident("Unknown XSLT element: " + Err.wrap(localname, Err.ELEMENT), "XTSE0010");
-                actualClass = AbsentExtensionElement.class;
-                temp.setValidationError(reason, StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE);
-
-            } else if (temp.isExtensionNamespace(uri) && !toplevel) {
+//            if (uri.equals(NamespaceConstant.XSLT)) {
+//                reason = new XmlProcessingIncident("Unknown XSLT element: " + Err.wrap(localname, Err.ELEMENT), "XTSE0010");
+//                actualClass = AbsentExtensionElement.class;
+//                temp.setValidationError(reason, StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE);
+//
+//            } else
+            if (temp.isExtensionNamespace(uri) && !toplevel) {
 
                 // if we can't instantiate an extension element, we don't give up
                 // immediately, because there might be an xsl:fallback defined. We

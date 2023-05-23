@@ -191,6 +191,7 @@ public class JsonReceiver implements Receiver {
             output.cat("\"").cat(key).cat("\"").cat(indenting ? " : " : ":");
         }
         String local = elemName.getLocalPart();
+        checkParent(local, parent);
         switch (local) {
             case "array":
                 if (indenting) {
@@ -212,7 +213,7 @@ public class JsonReceiver implements Receiver {
                 keyChecker.push(new HashSet<String>());
                 break;
             case "null":
-                checkParent(local, parent);
+                //checkParent(local, parent);
                 output.cat("null");
                 atStart = false;
                 break;
@@ -226,12 +227,12 @@ public class JsonReceiver implements Receiver {
                                                          escaped + ") is not a valid xs:boolean", ERR_INPUT);
                     }
                 }
-                checkParent(local, parent);
+                //checkParent(local, parent);
                 atStart = false;
                 break;
             case "boolean":
             case "number":
-                checkParent(local, parent);
+                //checkParent(local, parent);
                 atStart = false;
                 break;
             default:

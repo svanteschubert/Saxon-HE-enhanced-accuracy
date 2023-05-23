@@ -2214,7 +2214,7 @@ public class XPathParser {
                 return parseStringLiteral(true);
 
             case Token.STRING_LITERAL_BACKTICKED:
-                return parseStringLiteral(true);
+                return parseBackTickedStringLiteral();
 
             case Token.STRING_CONSTRUCTOR_INITIAL:
                 return parseStringConstructor();
@@ -2387,9 +2387,15 @@ public class XPathParser {
     }
 
     protected Expression parseStringLiteral(boolean traceable) throws XPathException {
-        Literal literal = makeStringLiteral(t.currentTokenValue);
+        Literal literal = makeStringLiteral(t.currentTokenValue, true);
         nextToken();
         return traceable ? makeTracer(literal, null) : literal;
+    }
+
+    protected Expression parseBackTickedStringLiteral() throws XPathException {
+        Literal literal = makeStringLiteral(t.currentTokenValue, false);
+        nextToken();
+        return makeTracer(literal, null);
     }
 
     protected Expression parseStringConstructor() throws XPathException {
@@ -2458,7 +2464,7 @@ public class XPathParser {
      */
 
     /*@NotNull*/
-    protected Literal makeStringLiteral(String currentTokenValue) throws XPathException {
+    protected Literal makeStringLiteral(String currentTokenValue, boolean doUnescaping) throws XPathException {
         StringLiteral literal = new StringLiteral(currentTokenValue);
         setLocation(literal);
         return literal;

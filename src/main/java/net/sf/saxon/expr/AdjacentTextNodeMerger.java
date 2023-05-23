@@ -117,7 +117,7 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
                         maybeEmpty = true;
                     }
                 } else {
-                    maybetext = th.relationship(action.getItemType(), NodeKindTest.TEXT) != Affinity.DISJOINT;
+                    maybetext = action.getStaticUType(contextInfo.getContextItemUType()).overlaps(UType.TEXT);
                     maybeEmpty |= maybetext;
                 }
                 if (prevtext && maybetext) {

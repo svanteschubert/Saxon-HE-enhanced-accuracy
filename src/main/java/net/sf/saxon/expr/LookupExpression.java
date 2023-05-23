@@ -367,7 +367,9 @@ public class LookupExpression extends BinaryExpression {
                 if (baseItem instanceof ArrayItem) {
                     MappingFunction arrayAccess = index -> {
                         if (index instanceof IntegerValue) {
-                            GroundedValue member = ((ArrayItem) baseItem).get((int) ((IntegerValue) index).longValue() - 1);
+                            int validIndex = ArrayFunctionSet.checkSubscript(
+                                    (IntegerValue)index, ((ArrayItem)baseItem).arrayLength());
+                            GroundedValue member = ((ArrayItem) baseItem).get(validIndex - 1);
                             return member.iterate();
                         } else {
                             XPathException exception = new XPathException(

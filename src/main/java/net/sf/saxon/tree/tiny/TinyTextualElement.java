@@ -97,6 +97,8 @@ public class TinyTextualElement extends TinyElementImpl {
         if ((copyOptions & CopyOptions.ALL_NAMESPACES) != 0) {
             // Don't bother with LOCAL_NAMESPACES because there aren't any
             namespaces = getAllNamespaces();
+        } else if (!getURI().isEmpty()) {  // Bug 5616
+            namespaces = NamespaceMap.of(getPrefix(), getURI());
         } else {
             namespaces = NamespaceMap.emptyMap();
         }

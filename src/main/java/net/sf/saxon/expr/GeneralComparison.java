@@ -597,24 +597,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     /*@Nullable*/
     @Override
     public BooleanValue evaluateItem(XPathContext context) throws XPathException {
-        switch (comparisonCardinality) {
-            case ONE_TO_ONE: {
-                AtomicValue value0 = (AtomicValue) getLhsExpression().evaluateItem(context);
-                AtomicValue value1 = (AtomicValue) getRhsExpression().evaluateItem(context);
-                return BooleanValue.get(evaluateOneToOne(value0, value1, context));
-            }
-            case MANY_TO_ONE: {
-                SequenceIterator iter0 = getLhsExpression().iterate(context);
-                AtomicValue value1 = (AtomicValue) getRhsExpression().evaluateItem(context);
-                return BooleanValue.get(evaluateManyToOne(iter0, value1, context));
-            }
-            case MANY_TO_MANY: {
-                SequenceIterator iter1 = getLhsExpression().iterate(context);
-                SequenceIterator iter2 = getRhsExpression().iterate(context);
-                return BooleanValue.get(evaluateManyToMany(iter1, iter2, context));
-            }
-        }
-        return null;
+        return BooleanValue.get(effectiveBooleanValue(context));
     }
 
     /**

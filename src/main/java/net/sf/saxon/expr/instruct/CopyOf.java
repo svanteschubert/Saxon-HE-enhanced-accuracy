@@ -365,6 +365,11 @@ public class CopyOf extends Instruction implements ValidatingInstruction {
     }
 
     @Override
+    public UType getStaticUType(UType contextItemType) {
+        return getSelect().getStaticUType(contextItemType);
+    }
+
+    @Override
     public int getCardinality() {
         return getSelect().getCardinality();
     }

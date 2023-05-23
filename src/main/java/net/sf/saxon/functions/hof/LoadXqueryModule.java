@@ -202,7 +202,7 @@ public class LoadXqueryModule extends SystemFunction implements Callable {
         for (GlobalVariable var : lib.getGlobalVariables()) {
             GroundedValue value;
             QNameValue qNameValue = new QNameValue(var.getVariableQName(), BuiltInAtomicType.QNAME);
-            if (qNameValue.getNamespaceURI().equals(moduleUri)) {
+            if (qNameValue.getNamespaceURI().equals(moduleUri) && !var.isPrivate()) {
                 try {
                     value = var.evaluateVariable(newContext);
                 } catch (XPathException e) {
@@ -234,7 +234,7 @@ public class LoadXqueryModule extends SystemFunction implements Callable {
             while (functionIterator.hasNext()) {
                 function = functionIterator.next();
                 functionQName = new QNameValue(function.getFunctionName(), BuiltInAtomicType.QNAME);
-                if (functionQName.getNamespaceURI().equals(moduleUri)) {
+                if (functionQName.getNamespaceURI().equals(moduleUri) && !function.isPrivate()) {
                     UserFunction userFunction = function.getUserFunction();
                     UserFunctionReference.BoundUserFunction buf =
                             new UserFunctionReference.BoundUserFunction(agent, userFunction, null, newController);

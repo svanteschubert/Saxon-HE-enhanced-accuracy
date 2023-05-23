@@ -151,6 +151,10 @@ public class XsltExecutable {
         Configuration config = processor.getUnderlyingConfiguration();
         try {
             StylesheetPackage topLevelPackage = preparedStylesheet.getTopLevelPackage();
+            if (topLevelPackage.isJustInTimeCompilation()) {
+                throw new SaxonApiException(
+                        "Cannot export a stylesheet compiled with just-in-time compilation enabled");
+            }
             ExpressionPresenter presenter = config.newExpressionExporter(target, destination, topLevelPackage);
             presenter.setRelocatable(topLevelPackage.isRelocatable());
             topLevelPackage.export(presenter);

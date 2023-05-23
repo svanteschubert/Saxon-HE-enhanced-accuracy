@@ -193,8 +193,7 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
          * @throws IOException if the input cannot be read
          */
         public InputStream getInputStream() throws IOException {
-            URL url = new URL(resourceUri);
-            URLConnection connection = url.openConnection();
+            URLConnection connection = RedirectHandler.resolveConnection(new URL(resourceUri));
             return connection.getInputStream();
         }
 
@@ -276,8 +275,7 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
                     inputDetails.contentType = guessContentTypeFromName(resourceURI);
                 }
             } else {
-                URL url = uri.toURL();
-                URLConnection connection = url.openConnection();
+                URLConnection connection = RedirectHandler.resolveConnection(uri.toURL());
                 //inputDetails.inputStream = connection.getInputStream();
                 inputDetails.contentType = connection.getContentType();
                 inputDetails.encoding = connection.getContentEncoding();
@@ -302,8 +300,7 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
                         stream = new ByteArrayInputStream(inputDetails.binaryContent);
                     }
                 } else {
-                    URL url = uri.toURL();
-                    URLConnection connection = url.openConnection();
+                    URLConnection connection = RedirectHandler.resolveConnection(uri.toURL());
                     stream = connection.getInputStream();
                 }
                 inputDetails.contentType = guessContentTypeFromContent(stream);

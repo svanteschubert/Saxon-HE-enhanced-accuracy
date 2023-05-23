@@ -7,12 +7,19 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.s9api.Location;
 
 /**
  * Represents a construct that has a meaningful location for use in diagnostics
  */
 public interface Locatable {
+
+    /**
+     * Get the location of the construct
+     * @return the location. If no location information is available, the method should return {@link Loc#NONE}
+     * rather than returning null. However, callers would be well advised to check for the result being null.
+     */
 
     Location getLocation();
 

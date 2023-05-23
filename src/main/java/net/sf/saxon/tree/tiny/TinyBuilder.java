@@ -518,7 +518,11 @@ public class TinyBuilder extends Builder {
         siblingsAtDepth[currentDepth]++;
 
         String localLocation = locationId.getSystemId();
-        tt.setSystemId(nodeNr, localLocation);
+        if (isUseEventLocation() && localLocation != null) {
+            tt.setSystemId(nodeNr, localLocation);
+        } else if (currentDepth == 1) {
+            tt.setSystemId(nodeNr, systemId);
+        }
         if (localLocation != null && !localLocation.equals(baseURI)) {
             uniformBaseURI = false;
             tree.setUniformBaseUri(null);

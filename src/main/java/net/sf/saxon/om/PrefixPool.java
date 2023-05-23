@@ -61,6 +61,9 @@ public class PrefixPool {
         }
         // Allocate a new code
         int code = used++;
+        if (used > 2047) {
+            throw new IllegalStateException("Too many namespace prefixes - limit is " + 2047 + " per document");
+        }
         if (used >= prefixes.length) {
             prefixes = Arrays.copyOf(prefixes, used * 2);
         }

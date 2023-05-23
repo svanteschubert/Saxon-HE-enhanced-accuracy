@@ -116,7 +116,7 @@ public class Trace extends SystemFunction implements Traceable {
         Controller controller = context.getController();
         String label = arguments.length == 1 ? "*" : arguments[1].head().getStringValue();
         if (controller.isTracing()) {
-            Sequence value = arguments[0].iterate().materialize();
+            Sequence value = arguments[0].materialize();
             notifyListener(label, value, context);
             return value;
         } else {

@@ -9,6 +9,7 @@ package net.sf.saxon.resource;
 
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.lib.RedirectHandler;
 import net.sf.saxon.lib.Resource;
 import net.sf.saxon.lib.ResourceFactory;
 import net.sf.saxon.trans.XPathException;
@@ -179,8 +180,7 @@ public class BinaryResource implements Resource {
             return new Base64BinaryValue(data);
         } else {
             try {
-                URL url = new URI(href).toURL();
-                connection = url.openConnection();
+                URLConnection connection = RedirectHandler.resolveConnection(new URI(href).toURL());
                 data = readBinaryFromConn(connection);
                 return new Base64BinaryValue(data);
             } catch (URISyntaxException | IOException e) {

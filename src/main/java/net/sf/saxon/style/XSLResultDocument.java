@@ -261,7 +261,7 @@ public class XSLResultDocument extends StyleElement {
             NodeInfo first = kids.next();
             if (first instanceof LiteralResultElement) {
                 if (first.getURI().equals(NamespaceConstant.XHTML) && first.getLocalPart().equals("html")) {
-                    method = getEffectiveVersion() == 10 ? "xml" : "xhtml";
+                    method = "xhtml";
                 } else if (first.getLocalPart().equalsIgnoreCase("html") && first.getURI().isEmpty()) {
                     method = "html";
                 } else {

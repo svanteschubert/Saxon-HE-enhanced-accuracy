@@ -2551,6 +2551,10 @@ public abstract class StyleElement extends ElementImpl {
 
         // first search for a local variable declaration
         if (!isTopLevel()) {
+            while (curr instanceof StyleElement && !((StyleElement) curr).seesAvuncularVariables()) {
+                // a local variable is not visible within a sibling xsl:fallback or xsl:catch element
+                curr = curr.getParent();
+            }
             AxisIterator preceding = curr.iterateAxis(AxisInfo.PRECEDING_SIBLING);
             while (true) {
                 curr = preceding.next();

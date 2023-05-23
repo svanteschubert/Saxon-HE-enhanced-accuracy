@@ -192,8 +192,8 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
                 throw new XPathException("Forwards reference to XQuery function has not been resolved");
             }
             Sequence[] args = new Sequence[arguments.length];
-            for (int i = 0; i < arguments.length; i++) {
-                args[i] = ((SequenceIterator) arguments[i].iterate()).materialize();
+            for (int i = 0; i < arguments.length; i++) {    // TODO: is this copying necessary?
+                args[i] = arguments[i].materialize();
             }
             return function.call(context.newCleanContext(), args);
         }

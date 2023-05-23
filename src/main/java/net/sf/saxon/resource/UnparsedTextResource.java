@@ -9,6 +9,7 @@ package net.sf.saxon.resource;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.lib.RedirectHandler;
 import net.sf.saxon.lib.Resource;
 import net.sf.saxon.lib.ResourceFactory;
 import net.sf.saxon.lib.StandardUnparsedTextResolver;
@@ -83,8 +84,7 @@ public class UnparsedTextResource implements Resource {
     public String getContent() throws XPathException {
         if (unparsedText == null) {
             try {
-                URL url = new URL(href);
-                URLConnection connection = url.openConnection();
+                URLConnection connection = RedirectHandler.resolveConnection(new URL(href));
                 InputStream stream = connection.getInputStream();
                 StringBuilder builder = null;
 

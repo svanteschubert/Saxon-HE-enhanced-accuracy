@@ -11,7 +11,9 @@ import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.WherePopulatedOutputter;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.RebindingMap;
+import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
@@ -144,6 +146,15 @@ public class WherePopulated extends UnaryExpression implements ItemMappingFuncti
             return item.getStringValueCS().length() == 0;
         } else if (item instanceof MapItem) {
             return ((MapItem)item).isEmpty();
+        } else if (item instanceof ArrayItem) {
+            for (GroundedValue value : ((ArrayItem) item).members()) {
+                for (Item it : value.asIterable()) {
+                    if (!isDeemedEmpty(it)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
         } else {
             return false;
         }

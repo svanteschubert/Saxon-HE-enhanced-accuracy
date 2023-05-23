@@ -158,6 +158,12 @@ public final class Atomizer extends UnaryExpression {
         return this;
     }
 
+
+    @Override
+    public UType getStaticUType(UType contextItemType) {
+        return UType.ANY_ATOMIC.intersection(getItemType().getUType());
+    }
+
     /**
      * Type-check the expression
      */

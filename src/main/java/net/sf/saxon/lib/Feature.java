@@ -397,7 +397,15 @@ public class Feature<T> {
     *            <p>This option disables the <code>xsl:evaluate</code> instruction.</p>
     *            <p>If set at stylesheet compile time, the feature is statically disabled. If set at
     *                run-time it is dynamically disabled. (These terms are defined in the XSLT 3.0 spec.)
-    *                The feature is always disabled (statically) in Saxon-HE.</p>
+    *                By default, the feature is enabled.</p>
+    *            <p><i>The XSLT 3.0 specification requires conformant processors to provide a way of
+    *                disabling <code>xsl:evaluate</code>. This shouldn't be taken as meaning that
+    *                <code>xsl:evaluate</code> poses particular security risks. The main reason for disabling it
+    *                is if you want to carry out static analysis or inspection of stylesheet code to see what
+    *                features it uses. But if you're doing such inspection, it's not difficult to check that
+    *                <code>xsl:evaluate</code> is only being used to execute trusted code. Note also that
+    *                <code>fn:transform()</code> can similarly be used to execute dynamically-constructed code,
+    *                and there is no switch to disable that function.</i></p>
     *
     **/
 
@@ -1017,15 +1025,9 @@ public class Feature<T> {
 
 
     /**
-    *            <p>An integer, one of {@link net.sf.saxon.trans.RecoveryPolicy#RECOVER_SILENTLY},
-    *                {@link net.sf.saxon.trans.RecoveryPolicy#RECOVER_WITH_WARNINGS}, or
-    *                {@link net.sf.saxon.trans.RecoveryPolicy#DO_NOT_RECOVER}. Indicates the policy for
-    *                handling dynamic errors that the XSLT specification defines as recoverable.</p>
-    *            <p>0 means recover silently; 1 means recover after signalling a warning to the
-    *                    <code>ErrorListener</code>; 2 means treat the error as fatal. An example of a
-    *                recoverable error is when two template rules match the same node.</p>
-    *            <p>Note that XSLT 3.0 has eliminated all "recoverable errors" from the
-    *                specification.</p>
+    *            <p>At one time this property controlled how recoverable errors were handled
+    *                (fatal error, warning, or ignored). XSLT 3.0 has eliminated all recoverable errors from the
+    *                specification, so the property is now deprecated.</p>
     *
     **/
 
@@ -1036,14 +1038,9 @@ public class Feature<T> {
 
 
     /**
-    *            <p>Indicates the policy for handling dynamic errors that the XSLT specification defines
-    *                as recoverable.</p>
-    *            <p>"recoverSilently" means recover silently; "recoverWithWarnings"
-    *                means recover after signalling a warning to the <code>ErrorListener</code>;
-    *                "doNotRecover" means treat the error as fatal. An example of a recoverable error is
-    *                when two template rules match the same node. </p>
-    *            <p>Note that XSLT 3.0 has eliminated all "recoverable errors" from the
-    *                specification.</p>
+    *            <p>At one time this property controlled how recoverable errors were handled
+    *                (fatal error, warning, or ignored). XSLT 3.0 has eliminated all recoverable errors from the
+    *                specification, so the property is now deprecated.</p>
     *
     **/
 

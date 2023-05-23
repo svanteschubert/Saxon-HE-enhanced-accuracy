@@ -174,7 +174,7 @@ public class XdmFunctionItem extends XdmItem {
                     result = th.applyFunctionConversionRules(result.materialize(), required, role, Loc.NONE);
                 }
             }
-            Sequence se = result.iterate().materialize();
+            Sequence se = result.materialize();
             return XdmValue.wrap(se);
         } catch (XPathException e) {
             throw new SaxonApiException(e);

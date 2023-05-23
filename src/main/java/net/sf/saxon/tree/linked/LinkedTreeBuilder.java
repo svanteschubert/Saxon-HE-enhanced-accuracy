@@ -228,6 +228,11 @@ public class LinkedTreeBuilder extends Builder
                     xmlId.getNodeName(), xmlId.getType(), Whitespace.trim(xmlId.getValue()), xmlId.getLocation(), xmlId.getProperties()));
         }
 
+        if (location.getSystemId() == null) {
+            // Bug 5800
+            location = new Loc(getSystemId(), location.getLineNumber(), location.getColumnNumber());
+        }
+
         ElementImpl elem = nodeFactory.makeElementNode(
                 currentNode, elemName, type, isNilled,
                 suppliedAttributes, namespaceStack.peek(),

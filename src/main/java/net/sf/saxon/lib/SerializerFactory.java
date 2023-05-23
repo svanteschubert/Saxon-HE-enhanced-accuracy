@@ -1179,8 +1179,14 @@ public class SerializerFactory {
 
     private String checkMethod(String key, String value) throws XPathException {
         if (!"xml".equals(value) && !"html".equals(value) && !"xhtml".equals(value) && !"text".equals(value)) {
-            if (!SaxonOutputKeys.JSON_NODE_OUTPUT_METHOD.equals(key) && ("json".equals(value) || "adaptive".equals(value))) {
-                return value;
+            String allowed;
+            if (SaxonOutputKeys.JSON_NODE_OUTPUT_METHOD.equals(key)) {
+                allowed = "xml|html|xhtml|text";
+            } else {
+                allowed = "xml|html|xhtml|text|json|adaptive";
+                if ("json".equals(value) || "adaptive".equals(value)) {
+                    return value;
+                }
             }
             if (value.startsWith("{")) {
                 value = "Q" + value;
@@ -1189,7 +1195,7 @@ public class SerializerFactory {
                 checkExtensions(value);
             } else {
                 throw new XPathException("Invalid value (" + value + ") for serialization method: " +
-                                                 "must be xml|html|xhtml|text|json|adaptive, or a QName in 'Q{uri}local' form", "SEPM0016");
+                                                 "must be " + allowed + ", or a QName in 'Q{uri}local' form", "SEPM0016");
             }
         }
         return value;

@@ -268,6 +268,7 @@ public class PackageLoaderHE implements IPackageLoader {
 
         FunctionLibraryList functionLibrary = new FunctionLibraryList();
         functionLibrary.addFunctionLibrary(config.getXSLT30FunctionSet());
+        addVendorFunctionLibrary(functionLibrary, config);
         functionLibrary.addFunctionLibrary(MapFunctionSet.getInstance());
         functionLibrary.addFunctionLibrary(ArrayFunctionSet.getInstance());
         functionLibrary.addFunctionLibrary(MathFunctionSet.getInstance());
@@ -321,6 +322,10 @@ public class PackageLoaderHE implements IPackageLoader {
         } else {
             pack.setDefaultMode(defaultModeName);
         }
+    }
+
+    protected void addVendorFunctionLibrary(FunctionLibraryList targetList, Configuration config) {
+        // no action for HE
     }
 
     private void readGlobalContext(NodeInfo packageElement) throws XPathException {
@@ -450,7 +455,6 @@ public class PackageLoaderHE implements IPackageLoader {
                         break;
                     case "globalVariable":
                         cc = readGlobalVariable(grandchild);
-                        codeGen = true;
                         break;
                     case "globalParam":
                         cc = readGlobalParam(grandchild);
@@ -1185,6 +1189,9 @@ public class PackageLoaderHE implements IPackageLoader {
             Pattern pat = loader.loadFrom(this, element);
             pat.setLocation(makeLocation(element));
             pat.setRetainedStaticContext(makeRetainedStaticContext(element));
+            if (pat instanceof GeneralNodePattern) {
+                addCompletionAction(((GeneralNodePattern) pat)::makeTopNodeEquivalent);
+            }
             return pat;
         }
     }

@@ -9,9 +9,12 @@ package net.sf.saxon.om;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.expr.*;
-import net.sf.saxon.s9api.Location;
+import net.sf.saxon.expr.LastPositionFinder;
+import net.sf.saxon.expr.RangeIterator;
+import net.sf.saxon.expr.ReverseRangeIterator;
+import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.functions.Count;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.UnfailingIterator;

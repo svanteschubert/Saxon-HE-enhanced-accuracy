@@ -56,20 +56,20 @@ public abstract class Calculator {
     public String code() {
         String name = getClass().getSimpleName();
         return name
-            .replaceAll("Any", "a")
-            .replaceAll("Double", "d")
-            .replaceAll("Float", "f")
-            .replaceAll("Decimal", "c")
-            .replaceAll("Integer", "i")
-            .replaceAll("Numeric", "n")
-            .replaceAll("DateTime", "t")
-            .replaceAll("Duration", "u")
-            .replaceAll("Plus", "+")
-            .replaceAll("Minus", "-")
-            .replaceAll("Times", "*")
-            .replaceAll("Div", "/")
-            .replaceAll("Idiv", "~")
-            .replaceAll("Mod", "%");
+            .replace("Any", "a")
+            .replace("Double", "d")
+            .replace("Float", "f")
+            .replace("Decimal", "c")
+            .replace("Integer", "i")
+            .replace("Numeric", "n")
+            .replace("DateTime", "t")
+            .replace("Duration", "u")
+            .replace("Plus", "+")
+            .replace("Minus", "-")
+            .replace("Times", "*")
+            .replace("Div", "/")
+            .replace("Idiv", "~")
+            .replace("Mod", "%");
     }
 
     /**

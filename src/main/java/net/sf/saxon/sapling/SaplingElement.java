@@ -81,10 +81,13 @@ public class SaplingElement extends SaplingNode {
     public SaplingElement(QName name) {
         Objects.requireNonNull(name);
         nodeName = name.getStructuredQName();
-        if (!nodeName.getPrefix().isEmpty() && nodeName.getURI().isEmpty()) {
-            throw new IllegalArgumentException("No namespace URI for prefixed element name: " + name);
+        if (nodeName.hasURI("")) {
+            if (!nodeName.getPrefix().isEmpty()) {
+                throw new IllegalArgumentException("No namespace URI for prefixed element name: " + name);
+            }
+        } else {
+            namespaces = NamespaceMap.of(nodeName.getPrefix(), nodeName.getURI());
         }
-        namespaces = NamespaceMap.of(nodeName.getPrefix(), nodeName.getURI());
     }
 
     private SaplingElement(StructuredQName name) {

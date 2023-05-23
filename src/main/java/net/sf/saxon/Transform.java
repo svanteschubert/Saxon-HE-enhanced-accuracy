@@ -109,7 +109,7 @@ public class Transform {
                                     "Expand attribute defaults from DTD or Schema");
         options.addRecognizedOption("explain", CommandLineOptions.TYPE_FILENAME,
                                     "Display compiled expression tree and optimization decisions in human-readable form");
-        options.addRecognizedOption("export", CommandLineOptions.TYPE_FILENAME,
+        options.addRecognizedOption("export", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Display compiled expression tree and optimization decisions for exportation");
         options.addRecognizedOption("ext", CommandLineOptions.TYPE_BOOLEAN,
                                     "Allow calls to Java extension functions and xsl:result-document");
@@ -159,7 +159,7 @@ public class Transform {
                                     "Source file for primary input");
         options.addRecognizedOption("sa", CommandLineOptions.TYPE_BOOLEAN,
                                     "Run in schema-aware mode");
-        options.addRecognizedOption("scmin", CommandLineOptions.TYPE_FILENAME,
+        options.addRecognizedOption("scmin", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Pre-load schema in SCM format");
         options.addRecognizedOption("strip", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
                                     "Handling of whitespace text nodes in source documents");
@@ -179,9 +179,9 @@ public class Transform {
         options.addRecognizedOption("Tlevel", CommandLineOptions.TYPE_STRING,
                                     "Level of detail for trace listener output");
         options.setPermittedValues("Tlevel", new String[]{"none", "low", "normal", "high"}, "normal");
-        options.addRecognizedOption("Tout", CommandLineOptions.TYPE_FILENAME,
+        options.addRecognizedOption("Tout", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "File for trace listener output");
-        options.addRecognizedOption("TP", CommandLineOptions.TYPE_FILENAME,
+        options.addRecognizedOption("TP", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use profiling trace listener, with specified output file");
         options.addRecognizedOption("threads", CommandLineOptions.TYPE_INTEGER | CommandLineOptions.VALUE_REQUIRED,
                                     "Run stylesheet on directory of files divided in N threads");

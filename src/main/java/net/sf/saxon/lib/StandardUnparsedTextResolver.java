@@ -123,15 +123,13 @@ public class StandardUnparsedTextResolver implements UnparsedTextURIResolver {
                 throw e;
             }
             try {
-
-                URLConnection connection = absoluteURL.openConnection();
-                connection.setRequestProperty("Accept-Encoding", "gzip");
+                URLConnection connection;
                 try {
-                    connection.connect();
+                    connection = RedirectHandler.resolveConnection(absoluteURL);
                 } catch (IOException ioe) {
                     if (debug) {
                         err.error("unparsed-text(): connection failure on " + absoluteURL
-                                          + ". " + ioe.getMessage());
+                                + ". " + ioe.getMessage());
                     }
                     XPathException xpe = new XPathException("Failed to read input file " + absoluteURL, ioe);
                     xpe.setErrorCode("FOUT1170");

@@ -667,11 +667,24 @@ public final class Navigator {
                         node.getSchemaType() :
                         Untyped.getInstance();
 
-                NamespaceMap ns = CopyOptions.includes(copyOptions, CopyOptions.ALL_NAMESPACES) ? node.getAllNamespaces() : NamespaceMap.emptyMap();
-
-                out.startElement(NameOfNode.makeName(node), annotation,
-                                 node.attributes(), ns,
+                NodeName elementName = NameOfNode.makeName(node);
+                NamespaceMap nsMap;
+                if (CopyOptions.includes(copyOptions, CopyOptions.ALL_NAMESPACES)) {
+                    nsMap = node.getAllNamespaces();
+                } else {
+                    // Bug #5861 - we need to ensure the namespaces used in element and attribute names are declared
+                    nsMap = NamespaceMap.of(elementName.getPrefix(), elementName.getURI());
+                    for (AttributeInfo att : node.attributes()) {
+                        NodeName attName = att.getNodeName();
+                        if (!attName.getPrefix().isEmpty()) {
+                            nsMap = nsMap.put(attName.getPrefix(), attName.getURI());
+                        }
+                    }
+                }
+                out.startElement(elementName, annotation,
+                                 node.attributes(), nsMap,
                                  locationId, ReceiverOption.BEQUEATH_INHERITED_NAMESPACES_ONLY | ReceiverOption.NAMESPACE_OK);
+
 
                 // output the children
 
