@@ -6,7 +6,7 @@ set -e -v
 
 # !!! PLEASE UPDATE BOTH VARIABLES!!!
 # !! -> 1. Version number of the Saxon release to be downloaded/merged with!
-SAXON_NEXT_VERSION="10.3"
+SAXON_NEXT_VERSION="10.5"
 
 
 git checkout Saxon-HE-pom.xml-only
@@ -15,7 +15,7 @@ wget https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/${SAXON_NEXT_VERSION}/
 rm -f pom.xml
 mv Saxon-HE-${SAXON_NEXT_VERSION}.pom pom.xml
 dos2unix -q pom.xml
-git add pom.xml
+git add .
 # The echo absorts the error if there is nothing to commit
 git commit -m"Saxon ${SAXON_NEXT_VERSION} original pom.xml: Overtaking from Maven repository the pom.xml." || echo "No changes to commit on pom.xml"
 

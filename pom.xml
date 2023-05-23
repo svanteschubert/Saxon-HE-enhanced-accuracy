@@ -1,18 +1,17 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-
-
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <modelVersion>4.0.0</modelVersion>
   <groupId>net.sf.saxon</groupId>
   <artifactId>Saxon-HE</artifactId>
-  <version>10.3</version>
-  <packaging>jar</packaging>
-
+  <version>10.5</version>
   <name>Saxon-HE</name>
   <description>The XSLT and XQuery Processor</description>
   <url>http://www.saxonica.com/</url>
-
+  <inceptionYear>1999</inceptionYear>
+  <organization>
+    <name>Saxonica</name>
+    <url>https://www.saxonica.com/</url>
+  </organization>
   <licenses>
     <license>
       <name>Mozilla Public License Version 2.0</name>
@@ -20,12 +19,6 @@
       <distribution>repo</distribution>
     </license>
   </licenses>
-  <scm>
-    <connection>scm:svn:https://dev.saxonica.com/repos/archive/opensource/</connection>
-    <developerConnection>scm:svn:https://dev.saxonica.com/repos/archive/opensource/</developerConnection>
-    <url>https://dev.saxonica.com/repos/archive/opensource/</url>
-  </scm>
-
   <developers>
     <developer>
       <id>mike</id>
@@ -34,7 +27,7 @@
     </developer>
     <developer>
       <id>ond1</id>
-      <name>O'Neil Delpratt</name>
+      <name>O’Neil Delpratt</name>
       <email>oneil@saxonica.com</email>
     </developer>
     <developer>
@@ -53,23 +46,6 @@
       <email>norm@saxonica.com</email>
     </developer>
   </developers>
-
-  <properties>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <skipTests>false</skipTests>
-    <maven.javadoc.skip>true</maven.javadoc.skip>
-    <maven.javadoc.failOnError>false</maven.javadoc.failOnError>
-    <maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss</maven.build.timestamp.format>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
-  </properties>
-
-  <issueManagement>
-    <system>Saxon Community</system>
-    <url>https://saxonica.plan.io/projects/saxon</url>
-  </issueManagement>
-
-  <inceptionYear>1999</inceptionYear>
   <mailingLists>
     <mailingList>
       <name>User List</name>
@@ -77,78 +53,22 @@
       <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=saxon-help</archive>
     </mailingList>
   </mailingLists>
-
-
-  <dependencies>
-    <dependency>
-      <groupId>org.jdom</groupId>
-      <artifactId>jdom</artifactId>
-      <version>1.1.3</version>
-      <optional>true</optional>
-    </dependency>
-
-    <dependency>
-      <groupId>org.jdom</groupId>
-      <artifactId>jdom2</artifactId>
-      <version>2.0.6</version>
-      <optional>true</optional>
-    </dependency>
-
-    <dependency>
-      <groupId>com.io7m.xom</groupId>
-      <artifactId>xom</artifactId>
-      <version>1.2.10</version>
-      <optional>true</optional>
-    </dependency>
-
-  <!-- https://mvnrepository.com/artifact/com.ibm.icu/icu4j -->
-  <dependency>
-    <groupId>com.ibm.icu</groupId>
-    <artifactId>icu4j</artifactId>
-    <version>63.1</version>
-    <optional>true</optional>
-  </dependency>
-
-    <dependency>
-      <groupId>dom4j</groupId>
-      <artifactId>dom4j</artifactId>
-      <version>1.6.1</version>
-      <optional>true</optional>
-    </dependency>
-
-    <dependency>
-      <groupId>xml-resolver</groupId>
-      <artifactId>xml-resolver</artifactId>
-      <version>1.2</version>
-      <optional>true</optional>
-    </dependency>
-
-    <dependency>
-      <groupId>org.apache.ws.commons.axiom</groupId>
-      <artifactId>axiom-impl</artifactId>
-      <version>1.2.15</version>
-      <optional>true</optional>
-    </dependency>
-
-    <dependency>
-        <groupId>jline</groupId>
-        <artifactId>jline</artifactId>
-        <version>2.9</version>
-        <optional>true</optional>
-    </dependency>
-    
-  </dependencies>
-
-
-  <organization>
-    <name>Saxonica</name>
-    <url>http://www.saxonica.com</url>
-  </organization>
-
-  <parent>
-    <groupId>org.sonatype.oss</groupId>
-    <artifactId>oss-parent</artifactId>
-    <version>7</version>
-  </parent>
-
+  <scm>
+    <connection>scm:svn:https://dev.saxonica.com/repos/archive/opensource/</connection>
+    <developerConnection>scm:svn:https://dev.saxonica.com/repos/archive/opensource/</developerConnection>
+    <url>https://dev.saxonica.com/repos/archive/opensource/</url>
+  </scm>
+  <issueManagement>
+    <system>Saxon Community</system>
+    <url>https://saxonica.plan.io/projects/saxon</url>
+  </issueManagement>
+  <properties>
+    <skipTests>false</skipTests>
+    <maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss</maven.build.timestamp.format>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+    <maven.javadoc.failOnError>false</maven.javadoc.failOnError>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+  </properties>
 </project>
