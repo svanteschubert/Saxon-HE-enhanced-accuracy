@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.logging.Logger;
 import java.io.File;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 public class DecimalBasedFloatingPointTest {
@@ -23,6 +24,7 @@ public class DecimalBasedFloatingPointTest {
                                                "out.xml"};
 
     @Test
+    @DisplayName("Decimal-based floating-point test")
     void testPrecision() {
         try{
             System.out.println("Working Directory = " + System.getProperty("user.dir"));
