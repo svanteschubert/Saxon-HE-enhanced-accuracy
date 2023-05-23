@@ -6,9 +6,9 @@ set -e -v
 
 # !!! PLEASE UPDATE BOTH VARIABLES!!!
 # !! -> 1. Version number of the Saxon release to be downloaded/merged with!
-SAXON_NEXT_VERSION="10.7" # 10.6 is being omitted as it has no Java sources within its Maven source ZIP
+SAXON_NEXT_VERSION="10.8"
 # !! -> 2. Version number of the Saxon release currently used to add feature branch before rebase!
-SAXON_CURRENT_VERSION="10.5"
+SAXON_CURRENT_VERSION="10.7"
 
 
 # Do not change below the line...
@@ -44,7 +44,7 @@ wget https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/${SAXON_NEXT_VERSION}/
 # extract zip/jar - avoiding any log output by '> /dev/null'
 jar -xf Saxon-HE-${SAXON_NEXT_VERSION}-sources.jar > /dev/null
 rm      Saxon-HE-${SAXON_NEXT_VERSION}-sources.jar
-rm -rf ./META-INF ## signed hashes will be removed, manifest.mf replaced
+rm -rf ./META-INF ## contains mostly signed hashes (no need as we are breaking the signs by patching Saxon therefore removed), manifest.mf will be replaced
 # Source Code Normalization: Trying to avoid the common Windows/Linux whitespace problems
 find . -type f | xargs dos2unix -q
 cd ../../..
@@ -79,17 +79,13 @@ cd ../../..
 git add .
 # The echo absorts the error if there is nothing to commit
 git commit -am"Saxon ${SAXON_NEXT_VERSION}: Overtaking from the Maven binary JAR all none-class files." || echo "No changes to commit on new binaries"
-# SAXON files represented by this branch should be functionally equal to official Saxon deliverable (without signing)
-# git checkout -b ${UPSTREAM_BRANCH}-v${SAXON_NEXT_VERSION}
+# SAXON files represented by this branch should be functionally equal to official Saxon deliverable (without signing) but pom.xml is missing
 
 
-
-### UPDATE-SAXON-3: GET SAXON POM FROM "MAVEN POM"
-## Checking out existing branch locally for later git show command, otherwise error "fatal: invalid object name '${SAXON_CURRENT_VERSION}'
-git checkout Saxon-HE-v${SAXON_CURRENT_VERSION}
+### UPDATE-SAXON-3: GET SAXON POM FROM "MAVEN POM" (own branch)
 ## Not able to build via Saxon Maven pom.xml - Saxon is build originally by ANT
 # Creating new branch for Saxon with the pom.xml to avoid merge conflicts
-git checkout -b Saxon-HE-v${SAXON_NEXT_VERSION}
+git checkout Saxon-HE-pom.xml-only
 wget https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/${SAXON_NEXT_VERSION}/Saxon-HE-${SAXON_NEXT_VERSION}.pom
 # -f gives no error if no pom.xml exists
 rm -f pom.xml
@@ -99,26 +95,28 @@ git add .
 # The echo absorts the error if there is nothing to commit
 git commit -m"Saxon ${SAXON_NEXT_VERSION} original pom.xml: Overtaking from Maven repository the pom.xml." || echo "No changes to commit on pom.xml"
 
+### UPDATE-SAXON-4: FORK SAXON UPSTREAM as RELEASE branch and update pom.xml (original and building one from feature branch on top)
+git checkout ${UPSTREAM_BRANCH}
+git checkout -b Saxon-HE-v${SAXON_NEXT_VERSION}
+git show Saxon-HE-pom.xml-only:pom.xml > pom.xml
+git add .
+git commit -m"Saxon ${SAXON_NEXT_VERSION} original pom.xml: Overtaking from Maven repository the pom.xml." || echo "No changes to commit on pom.xml"
 # Git-branch-copy: Overwriting the incomplete saxon pom.xml with our new pom.xml from the feature branch (to avoid rebase conflicts)
-git show Saxon-HE-v${SAXON_CURRENT_VERSION}:pom.xml > pom.xml
+git show ${FEATURE_BRANCH}:pom.xml > pom.xml
 # Adjusting build version according to above SAXON_NEXT_VERSION
 # sed flag -i for in-place editing, substitute line 6 - NOTE: using ' for literal and " for variable
 sed -i 's/<version>'"${SAXON_CURRENT_VERSION}"'<\/version>/<version>'"${SAXON_NEXT_VERSION}"'<\/version>/g' pom.xml
 git add .
 # The echo absorts the error if there is nothing to commit
-git commit -am"Saxon ${SAXON_NEXT_VERSION} with buildable pom.xml." || echo "No changes to commit on pom.xml"
-
+git commit -am"Saxon ${SAXON_NEXT_VERSION} with our buildable pom.xml." || echo "No changes to commit on pom.xml"
 
 
 ### REBASE-FEATURE-BRANCH: Rebase to latest Saxon release!
-
-## Adding release branch for existing SAXON version
-git checkout ${FEATURE_BRANCH}
-git checkout -b Saxon-HE-accuracy-v${SAXON_CURRENT_VERSION}
-
 ## Trying to rebase our changes on top of latest SAXON release
 git checkout ${FEATURE_BRANCH}
-git rebase ${UPSTREAM_BRANCH}
-sed -i 's/<version>'"${SAXON_CURRENT_VERSION}"'<\/version>/<version>'"${SAXON_NEXT_VERSION}"'<\/version>/g' pom.xml
-git add .
-git commit -m"ACCURACY feature: rebased upon Saxon ${SAXON_NEXT_VERSION}!" || echo "No changes to commit after rebase!"
+## Add last version branch before rebasing the new SAXON version and by git rebase lossing all existing commits (new hash by rebase)
+git checkout -b Saxon-HE-accuracy-v${SAXON_CURRENT_VERSION}
+##git rebase ${UPSTREAM_BRANCH}
+##sed -i 's/<version>'"${SAXON_CURRENT_VERSION}"'<\/version>/<version>'"${SAXON_NEXT_VERSION}"'<\/version>/g' pom.xml
+##git add .
+##git commit -m"ACCURACY feature: rebased upon Saxon ${SAXON_NEXT_VERSION}!" || echo "No changes to commit after rebase!"

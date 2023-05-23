@@ -71,24 +71,41 @@ Build & smoke test can be executed via command-line by calling: **mvn clean inst
 
 ## Updating Saxon Version
 
-There is bash script '[saxon-update.sh](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/saxon-update.sh)', which download the latest Saxon from Maven and rebase our changes on top of it. Two variables of next & current version of Saxon needs to be adopted.
+There is bash script '[saxon-update.sh](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/saxon-update.sh)', which download the specified Saxon-HE version [from Maven](https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/) and rebase our changes on top of it.
+
+1. Two variables of next & current version of Saxon needs to be adopted (see [Maven for latest version](https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/)).
+1. Sometimes there might be merge conflicts if Saxon changed a line we are adopting (the script will stop).
+   In this case the last three lines (change of version in pom.xml and its commit) have to be done manually.
+1. Test if the sources build & our test runs without error (there are errors in JavaDoc nevermind).
+1. Tag manually the latest commit to trigger the GitHub automatic release deployment, see chapter GitHub Actions below.</br>
+   **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
+       e.g. "*git tag -sm v10.6 v10.6*" # using -s to sign the tag & -m is taking the next parameter as message
+
 
 ## Git Branches
 
-1. **accuracy-feature** (main branch)</br>
-   Contains the script and latest changes should be worked here.
-2. **saxon-upstream**</br>
+1. **accuracy-feature** (our feature branch - our feature on top of the Saxon functionality) - ***we only commit to this branch!***</br>
+   Our feature branch that will be continously updated.
+   Contains the script and everything on top of existing Saxon.
+   Will be rebased on top of the SAXON sources (saxon-upstream).
+1. **saxon-upstream** (automatic generated - don't touch)</br>
+   As Saxon is not available on GitHub we need to create the sources from the Maven source & binary JAR (downloaded, extracted and normalized (dos2unix) via our bash script)
+   Only the Java sources of Saxon (without the pom.xml resulting into continous merge conflicts (e.g. version number changes)).
    The required parts of the Maven Saxon sources and binaries JAR are being added on top of this branch.
-3. **SAXON-HE-v&lt;VERSION&gt;**</br>
-   Branch with original Saxon functionality. Extends the saxon-upstream of Saxon source & binary JARs with the Saxon pom.xml from Maven. Including commits to allow the Saxon sources to be able to build.
-4. **SAXON-HE-accuracy-v&lt;VERSION&gt;**</br>
-   Previous version of our functionality based on a previous SAXON version.
-5. **prototyping**</br>
+1. **SAXON-HE-v&lt;VERSION&gt;** (original Saxon sources - ***could be used for other features on top of Saxon***)</br>
+   Branch with original Saxon functionality.
+   Forks the saxon-upstream of Saxon source & binary JARs with adding first the original Saxon pom.xml also downloaded from Maven.
+   With an additional commit overwriting this pom.xml with our feature branch pom.xml to allow the Saxon sources to be able to build.
+1. **SAXON-HE-accuracy-v&lt;VERSION&gt;** (our feature-enriched Saxon sources - ***could be used for maintenance***)</br>
+This branch provides the maintenance branch of our enriched Saxon sources.
+As we are rebasing our feature branch (accuracy-feature) always on top of the saxon-sources (saxon-upstream) all commits will get new hashes and the original branch (and commits) would get lost.
+1. **prototyping** (deprecated (pure historical) - don't touch)</br>
    Initial work before it was later refactored to be automated by bash script 'saxon-update.sh'.
-6. **basics**</br>
+1. **basics** (deprecated (pure historical) - don't touch)</br>
    Branch the inital bash script was being started.
 
 ## GiHub Actions
+
 There are two GitHub Actions
 
 1. [Build](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/maven.yml): Triggered by every push or pull-request on the default branch.
