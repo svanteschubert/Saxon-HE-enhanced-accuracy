@@ -6,9 +6,9 @@ set -e -v
 
 # !!! PLEASE UPDATE BOTH VARIABLES!!!
 # !! -> 1. Version number of the Saxon release to be downloaded/merged with!
-SAXON_NEXT_VERSION="10.5"
+SAXON_NEXT_VERSION="10.7" # 10.6 is being omitted as it has no Java sources within its Maven source ZIP
 # !! -> 2. Version number of the Saxon release currently used to add feature branch before rebase!
-SAXON_CURRENT_VERSION="10.3"
+SAXON_CURRENT_VERSION="10.5"
 
 
 # Do not change below the line...
@@ -20,7 +20,7 @@ echo Going to update SAXON $SAXON_CURRENT_VERSION to new version $SAXON_NEXT_VER
 
 # Check if the tag already exists, it should not exist, if -> exit!
 if git show-ref --verify --quiet refs/heads/Saxon-HE-v${SAXON_NEXT_VERSION}; then
-    echo ERROR: 
+    echo ERROR:
     echo Saxon version $SAXON_CURRENT_VERSION was already previously updated as git branch "Saxon-HE-v${SAXON_NEXT_VERSION}" exists!
     echo Please update the SAXON_NEXT_VERSION variable in the ./saxon-update.sh bash script!
     git checkout main
@@ -113,7 +113,7 @@ git commit -am"Saxon ${SAXON_NEXT_VERSION} with buildable pom.xml." || echo "No 
 
 ## Adding release branch for existing SAXON version
 git checkout ${FEATURE_BRANCH}
-git checkout -b Saxon-HE-accuracy-v${SAXON_CURRENT_VERSION} 
+git checkout -b Saxon-HE-accuracy-v${SAXON_CURRENT_VERSION}
 
 ## Trying to rebase our changes on top of latest SAXON release
 git checkout ${FEATURE_BRANCH}
