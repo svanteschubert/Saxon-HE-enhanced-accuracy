@@ -32,6 +32,7 @@ public final class GeneralNodePattern extends Pattern {
 
     private Expression equivalentExpr = null;
     private NodeTest itemType = null;
+    private Expression topNodeEquivalent = null;
 
     /**
      * Create a GeneralNodePattern
@@ -43,7 +44,39 @@ public final class GeneralNodePattern extends Pattern {
     public GeneralNodePattern(Expression expr, NodeTest itemType) {
         equivalentExpr = expr;
         this.itemType = itemType;
+        makeTopNodeEquivalent();
     }
+
+    /**
+     * A pattern whose first step uses the child axis is treated as using the child-or-top axis,
+     * which selects a node that is either (a) a child, or (b) a parentless element, comment,
+     * text node, or PI. We handle this by creating a variant of the equivalent expression that
+     * uses the self axis instead of child, and using this variant if matching a tree that satisfies
+     * the other conditions.
+     */
+    private void makeTopNodeEquivalent() {
+        if (equivalentExpr instanceof SlashExpression) {
+            Expression head = ((SlashExpression) equivalentExpr).getFirstStep();
+            if (ExpressionTool.getAxisNavigation(head) == AxisInfo.CHILD) {
+                SlashExpression copy = (SlashExpression) equivalentExpr.copy(new RebindingMap());
+                Expression copyHead = copy.getFirstStep();
+                while (true) {
+                    if (copyHead instanceof FilterExpression) {
+                        copyHead = ((FilterExpression) copyHead).getBase();
+                    } else if (copyHead instanceof SingleItemFilter) {
+                        copyHead = ((SingleItemFilter) copyHead).getBaseExpression();
+                    } else {
+                        break;
+                    }
+                }
+                if (copyHead instanceof AxisExpression) {
+                    ((AxisExpression) copyHead).setAxis(AxisInfo.SELF);
+                    topNodeEquivalent = copy;
+                }
+            }
+        }
+    }
+
 
     /**
      * Get the immediate sub-expressions of this expression, with information about the relationship
@@ -84,7 +117,7 @@ public final class GeneralNodePattern extends Pattern {
 
     @Override
     public Pattern typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
-        ContextItemStaticInfo cit = visitor.getConfiguration().getDefaultContextItemStaticInfo();
+        ContextItemStaticInfo cit = new ContextItemStaticInfo(AnyNodeTest.getInstance(), false);
         equivalentExpr = equivalentExpr.typeCheck(visitor, cit);
         return this;
     }
@@ -175,14 +208,20 @@ public final class GeneralNodePattern extends Pattern {
             return false;
         }
         AxisIterator anc = ((NodeInfo) item).iterateAxis(AxisInfo.ANCESTOR_OR_SELF);
+        NodeInfo top = (NodeInfo) item;
         while (true) {
             NodeInfo a = anc.next();
             if (a == null) {
+                // The first step in a pattern, if it uses the child axis, is interpreted as "child-or-top" (test case match-274)
+                if (topNodeEquivalent != null && UType.CHILD_NODE_KINDS.matches(top)) {
+                    return isSelected(((NodeInfo) item), top, topNodeEquivalent, context);
+                }
                 return false;
             }
             if (matchesBeneathAnchor((NodeInfo) item, a, context)) {
                 return true;
             }
+            top = a;
         }
     }
 
@@ -220,14 +259,18 @@ public final class GeneralNodePattern extends Pattern {
             }
         }
 
+        return isSelected(node, anchor, equivalentExpr, context);
+    }
+
+    private boolean isSelected(NodeInfo node, NodeInfo anchor, Expression selector, XPathContext context) throws XPathException {
         // System.err.println("Testing positional pattern against node " + node.generateId());
         XPathContext c2 = context.newMinorContext();
         ManualIterator iter = new ManualIterator(anchor);
         c2.setCurrentIterator(iter);
         try {
-            SequenceIterator nsv = equivalentExpr.iterate(c2);
+            SequenceIterator nsv = selector.iterate(c2);
             while (true) {
-                NodeInfo n = (NodeInfo)nsv.next();
+                NodeInfo n = (NodeInfo) nsv.next();
                 if (n == null) {
                     return false;
                 }
@@ -242,6 +285,7 @@ public final class GeneralNodePattern extends Pattern {
             return false;
         }
     }
+
 
     /**
      * Get a UType indicating which kinds of items this Pattern can match.

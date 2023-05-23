@@ -2013,6 +2013,17 @@ public class Feature<T> {
     *            <p>This option can be set for a particular XSLT transformation. When the option is set
     *                at the <code>Configuration</code> level (or on a <code>TransformerFactory</code>),
     *                it acts as a default.</p>
+    *            <p>Specifically, if the transformation is performed using the <code>transform()</code>
+    *                method of class <code>net.sf.saxon.s9api.XsltTransformer</code>, then the transformation
+    *                will proceed by calling the relevant named template, rather than by applying templates
+    *                to the supplied source node. It will also affect other APIs built on top of the
+    *                <code>XsltTransformer</code>, notably the JAXP transformation interface, which in turn
+    *                is used by many higher-level interfaces such as Ant. Indeed, the main purpose of this
+    *                configuration option is to allow named-template stylesheet invocation using the JAXP
+    *                interface, which was designed without this feature in mind.</p>
+    *            <p>This configuration option is ignored when using an <code>net.sf.saxon.s9api.Xslt30Transformer</code>,
+    *                or other interfaces built on top of an <code>Xslt30Transformer</code>, for example the
+    *                <code>net.sf.saxon.Transform</code> command line interface.</p>
     *
     **/
 

@@ -45,6 +45,10 @@ public final class SimpleStepExpression extends SlashExpression {
         return arg == 0 ? OperandRole.FOCUS_CONTROLLING_SELECT : STEP_ROLE;
     }
 
+    public AxisExpression getAxisExpression() {
+        return (AxisExpression) getStep();
+    }
+
     /*@NotNull*/
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {

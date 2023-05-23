@@ -653,16 +653,30 @@ public class VennExpression extends BinaryExpression {
                     getLhsExpression().toPattern(config),
                     getRhsExpression().toPattern(config));
         } else {
-            if (operator == Token.EXCEPT) {
-                return new ExceptPattern(
-                        getLhsExpression().toPattern(config),
-                        getRhsExpression().toPattern(config));
-            } else {
-                return new IntersectPattern(
-                        getLhsExpression().toPattern(config),
-                        getRhsExpression().toPattern(config));
+            // Bug #5368 means it's dangerous to assume that the expression (A except B) can be translated
+            // into a pattern that matches a node if A matches and B does not. We can only do this in special
+            // cases, in particular (a) where both operands use the attribute or child axis, and (b) where
+            // one of the patterns is anchored at the root of the tree (for example //xxx/yyy or $var/xxx or id('x')/xxx)
+            int commonAxis = ExpressionTool.getAxisNavigation(this);
+            if (commonAxis == AxisInfo.CHILD || commonAxis == AxisInfo.ATTRIBUTE
+                    || independentOfContextItem(getLhsExpression())
+                    || independentOfContextItem(getRhsExpression())) {
+                if (operator == Token.EXCEPT) {
+                    return new ExceptPattern(
+                            getLhsExpression().toPattern(config),
+                            getRhsExpression().toPattern(config));
+                } else {
+                    return new IntersectPattern(
+                            getLhsExpression().toPattern(config),
+                            getRhsExpression().toPattern(config));
+                }
             }
+            return new GeneralNodePattern(this, (NodeTest) getItemType());
         }
+    }
+
+    private boolean independentOfContextItem(Expression exp) {
+        return (exp.getDependencies() & StaticProperty.DEPENDS_ON_CONTEXT_ITEM) == 0;
     }
 
     private boolean isPredicatePattern(Expression exp) {
