@@ -112,7 +112,7 @@ There are two GitHub Actions
 2. [Deployment](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/deployment.yml): Triggered whenever a tag was pushed a GitHub release is being automated made using the version number extracted from the pom.xml file, for instance:
    1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br> 
        e.g. "*git tag -sm v10.6 v10.6*" # using -s to sign the tag & -m is taking the next parameter as message
-   2. **git push --follow-tags** # pushing also all tags
+   2. **git push --follow-tags --all origin** # pushing also all tags & all branches to origin (this repo)
 *Note*: The overwrite function does not work a release have to be manually deleted for the same version from pom.xml!
 
 ## Reports to Saxonica

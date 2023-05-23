@@ -6,9 +6,9 @@ set -e -v
 
 # !!! PLEASE UPDATE BOTH VARIABLES!!!
 # !! -> 1. Version number of the Saxon release to be downloaded/merged with!
-SAXON_NEXT_VERSION="10.8"
+SAXON_NEXT_VERSION="10.9"
 # !! -> 2. Version number of the Saxon release currently used to add feature branch before rebase!
-SAXON_CURRENT_VERSION="10.7"
+SAXON_CURRENT_VERSION="10.8"
 
 
 # Do not change below the line...
@@ -116,6 +116,9 @@ git commit -am"Saxon ${SAXON_NEXT_VERSION} with our buildable pom.xml." || echo 
 git checkout ${FEATURE_BRANCH}
 ## Add last version branch before rebasing the new SAXON version and by git rebase lossing all existing commits (new hash by rebase)
 git checkout -b Saxon-HE-accuracy-v${SAXON_CURRENT_VERSION}
+## Come back to latest feature branch and
+git checkout ${FEATURE_BRANCH}
+## Put (rebase) these feature changes on top of saxon-upstream branch
 git rebase ${UPSTREAM_BRANCH}
 sed -i 's/<version>'"${SAXON_CURRENT_VERSION}"'<\/version>/<version>'"${SAXON_NEXT_VERSION}"'<\/version>/g' pom.xml
 git add .
