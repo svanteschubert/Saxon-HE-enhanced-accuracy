@@ -1,16 +1,28 @@
 # Saxon Home e-Commerce Edition
 
-## Purpose
+## Background
 
-This temporary fork of Michael Kay's Saxon is just a show case of using Saxon in the e-commerce domain requiring best numeric accuracy.
+In the context of EU e-invoice standardisation CEN TC 434 discussed for weeks, how it could be achieved that invoices created from different software could be identical in all data fields, especially the calculated amounts were often varying.
+For weeks spreadsheets with various scenarios were exchanged and the tendency was towards a simple workaround using Slack (to accept the variations and provide a level of inaccuracy).
 
-After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
+In the end, there were only three points to be taken care of:
+
+1. No calculation of rounded values (e.g. no addition of line gross values - even if allowed by law as in the Netherlands)
+2. Agree on a single rounding (there are more than a dozen different roundings - XML come up with its own but Germany requires by law for VAT the "half-up rounding away from zero" (or "kaufmännisches Runden") different to XML default rounding)
+3. Use Instead of the usually used binary floating-point use the accurate decimal floating-point (part of IEEE 754 since 2008)
+
+These recommendations are part of the EN16931 amendments - no mandatory requirement as the members were afraid that this standard would not be accepted by the e-receipt industry as their software is "too weak"!
+ 
+## Purpose 
+This temporary fork of Michael Kay's Saxon is just a showcase of using Saxon in the e-commerce domain requiring the best numeric accuracy.
+
+After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as a recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
 
 ## Decimal-based floating-point
 
 Decimal-based floating-point was invented for the commercial sector.
 It missed the early [IEEE 754 standard](https://ieeexplore.ieee.org/document/8766229) in the late 80ths and still took 20 years until it was embraced by IEEE 754 in 2008.
-Now being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), [Intel](https://software.intel.com/content/www/us/en/develop/articles/intel-decimal-floating-point-math-library.html), etc.
+Now, being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), [Intel](https://software.intel.com/content/www/us/en/develop/articles/intel-decimal-floating-point-math-library.html), etc.
 
 ### Invoice Example
 
@@ -113,7 +125,7 @@ There are two GitHub Actions
    1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br> 
        e.g. "*git tag -sm v10.6 v10.6*" # using -s to sign the tag & -m is taking the next parameter as message
    2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
-*Note*: The overwrite function does not work a release have to be manually deleted for the same version from pom.xml!
+*Note*: The overwrite function does not work a release has to be manually deleted for the same version from pom.xml!
 
 ## Reports to Saxonica
 
