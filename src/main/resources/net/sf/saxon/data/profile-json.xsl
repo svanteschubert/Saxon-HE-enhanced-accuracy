@@ -6,12 +6,11 @@
     expand-text="yes"
     version="3.0">
     
-    <xsl:param name="lang" as="xs:string" required="yes"/>
-    <xsl:param name="startTime" as="xs:dateTime" required="yes"/>
-    <xsl:param name="executableUri" as="xs:string" required="yes"/>
-    <xsl:param name="nested" as="xs:boolean" required="yes"/>
+    <!-- Variant of profile.xsl that takes JSON input rather than XML -->
     
-    <xsl:variable name="process" as="xs:string" select="if ($lang = 'XSLT') then 'Stylesheet' else 'Query'"/>
+    <xsl:param name="lang" as="xs:string" static="yes" select="'XSLT'"/>
+    
+    <xsl:variable name="process" as="xs:string" static="yes" select="if ($lang = 'XSLT') then 'Stylesheet' else 'Query'"/>
     <xsl:variable name="templateOr" select="if ($lang = 'XSLT') then 'template, ' else ''"/>
     <xsl:variable name="templatesAnd" select="if ($lang = 'XSLT') then 'templates and ' else ''"/>
     
@@ -79,17 +78,16 @@
         
     </xsl:variable>
     
-    <xsl:template match="*">
+    <xsl:global-context-item as="array(map(xs:string, xs:anyAtomicType))" use="required"/>
+    
+    <xsl:template name="xsl:initial-template">
         <html>
             <head>
                 <title>Analysis of {$process} + Execution Time</title>
                 <style>{$style}</style>
             </head>
             <body>
-                <h1>Analysis of {$process} Execution Time
-                    <xsl:if test="$nested"> (invoked using fn:transform())</xsl:if>
-                </h1>
-                <p>{if ($lang='XSLT') then 'Transformation' else 'Query'} using {$executableUri} started at {$startTime}</p>
+                <h1>Analysis of {$process} Execution Time</h1>
                 <p>Total time: {format-number(@t-total, "#0.000")} milliseconds</p>
                 <h2>Time spent in each {$templateOr} function or global variable:</h2>
                 <p>The table below is ordered by the total net time spent in the {$templateOr} 
@@ -110,17 +108,17 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <xsl:for-each select="fn"> 
-                            <xsl:sort select="number(@t-sum-net)" order="descending"/>
+                        <xsl:for-each select="?*"> 
+                            <xsl:sort select="number(?t-sum-net)" order="descending"/>
                             <tr>
-                                <td><a href="{@file}">{tokenize(@file, '/')[last()]}</a></td>
-                                <td align="right">{@line}</td>
-                                <td>{@construct, @name, @match}</td>
-                                <td align="right">{format-number(@count, ',##0')}</td>
-                                <td align="right">{format-number(@t-avg, '#0.000')}</td>
-                                <td align="right">{format-number(@t-sum, ',##0.000')}</td>
-                                <td align="right">{format-number(@t-avg-net, '#0.000')}</td>
-                                <td align="right">{format-number(@t-sum-net, ',##0.000')}</td>
+                                <td><a href="{?file}">{tokenize(?file, '/')[last()]}</a></td>
+                                <td align="right">{?line}</td>
+                                <td>{?construct, ?name, ?match}</td>
+                                <td align="right">{format-number(?count, ',##0')}</td>
+                                <td align="right">{format-number(?t-avg, '#0.000')}</td>
+                                <td align="right">{format-number(?t-sum, ',##0.000')}</td>
+                                <td align="right">{format-number(?t-avg-net, '#0.000')}</td>
+                                <td align="right">{format-number(?t-sum-net, ',##0.000')}</td>
                             </tr>
                         </xsl:for-each>
                     </tbody>
