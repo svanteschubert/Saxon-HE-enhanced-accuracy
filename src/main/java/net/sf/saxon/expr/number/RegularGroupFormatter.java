@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,9 @@
 
 package net.sf.saxon.expr.number;
 
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 
 /**
  * A RegularGroupFormatter is a NumericGroupFormatter that inserts a separator
@@ -18,8 +19,8 @@ import net.sf.saxon.tree.util.FastStringBuffer;
 
 public class RegularGroupFormatter extends NumericGroupFormatter {
 
-    private int groupSize;
-    private String groupSeparator;
+    private final int groupSize;
+    private final String groupSeparator;
 
     /**
      * Create a RegularGroupFormatter
@@ -38,15 +39,15 @@ public class RegularGroupFormatter extends NumericGroupFormatter {
     }
 
     @Override
-    public String format(/*@NotNull*/ FastStringBuffer value) {
+    public String format(/*@NotNull*/ String value) {
         if (groupSize > 0 && groupSeparator.length() > 0) {
-            UnicodeString valueEx = UnicodeString.makeUnicodeString(value);
-            FastStringBuffer temp = new FastStringBuffer(FastStringBuffer.C16);
-            for (int i = valueEx.uLength() - 1, j = 0; i >= 0; i--, j++) {
+            UnicodeString valueEx = StringView.tidy(value);
+            StringBuilder temp = new StringBuilder(16);
+            for (int i = valueEx.length32() - 1, j = 0; i >= 0; i--, j++) {
                 if (j != 0 && (j % groupSize) == 0) {
-                    temp.prepend(groupSeparator);
+                    temp.insert(0, groupSeparator);
                 }
-                temp.prependWideChar(valueEx.uCharAt(i));
+                StringTool.prependWideChar(temp, valueEx.codePointAt(i));
             }
             return temp.toString();
         } else {

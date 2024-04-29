@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,14 +10,14 @@ package net.sf.saxon;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.accum.Accumulator;
 import net.sf.saxon.expr.instruct.*;
-import net.sf.saxon.functions.ResolveURI;
-import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.functions.ExecutableFunctionLibrary;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.lib.OutputURIResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.style.Compilation;
 import net.sf.saxon.style.StylesheetPackage;
@@ -27,7 +27,10 @@ import net.sf.saxon.trans.rules.RuleManager;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
 /**
  * This <b>PreparedStylesheet</b> class represents a Stylesheet that has been
@@ -57,11 +60,11 @@ public class PreparedStylesheet extends Executable {
     // need not be unique, and because they are not available for reference by name.
     private Map<SymbolicName, Component> componentIndex;
 
-    private StructuredQName defaultInitialTemplate;
-    private StructuredQName defaultInitialMode;
-    private String messageReceiverClassName;
-    private OutputURIResolver outputURIResolver;
-    private GlobalParameterSet compileTimeParams;
+    private final StructuredQName defaultInitialTemplate;
+    private final StructuredQName defaultInitialMode;
+    private final GlobalParameterSet compileTimeParams;
+
+    private final OutputURIResolver outputURIResolver;
 
 
     /**
@@ -81,9 +84,9 @@ public class PreparedStylesheet extends Executable {
         }
         defaultInitialMode = compilerInfo.getDefaultInitialMode();
         defaultInitialTemplate = compilerInfo.getDefaultInitialTemplate();
-        messageReceiverClassName = compilerInfo.getMessageReceiverClassName();
-        outputURIResolver = compilerInfo.getOutputURIResolver();
         compileTimeParams = compilation.getParameters();
+
+        outputURIResolver = compilerInfo.getOutputURIResolver();
     }
 
 
@@ -97,7 +100,6 @@ public class PreparedStylesheet extends Executable {
     public XsltController newController() {
         Configuration config = getConfiguration();
         XsltController c = new XsltController(config, this);
-        c.setMessageReceiverClassName(messageReceiverClassName);
         c.setOutputURIResolver(outputURIResolver);
         if (defaultInitialMode != null) {
             try {
@@ -135,10 +137,9 @@ public class PreparedStylesheet extends Executable {
             if (entry.getValue().isRequiredParam()) {
                 StructuredQName req = entry.getKey();
                 if (getCompileTimeParams().get(req) == null && (params == null || params.get(req) == null)) {
-                    XPathException err = new XPathException("No value supplied for required parameter " +
-                                                                    req.getDisplayName());
-                    err.setErrorCode(getHostLanguage() == HostLanguage.XQUERY ? "XPDY0002" : "XTDE0050");
-                    throw err;
+                    throw new XPathException("No value supplied for required parameter " +
+                                                                    req.getDisplayName())
+                            .withErrorCode(getHostLanguage() == HostLanguage.XQUERY ? "XPDY0002" : "XTDE0050");
                 }
             }
         }
@@ -285,11 +286,8 @@ public class PreparedStylesheet extends Executable {
      * <p>This method gets the output properties for the unnamed output
      * format in the stylesheet.</p>
      *
-     * @return An OutputProperties object reflecting the output properties defined
-     * for the default (unnamed) output format in the stylesheet. It may
-     * be mutated and supplied to the setOutputProperties() method of the
-     * Transformer, without affecting other transformations that use the
-     * same stylesheet.
+     * @return A SerializationProperties object reflecting the output properties defined
+     * for the default (unnamed) output format in the stylesheet.
      * @see javax.xml.transform.Transformer#setOutputProperties
      */
 
@@ -355,8 +353,8 @@ public class PreparedStylesheet extends Executable {
 
     public void explain(ExpressionPresenter presenter) throws XPathException {
         presenter.startElement("stylesheet");
-        presenter.namespace("fn", NamespaceConstant.FN);
-        presenter.namespace("xs", NamespaceConstant.SCHEMA);
+        presenter.namespace("fn", NamespaceUri.FN);
+        presenter.namespace("xs", NamespaceUri.SCHEMA);
         explainGlobalVariables(presenter);
         ruleManager.explainTemplateRules(presenter);
         explainNamedTemplates(presenter);
@@ -370,8 +368,7 @@ public class PreparedStylesheet extends Executable {
         presenter.startElement("functions");
         for (FunctionLibrary lib : libraryList) {
             if (lib instanceof ExecutableFunctionLibrary) {
-                for (Iterator f = ((ExecutableFunctionLibrary) lib).iterateFunctions(); f.hasNext(); ) {
-                    UserFunction func = (UserFunction) f.next();
+                for (UserFunction func : ((ExecutableFunctionLibrary) lib).getAllFunctions()) {
                     func.export(presenter);
                 }
             }

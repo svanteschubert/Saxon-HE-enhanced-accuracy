@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,17 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.*;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.NumericValue;
-
-import java.util.EnumSet;
+import net.sf.saxon.z.IntHashSet;
+import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.IntSet;
+import net.sf.saxon.z.IntSingletonSet;
 
 /**
  * The XPath 2.0 remove() function
@@ -25,7 +30,7 @@ public class Remove extends SystemFunction {
     public Expression makeFunctionCall(Expression[] arguments) {
 
         if (Literal.isAtomic(arguments[1])) {
-            Sequence index = ((Literal) arguments[1]).getValue();
+            Sequence index = ((Literal) arguments[1]).getGroundedValue();
             if (index instanceof IntegerValue) {
                 try {
                     long value = ((IntegerValue) index).longValue();
@@ -53,12 +58,30 @@ public class Remove extends SystemFunction {
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        NumericValue n = (NumericValue) arguments[1].head();
-        int pos = (int) n.longValue();
-        if (pos < 1) {
-            return arguments[0];
+        IntSet removePositions;
+        if (arguments[1] instanceof net.sf.saxon.value.AtomicValue) {
+            NumericValue n = (NumericValue) arguments[1].head();
+            int pos = (int) n.longValue();
+            if (pos < 1) {
+                return arguments[0];
+            }
+            removePositions = new IntSingletonSet(pos);
+        } else {
+            IntHashSet positions = new IntHashSet();
+            NumericValue n;
+            SequenceIterator iter = arguments[1].iterate();
+            while ((n = (NumericValue)iter.next()) != null) {
+                int pos = (int) n.longValue();
+                if (pos >= 1) {
+                    positions.add(pos);
+                }
+            }
+            if (positions.isEmpty()) {
+                return arguments[0];
+            }
+            removePositions = positions;
         }
-        return SequenceTool.toLazySequence2(new RemoveIterator(arguments[0].iterate(), pos));
+        return SequenceTool.toLazySequence(new RemoveIterator(arguments[0].iterate(), removePositions));
     }
 
     /**
@@ -69,20 +92,20 @@ public class Remove extends SystemFunction {
     public static class RemoveIterator implements SequenceIterator, LastPositionFinder {
 
         SequenceIterator base;
-        int removePosition;
+        IntSet removePositions;
         int basePosition = 0;
         Item current = null;
 
-        public RemoveIterator(SequenceIterator base, int removePosition) {
+        public RemoveIterator(SequenceIterator base, IntSet removePosition) {
             this.base = base;
-            this.removePosition = removePosition;
+            this.removePositions = removePosition;
         }
 
         @Override
-        public Item next() throws XPathException {
+        public Item next() {
             current = base.next();
             basePosition++;
-            if (current != null && basePosition == removePosition) {
+            while (current != null && removePositions.contains(basePosition)) {
                 current = base.next();
                 basePosition++;
             }
@@ -95,41 +118,39 @@ public class Remove extends SystemFunction {
         }
 
         /**
+         * Ask whether this iterator supports use of the {@link #getLength()} method. This
+         * method should always be called before calling {@link #getLength()}, because an iterator
+         * that implements this interface may support use of {@link #getLength()} in some situations
+         * and not in others
+         *
+         * @return true if the {@link #getLength()} method can be called to determine the length
+         * of the underlying sequence.
+         */
+        @Override
+        public boolean supportsGetLength() {
+            return SequenceTool.supportsGetLength(base);
+        }
+
+        /**
          * Get the last position (that is, the number of items in the sequence). This method is
          * non-destructive: it does not change the state of the iterator.
          * The result is undefined if the next() method of the iterator has already returned null.
          */
 
         @Override
-        public int getLength() throws XPathException {
-            if (base instanceof LastPositionFinder) {
-                int x = ((LastPositionFinder) base).getLength();
-                if (removePosition >= 1 && removePosition <= x) {
-                    return x - 1;
-                } else {
-                    return x;
+        public int getLength() {
+            int x = SequenceTool.getLength(base);
+            int result = x;
+            IntIterator iter = removePositions.iterator();
+            while (iter.hasNext()) {
+                int i = iter.next();
+                if (i >= 1 && i <= x) {
+                    result--;
                 }
-            } else {
-                // This shouldn't happen, because this iterator only has the LAST_POSITION_FINDER property
-                // if the base iterator has the LAST_POSITION_FINDER property
-                throw new AssertionError("base of removeIterator is not a LastPositionFinder");
             }
+            return result;
         }
 
-        /**
-         * Get properties of this iterator, as a bit-significant integer.
-         *
-         * @return the properties of this iterator. This will be some combination of
-         * properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-         * and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-         * acceptable to return the value zero, indicating that there are no known special properties.
-         * It is acceptable for the properties of the iterator to change depending on its state.
-         */
-
-        @Override
-        public EnumSet<Property> getProperties() {
-            return EnumSetTool.intersect(base.getProperties(), EnumSet.of(Property.LAST_POSITION_FINDER));
-        }
     }
 
     @Override

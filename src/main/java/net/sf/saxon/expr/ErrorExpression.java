@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -15,8 +18,8 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 
@@ -29,7 +32,7 @@ import net.sf.saxon.type.ItemType;
 
 public class ErrorExpression extends Expression {
 
-    private XmlProcessingError exception;
+    private final XmlProcessingError exception;
     private Expression original;
 
     /**
@@ -132,25 +135,17 @@ public class ErrorExpression extends Expression {
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        if (exception != null) {
-            // copy the exception for thread-safety, because we want to add context information
-            XPathException err = new XPathException(exception.getMessage());
-            err.setLocation(exception.getLocation());
-            err.maybeSetLocation(getLocation());
-            if (exception.getErrorCode() != null) {
-                err.setErrorCodeQName(exception.getErrorCode().getStructuredQName());
-            }
-            err.maybeSetContext(context);
-            err.setIsTypeError(exception.isTypeError());
-//            err.setIsStaticError(exception.isStaticError());
-//            err.setIsGlobalError(exception.isGlobalError());
-            throw err;
-        } else {
-            XPathException err = XPathException.fromXmlProcessingError(exception);
-            err.setLocation(getLocation());
-            err.setXPathContext(context);
-            throw err;
+        // copy the exception for thread-safety, because we want to add context information
+        XPathException err = new XPathException(exception.getMessage())
+                .withLocation(exception.getLocation())
+                .maybeWithLocation(getLocation())
+                .maybeWithContext(context)
+                .asTypeErrorIf(exception.isTypeError());
+        if (exception.getErrorCode() != null) {
+            err.setErrorCodeQName(exception.getErrorCode().getStructuredQName());
         }
+        throw err;
+
     }
 
     /**
@@ -182,7 +177,7 @@ public class ErrorExpression extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
         // we return a liberal value, so that we never get a type error reported
         // statically
@@ -240,6 +235,31 @@ public class ErrorExpression extends Expression {
         destination.emitAttribute("code", exception.getErrorCode().getLocalName());
         destination.emitAttribute("isTypeErr", exception.isTypeError()?"0":"1");
         destination.endElement();
+    }
+
+    public Elaborator getElaborator() {
+        return new ErrorExpressionElaborator();
+    }
+
+    private static class ErrorExpressionElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            // copy the exception for thread-safety, because we want to add context information
+            ErrorExpression expr = (ErrorExpression)getExpression();
+            XmlProcessingError exception = expr.getException();
+            return context -> {
+                XPathException err = new XPathException(exception.getMessage())
+                        .withLocation(exception.getLocation())
+                        .maybeWithLocation(expr.getLocation())
+                        .maybeWithContext(context)
+                        .asTypeErrorIf(exception.isTypeError());
+                if (exception.getErrorCode() != null) {
+                    err.setErrorCodeQName(exception.getErrorCode().getStructuredQName());
+                }
+                throw err;
+            };
+        }
     }
 
 }

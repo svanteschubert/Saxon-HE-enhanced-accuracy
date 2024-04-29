@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,14 +12,13 @@ import net.sf.saxon.Platform;
 import net.sf.saxon.Version;
 import net.sf.saxon.event.FilterFactory;
 import net.sf.saxon.event.IDFilter;
-import net.sf.saxon.event.ProxyReceiver;
-import net.sf.saxon.event.Receiver;
 import net.sf.saxon.functions.EncodeForUri;
 import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.functions.URIQueryParameters;
 import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.resource.BinaryResource;
 import net.sf.saxon.resource.DataURIScheme;
+import net.sf.saxon.resource.ResourceLoader;
 import net.sf.saxon.resource.UnparsedTextResource;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.Maker;
@@ -30,12 +29,11 @@ import org.xml.sax.XMLReader;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.sax.SAXSource;
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.io.Reader;
-import java.io.StringReader;
+import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 
@@ -113,18 +111,24 @@ public class StandardURIResolver implements NonDelegatingURIResolver {
         this.allowedUriTest = test;
     }
 
-    /**
-     * Set a Predicate that is applied to a URI to determine whether the resolver should accept it.
-     *
-     * <p>The default predicate can be set by means of the configuration property
-     * {@link Feature#ALLOWED_PROTOCOLS}.</p>
-     */
-
-    public Predicate<URI> getAllowedUriTest() {
-        return allowedUriTest == null
-                ? config == null ? uri -> true : config.getAllowedUriTest()
-                : allowedUriTest;
-    }
+//    /**
+//     * Set a Predicate that is applied to a URI to determine whether the resolver should accept it.
+//     *
+//     * <p>The default predicate can be set by means of the configuration property
+//     * {@link Feature#ALLOWED_PROTOCOLS}.</p>
+//     */
+//
+//    public Predicate<URI> getAllowedUriTest() {
+//        if (allowedUriTest == null) {
+//            if (config == null) {
+//                return uri -> true;
+//            } else {
+//                return config.getAllowedUriTest();
+//            }
+//        } else {
+//            return allowedUriTest;
+//        }
+//    }
 
     /**
      * Get the relevant platform
@@ -226,9 +230,9 @@ public class StandardURIResolver implements NonDelegatingURIResolver {
             throw new XPathException("Invalid URI " + Err.wrap(relativeURI) + " - base " + Err.wrap(base), err);
         }
 
-        if (!getAllowedUriTest().test(uri)) {
-            throw new XPathException("URI '" + uri.toString() + "' has been disallowed", "FODC0002");
-        }
+//        if (!getAllowedUriTest().test(uri)) {
+//            throw new XPathException("URI '" + uri.toString() + "' has been disallowed", "FODC0002");
+//        }
 
         // Check that any "%" sign in the URI is part of a well-formed percent-encoded UTF-8 character.
         // Without this check, dereferencing the resulting URL can fail with arbitrary unchecked exceptions
@@ -238,6 +242,7 @@ public class StandardURIResolver implements NonDelegatingURIResolver {
 
         // Handle a URI using the data: URI scheme
         if ("data".equals(uri.getScheme())) {
+            // TODO: could rely on the CommonResourceResolver to handle this case
             Resource resource;
             try {
                 resource = DataURIScheme.decode(uri);
@@ -245,7 +250,7 @@ public class StandardURIResolver implements NonDelegatingURIResolver {
                 throw new XPathException("Invalid URI using 'data' scheme: " + e.getMessage());
             }
             if (resource instanceof BinaryResource) {
-                byte[] contents  = ((BinaryResource)resource).getData();
+                byte[] contents = ((BinaryResource) resource).getData();
                 InputSource is = new InputSource(new ByteArrayInputStream(contents));
                 source = new SAXSource(is);
                 source.setSystemId(uriString);
@@ -256,14 +261,24 @@ public class StandardURIResolver implements NonDelegatingURIResolver {
                 source.setSystemId(uriString);
             }
         } else {
-            source = new SAXSource();
-            setSAXInputSource((SAXSource) source, uriString);
+            if (config != null) {
+                ResourceRequest rr = new ResourceRequest();
+                rr.uri = uriString;
+                rr.relativeUri = relativeURI;
+                rr.baseUri = base;
+                rr.nature = ResourceRequest.XML_NATURE;
+                return rr.resolve(new DirectResourceResolver(config));
+            }
+            if (source == null) {
+                source = new SAXSource();
+                setSAXInputSource((SAXSource) source, uriString);
+            }
         }
 
         if (params != null) {
-            Maker<XMLReader> parser = params.getXMLReaderMaker();
-            if (parser != null) {
-                ((SAXSource) source).setXMLReader(parser.make());
+            Optional<Maker<XMLReader>> parser = params.getXMLReaderMaker();
+            if (parser.isPresent()) {
+                ((SAXSource) source).setXMLReader(parser.get().make());
             }
         }
 
@@ -281,52 +296,39 @@ public class StandardURIResolver implements NonDelegatingURIResolver {
         }
 
         if (params != null) {
-            SpaceStrippingRule stripSpace = params.getSpaceStrippingRule();
+            Optional<SpaceStrippingRule> stripSpace = params.getSpaceStrippingRule();
             source = AugmentedSource.makeAugmentedSource(source);
-            ((AugmentedSource) source).getParseOptions().setSpaceStrippingRule(stripSpace);
+            if (stripSpace.isPresent()) {
+                ParseOptions options = ((AugmentedSource) source).getParseOptions()
+                        .withSpaceStrippingRule(stripSpace.get());
+                ((AugmentedSource) source).setParseOptions(options);
+            }
         }
 
         if (id != null) {
             final String idFinal = id;
-            FilterFactory factory = new FilterFactory() {
-                @Override
-                public ProxyReceiver makeFilter(Receiver next) {
-                    return new IDFilter(next, idFinal);
-                }
-            };
+            FilterFactory factory = next -> new IDFilter(next, idFinal);
             source = AugmentedSource.makeAugmentedSource(source);
             ((AugmentedSource) source).addFilter(factory);
         }
 
         if (params != null) {
-            Integer validation = params.getValidationMode();
-            if (validation != null) {
+            Optional<Integer> validation = params.getValidationMode();
+            if (validation.isPresent()) {
                 source = AugmentedSource.makeAugmentedSource(source);
-                ((AugmentedSource) source).setSchemaValidationMode(validation);
+                ((AugmentedSource) source).setSchemaValidationMode(validation.get());
             }
         }
 
         if (params != null) {
-            Boolean xinclude = params.getXInclude();
-            if (xinclude != null) {
+            Optional<Boolean> xinclude = params.getXInclude();
+            if (xinclude.isPresent()) {
                 source = AugmentedSource.makeAugmentedSource(source);
-                ((AugmentedSource) source).setXIncludeAware(xinclude.booleanValue());
+                ((AugmentedSource) source).setXIncludeAware(xinclude.get());
             }
         }
 
         return source;
-    }
-
-    /**
-     * Handle a PTree source file (Saxon-EE only)
-     *
-     * @param href the relative URI
-     * @param base the base URI
-     * @return the new Source object
-     */
-
-    protected Source getPTreeSource(String href, String base) throws XPathException {
-        throw new XPathException("PTree files can only be read using a Saxon-EE configuration");
     }
 
     /**
@@ -344,17 +346,14 @@ public class StandardURIResolver implements NonDelegatingURIResolver {
      */
 
     protected void setSAXInputSource(SAXSource source, String uriString) {
-        if (uriString.startsWith("classpath:") && uriString.length() > 10) {
-            InputStream is = getConfiguration().getDynamicLoader().getResourceAsStream(uriString.substring(10));
-            if (is != null) {
-                source.setInputSource(new InputSource(is));
-                source.setSystemId(uriString);
-                return;
-            }
+        try {
+            InputStream is = ResourceLoader.urlStream(config, uriString);
+            source.setInputSource(new InputSource(is));
+            source.setSystemId(uriString);
+        } catch (IOException e) {
+            source.setInputSource(new InputSource(uriString));
+            source.setSystemId(uriString);
         }
-        source.setInputSource(new InputSource(uriString));
-        source.setSystemId(uriString);
     }
-
 }
 

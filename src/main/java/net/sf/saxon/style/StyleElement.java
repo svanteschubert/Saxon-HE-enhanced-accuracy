@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.SortKeyDefinition;
 import net.sf.saxon.expr.sort.SortKeyDefinitionList;
 import net.sf.saxon.functions.Current;
+import net.sf.saxon.functions.registry.VendorFunctionSetHE;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
@@ -24,20 +25,21 @@ import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trans.*;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.tree.AttributeLocation;
 import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.iter.ListIterator;
+import net.sf.saxon.tree.iter.NodeListIterator;
 import net.sf.saxon.tree.linked.ElementImpl;
 import net.sf.saxon.tree.linked.NodeImpl;
 import net.sf.saxon.tree.linked.TextImpl;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.BigDecimalValue;
+import net.sf.saxon.value.DecimalValue;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
 
-import javax.xml.transform.SourceLocator;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -50,15 +52,21 @@ import java.util.*;
  * in the stylesheet, which is useful when an XSLT static error is found.</p>
  */
 
+// Enable the C# code to accept a lambda expression in calls to children()
+@CSharpInjectMembers(code = {""
+        + "    protected System.Collections.Generic.IEnumerable<Saxon.Hej.om.NodeInfo> children(System.Predicate<Saxon.Hej.om.NodeInfo> filter) {"
+        + "        return new Saxon.Hej.tree.util.Navigator.ChildrenAsIterable(this, Saxon.Hej.pattern.NodeSelector.of(filter));"
+        + "    }"})
+
 public abstract class StyleElement extends ElementImpl {
 
-    /*@Nullable*/ protected String[] extensionNamespaces = null;        // a list of URIs
-    private String[] excludedNamespaces = null;           // a list of URIs
+    /*@Nullable*/ protected NamespaceUri[] extensionNamespaces = null;        // a list of URIs
+    private NamespaceUri[] excludedNamespaces = null;           // a list of URIs
     protected int version = -1;                 // the effective version of this element
     protected ExpressionContext staticContext = null;
     protected XmlProcessingIncident validationError = null;
     protected OnFailure reportingCircumstances = OnFailure.REPORT_ALWAYS;
-    protected String defaultXPathNamespace = null;
+    protected NamespaceUri defaultXPathNamespace = null;
     protected String defaultCollationName = null;
     protected StructuredQName defaultMode;
     protected boolean expandText = false;
@@ -70,6 +78,7 @@ public abstract class StyleElement extends ElementImpl {
 
     // Conditions under which an error is to be reported
 
+    @CSharpSimpleEnum
     public enum OnFailure {
         REPORT_ALWAYS, REPORT_UNLESS_FORWARDS_COMPATIBLE, REPORT_IF_INSTANTIATED,
         REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE, REPORT_DYNAMICALLY_UNLESS_FALLBACK_AVAILABLE,
@@ -124,6 +133,15 @@ public abstract class StyleElement extends ElementImpl {
 
     public ExpressionContext getStaticContext(StructuredQName attributeName) {
         return new ExpressionContext(this, attributeName);
+    }
+
+    /**
+     * Ask whether the element is in the XSLT namespace
+     * @return true if the element is in the XSLT namespace
+     */
+
+    public boolean isInXsltNamespace() {
+        return true; // unless specified otherwise in a subclass
     }
 
     /**
@@ -236,7 +254,7 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     public Visibility getVisibility() {
-        String vis = getAttributeValue("", "visibility");
+        String vis = getAttributeValue(NamespaceUri.NULL, "visibility");
         if (vis == null) {
             return Visibility.PRIVATE;
         } else {
@@ -252,9 +270,9 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     public Visibility getDeclaredVisibility() {
-        String vis = getAttributeValue("", "visibility");
+        String vis = getAttributeValue(NamespaceUri.NULL, "visibility");
         if (vis == null) {
-            return null;
+            return Visibility.UNDEFINED;
         } else {
             return interpretVisibilityValue(vis, "");
         }
@@ -346,34 +364,22 @@ public abstract class StyleElement extends ElementImpl {
 
         StructuredQName qName;
         try {
-            qName = StructuredQName.fromLexicalQName(lexicalQName, false,
+            qName = StructuredQName.fromLexicalQName((lexicalQName), false,
                                                      true, this);
         } catch (XPathException e) {
-            e.setIsStaticError(true);
-            if (errorCode == null) {
-                String code = e.getErrorCodeLocalPart();
-                if ("FONS0004".equals(code)) {
-                    e.setErrorCode("XTSE0280");
-                } else if ("FOCA0002".equals(code)) {
-                    e.setErrorCode("XTSE0020");
-                } else if (code == null) {
-                    e.setErrorCode("XTSE0020");
-                }
-            } else {
-                e.setErrorCode(errorCode);
-            }
-            if (attributeName == null) {
-                e.setLocator(this);
-            } else {
-                e.setLocator(new AttributeLocation(this, StructuredQName.fromEQName(attributeName)));
-            }
-            compileError(e);
-            qName = new StructuredQName("saxon", NamespaceConstant.SAXON, "error-name");
+            String requestedError = errorCode == null ? "XTSE0020" : errorCode;
+            XPathException e2 = e.asStaticError()
+                    .replacingErrorCode("FONS0004", "XTSE0280")
+                    .replacingErrorCode("FOCA0002", requestedError)
+                    .maybeWithErrorCode(requestedError)
+                    .withLocation(attributeName == null ? this : new AttributeLocation(this, StructuredQName.fromEQName((attributeName))));
+            compileError(e2);
+            qName = new StructuredQName("saxon", NamespaceUri.SAXON, "error-name");
         }
-        if (NamespaceConstant.isReserved(qName.getURI())) {
-            if (qName.hasURI(NamespaceConstant.XSLT)) {
+        if (NamespaceUri.isReserved(qName.getNamespaceUri())) {
+            if (qName.hasURI(NamespaceUri.XSLT)) {
                 if (qName.getLocalPart().equals("initial-template")
-                        && (this instanceof XSLTemplate || this instanceof XSLCallTemplate)) {
+                        && (this instanceof XSLTemplate || this instanceof XSLCallTemplate || this instanceof XSLAcceptExpose)) {
                     return qName;
                 }
                 if (qName.getLocalPart().equals("original")) {
@@ -386,7 +392,7 @@ public abstract class StyleElement extends ElementImpl {
             XmlProcessingIncident err = new XmlProcessingIncident("Namespace prefix " +
                                                       qName.getPrefix() + " refers to a reserved namespace", "XTSE0080");
             compileError(err);
-            qName = new StructuredQName("saxon", NamespaceConstant.SAXON, "error-name");
+            qName = new StructuredQName("saxon", NamespaceUri.SAXON, "error-name");
         }
         return qName;
     }
@@ -533,9 +539,9 @@ public abstract class StyleElement extends ElementImpl {
             if (child instanceof StyleElement) {
                 ((StyleElement) child).processAllAttributes();
             } else if (child instanceof TextValueTemplateNode) {
-                ((TextValueTemplateNode)child).parse();
+                ((TextValueTemplateNode) child).parse();
             }
-        };
+        }
     }
 
     /**
@@ -563,7 +569,7 @@ public abstract class StyleElement extends ElementImpl {
      *                  or NamespaceConstant.XSLT to find them in the XSLT namespace
      */
 
-    public void processStandardAttributes(String namespace) {
+    public void processStandardAttributes(NamespaceUri namespace) {
         processExtensionElementAttribute(namespace);
         processExcludedNamespaces(namespace);
         processVersionAttribute(namespace);
@@ -582,7 +588,7 @@ public abstract class StyleElement extends ElementImpl {
 
     public String getAttributeValue(String clarkName) {
         NodeName nn = FingerprintedQName.fromClarkName(clarkName);
-        return getAttributeValue(nn.getURI(), nn.getLocalPart());
+        return getAttributeValue(nn.getNamespaceUri(), nn.getLocalPart());
     }
 
     /**
@@ -590,7 +596,7 @@ public abstract class StyleElement extends ElementImpl {
      * prepareAttributes (provided in the subclass) and traps any exceptions
      */
 
-    final void processAttributes() {
+    protected final void processAttributes() {
         prepareAttributes();
     }
 
@@ -602,8 +608,7 @@ public abstract class StyleElement extends ElementImpl {
 
     protected void checkUnknownAttribute(NodeName nc) {
 
-        String attributeURI = nc.getURI();
-        String elementURI = getURI();
+        NamespaceUri attributeURI = nc.getNamespaceUri();
         String clarkName = nc.getStructuredQName().getClarkName();
 
         if (forwardsCompatibleModeIsEnabled()) {
@@ -614,8 +619,8 @@ public abstract class StyleElement extends ElementImpl {
         // allow xsl:extension-element-prefixes etc on an extension element
 
         if (isInstruction() &&
-                attributeURI.equals(NamespaceConstant.XSLT) &&
-                !elementURI.equals(NamespaceConstant.XSLT) &&
+                attributeURI.equals(NamespaceUri.XSLT) &&
+                !isInXsltNamespace() &&
                 (clarkName.endsWith("}default-collation") ||
                          clarkName.endsWith("}default-mode") ||
                          clarkName.endsWith("}xpath-default-namespace") ||
@@ -630,7 +635,7 @@ public abstract class StyleElement extends ElementImpl {
 
         // allow standard attributes on an XSLT element
 
-        if (elementURI.equals(NamespaceConstant.XSLT) &&
+        if (isInXsltNamespace() &&
                 (clarkName.equals("default-collation") ||
                          clarkName.equals("default-mode") ||
                          clarkName.equals("expand-text") ||
@@ -643,12 +648,12 @@ public abstract class StyleElement extends ElementImpl {
             return;
         }
 
-        if ("".equals(attributeURI) || NamespaceConstant.XSLT.equals(attributeURI)) {
+        if (attributeURI.isEmpty() || NamespaceUri.XSLT.equals(attributeURI)) {
             compileErrorInAttribute("Attribute " + Err.wrap(nc.getDisplayName(), Err.ATTRIBUTE) +
                                             " is not allowed on element " + Err.wrap(getDisplayName(), Err.ELEMENT),
                                     "XTSE0090", clarkName);
-        } else if (NamespaceConstant.SAXON.equals(attributeURI)) {
-            compileWarning("Unrecognized attribute in Saxon namespace: " + nc.getDisplayName(), "XTSE0090");
+        } else if (NamespaceUri.SAXON.equals(attributeURI)) {
+            issueWarning("Unrecognized attribute in Saxon namespace: " + nc.getDisplayName(), "XTSE0090");
         }
     }
 
@@ -719,17 +724,14 @@ public abstract class StyleElement extends ElementImpl {
 
     Pattern makePattern(String pattern, String attributeName) {
         try {
-            StaticContext env = getStaticContext(new StructuredQName("", "", attributeName));
+            StaticContext env = getStaticContext(new StructuredQName("", NamespaceUri.NULL, attributeName));
             Pattern p = Pattern.make(pattern, env, getCompilation().getPackageData());
-            p.setOriginalText(pattern);
             p.setLocation(allocateLocation());
             return p;
         } catch (XPathException err) {
             err.maybeSetErrorCode("XTSE0340");
-            if ("XPST0003".equals(err.getErrorCodeLocalPart())) {
-                err.setErrorCode("XTSE0340");
-            }
-            compileError(err);
+            XPathException err2 = err.replacingErrorCode("XPST0003", "XTSE0340");
+            compileError(err2);
             NodeTestPattern nsp = new NodeTestPattern(AnyNodeTest.getInstance());
             nsp.setLocation(allocateLocation());
             return nsp;
@@ -776,7 +778,7 @@ public abstract class StyleElement extends ElementImpl {
             return;
         }
         if (Arrays.binarySearch(allowed, value) < 0) {
-            FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
+            StringBuilder sb = new StringBuilder(64);
             sb.append("Invalid value for ");
             sb.append("@");
             sb.append(name);
@@ -790,7 +792,7 @@ public abstract class StyleElement extends ElementImpl {
         }
     }
 
-    final static String[] YES_NO = new String[]{"0", "1", "false", "no", "true", "yes"};
+    public final static String[] YES_NO = {"0", "1", "false", "no", "true", "yes"};
 
 
     /**
@@ -798,6 +800,7 @@ public abstract class StyleElement extends ElementImpl {
      *
      * @param name  the name of the attribute (used for diagnostics)
      * @param value the value of the attribute
+     * @return the value of the attribute as a boolean
      */
 
     public boolean processBooleanAttribute(String name, String value) {
@@ -813,11 +816,23 @@ public abstract class StyleElement extends ElementImpl {
 
     }
 
-    static boolean isYes(String s) {
+    /**
+     * Ask whether an attribute is "yes" or one of its accepted synonyms
+     * @param s the value to be tested. Whitespace should be trimmed by the caller
+     * @return true if the value is "yes", "true", or "1"
+     */
+    public static boolean isYes(String s) {
         return "yes".equals(s) || "true".equals(s) || "1".equals(s);
     }
 
-    static boolean isNo(String s) {
+    /**
+     * Ask whether an attribute is "no" or one of its accepted synonyms
+     *
+     * @param s the value to be tested. Whitespace should be trimmed by the caller
+     * @return true if the value is "no", "false", or "0"
+     */
+
+    public static boolean isNo(String s) {
         return "no".equals(s) || "false".equals(s) || "0".equals(s);
     }
 
@@ -825,11 +840,11 @@ public abstract class StyleElement extends ElementImpl {
         boolean streamable = processBooleanAttribute("streamable", streamableAtt);
         if (streamable) {
             if (!getConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
-                compileWarning("Request for streaming ignored: this Saxon configuration does not support streaming", SaxonErrorCode.SXST0068);
+                issueWarning("Request for streaming ignored: this Saxon configuration does not support streaming", SaxonErrorCode.SXST0068);
                 return false;
             }
             if ("off".equals(getConfiguration().getConfigurationProperty(Feature.STREAMABILITY))) {
-                compileWarning("Request for streaming ignored: streaming is disabled in this Saxon configuration", SaxonErrorCode.SXST0068);
+                issueWarning("Request for streaming ignored: streaming is disabled in this Saxon configuration", SaxonErrorCode.SXST0068);
                 return false;
             }
         }
@@ -847,14 +862,9 @@ public abstract class StyleElement extends ElementImpl {
 
     public SequenceType makeSequenceType(String sequenceType)
             throws XPathException {
-        ExpressionContext env = getStaticContext();
-        int languageLevel = env.getXPathVersion();
-        if (languageLevel == 30) {
-            languageLevel = 305; // XPath 3.0 + XSLT extensions
-        }
+        getStaticContext();
         XPathParser parser =
-                getConfiguration().newExpressionParser("XP", false, languageLevel);
-
+                getConfiguration().newExpressionParser("XP", false, staticContext);
         QNameParser qp = new QNameParser(staticContext.getNamespaceResolver())
                 .withAcceptEQName(staticContext.getXPathVersion() >= 30)
                 .withErrorOnBadSyntax("XPST0003")
@@ -864,17 +874,23 @@ public abstract class StyleElement extends ElementImpl {
         return parser.parseSequenceType(sequenceType, staticContext);
     }
 
+    /**
+     * Process a saxon:as extension attribute
+     * @param sequenceType the value of the attribute
+     * @return the corresponding sequence type
+     * @throws XPathException if bad things happen
+     */
     SequenceType makeExtendedSequenceType(String sequenceType)
             throws XPathException {
-        getStaticContext();
+        ExpressionContext env = getStaticContext(new StructuredQName("saxon", NamespaceUri.SAXON, "as"));
         XPathParser parser =
-                getConfiguration().newExpressionParser("XP", false, 31);
-        QNameParser qp = new QNameParser(staticContext.getNamespaceResolver())
-                .withAcceptEQName(staticContext.getXPathVersion() >= 30)
+                getConfiguration().newExpressionParser("XP", false, env);
+        QNameParser qp = new QNameParser(env.getNamespaceResolver())
+                .withAcceptEQName(true)
                 .withErrorOnBadSyntax("XPST0003")
                 .withErrorOnUnresolvedPrefix("XPST0081");
         parser.setQNameParser(qp);
-        return parser.parseExtendedSequenceType(sequenceType, staticContext);
+        return parser.parseExtendedSequenceType(sequenceType, env);
     }
 
     /**
@@ -883,7 +899,7 @@ public abstract class StyleElement extends ElementImpl {
      * @param ns the namespace URI of the attribute - either the XSLT namespace or "" for the null namespace
      */
 
-    void processExtensionElementAttribute(String ns) {
+    void processExtensionElementAttribute(NamespaceUri ns) {
         String ext = getAttributeValue(ns, "extension-element-prefixes");
         if (ext != null) {
             // go round twice, once to count the values and next to add them to the array
@@ -893,7 +909,7 @@ public abstract class StyleElement extends ElementImpl {
                 st1.nextToken();
                 count++;
             }
-            extensionNamespaces = new String[count];
+            extensionNamespaces = new NamespaceUri[count];
             count = 0;
             StringTokenizer st2 = new StringTokenizer(ext, " \t\n\r", false);
             while (st2.hasMoreTokens()) {
@@ -901,11 +917,11 @@ public abstract class StyleElement extends ElementImpl {
                 if ("#default".equals(s)) {
                     s = "";
                 }
-                String uri = getURIForPrefix(s, false);
+                NamespaceUri uri = getURIForPrefix(s, false);
                 if (uri == null) {
                     extensionNamespaces = null;
                     compileError("Namespace prefix " + s + " is undeclared", "XTSE1430");
-                } else if (NamespaceConstant.isReserved(uri)) {
+                } else if (NamespaceUri.isReserved(uri)) {
                     compileError("Namespace " + uri + " is reserved: it cannot be used for extension instructions " +
                                            "(perhaps exclude-result-prefixes was intended).",
                                    "XTSE0085");
@@ -923,15 +939,15 @@ public abstract class StyleElement extends ElementImpl {
      * @param ns the namespace URI of the attribute required, either the XSLT namespace or ""
      */
 
-    void processExcludedNamespaces(String ns) {
+    void processExcludedNamespaces(NamespaceUri ns) {
         String ext = getAttributeValue(ns, "exclude-result-prefixes");
         if (ext != null) {
             if ("#all".equals(Whitespace.trim(ext))) {
-                List<String> excluded = new ArrayList<>();
+                List<NamespaceUri> excluded = new ArrayList<>();
                 for (NamespaceBinding binding : getAllNamespaces()) {
-                    excluded.add(binding.getURI());
+                    excluded.add(binding.getNamespaceUri());
                 }
-                excludedNamespaces = excluded.toArray(new String[0]);
+                excludedNamespaces = excluded.toArray(new NamespaceUri[0]);
             } else {
                 // go round twice, once to count the values and next to add them to the array
                 int count = 0;
@@ -940,7 +956,7 @@ public abstract class StyleElement extends ElementImpl {
                     st1.nextToken();
                     count++;
                 }
-                excludedNamespaces = new String[count];
+                excludedNamespaces = new NamespaceUri[count];
                 count = 0;
                 StringTokenizer st2 = new StringTokenizer(ext, " \t\n\r", false);
                 while (st2.hasMoreTokens()) {
@@ -950,7 +966,7 @@ public abstract class StyleElement extends ElementImpl {
                     } else if ("#all".equals(s)) {
                         compileError("In exclude-result-prefixes, cannot mix #all with other values", "XTSE0020");
                     }
-                    String uri = getURIForPrefix(s, true);
+                    NamespaceUri uri = getURIForPrefix(s, true);
                     if (uri == null) {
                         excludedNamespaces = null;
                         compileError("Namespace prefix " + s + " is not declared", "XTSE0808");
@@ -972,7 +988,7 @@ public abstract class StyleElement extends ElementImpl {
      * @param ns the namespace URI of the attribute required, either the XSLT namespace or ""
      */
 
-    protected void processVersionAttribute(String ns) {
+    protected void processVersionAttribute(NamespaceUri ns) {
         String v = Whitespace.trim(getAttributeValue(ns, "version"));
         if (v != null) {
             ConversionResult val = BigDecimalValue.makeDecimalValue(v, true);
@@ -981,14 +997,14 @@ public abstract class StyleElement extends ElementImpl {
                 compileError("The version attribute must be a decimal literal", "XTSE0110");
             } else {
                 // Note this will normalize the decimal so that trailing spaces are not significant
-                version = ((BigDecimalValue) val).getDecimalValue().multiply(BigDecimal.TEN).intValue();
+                version = ((DecimalValue) val).getDecimalValue().multiply(BigDecimal.TEN).intValue();
                 if (version < 20 && version != 10) {
                     // XSLT 2.0 says use backwards compatible mode. XSLT 3.0 says we can raise an error.
                     // Both allow a warning
-                    issueWarning("Unrecognized version " + val + ": treated as 1.0", this);
+                    issueWarning("Unrecognized version " + val + ": treated as 1.0", SaxonErrorCode.SXWN9020);
                     version = 10;
                 } else if (version > 20 && version < 30) {
-                    issueWarning("Unrecognized version " + val + ": treated as 2.0", this);
+                    issueWarning("Unrecognized version " + val + ": treated as 2.0", SaxonErrorCode.SXWN9020);
                     version = 20;
                 }
             }
@@ -1041,13 +1057,15 @@ public abstract class StyleElement extends ElementImpl {
      * Ask if an extension attribute is allowed; if no Professional Edition license is available,
      * issue a warning saying the attribute is ignored, and return false
      * @param attribute the name of the attribute
+     * @return true if the extension attribute is allowed, false if not
      */
 
     protected boolean isExtensionAttributeAllowed(String attribute)  {
         if (getConfiguration().isLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION)) {
             return true;
         } else {
-            issueWarning("The option " + getDisplayName() + "/@" + attribute + " is ignored because it requires a Saxon-PE license", this);
+            issueWarning("The option " + getDisplayName() + "/@" + attribute +
+                                 " is ignored because it requires a Saxon-PE license", SaxonErrorCode.SXWN9021);
             return false;
         }
     }
@@ -1059,7 +1077,7 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     boolean forwardsCompatibleModeIsEnabled() {
-        return getEffectiveVersion() > 30;
+        return getEffectiveVersion() > getCompilation().getCompilerInfo().getXsltVersion();
     }
 
     /**
@@ -1078,10 +1096,10 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     void processDefaultCollationAttribute() {
-        String ns = getURI().equals(NamespaceConstant.XSLT) ? "" : NamespaceConstant.XSLT;
+        NamespaceUri ns = isInXsltNamespace() ? NamespaceUri.NULL : NamespaceUri.XSLT;
         String v = getAttributeValue(ns, "default-collation");
-        StringBuilder reasons = new StringBuilder();
         if (v != null) {
+            StringBuilder reasons = new StringBuilder();
             StringTokenizer st = new StringTokenizer(v, " \t\n\r", false);
             while (st.hasMoreTokens()) {
                 String uri = st.nextToken();
@@ -1175,7 +1193,7 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     void processDefaultMode() {
-        String ns = getURI().equals(NamespaceConstant.XSLT) ? "" : NamespaceConstant.XSLT;
+        NamespaceUri ns = isInXsltNamespace() ? NamespaceUri.NULL : NamespaceUri.XSLT;
         String v = getAttributeValue(ns, "default-mode");
         if (v != null) {
             if (v.equals("#unnamed")) {
@@ -1190,9 +1208,9 @@ public abstract class StyleElement extends ElementImpl {
             // It will be null on the xsl:package element itself
             psm.addFixupAction(() -> {
                 if (psm.getRuleManager().obtainMode(checkedName, false) == null) {
-                    XPathException err = new XPathException("Mode " + checkedName.getDisplayName() + " is not declared in an xsl:mode declaration", "XTSE3085");
-                    err.setLocation(this);
-                    throw err;
+                    throw new XPathException("Mode " + checkedName.getDisplayName()
+                                                     + " is not declared in an xsl:mode declaration", "XTSE3085")
+                            .withLocation(this);
                 }
             });
         }
@@ -1211,7 +1229,10 @@ public abstract class StyleElement extends ElementImpl {
             processDefaultMode();
             if (defaultMode == null) {
                 NodeInfo p = getParent();
-                if (p instanceof StyleElement) {
+                if (p instanceof XSLMode) {
+                    // 4.0 enclosing modes
+                    return defaultMode = ((XSLMode)p).getObjectName();
+                } else if (p instanceof StyleElement) {
                     return defaultMode = ((StyleElement) p).getDefaultMode();
                 } else {
                     return defaultMode = Mode.UNNAMED_MODE_NAME;
@@ -1232,11 +1253,11 @@ public abstract class StyleElement extends ElementImpl {
      * @return true if this namespace is defined on this element as an extension element namespace
      */
 
-    private boolean definesExtensionElement(String uri) {
+    private boolean definesExtensionElement(NamespaceUri uri) {
         if (extensionNamespaces == null) {
             return false;
         }
-        for (String extensionNamespace : extensionNamespaces) {
+        for (NamespaceUri extensionNamespace : extensionNamespaces) {
             if (extensionNamespace.equals(uri)) {
                 return true;
             }
@@ -1252,7 +1273,7 @@ public abstract class StyleElement extends ElementImpl {
      * @return true if the URI is an extension element namespace URI
      */
 
-    public boolean isExtensionNamespace(String uri) {
+    public boolean isExtensionNamespace(NamespaceUri uri) {
         NodeInfo anc = this;
         while (anc instanceof StyleElement) {
             if (((StyleElement) anc).definesExtensionElement(uri)) {
@@ -1271,11 +1292,11 @@ public abstract class StyleElement extends ElementImpl {
      * @return true if the namespace is excluded by virtue of an [xsl:]exclude-result-prefixes attribute
      */
 
-    private boolean definesExcludedNamespace(String uri) {
+    private boolean definesExcludedNamespace(NamespaceUri uri) {
         if (excludedNamespaces == null) {
             return false;
         }
-        for (String excludedNamespace : excludedNamespaces) {
+        for (NamespaceUri excludedNamespace : excludedNamespaces) {
             if (excludedNamespace.equals(uri)) {
                 return true;
             }
@@ -1293,8 +1314,8 @@ public abstract class StyleElement extends ElementImpl {
      * on this element or on an ancestor element
      */
 
-    boolean isExcludedNamespace(String uri) {
-        if (uri.equals(NamespaceConstant.XSLT) || uri.equals(NamespaceConstant.XML)) {
+    boolean isExcludedNamespace(NamespaceUri uri) {
+        if (uri.equals(NamespaceUri.XSLT) || uri.equals(NamespaceUri.XML)) {
             return true;
         }
         if (isExtensionNamespace(uri)) {
@@ -1316,10 +1337,10 @@ public abstract class StyleElement extends ElementImpl {
      * @param ns the namespace URI of the attribute required  (the default namespace or the XSLT namespace.)
      */
 
-    void processDefaultXPathNamespaceAttribute(String ns) {
+    void processDefaultXPathNamespaceAttribute(NamespaceUri ns) {
         String v = getAttributeValue(ns, "xpath-default-namespace");
         if (v != null) {
-            defaultXPathNamespace = v;
+            defaultXPathNamespace = NamespaceUri.of(v);
         }
     }
 
@@ -1330,10 +1351,10 @@ public abstract class StyleElement extends ElementImpl {
      * Return {@link NamespaceConstant#NULL} for the non-namespace
      */
 
-    public String getDefaultXPathNamespace() {
+    public NamespaceUri getDefaultXPathNamespace() {
         NodeInfo anc = this;
         while (anc instanceof StyleElement) {
-            String x = ((StyleElement) anc).defaultXPathNamespace;
+            NamespaceUri x = ((StyleElement) anc).defaultXPathNamespace;
             if (x != null) {
                 return x;
             }
@@ -1348,7 +1369,7 @@ public abstract class StyleElement extends ElementImpl {
      * @param ns the namespace URI of the attribute required  (the default namespace or the XSLT namespace.)
      */
 
-    void processExpandTextAttribute(String ns) {
+    void processExpandTextAttribute(NamespaceUri ns) {
         String v = getAttributeValue(ns, "expand-text");
         if (v != null) {
             expandText = processBooleanAttribute("expand-text", v);
@@ -1364,7 +1385,7 @@ public abstract class StyleElement extends ElementImpl {
      * @param ns the namespace URI of the attribute required  (the default namespace or the XSLT namespace.)
      */
 
-    void processDefaultValidationAttribute(String ns) {
+    void processDefaultValidationAttribute(NamespaceUri ns) {
         String v = getAttributeValue(ns, "default-validation");
         if (v != null) {
             int val = Validation.getCode(v);
@@ -1397,11 +1418,11 @@ public abstract class StyleElement extends ElementImpl {
 
     public SchemaType getSchemaType(String typeAtt) {
         try {
-            String uri;
+            NamespaceUri uri;
             String lname;
             if (typeAtt.startsWith("Q{")) {
                 StructuredQName q = makeQName(typeAtt, "XTSE1520", "type");
-                uri = q.getURI();
+                uri = q.getNamespaceUri();
                 lname = q.getLocalPart();
             } else {
                 String[] parts = NameChecker.getQNameParts(typeAtt);
@@ -1417,7 +1438,7 @@ public abstract class StyleElement extends ElementImpl {
                     }
                 }
             }
-            if (uri.equals(NamespaceConstant.SCHEMA)) {
+            if (uri.equals(NamespaceUri.SCHEMA)) {
                 SchemaType t = BuiltInType.getSchemaTypeByLocalName(lname);
                 if (t == null) {
                     compileError("Unknown built-in type " + typeAtt, "XTSE1520");
@@ -1454,6 +1475,26 @@ public abstract class StyleElement extends ElementImpl {
 
     public SimpleType getTypeAnnotation(SchemaType schemaType) {
         return (SimpleType) schemaType;
+    }
+
+
+    /**
+     * Adapt an expression that returns a map to one that returns a representation of
+     * the map as a sequence of two-entry maps containing the "key" and "value" fields,
+     * as required for the proposed XSLT 4.0 xsl:for-each/iterate instructions with a "map" attribute
+     *
+     * @param mapExpr the expression in the map attribute
+     * @return a call on a function that converts the map to a sequence of key-value maps
+     */
+
+    protected Expression mapToSequence(Expression mapExpr) {
+        try {
+            return VendorFunctionSetHE.getInstance()
+                    .makeFunction("map-as-sequence-of-maps", 1)
+                    .makeFunctionCall(mapExpr);
+        } catch (XPathException e) {
+            throw new UncheckedXPathException(e);
+        }
     }
 
     /**
@@ -1534,12 +1575,15 @@ public abstract class StyleElement extends ElementImpl {
             // we can't report a dynamic error such as divide by zero unless the expression
             // is actually executed.
             //err.printStackTrace();
-            if (err.isReportableStatically()) {
-                err.setLocation(new AttributeLocation(this, StructuredQName.fromClarkName(name)));
-                compileError(err);
+            XPathException e2 = err;
+            if (e2.isReportableStatically()) {
+                if (!(e2.getLocator() instanceof XPathParser.NestedLocation)) {
+                    e2 = e2.withLocation(new AttributeLocation(this, StructuredQName.fromClarkName(name)));
+                }
+                compileError(e2);
                 return exp;
             } else {
-                ErrorExpression erexp = new ErrorExpression(new XmlProcessingException(err));
+                ErrorExpression erexp = new ErrorExpression(new XmlProcessingException(e2));
                 ExpressionTool.copyLocationInfo(exp, erexp);
                 return erexp;
             }
@@ -1739,18 +1783,16 @@ public abstract class StyleElement extends ElementImpl {
         }
         if (lastChild instanceof XSLLocalVariable &&
                 !(this instanceof XSLStylesheet) && !endsWithTextTemplate) {
-            lastChild.compileWarning("A variable with no following sibling instructions has no effect",
+            lastChild.issueWarning("A variable with no following sibling instructions has no effect",
                                      SaxonErrorCode.SXWN9001);
         }
     }
 
     /**
-     * Examine a text node in the stylesheet to see if it is a text value template;
-     * at the same time, perform type-checking on any contained expressions.
+     * Examine a text node in the stylesheet to see if it is a text value template
      *
      * @param node the text node
-     * @return true if the node is is a text value template with variable content
-     * @throws XPathException if type checking of a TVT fails.
+     * @throws XPathException if the node is is a text value template with variable content
      */
 
     private boolean examineTextNode(NodeInfo node) throws XPathException {
@@ -1815,7 +1857,7 @@ public abstract class StyleElement extends ElementImpl {
                 sortFound = true;
             } else if (child.getNodeKind() == Type.TEXT) {
                 // with xml:space=preserve, white space nodes may still be there
-                if (!Whitespace.isWhite(child.getStringValueCS())) {
+                if (!Whitespace.isAllWhite(child.getUnicodeStringValue())) {
                     nonSortFound = true;
                 }
             } else {
@@ -1887,7 +1929,7 @@ public abstract class StyleElement extends ElementImpl {
     }
 
     protected boolean isWithinDeclaredStreamableConstruct() {
-        if (getURI().equals(NamespaceConstant.XSLT)) {
+        if (isInXsltNamespace()) {
             String streamableAtt = getAttributeValue("streamable");
             if (streamableAtt != null) {
                 return processStreamableAtt(streamableAtt);
@@ -1898,7 +1940,7 @@ public abstract class StyleElement extends ElementImpl {
     }
 
     protected String generateId() {
-        FastStringBuffer buff = new FastStringBuffer(FastStringBuffer.C16);
+        StringBuilder buff = new StringBuilder(16);
         generateId(buff);
         return buff.toString();
     }
@@ -1963,7 +2005,7 @@ public abstract class StyleElement extends ElementImpl {
             }
             vars.addAll(others);
             vars.addAll(onEmpties);
-            return compileSequenceConstructor(compilation, decl, new ListIterator<>(vars), includeParams);
+            return compileSequenceConstructor(compilation, decl, new NodeListIterator(vars), includeParams);
         } else {
             return compileSequenceConstructor(compilation, decl, iterateAxis(AxisInfo.CHILD), includeParams);
         }
@@ -2005,7 +2047,7 @@ public abstract class StyleElement extends ElementImpl {
                                   || sibling instanceof XSLContextItem || sibling instanceof XSLOnCompletion)) {
                         // The test for XSLParam and XSLSort is to eliminate whitespace nodes that have been retained
                         // because of xml:space="preserve"
-                        Expression text = new ValueOf(new StringLiteral(node.getStringValue()), false, false);
+                        Expression text = new ValueOf(new StringLiteral(node.getUnicodeStringValue()), false, false);
                         text.setLocation(allocateLocation());
 
 //                        CodeInjector injector = getCompilation().getCompilerInfo().getCodeInjector();
@@ -2112,7 +2154,7 @@ public abstract class StyleElement extends ElementImpl {
             }
             contents.add(exp);
         } else {
-            contents.add(new StringLiteral(node.getStringValue()));
+            contents.add(new StringLiteral(node.getUnicodeStringValue()));
         }
     }
 
@@ -2124,7 +2166,7 @@ public abstract class StyleElement extends ElementImpl {
      * @param child  the compiled expression tree for the instruction to be traced
      */
 
-    static void setInstructionLocation(StyleElement source, Expression child) {
+    protected static void setInstructionLocation(StyleElement source, Expression child) {
         if (child.getLocation() == null || child.getLocation() == Loc.NONE) {
             child.setLocation(source.saveLocation());
         }
@@ -2247,7 +2289,7 @@ public abstract class StyleElement extends ElementImpl {
 
     Visibility interpretVisibilityValue(String s, String flags) {
         for (Visibility v : Visibility.values()) {
-            if (v.show().equals(s) &&
+            if (v.toString().toLowerCase().equals(s) &&
                     (flags.contains("h") || !s.equals("hidden")) &&
                     (flags.contains("a") || !s.equals("absent"))) {
                 return v;
@@ -2257,14 +2299,14 @@ public abstract class StyleElement extends ElementImpl {
                 (flags.contains("h") ? "|hidden" : "") +
                 (flags.contains("a") ? "|absent" : "")
         );
-        return null;
+        return Visibility.UNDEFINED;
     }
 
     /**
      * Get the list of xsl:with-param elements for a calling element (apply-templates,
      * call-template, apply-imports, next-match). This method can be used to get either
      * the tunnel parameters, or the non-tunnel parameters.
-     *
+     * @param parent the compiled form of the parent instruction
      * @param compilation the compilation episode
      * @param decl        the containing stylesheet declaration
      * @param tunnel      true if the tunnel="yes" parameters are wanted, false to get
@@ -2329,8 +2371,9 @@ public abstract class StyleElement extends ElementImpl {
         if (err.getLocator() == null) {
             err.setLocation(this);
         }
-        XmlProcessingIncident se = new XmlProcessingIncident(err.getMessage(), err.getErrorCodeLocalPart(), err.getLocator());
+        XmlProcessingIncident se = new XmlProcessingIncident(err.getMessage(), err.showErrorCode(), err.getLocator());
         se.setHostLanguage(HostLanguage.XSLT);
+        se.setFailingExpression(err.getFailingExpression());
         compileError(se);
     }
     /**
@@ -2388,20 +2431,42 @@ public abstract class StyleElement extends ElementImpl {
         compileError(new XPathException(message, errorCode, location));
     }
 
+    public void compileErrorInAttribute(XPathException ex, String attributeName) {
+        StructuredQName att = StructuredQName.fromClarkName(attributeName);
+        compileError(ex.withLocation(new AttributeLocation(this, att)));
+    }
+
     protected void invalidAttribute(String attributeName, String allowedValues) {
         compileErrorInAttribute("Attribute " + getDisplayName() + "/@" + attributeName + " must be " + allowedValues,
                                 "XTSE0020", attributeName);
     }
 
     /**
-     * Ask whether XSLT syntax extensions are allowed, for example xsl:when/@select. Returns true if
-     * explicitly enabled in the configuration. Note, this is not affected by forwards-compatibility mode
-     * (because it's too error-prone to simply ignore the presence of these attributes).
+     * Report an error unless XSLT 4.0 syntax is enabled in the XSLT compiler
+     * @param attributeName the name of the attribute
+     * @return true if OK, false if the attribute should be ignored (in forwards compatibility mode)
      */
-    protected void requireSyntaxExtensions(String attributeName) {
-        if (!getConfiguration().getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS)) {
-            compileErrorInAttribute("Attribute " + getDisplayName() + "/@" + attributeName + " is allowed only if syntax extensions are enabled",
-                                    "XTSE0020", attributeName);
+    protected boolean requireXslt40Attribute(String attributeName) {
+        Objects.requireNonNull(attributeName);
+        if (compilation.getCompilerInfo().getXsltVersion() != 40) {
+            if (forwardsCompatibleModeIsEnabled()) {
+                compileWarning("Attribute " + getDisplayName() + "/@" + attributeName + " is ignored in forwards compatibility mode " +
+                                       "(running an XSLT 3.0 processor against an XSLT 4.0 stylesheet)", "XTSE0090");
+                return false;
+            } else {
+                compileErrorInAttribute("Attribute " + getDisplayName() + "/@" + attributeName + " is allowed only if XSLT 4.0 is enabled",
+                                        "XTSE0020", attributeName);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Report an error unless XSLT 4.0 syntax is enabled in the XSLT compiler
+     */
+    protected void requireXslt40Element() {
+        if (compilation.getCompilerInfo().getXsltVersion() != 40) {
+            compileError("Element " + getDisplayName() + " is allowed only if XSLT 4.0 is enabled", "XTSE0010");
         }
     }
 
@@ -2420,38 +2485,21 @@ public abstract class StyleElement extends ElementImpl {
         getCompilation().reportWarning(message, errorCode, this);
     }
 
-    public void compileWarning(String message, String errorCode, Location location) {
-        getCompilation().reportWarning(message, errorCode, location);
-    }
-
-    /**
-     * Report a warning to the error listener
-     *
-     * @param error an exception containing the warning text
-     */
-
-    protected void issueWarning(XPathException error) {
-        if (error.getLocator() == null) {
-            error.setLocator(this);
-        }
-        getCompilation().reportWarning(error);
-    }
 
     /**
      * Report a warning to the error listener
      *
      * @param message the warning message text
+     * @param errorCode error code identifying the condition
      * @param locator the location of the problem in the source stylesheet
      */
 
-    protected void issueWarning(String message, SourceLocator locator) {
-        XPathException tce = new XPathException(message);
-        if (locator == null) {
-            tce.setLocator(this);
-        } else {
-            tce.setLocator(locator);
-        }
-        issueWarning(tce);
+    public void issueWarning(String message, String errorCode, Location locator) {
+        getCompilation().reportWarning(message, errorCode, locator == null ? this : locator);
+    }
+
+    public void issueWarning(String message, String errorCode) {
+        getCompilation().reportWarning(message, errorCode, this);
     }
 
     /**
@@ -2508,21 +2556,22 @@ public abstract class StyleElement extends ElementImpl {
      * Bind a variable used in this element to the compiled form of the XSLVariable element in which it is
      * declared
      *
-     * @param qName The name of the variable
+     * @param variableName   The name of the variable
+     * @param attributeName  The name of the attribute containing the variable reference
      * @return the XSLVariableDeclaration (that is, an xsl:variable or xsl:param instruction) for the variable,
      * or null if no declaration of the variable can be found
      */
 
-    public SourceBinding bindVariable(StructuredQName qName) {
+    public SourceBinding bindVariable(StructuredQName variableName, StructuredQName attributeName) {
 
-        SourceBinding decl = bindLocalVariable(qName);
+        SourceBinding decl = bindLocalVariable(variableName, attributeName);
         if (decl != null) {
             return decl;
         }
 
         // Now check for a global variable
         // we rely on the search following the order of decreasing import precedence.
-        SourceBinding binding = getPrincipalStylesheetModule().getGlobalVariableBinding(qName);
+        SourceBinding binding = getPrincipalStylesheetModule().getGlobalVariableBinding(variableName);
         if (binding == null || Navigator.isAncestorOrSelf(binding.getSourceElement(), this)) {
             // test case variable-0118
             return null;
@@ -2535,16 +2584,17 @@ public abstract class StyleElement extends ElementImpl {
      * Bind a variable reference used in this element to the compiled form of the XSLVariable element in which it is
      * declared, considering only local variables and params
      *
-     * @param qName The name of the variable
+     * @param variableName The name of the variable
+     * @param attributeName The name of the attribute containing the variable reference
      * @return the XSLVariableDeclaration (that is, an xsl:variable or xsl:param instruction) for the variable,
      * or null if no local declaration of the variable can be found
      */
 
-    public SourceBinding bindLocalVariable(StructuredQName qName) {
+    public SourceBinding bindLocalVariable(StructuredQName variableName, StructuredQName attributeName) {
         NodeInfo curr = this;
         NodeInfo prev = this;
 
-        SourceBinding implicit = hasImplicitBinding(qName);
+        SourceBinding implicit = hasImplicitBinding(variableName, attributeName);
         if (implicit != null) {
             return implicit;
         }
@@ -2561,7 +2611,7 @@ public abstract class StyleElement extends ElementImpl {
                 while (curr == null) {
                     curr = prev.getParent();
                     if (curr instanceof StyleElement) {
-                        implicit = ((StyleElement) curr).hasImplicitBinding(qName);
+                        implicit = ((StyleElement) curr).hasImplicitBinding(variableName, null);
                         if (implicit != null) {
                             return implicit;
                         }
@@ -2581,7 +2631,7 @@ public abstract class StyleElement extends ElementImpl {
                     break;
                 }
                 if (curr instanceof XSLGeneralVariable) {
-                    SourceBinding sourceBinding = ((XSLGeneralVariable) curr).getBindingInformation(qName);
+                    SourceBinding sourceBinding = ((XSLGeneralVariable) curr).getBindingInformation(variableName);
                     if (sourceBinding != null) {
                         return sourceBinding;
                     }
@@ -2604,9 +2654,15 @@ public abstract class StyleElement extends ElementImpl {
 
     /**
      * Ask whether this particular element implicitly binds a given variable (used for xsl:accumulator-rule)
+     *
+     * @param variableName  the name of the variable
+     * @param attributeName the name of the attribute containing the variable reference, or
+     *                      null if it appears in a contained sequence constructor
+     * @return a {@code SourceBinding} object representing the binding of this variable if it
+     * exists; otherwise null;
      */
 
-    protected SourceBinding hasImplicitBinding(StructuredQName name) {
+    protected SourceBinding hasImplicitBinding(StructuredQName variableName, StructuredQName attributeName) {
         return null;
     }
 
@@ -2636,6 +2692,7 @@ public abstract class StyleElement extends ElementImpl {
      * Get an iterator over all the properties available. The values returned by the iterator
      * will be of type String, and each string can be supplied as input to the getProperty()
      * method to retrieve the value of the property.
+     * @return an iterator over the available property names
      */
 
     public Iterator<String> getProperties() {

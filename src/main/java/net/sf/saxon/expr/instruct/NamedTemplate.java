@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,12 @@
 
 package net.sf.saxon.expr.instruct;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.StandardNames;
@@ -46,19 +48,20 @@ public class NamedTemplate extends Actor implements TraceableComponent {
     // which is responsible for any type checking that's needed.
 
     private StructuredQName templateName;
-    private boolean hasRequiredParams;
-    private boolean bodyIsTailCallReturner;
     private SequenceType requiredType;
     private ItemType requiredContextItemType = AnyItemType.getInstance();
     private boolean mayOmitContextItem = true;
     private boolean absentFocus = false;
     private List<LocalParamInfo> localParamDetails = new ArrayList<>(4);
+    private PushEvaluator bodyEvaluator;
 
     /**
      * Create a named template
+     *
+     * @param templateName the name of the template (if any)
      */
 
-    public NamedTemplate(StructuredQName templateName) {
+    public NamedTemplate(StructuredQName templateName, Configuration config) {
         setTemplateName(templateName);
     }
 
@@ -122,7 +125,7 @@ public class NamedTemplate extends Actor implements TraceableComponent {
     @Override
     public void setBody(Expression body) {
         super.setBody(body);
-        bodyIsTailCallReturner = (body instanceof TailCallReturner);
+        //bodyIsTailCallReturner = (body instanceof TailCallReturner);
     }
 
     /**
@@ -143,26 +146,6 @@ public class NamedTemplate extends Actor implements TraceableComponent {
     @Override
     public StructuredQName getObjectName() {
         return templateName;
-    }
-
-    /**
-     * Set whether this template has one or more required parameters
-     *
-     * @param has true if the template has at least one required parameter
-     */
-
-    public void setHasRequiredParams(boolean has) {
-        hasRequiredParams = has;
-    }
-
-    /**
-     * Ask whether this template has one or more required parameters
-     *
-     * @return true if this template has at least one required parameter
-     */
-
-    public boolean hasRequiredParams() {
-        return hasRequiredParams;
     }
 
     /**
@@ -237,11 +220,8 @@ public class NamedTemplate extends Actor implements TraceableComponent {
         Item contextItem = context.getContextItem();
         if (contextItem == null) {
             if (!mayOmitContextItem) {
-                XPathException err =
-                        new XPathException("The template requires a context item, but none has been supplied", "XTTE3090");
-                err.setLocation(getLocation());
-                err.setIsTypeError(true);
-                throw err;
+                throw new XPathException("The template requires a context item, but none has been supplied", "XTTE3090")
+                                .withLocation(getLocation()).asTypeError();
             }
         } else {
             TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
@@ -250,22 +230,21 @@ public class NamedTemplate extends Actor implements TraceableComponent {
                 RoleDiagnostic role = new RoleDiagnostic(
                         RoleDiagnostic.MISC, "context item for the named template", 0);
                 String message = role.composeErrorMessage(requiredContextItemType, contextItem, th);
-                XPathException err = new XPathException(message, "XTTE0590");
-                err.setLocation(getLocation());
-                err.setIsTypeError(true);
-                throw err;
+                throw new XPathException(message, "XTTE0590")
+                        .withLocation(getLocation()).asTypeError();
             }
             if (absentFocus) {
                 context = context.newMinorContext();
                 context.setCurrentIterator(null);
             }
         }
-        if (bodyIsTailCallReturner) {
-            return ((TailCallReturner) body).processLeavingTail(output, context);
-        } else if (body != null) {
-            body.process(output, context);
+        synchronized(this) {
+            if (bodyEvaluator == null) {
+                bodyEvaluator = getBody().makeElaborator().elaborateForPush();
+            }
         }
-        return null;
+
+        return bodyEvaluator.processLeavingTail(output, context);
     }
 
 

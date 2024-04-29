@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,13 @@
 
 package net.sf.saxon.value;
 
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
+import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.NameChecker;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -23,6 +26,17 @@ import net.sf.saxon.type.BuiltInAtomicType;
 
 public class QNameValue extends QualifiedNameValue {
 
+    /**
+     * Constructor
+     *
+     * @param qName     the name as a StructuredQName
+     * @param typeLabel idenfies a subtype of xs:QName
+     */
+
+    public QNameValue(/*@Nullable*/ StructuredQName qName, /*@Nullable*/ AtomicType typeLabel) {
+        super(qName, typeLabel);
+    }
+
 
     /**
      * Constructor for a QName that is known to be valid. No validation takes place.
@@ -33,7 +47,7 @@ public class QNameValue extends QualifiedNameValue {
      * @param localName The local part of the QName
      */
 
-    public QNameValue(String prefix, String uri, String localName) {
+    public QNameValue(String prefix, NamespaceUri uri, String localName) {
         this(prefix, uri, localName, BuiltInAtomicType.QNAME);
     }
 
@@ -49,12 +63,8 @@ public class QNameValue extends QualifiedNameValue {
      * @param type      The type label, xs:QName or a subtype of xs:QName
      */
 
-    public QNameValue(String prefix, String uri, String localName, /*@Nullable*/ AtomicType type) {
-        qName = new StructuredQName(prefix, uri, localName);
-        if (type == null) {
-            type = BuiltInAtomicType.QNAME;
-        }
-        typeLabel = type;
+    public QNameValue(String prefix, NamespaceUri uri, String localName, AtomicType type) {
+        super(new StructuredQName(prefix, uri, localName), type);
     }
 
     /**
@@ -75,40 +85,22 @@ public class QNameValue extends QualifiedNameValue {
      *                        namespace with a non-empty prefix
      */
 
-    public QNameValue(String prefix, String uri, String localName, AtomicType type, boolean check) throws XPathException {
-        if (!NameChecker.isValidNCName(localName)) {
-            XPathException err = new XPathException("Malformed local name in QName: '" + localName + '\'');
-            err.setErrorCode("FORG0001");
-            throw err;
+    public QNameValue(String prefix, NamespaceUri uri, String localName, AtomicType type, boolean check) throws XPathException {
+        this(buildStructuredQName(prefix, uri, localName, check), type);
+    }
+
+    private static StructuredQName buildStructuredQName(String prefix, NamespaceUri uri, String localName, boolean check) throws XPathException {
+        if (check && !NameChecker.isValidNCName(localName)) {
+            throw new XPathException("Malformed local name in QName: '" + localName + '\'', "FORG0001");
         }
         prefix = prefix == null ? "" : prefix;
-        uri = "".equals(uri) ? null : uri;
-        if (check && uri == null && prefix.length() != 0) {
-            XPathException err = new XPathException("QName has null namespace but non-empty prefix");
-            err.setErrorCode("FOCA0002");
-            throw err;
+        if (check && uri.isEmpty() && prefix.length() != 0) {
+            throw new XPathException("QName has null namespace but non-empty prefix", "FOCA0002");
         }
-        qName = new StructuredQName(prefix, uri, localName);
-        typeLabel = type;
+        return new StructuredQName(prefix, uri, localName);
     }
 
-    /**
-     * Constructor
-     *
-     * @param qName     the name as a StructuredQName
-     * @param typeLabel idenfies a subtype of xs:QName
-     */
 
-    public QNameValue(/*@Nullable*/ StructuredQName qName, /*@Nullable*/ AtomicType typeLabel) {
-        if (qName == null) {
-            throw new NullPointerException("qName");
-        }
-        if (typeLabel == null) {
-            throw new NullPointerException("typeLabel");
-        }
-        this.qName = qName;
-        this.typeLabel = typeLabel;
-    }
 
     /**
      * Create a copy of this atomic value, with a different type label
@@ -152,7 +144,7 @@ public class QNameValue extends QualifiedNameValue {
             case LOCALNAME:
                 return new StringValue(getLocalName(), BuiltInAtomicType.NCNAME);
             case NAMESPACE:
-                return new AnyURIValue(getNamespaceURI());
+                return new AnyURIValue((getNamespaceURI().toUnicodeString()));
             case PREFIX:
                 String prefix = getPrefix();
                 if (prefix.isEmpty()) {
@@ -176,32 +168,14 @@ public class QNameValue extends QualifiedNameValue {
         return other instanceof QNameValue && qName.equals(((QNameValue) other).qName);
     }
 
-    /*@NotNull*/
     @Override
-    public Comparable getSchemaComparable() {
-        return new QNameComparable();
+    public int hashCode() {
+        return qName.hashCode();
     }
 
-    private class QNameComparable implements Comparable {
-
-        /*@NotNull*/
-        public QNameValue getQNameValue() {
-            return QNameValue.this;
-        }
-
-        @Override
-        public int compareTo(/*@NotNull*/ Object o) {
-            return equals(o) ? 0 : SequenceTool.INDETERMINATE_ORDERING;
-        }
-
-        public boolean equals(/*@NotNull*/ Object o) {
-            return (o instanceof QNameComparable && qName.equals(((QNameComparable) o).getQNameValue().qName));
-        }
-
-        public int hashCode() {
-            return qName.hashCode();
-        }
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return null;
     }
-
 }
 

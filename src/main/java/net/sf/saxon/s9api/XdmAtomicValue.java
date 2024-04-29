@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,9 @@
 package net.sf.saxon.s9api;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
 
@@ -18,191 +20,198 @@ import java.net.URI;
 import java.time.*;
 
 /**
- * The class XdmAtomicValue represents an item in an XPath 2.0 sequence that is an atomic value.
+ * The class XdmAtomicValue represents an item in an XPath sequence that is an atomic value.
  * The value may belong to any of the 19 primitive types defined in XML Schema, or to a type
- * derived from these primitive types, or the XPath 2.0 type xs:untypedAtomic. The type may
+ * derived from these primitive types, or the XPath type xs:untypedAtomic. The type may
  * be either a built-in type or a user-defined type.
  * <p>An <code>XdmAtomicValue</code> is immutable.</p>
  */
+@CSharpModifiers(code = {"internal"})
 public class XdmAtomicValue extends XdmItem {
 
-    private XdmAtomicValue(){}
+    /**
+     * Create an XdmAtomicValue that wraps a supplied <code>AtomicValue</code>. This
+     * method is primarily for internal use, though it is also available to applications
+     * that manipulate data using lower-level Saxon interfaces.
+     *
+     * @param value the value to be wrapped.
+     */
 
-    protected XdmAtomicValue(AtomicValue value, boolean flag) {
-        setValue(value);
+    public XdmAtomicValue(AtomicValue value) {
+        super(value);
     }
 
     /**
-     * Create an <tt>xs:boolean</tt> atomic value
+     * Create an <code>xs:boolean</code> atomic value
      *
      * @param value the boolean value, true or false
      */
 
     public XdmAtomicValue(boolean value) {
-        this(BooleanValue.get(value), true);
+        this(BooleanValue.get(value));
     }
 
     /**
-     * Create an <tt>xs:long</tt> atomic value
+     * Create an <code>xs:long</code> atomic value
      *
-     * @param value the <tt>xs:integer</tt> value, as a long
+     * @param value the <code>xs:integer</code> value, as a long
      */
 
     public XdmAtomicValue(long value) {
-        this(Int64Value.makeDerived(value, BuiltInAtomicType.LONG), true);
+        this(Int64Value.makeDerived(value, BuiltInAtomicType.LONG));
     }
 
     /**
-     * Create an <tt>xs:int</tt> atomic value
+     * Create an <code>xs:int</code> atomic value
      *
-     * @param value the <tt>xs:integer</tt> value, as a long
+     * @param value the <code>xs:integer</code> value, as a long
      */
 
     public XdmAtomicValue(int value) {
-        this(Int64Value.makeDerived(value, BuiltInAtomicType.INT), true);
+        this(Int64Value.makeDerived(value, BuiltInAtomicType.INT));
     }
 
     /**
-     * Create an <tt>xs:short</tt> atomic value
+     * Create an <code>xs:short</code> atomic value
      *
-     * @param value the <tt>xs:integer</tt> value, as a long
+     * @param value the <code>xs:integer</code> value, as a long
      */
 
     public XdmAtomicValue(short value) {
-        this(Int64Value.makeDerived(value, BuiltInAtomicType.SHORT), true);
+        this(Int64Value.makeDerived(value, BuiltInAtomicType.SHORT));
     }
 
     /**
-     * Create an <tt>xs:short</tt> atomic value
+     * Create an <code>xs:short</code> atomic value
      *
-     * @param value the <tt>xs:integer</tt> value, as a long
+     * @param value the <code>xs:integer</code> value, as a long
      */
 
     public XdmAtomicValue(byte value) {
-        this(Int64Value.makeDerived(value, BuiltInAtomicType.BYTE), true);
+        this(Int64Value.makeDerived(value, BuiltInAtomicType.BYTE));
     }
 
     /**
-     * Create an <tt>xs:decimal</tt> atomic value
+     * Create an <code>xs:decimal</code> atomic value
      *
-     * @param value the <tt>xs:decimal</tt> value, as a BigDecimal
+     * @param value the <code>xs:decimal</code> value, as a BigDecimal
      */
 
     public XdmAtomicValue(BigDecimal value) {
-        this(new BigDecimalValue(value), true);
+        this(new BigDecimalValue(value));
     }
 
     /**
-     * Create an <tt>xs:double</tt> atomic value
+     * Create an <code>xs:double</code> atomic value
      *
-     * @param value the <tt>xs:double</tt> value, as a double
+     * @param value the <code>xs:double</code> value, as a double
      */
 
     public XdmAtomicValue(double value) {
-        this(new DoubleValue(value), true);
+        this(new DoubleValue(value));
     }
 
     /**
-     * Create an <tt>xs:float</tt> atomic value
+     * Create an <code>xs:float</code> atomic value
      *
-     * @param value the <tt>xs:float</tt> value, as a float
+     * @param value the <code>xs:float</code> value, as a float
      */
 
     public XdmAtomicValue(float value) {
-        this(new FloatValue(value), true);
+        this(new FloatValue(value));
     }
 
     /**
-     * Create an <tt>xs:string</tt> atomic value
+     * Create an <code>xs:string</code> atomic value
      *
-     * @param value the <tt>xs:string</tt> value, as a string
+     * @param value the <code>xs:string</code> value, as a string
      */
 
     public XdmAtomicValue(String value) {
-        this(new StringValue(value), true);
+        this(new StringValue(value));
     }
 
     /**
-     * Create an <tt>xs:anyURI</tt> atomic value
+     * Create an <code>xs:anyURI</code> atomic value
      *
-     * @param value the <tt>xs:anyURI</tt> value, as a URI
+     * @param value the <code>xs:anyURI</code> value, as a URI
      */
 
     public XdmAtomicValue(URI value) {
-        this(new AnyURIValue(value.toString()), true);
+        this(new AnyURIValue((value.toString())));
     }
 
     /**
-     * Create an <tt>xs:QName</tt> atomic value
+     * Create an <code>xs:QName</code> atomic value
      *
-     * @param value the <tt>xs:QName</tt> value, as a QName
+     * @param value the <code>xs:QName</code> value, as a QName
      */
 
     public XdmAtomicValue(QName value) {
-        this(new QNameValue(value.getStructuredQName(), BuiltInAtomicType.QNAME), true);
+        this(new QNameValue(value.getStructuredQName(), BuiltInAtomicType.QNAME));
     }
 
-
     /**
-     * Create an <tt>xs:dateTime</tt> atomic value from a {@link Instant}. The resulting value
+     * Create an <code>xs:dateTime</code> atomic value from a {@link Instant}. The resulting value
      * will always have a timezone component.
      *
-     * @param value the <tt>xs:dateTime</tt> value in the form of a {@link Instant}
+     * @param value the <code>xs:dateTime</code> value in the form of a {@link Instant}
      * @since 10.0
      */
 
     public XdmAtomicValue(Instant value) {
-        this(DateTimeValue.fromJavaInstant(value), true);
+        this(DateTimeValue.fromJavaInstant(value));
     }
 
     /**
-     * Create an <tt>xs:dateTime</tt> atomic value from a {@link ZonedDateTime}. The resulting value
+     * Create an <code>xs:dateTime</code> atomic value from a {@link ZonedDateTime}. The resulting value
      * will always have a timezone component. Note that the timezone offset (e.g. -05:00) is retained,
      * but the civil time zone identity (e.g. America/New_York) is lost.
      *
-     * @param value the <tt>xs:dateTime</tt> value in the form of a {@link ZonedDateTime}
+     * @param value the <code>xs:dateTime</code> value in the form of a {@link ZonedDateTime}
      * @since 10.0
      */
 
     public XdmAtomicValue(ZonedDateTime value) {
-        this(DateTimeValue.fromZonedDateTime(value), true);
+        this(DateTimeValue.fromZonedDateTime(value));
     }
 
     /**
-     * Create an <tt>xs:dateTime</tt> atomic value from a {@link OffsetDateTime}. The resulting value
+     * Create an <code>xs:dateTime</code> atomic value from a {@link OffsetDateTime}. The resulting value
      * will always have a timezone component. The timezone offset (e.g. -05:00) is retained.
      *
-     * @param value the <tt>xs:dateTime</tt> value in the form of a {@link OffsetDateTime}
+     * @param value the <code>xs:dateTime</code> value in the form of a {@link OffsetDateTime}
      * @since 10.0
      */
 
     public XdmAtomicValue(OffsetDateTime value) {
-        this(DateTimeValue.fromOffsetDateTime(value), true);
+        this(DateTimeValue.fromOffsetDateTime(value));
     }
 
     /**
-     * Create an <tt>xs:dateTime</tt> atomic value from a {@link LocalDateTime}. The resulting value
+     * Create an <code>xs:dateTime</code> atomic value from a {@link LocalDateTime}. The resulting value
      * will have no timezone component.
      *
-     * @param value the <tt>xs:dateTime</tt> value in the form of a {@link LocalDateTime}
+     * @param value the <code>xs:dateTime</code> value in the form of a {@link LocalDateTime}
      * @since 10.0
      */
 
     public XdmAtomicValue(LocalDateTime value) {
-        this(DateTimeValue.fromLocalDateTime(value), true);
+        this(DateTimeValue.fromLocalDateTime(value));
     }
 
     /**
-     * Create an <tt>xs:date</tt> atomic value from a {@link LocalDate}. The resulting value
+     * Create an <code>xs:date</code> atomic value from a {@link LocalDate}. The resulting value
      * will have no timezone component.
      *
-     * @param value the <tt>xs:dateTime</tt> value in the form of a {@link LocalDate}
+     * @param value the <code>xs:dateTime</code> value in the form of a {@link LocalDate}
      * @since 10.0
      */
 
     public XdmAtomicValue(LocalDate value) {
-        this(new DateValue(value), true);
+        this(new DateValue(value));
     }
+
 
     /**
      * Construct an atomic value given its lexical representation and the name of the required
@@ -215,11 +224,15 @@ public class XdmAtomicValue extends XdmItem {
      *                    atomic types defined in XML Schema, or a user-defined type whose definition appears
      *                    in a schema that is known to the Processor. It must not be an abstract type.
      * @throws SaxonApiException if the type is unknown, or is not atomic, or is namespace-sensitive;
-     *                           or if the value supplied in <tt>lexicalForm</tt> is not in the lexical space of the specified atomic
+     *                           or if the value supplied in <code>lexicalForm</code> is not in the lexical space of the specified atomic
      *                           type.
      */
 
     public XdmAtomicValue(String lexicalForm, ItemType type) throws SaxonApiException {
+        super(fromLexicalForm(lexicalForm,type));
+    }
+
+    private static AtomicValue fromLexicalForm(String lexicalForm, ItemType type) throws SaxonApiException {
         net.sf.saxon.type.ItemType it = type.getUnderlyingItemType();
         if (!it.isPlainType()) {
             throw new SaxonApiException("Requested type is not atomic");
@@ -231,8 +244,8 @@ public class XdmAtomicValue extends XdmItem {
             throw new SaxonApiException("Requested type is namespace-sensitive");
         }
         try {
-            StringConverter converter = ((AtomicType)it).getStringConverter(type.getConversionRules());
-            setValue(converter.convertString(lexicalForm).asAtomic());
+            StringConverter converter = ((AtomicType) it).getStringConverter(type.getConversionRules());
+            return converter.convertString(StringView.of(lexicalForm).tidy()).asAtomic();
         } catch (ValidationException e) {
             throw new SaxonApiException(e);
         }
@@ -254,7 +267,7 @@ public class XdmAtomicValue extends XdmItem {
 
     public static XdmAtomicValue makeAtomicValue(Object value) {
         if (value instanceof AtomicValue) {
-            return new XdmAtomicValue((AtomicValue)value, true);
+            return new XdmAtomicValue((AtomicValue)value);
         } else if (value instanceof Boolean) {
             return new XdmAtomicValue((Boolean)value);
         } else if (value instanceof Integer) {
@@ -276,7 +289,7 @@ public class XdmAtomicValue extends XdmItem {
         } else if (value instanceof BigDecimal) {
             return new XdmAtomicValue((BigDecimal) value);
         } else if (value instanceof BigInteger) {
-            return new XdmAtomicValue(IntegerValue.makeIntegerValue((BigInteger) value), true);
+            return new XdmAtomicValue(IntegerValue.makeIntegerValue((BigInteger) value));
         } else if (value instanceof URI) {
             return new XdmAtomicValue((URI) value);
         } else if (value instanceof QName) {
@@ -371,7 +384,7 @@ public class XdmAtomicValue extends XdmItem {
     public Object getValue() {
         AtomicValue av = getUnderlyingValue();
         if (av instanceof StringValue) {
-            return av.getStringValue();
+            return av.getUnicodeStringValue();
         } else if (av instanceof IntegerValue) {
             return ((IntegerValue) av).asBigInteger();
         } else if (av instanceof DoubleValue) {
@@ -380,8 +393,8 @@ public class XdmAtomicValue extends XdmItem {
             return ((FloatValue) av).getFloatValue();
         } else if (av instanceof BooleanValue) {
             return ((BooleanValue) av).getBooleanValue();
-        } else if (av instanceof BigDecimalValue) {
-            return ((BigDecimalValue) av).getDecimalValue();
+        } else if (av instanceof DecimalValue) {
+            return ((DecimalValue) av).getDecimalValue();
         } else if (av instanceof DateTimeValue) {
             if (((DateTimeValue) av).hasTimezone()) {
                 return ((DateTimeValue) av).toZonedDateTime();
@@ -391,10 +404,9 @@ public class XdmAtomicValue extends XdmItem {
         } else if (av instanceof DateValue) {
             return ((DateValue)av).toLocalDate();
         } else if (av instanceof QNameValue) {
-            QNameValue q = (QNameValue) av;
-            return new QName(q.getPrefix(), q.getNamespaceURI(), q.getLocalName());
+            return new QName(((QNameValue) av).getStructuredQName());
         } else {
-            return av.getStringValue();
+            return av.getUnicodeStringValue();
         }
     }
 
@@ -413,7 +425,7 @@ public class XdmAtomicValue extends XdmItem {
         } else if (av instanceof NumericValue) {
             return !av.isNaN() && ((NumericValue) av).signum() != 0;
         } else if (av instanceof StringValue) {
-            String s = av.getStringValue().trim();
+            String s = Whitespace.trim(av.getUnicodeStringValue().tidy()).toString();
             return "1".equals(s) || "true".equals(s);
         } else {
             throw new SaxonApiException("Cannot cast item to a boolean");
@@ -439,7 +451,7 @@ public class XdmAtomicValue extends XdmItem {
             }
         } else if (av instanceof StringValue) {
             StringToDouble converter = StringToDouble.getInstance();
-            return (long) converter.stringToNumber(av.getStringValueCS());
+            return (long) converter.stringToNumber(av.getUnicodeStringValue().tidy());
         } else {
             throw new SaxonApiException("Cannot cast item to an integer");
         }
@@ -463,7 +475,7 @@ public class XdmAtomicValue extends XdmItem {
         } else if (av instanceof StringValue) {
             try {
                 StringToDouble converter = StringToDouble11.getInstance();
-                return converter.stringToNumber(av.getStringValueCS());
+                return converter.stringToNumber(av.getUnicodeStringValue().tidy());
             } catch (NumberFormatException e) {
                 throw new SaxonApiException(e.getMessage());
             }
@@ -490,7 +502,7 @@ public class XdmAtomicValue extends XdmItem {
                 throw new SaxonApiException("Cannot cast item to a decimal");
             }
         } else if (av instanceof StringValue) {
-            return new BigDecimal(av.getStringValueCS().toString());
+            return new BigDecimal(av.getStringValue());
         } else {
             throw new SaxonApiException("Cannot cast item to a decimal");
         }

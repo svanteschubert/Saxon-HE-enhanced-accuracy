@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,17 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.Callable;
-import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.om.FocusIterator;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.SymbolicName;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.value.Int64Value;
@@ -49,16 +51,16 @@ public abstract class PositionAndLast extends ContextAccessorFunction {
      * @param context the context to which the function applies. Must not be null.
      */
     @Override
-    public Function bindContext(XPathContext context) {
+    public FunctionItem bindContext(XPathContext context) {
         Int64Value value;
         try {
             value = evaluateItem(context);
         } catch (final XPathException e) {
             // This happens when we do a dynamic lookup of position() or last() when there is no context item
             SymbolicName.F name = new SymbolicName.F(getFunctionName(), getArity());
-            Callable callable = (context1, arguments) -> {
+            Callable callable = new CallableDelegate((context1, arguments) -> {
                 throw e;
-            };
+            });
             return new CallableFunction(name, callable, getFunctionItemType());
         }
         ConstantFunction fn = new ConstantFunction(value);
@@ -89,9 +91,7 @@ public abstract class PositionAndLast extends ContextAccessorFunction {
     public void supplyTypeInformation(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo, Expression[] arguments) throws XPathException {
         super.supplyTypeInformation(visitor, contextInfo, arguments);
         if (contextInfo.getItemType() == ErrorType.getInstance()) {
-            XPathException err = new XPathException("The context item is absent at this point");
-            err.setErrorCode("XPDY0002");
-            throw err;
+            throw new XPathException("The context item is absent at this point", "XPDY0002");
         } else {
             contextPossiblyUndefined = contextInfo.isPossiblyAbsent();
         }
@@ -133,35 +133,90 @@ public abstract class PositionAndLast extends ContextAccessorFunction {
         public Int64Value evaluateItem(XPathContext c) throws XPathException {
             FocusIterator currentIterator = c.getCurrentIterator();
             if (currentIterator == null) {
-                XPathException e = new XPathException("The context item is absent, so position() is undefined");
-                e.setXPathContext(c);
-                e.setErrorCode("XPDY0002");
-                throw e;
+                throw new XPathException("The context item is absent, so position() is undefined")
+                        .withXPathContext(c).withErrorCode("XPDY0002");
             }
             return Int64Value.makeIntegerValue(currentIterator.position());
         }
 
+        /**
+         * Make an elaborator for a system function call on this function
+         *
+         * @return a suitable elaborator; or null if no custom elaborator is available
+         */
         @Override
-        public String getCompilerName() {
-            return "PositionCompiler";
+        public Elaborator getElaborator() {
+            return new PositionFnElaborator();
         }
 
+        public static class PositionFnElaborator extends ItemElaborator {
+
+            public ItemEvaluator elaborateForItem() {
+                SystemFunctionCall sfc = (SystemFunctionCall) getExpression();
+                Position fn = (Position) sfc.getTargetFunction();
+                if (fn.isContextPossiblyUndefined()) {
+                    return context -> {
+                        FocusIterator focus = context.getCurrentIterator();
+                        if (focus == null) {
+                            throw new XPathException("The context item is absent, so position() is undefined")
+                                    .withXPathContext(context).withLocation(sfc.getLocation()).withErrorCode("XPDY0002");
+                        }
+                        return Int64Value.makeIntegerValue(focus.position());
+                    };
+                } else {
+                    return context -> Int64Value.makeIntegerValue(context.getCurrentIterator().position());
+                }
+            }
+
+        }
     }
 
     public static class Last extends PositionAndLast {
         @Override
         public Int64Value evaluateItem(XPathContext c) throws XPathException {
-            return Int64Value.makeIntegerValue(c.getLast());
-        }
-
-        @Override
-        public String getCompilerName() {
-            return "LastCompiler";
+            try {
+                return Int64Value.makeIntegerValue(c.getLast());
+            } catch (UncheckedXPathException e) {
+                throw XPathException.makeXPathException(e);
+            }
         }
 
         @Override
         public String getStreamerName() {
             return "Last";
+        }
+
+        /**
+         * Make an elaborator for a system function call on this function
+         *
+         * @return a suitable elaborator; or null if no custom elaborator is available
+         */
+        @Override
+        public Elaborator getElaborator() {
+            return new LastFnElaborator();
+        }
+
+        public static class LastFnElaborator extends ItemElaborator {
+
+            public ItemEvaluator elaborateForItem() {
+                SystemFunctionCall sfc = (SystemFunctionCall) getExpression();
+                Last fn = (Last) sfc.getTargetFunction();
+                if (fn.isContextPossiblyUndefined()) {
+                    return context -> {
+                        FocusIterator focus = context.getCurrentIterator();
+                        if (focus == null) {
+                            throw new XPathException("The context item is absent, so last() is undefined")
+                                    .withXPathContext(context)
+                                    .withLocation(sfc.getLocation())
+                                    .withErrorCode("XPDY0002");
+                        }
+                        return Int64Value.makeIntegerValue(context.getLast());
+                    };
+                } else {
+                    return context -> Int64Value.makeIntegerValue(context.getLast());
+                }
+            }
+
         }
     }
 }

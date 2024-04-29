@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.event.Builder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
 
@@ -125,11 +126,12 @@ public interface MutableNodeInfo extends NodeInfo {
      * @param attType    the type annotation of the new attribute
      * @param value      the string value of the new attribute
      * @param properties properties including IS_ID and IS_IDREF properties
-     * @param inheritNamespaces
+     * @param inheritNamespaces true if any namespaces added for the new attribute are to be inherited
+     *                          by descendants of the containing element
      * @throws IllegalStateException if the element already has an attribute with the given name.
      */
 
-    void addAttribute(NodeName name, SimpleType attType, CharSequence value, int properties, boolean inheritNamespaces);
+    void addAttribute(NodeName name, SimpleType attType, String value, int properties, boolean inheritNamespaces);
 
     /**
      * Remove a namespace node from this node. The namespaces of its descendant nodes are unaffected.
@@ -148,12 +150,11 @@ public interface MutableNodeInfo extends NodeInfo {
      * Add a namespace node from this node. The namespaces of its descendant nodes are unaffected.
      * The method has no effect on non-element nodes. If there is an existing namespace using this
      * prefix, the method throws an exception.
-     *
-     * @param prefix the namespace prefix.
-     * @param inherit
+     *  @param prefix the namespace prefix.
+     * @param uri the corresponding namespace URI
      */
 
-    default void addNamespace(String prefix, String uri, boolean inherit) {
+    default void addNamespace(String prefix, NamespaceUri uri) {
         // default: no action
     }
 
@@ -215,7 +216,7 @@ public interface MutableNodeInfo extends NodeInfo {
      * @param stringValue the new string value
      */
 
-    void replaceStringValue(CharSequence stringValue);
+    void replaceStringValue(UnicodeString stringValue);
 
     /**
      * Rename this node.
@@ -224,29 +225,30 @@ public interface MutableNodeInfo extends NodeInfo {
      * parent of the target attribute</p>
      *
      * @param newName the new name for the node
-     * @param inheritNamespaces
+     * @param inherit true if any new namespace binding is to be inherited by descendants
      * @throws IllegalArgumentException if the new name code is not present in the name pool, or if
      *                                  it has a (prefix, uri) pair in which the
      *                                  prefix is the same as that of an existing in-scope namespace binding and the uri is different from that
      *                                  namespace binding.
      */
 
-    void rename(NodeName newName, boolean inheritNamespaces);
+    void rename(NodeName newName, boolean inherit);
 
     /**
      * Add a namespace binding (that is, a namespace node) to this element. This call has no effect if applied
      * to a node other than an element.
      *
-     * @param nscode The namespace code representing the (prefix, uri) pair of the namespace binding to be
+     * @param binding The namespace binding representing the (prefix, uri) pair of the namespace binding to be
      *               added. If the target element already has a namespace binding with this (prefix, uri) pair, the call has
      *               no effect. If the target element currently has a namespace binding with this prefix and a different URI, an
      *               exception is raised. The new namespace binding will also be in scope for the subtree rooted
      *               at this node (that is, the namespace is implicitly inherited)
+     * @param inherit true if the new namespace binding is to be inherited by children and descendants
      * @throws IllegalArgumentException if the namespace code is not present in the namepool, or if the target
      *                                  element already has a namespace binding for this prefix
      */
 
-    void addNamespace(NamespaceBinding nscode, boolean inheritNamespaces);
+    void addNamespace(NamespaceBinding binding, boolean inherit);
 
     /**
      * Remove type information from this node (and its ancestors, recursively).

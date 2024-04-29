@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,8 @@ package net.sf.saxon.om;
 
 
 import net.sf.saxon.ma.trie.ImmutableHashTrieMap;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -34,14 +35,14 @@ public class LargeAttributeMap implements AttributeMap {
     private ImmutableHashTrieMap<NodeName, AttributeInfoLink> attributes;
     private NodeName first = null;
     private NodeName last = null;
-    private int size;
+    private int _size;
 
     private LargeAttributeMap() {}
 
     public LargeAttributeMap(List<AttributeInfo> atts) {
         assert !atts.isEmpty();
-        this.attributes = ImmutableHashTrieMap.empty();
-        this.size = atts.size();
+        this.attributes = emptyMap();
+        this._size = atts.size();
         AttributeInfoLink current = null;
         for (AttributeInfo att : atts) {
             if (attributes.get(att.getNodeName()) != null) {
@@ -63,9 +64,14 @@ public class LargeAttributeMap implements AttributeMap {
 
     private LargeAttributeMap(ImmutableHashTrieMap<NodeName, AttributeInfoLink> attributes, int size, NodeName first, NodeName last) {
         this.attributes = attributes;
-        this.size = size;
+        this._size = size;
         this.first = first;
         this.last = last;
+    }
+
+    @CSharpReplaceBody(code="return System.Collections.Immutable.ImmutableDictionary.Create<Saxon.Hej.om.NodeName,Saxon.Hej.om.LargeAttributeMap.AttributeInfoLink>();")
+    private ImmutableHashTrieMap<NodeName, AttributeInfoLink> emptyMap() {
+        return ImmutableHashTrieMap.empty();
     }
 
     /**
@@ -76,7 +82,7 @@ public class LargeAttributeMap implements AttributeMap {
 
     @Override
     public int size() {
-        return size;
+        return _size;
     }
 
     @Override
@@ -86,7 +92,7 @@ public class LargeAttributeMap implements AttributeMap {
     }
 
     @Override
-    public AttributeInfo get(String uri, String local) {
+    public AttributeInfo get(NamespaceUri uri, String local) {
         NodeName name = new FingerprintedQName("", uri, local);
         return get(name);
     }
@@ -117,7 +123,7 @@ public class LargeAttributeMap implements AttributeMap {
             link.next = existing.next;
         }
         ImmutableHashTrieMap<NodeName, AttributeInfoLink> att2 = attributes.put(att.getNodeName(), link);
-        int size2 = existing == null ? size + 1 : size;
+        int size2 = existing == null ? _size + 1 : _size;
         return new LargeAttributeMap(att2, size2, first, last2);
     }
 
@@ -137,7 +143,7 @@ public class LargeAttributeMap implements AttributeMap {
                 priorLink2.payload = priorLink.payload;
                 priorLink2.prior = priorLink.prior;
                 priorLink2.next = existing.next;
-                att2.put(existing.prior, priorLink2);
+                att2 = att2.put(existing.prior, priorLink2);
             } else {
                 first2 = existing.next;
             }
@@ -147,11 +153,11 @@ public class LargeAttributeMap implements AttributeMap {
                 nextLink2.payload = nextLink.payload;
                 nextLink2.next = nextLink.next;
                 nextLink2.prior = existing.prior;
-                att2.put(existing.next, nextLink2);
+                att2 = att2.put(existing.next, nextLink2);
             } else {
                 last2 = existing.prior;
             }
-            return new LargeAttributeMap(att2, size - 1, first2, last2);
+            return new LargeAttributeMap(att2, _size - 1, first2, last2);
         }
     }
 
@@ -176,20 +182,19 @@ public class LargeAttributeMap implements AttributeMap {
     }
 
     @Override
-    public synchronized List<AttributeInfo> asList() {
-        List<AttributeInfo> result = new ArrayList<>(size);
-        iterator().forEachRemaining(result::add);
+    public synchronized ArrayList<AttributeInfo> asList() {
+        ArrayList<AttributeInfo> result = new ArrayList<>(_size);
+        for (AttributeInfo att : this) {
+            result.add(att);
+        }
         return result;
     }
 
     @Override
     public String toString() {
-        FastStringBuffer sb = new FastStringBuffer(256);
+        StringBuilder sb = new StringBuilder(256);
         for (AttributeInfo att : this) {
-            sb.cat(att.getNodeName().getDisplayName())
-                    .cat("=\"")
-                    .cat(att.getValue())
-                    .cat("\" ");
+            sb.append(att.getNodeName().getDisplayName()).append("=\"").append(att.getValue()).append("\" ");
         }
         return sb.toString().trim();
     }

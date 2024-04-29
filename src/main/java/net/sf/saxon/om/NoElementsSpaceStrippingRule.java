@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,7 +30,7 @@ public class NoElementsSpaceStrippingRule implements SpaceStrippingRule {
      * Decide whether an element is in the set of white-space preserving element types
      *
      * @param fingerprint identifies the element being tested
-     * @param schemaType
+     * @param schemaType the type annotation of the element
      * @return STRIP_DEFAULT: strip spaces unless xml:space tells you not to.
      */
 
@@ -43,7 +43,7 @@ public class NoElementsSpaceStrippingRule implements SpaceStrippingRule {
      * Make a filter to implement these space-stripping rules, or null if no filtering
      * is necessary
      *
-     * @param next the Receiver that is to receiver the filtered event stream
+     * @param next the Receiver that is to receive the filtered event stream
      * @return a filter in the form of a ProxyReceiver, or null
      */
     @Override

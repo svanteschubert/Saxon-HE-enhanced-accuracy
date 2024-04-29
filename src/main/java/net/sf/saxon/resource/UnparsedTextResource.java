@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,17 +9,16 @@ package net.sf.saxon.resource;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.lib.RedirectHandler;
 import net.sf.saxon.lib.Resource;
 import net.sf.saxon.lib.ResourceFactory;
-import net.sf.saxon.lib.StandardUnparsedTextResolver;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.query.InputStreamMarker;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.StringValue;
 
 import java.io.*;
 import java.net.URL;
-import java.net.URLConnection;
 
 /**
  * This class implements th interface Resource. We handle unparded text here.
@@ -29,9 +28,10 @@ import java.net.URLConnection;
  * @since 9.7
  */
 public class UnparsedTextResource implements Resource {
+    private final Configuration config;
     private String contentType;
     private String encoding;
-    private String href;
+    private final String href;
     private String unparsedText = null;
 
     /**
@@ -41,7 +41,8 @@ public class UnparsedTextResource implements Resource {
      * @throws XPathException for an unsupported encoding
      */
 
-    public UnparsedTextResource(AbstractResourceCollection.InputDetails details) throws XPathException {
+    private UnparsedTextResource(XPathContext context, AbstractResourceCollection.InputDetails details) throws XPathException {
+        this.config = context != null ? context.getConfiguration() : null;
         this.href = details.resourceUri;
         this.contentType = details.contentType;
         this.encoding = details.encoding;
@@ -51,26 +52,34 @@ public class UnparsedTextResource implements Resource {
             if (details.encoding == null) {
                 try {
                     InputStream is = new ByteArrayInputStream(details.binaryContent);
-                    details.encoding = StandardUnparsedTextResolver.inferStreamEncoding(is, null);
+                    details.encoding = EncodingDetector.inferStreamEncoding(is, "UTF-8", null);
                     is.close();
                 } catch (IOException e) {
                     throw new XPathException(e); // cannot happen
                 }
             }
-            try {
-                this.unparsedText = new String(details.binaryContent, details.encoding);
-            } catch (UnsupportedEncodingException e) {
-                throw new XPathException(e);
-            }
+            this.unparsedText = makeString(details.binaryContent, details.encoding);
         }
     }
 
-    public final static ResourceFactory FACTORY = new ResourceFactory() {
-        @Override
-        public Resource makeResource(Configuration config, AbstractResourceCollection.InputDetails details) throws XPathException {
-            return new UnparsedTextResource(details);
+    public UnparsedTextResource(String uri, String content) {
+        this.config = null;
+        this.href = uri;
+        this.unparsedText = content;
+    }
+
+    @CSharpReplaceBody(code="return System.Text.Encoding.GetEncoding(encoding).GetString(bytes);")
+    private String makeString(byte[] bytes, String encoding) throws XPathException {
+        try {
+            return new String(bytes, encoding);
+        } catch (UnsupportedEncodingException e) {
+            throw new XPathException(e);
         }
-    };
+    }
+
+    // IntelliJ wants to simplify this to ...  FACTORY = UnparsedTextResource::new;
+    // but the CS transpiler doesn't do the right thing with that, so I'm leaving the 'long' form.
+    public final static ResourceFactory FACTORY = (context, details) -> new UnparsedTextResource(context, details);
 
     @Override
     public String getResourceURI() {
@@ -84,16 +93,13 @@ public class UnparsedTextResource implements Resource {
     public String getContent() throws XPathException {
         if (unparsedText == null) {
             try {
-                URLConnection connection = RedirectHandler.resolveConnection(new URL(href));
-                InputStream stream = connection.getInputStream();
-                StringBuilder builder = null;
-
+                InputStream stream = ResourceLoader.urlStream(config, href);
                 String enc = encoding;
                 if (enc == null) {
-                    enc = StandardUnparsedTextResolver.inferStreamEncoding(stream, null);
+                    stream = InputStreamMarker.ensureMarkSupported(stream);
+                    enc = EncodingDetector.inferStreamEncoding(stream, "UTF-8", null);
                 }
-                builder = CatalogCollection.makeStringBuilderFromStream(stream, enc);
-                unparsedText = builder.toString();
+                unparsedText = CatalogCollection.makeStringFromStream(stream, enc);
             } catch (IOException e) {
                 throw new XPathException(e);
             }
@@ -102,7 +108,7 @@ public class UnparsedTextResource implements Resource {
     }
 
     @Override
-    public Item getItem(XPathContext context) throws XPathException {
+    public Item getItem() throws XPathException {
         return new StringValue(getContent());
     }
 

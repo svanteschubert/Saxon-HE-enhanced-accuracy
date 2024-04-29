@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,9 @@ import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.regex.RegularExpression;
+import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.ArrayList;
@@ -28,8 +31,8 @@ public class XSLAnalyzeString extends StyleElement {
     /*@Nullable*/ private Expression select;
     private Expression regex;
     private Expression flags;
-    private StyleElement matching;
-    private StyleElement nonMatching;
+    private XSLMatchingSubstring matching;
+    private XSLMatchingSubstring nonMatching;
     private RegularExpression pattern;
 
     /**
@@ -49,13 +52,13 @@ public class XSLAnalyzeString extends StyleElement {
      */
 
     @Override
-    public boolean mayContainFallback() {
+    protected boolean mayContainFallback() {
         return true;
     }
 
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         String selectAtt = null;
         String regexAtt = null;
         String flagsAtt = null;
@@ -103,17 +106,17 @@ public class XSLAnalyzeString extends StyleElement {
 
         if (regex instanceof StringLiteral && flags instanceof StringLiteral) {
             try {
-                final String regex = ((StringLiteral) this.regex).getStringValue();
-                final String flagstr = ((StringLiteral) flags).getStringValue();
+                final UnicodeString regex = ((StringLiteral) this.regex).getString();
+                final String flagstr = ((StringLiteral) flags).stringify();
 
-                List<String> warnings = new ArrayList<String>();
+                List<String> warnings = new ArrayList<>();
                 pattern = getConfiguration().compileRegularExpression(
                         regex, flagstr, getEffectiveVersion() >= 30 ? "XP30" : "XP20", warnings);
                 for (String w : warnings) {
-                    issueWarning(w, this);
+                    issueWarning(w, SaxonErrorCode.SXWN9022);
                 }
             } catch (XPathException err) {
-                if ("FORX0001".equals(err.getErrorCodeLocalPart())) {
+                if (err.hasErrorCode("FORX0001")) {
                     invalidFlags("Error in regular expression flags: " + err.getMessage());
                 } else {
                     invalidRegex("Error in regular expression: " + err.getMessage());
@@ -137,7 +140,7 @@ public class XSLAnalyzeString extends StyleElement {
 
     private void setDummyRegex() {
         try {
-            pattern = getConfiguration().compileRegularExpression("x", "", "XP20", null);
+            pattern = getConfiguration().compileRegularExpression(BMPString.of("x"), "", "XP20", null);
         } catch (XPathException err) {
             throw new IllegalStateException();
         }
@@ -157,12 +160,12 @@ public class XSLAnalyzeString extends StyleElement {
                     if (matching != null || nonMatching != null || foundFallback) {
                         compileError("xsl:matching-substring element must come first", "XTSE0010");
                     }
-                    matching = (StyleElement) curr;
+                    matching = (XSLMatchingSubstring) curr;
                 } else {
                     if (nonMatching != null || foundFallback) {
                         compileError("xsl:non-matching-substring cannot appear here", "XTSE0010");
                     }
-                    nonMatching = (StyleElement) curr;
+                    nonMatching = (XSLMatchingSubstring) curr;
                 }
             } else {
                 compileError("Only xsl:matching-substring and xsl:non-matching-substring are allowed here", "XTSE0010");
@@ -184,21 +187,28 @@ public class XSLAnalyzeString extends StyleElement {
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
         Expression matchingBlock = null;
         if (matching != null) {
-            matchingBlock = matching.compileSequenceConstructor(exec, decl, false);
+            matchingBlock = matching.getSelectExpression();
+            if (matchingBlock == null) {
+                matchingBlock = matching.compileSequenceConstructor(exec, decl, false);
+            }
         }
 
         Expression nonMatchingBlock = null;
         if (nonMatching != null) {
-            nonMatchingBlock = nonMatching.compileSequenceConstructor(exec, decl, false);
+            nonMatchingBlock = nonMatching.getSelectExpression();
+            if (nonMatchingBlock == null) {
+                nonMatchingBlock = nonMatching.compileSequenceConstructor(exec, decl, false);
+            }
         }
 
         try {
             return new AnalyzeString(select,
-                    regex,
-                    flags,
-                    matchingBlock == null ? null : matchingBlock.simplify(),
-                    nonMatchingBlock == null ? null : nonMatchingBlock.simplify(),
-                    pattern);
+                                     regex,
+                                     flags,
+                                     matchingBlock == null ? null : matchingBlock.simplify(),
+                                     nonMatchingBlock == null ? null : nonMatchingBlock.simplify(),
+                                     pattern)
+                    .withLocation(saveLocation());
         } catch (XPathException e) {
             compileError(e);
             return null;

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,8 +10,9 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.value.*;
 
 import java.util.ArrayList;
@@ -33,64 +34,64 @@ public class ParseIetfDate extends SystemFunction implements Callable {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         StringValue stringValue = (StringValue) arguments[0].head();
         if (stringValue == null) {
-            return ZeroOrOne.empty();
+            return EmptySequence.getInstance();
         }
-        return new ZeroOrOne(parse(stringValue.getStringValue(), context));
+        return SequenceTool.itemOrEmpty(parse(stringValue.getStringValue(), context));
     }
 
-    private String[] dayNames = new String[]{
+    private final String[] dayNames = new String[]{
         "Mon","Tue","Wed","Thu","Fri","Sat","Sun","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"
     };
 
-    private boolean isDayName(String string){
+    private boolean isDayName(String str){
         for (String s: dayNames){
-            if (s.equalsIgnoreCase(string)){
+            if (s.equalsIgnoreCase(str)){
                 return true;
             }
         }
         return false;
     }
 
-    private String[] monthNames = new String[]{
+    private final String[] monthNames = new String[]{
             "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
     };
 
-    private boolean isMonthName(String string){
+    private boolean isMonthName(String str){
         for (String s: monthNames){
-            if (s.equalsIgnoreCase(string)){
+            if (s.equalsIgnoreCase(str)){
                 return true;
             }
         }
         return false;
     }
 
-    private byte getMonthNumber(String string){
-        if ("Jan".equalsIgnoreCase(string)){
+    private byte getMonthNumber(String str){
+        if ("Jan".equalsIgnoreCase(str)){
             return (byte) 1;
-        } else if ("Feb".equalsIgnoreCase(string)){
+        } else if ("Feb".equalsIgnoreCase(str)){
             return (byte) 2;
-        } else if ("Mar".equalsIgnoreCase(string)){
+        } else if ("Mar".equalsIgnoreCase(str)){
             return (byte) 3;
-        } else if ("Apr".equalsIgnoreCase(string)){
+        } else if ("Apr".equalsIgnoreCase(str)){
             return (byte) 4;
-        } else if ("May".equalsIgnoreCase(string)){
+        } else if ("May".equalsIgnoreCase(str)){
             return (byte) 5;
-        } else if ("Jun".equalsIgnoreCase(string)){
+        } else if ("Jun".equalsIgnoreCase(str)){
             return (byte) 6;
-        } else if ("Jul".equalsIgnoreCase(string)){
+        } else if ("Jul".equalsIgnoreCase(str)){
             return (byte) 7;
-        } else if ("Aug".equalsIgnoreCase(string)){
+        } else if ("Aug".equalsIgnoreCase(str)){
             return (byte) 8;
-        } else if ("Sep".equalsIgnoreCase(string)){
+        } else if ("Sep".equalsIgnoreCase(str)){
             return (byte) 9;
-        } else if ("Oct".equalsIgnoreCase(string)){
+        } else if ("Oct".equalsIgnoreCase(str)){
             return (byte) 10;
-        } else if ("Nov".equalsIgnoreCase(string)){
+        } else if ("Nov".equalsIgnoreCase(str)){
             return (byte) 11;
-        } else if ("Dec".equalsIgnoreCase(string)){
+        } else if ("Dec".equalsIgnoreCase(str)){
             return (byte) 12;
         }
         return (byte) 0;
@@ -117,43 +118,41 @@ public class ParseIetfDate extends SystemFunction implements Callable {
     }
 
     private static void badDate(String msg, String value) throws XPathException{
-        XPathException err = new XPathException(
-                "Invalid IETF date value " + value + " (" + msg + ")");
-        err.setErrorCode("FORG0010");
-        throw err;
+        throw new XPathException(
+                "Invalid IETF date value " + value + " (" + msg + ")", "FORG0010");
     }
 
-    private String[] timezoneNames = new String[]{
+    private final String[] timezoneNames = new String[]{
             "UT","UTC","GMT","EST","EDT","CST","CDT","MST","MDT","PST","PDT"
     };
 
-    private boolean isTimezoneName(String string) {
+    private boolean isTimezoneName(String str) {
         for (String s: timezoneNames){
-            if (s.equalsIgnoreCase(string)){
+            if (s.equalsIgnoreCase(str)){
                 return true;
             }
         }
         return false;
     }
 
-    private int getTimezoneOffsetFromName(String string){
-        if ("UT".equalsIgnoreCase(string)|"UTC".equalsIgnoreCase(string)|"GMT".equalsIgnoreCase(string)){
+    private int getTimezoneOffsetFromName(String str){
+        if ("UT".equalsIgnoreCase(str)|"UTC".equalsIgnoreCase(str)|"GMT".equalsIgnoreCase(str)){
             return 0;
-        } else if ("EST".equalsIgnoreCase(string)){
+        } else if ("EST".equalsIgnoreCase(str)){
             return -5*60;
-        } else if ("EDT".equalsIgnoreCase(string)){
+        } else if ("EDT".equalsIgnoreCase(str)){
             return -4*60;
-        } else if ("CST".equalsIgnoreCase(string)){
+        } else if ("CST".equalsIgnoreCase(str)){
             return -6*60;
-        } else if ("CDT".equalsIgnoreCase(string)){
+        } else if ("CDT".equalsIgnoreCase(str)){
             return -5*60;
-        } else if ("MST".equalsIgnoreCase(string)){
+        } else if ("MST".equalsIgnoreCase(str)){
             return -7*60;
-        } else if ("MDT".equalsIgnoreCase(string)){
+        } else if ("MDT".equalsIgnoreCase(str)){
             return -6*60;
-        } else if ("PST".equalsIgnoreCase(string)){
+        } else if ("PST".equalsIgnoreCase(str)){
             return -8*60;
-        } else if ("PDT".equalsIgnoreCase(string)){
+        } else if ("PDT".equalsIgnoreCase(str)){
             return -7*60;
         }
         return 0; /* what should this return? */
@@ -254,7 +253,7 @@ public class ParseIetfDate extends SystemFunction implements Callable {
         TimeValue time = timeValue.get(0);
         if (time.getHour() == 24) {
             date = DateValue.tomorrow(date.getYear(), date.getMonth(), date.getDay());
-            time = new TimeValue((byte) 0, (byte) 0, (byte) 0, 0, time.getTimezoneInMinutes(), "");
+            time = new TimeValue((byte) 0, (byte) 0, (byte) 0, 0, time.getTimezoneInMinutes(), BuiltInAtomicType.TIME);
         }
         return DateTimeValue.makeDateTimeValue(date, time);
     }
@@ -454,7 +453,7 @@ public class ParseIetfDate extends SystemFunction implements Callable {
         if (!isValidTime(hour, minute, second, microsecond, tz)) {
             badDate("Time/timezone is not valid", input);
         }
-        TimeValue timeValue = new TimeValue(hour, minute, second, microsecond*1000, tz, "");
+        TimeValue timeValue = new TimeValue(hour, minute, second, microsecond*1000, tz, BuiltInAtomicType.TIME);
         result.add(timeValue);
         return n;
     }
@@ -520,4 +519,4 @@ public class ParseIetfDate extends SystemFunction implements Callable {
 }
 
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,9 @@ package net.sf.saxon.jaxp;
 
 import net.sf.saxon.Version;
 import net.sf.saxon.event.ContentHandlerProxy;
+import net.sf.saxon.event.NamespaceDifferencer;
+import net.sf.saxon.event.PipelineConfiguration;
+import net.sf.saxon.event.Receiver;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
@@ -21,13 +24,11 @@ import java.io.IOException;
 /**
  * <B>FilterImpl</B> is an XMLFilter (a SAX2 filter) that performs a transformation
  * taking a SAX stream as input and producing a SAX stream as output.
- *
- * @author Michael H. Kay
  */
 
 public class FilterImpl extends AbstractXMLFilter {
 
-    private TransformerImpl transformer;
+    private final TransformerImpl transformer;
 
     FilterImpl(TransformerImpl transformer) {
         this.transformer = transformer;
@@ -63,22 +64,23 @@ public class FilterImpl extends AbstractXMLFilter {
         SAXSource source = new SAXSource();
         source.setInputSource(input);
         source.setXMLReader(parser);
-        ContentHandlerProxy result = new ContentHandlerProxy();
-        result.setPipelineConfiguration(transformer.getConfiguration().makePipelineConfiguration());
-        result.setUnderlyingContentHandler(contentHandler);
-
+        PipelineConfiguration pipe = transformer.getConfiguration().makePipelineConfiguration();
+        ContentHandlerProxy proxy = new ContentHandlerProxy(contentHandler);
+        proxy.setPipelineConfiguration(pipe);
+        proxy.setOutputProperties(transformer.getOutputProperties());
         if (lexicalHandler != null) {
-            result.setLexicalHandler(lexicalHandler);
+            proxy.setLexicalHandler(lexicalHandler);
         }
+        Receiver result = new NamespaceDifferencer(proxy, transformer.getOutputProperties());
+        result.setPipelineConfiguration(pipe);
+
         try {
-            //result.open();
-            result.setOutputProperties(transformer.getOutputProperties());
             transformer.transform(source, result);
         } catch (TransformerException err) {
             Throwable cause = err.getException();
-            if (cause != null && cause instanceof SAXException) {
+            if (cause instanceof SAXException) {
                 throw (SAXException) cause;
-            } else if (cause != null && cause instanceof IOException) {
+            } else if (cause instanceof IOException) {
                 throw (IOException) cause;
             } else {
                 throw new SAXException(err);

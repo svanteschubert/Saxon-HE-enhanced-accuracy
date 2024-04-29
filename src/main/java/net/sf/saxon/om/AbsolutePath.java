@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,11 @@ package net.sf.saxon.om;
 
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -23,7 +23,7 @@ import java.util.List;
 
 public class AbsolutePath {
 
-    private List<PathElement> path;
+    private final List<PathElement> path;
     private String systemId;
 
 
@@ -34,7 +34,7 @@ public class AbsolutePath {
      *             for the document node.
      */
 
-    public AbsolutePath(List<PathElement> path) {
+    public AbsolutePath(Collection<PathElement> path) {
         this.path = new ArrayList<>(path);
     }
 
@@ -57,6 +57,7 @@ public class AbsolutePath {
     /**
      * Create an absolute path given a Node
      * @param node the node whose path is required
+     * @return the absolute path
      */
 
     public static AbsolutePath pathToNode(NodeInfo node) {
@@ -76,10 +77,10 @@ public class AbsolutePath {
      */
 
     public String getPathUsingPrefixes() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         for (AbsolutePath.PathElement pe : path) {
-            fsb.cat('/');
-            pe.toString(fsb, 'p');
+            fsb.append('/');
+            pe.addToString(fsb, 'p');
         }
         return fsb.toString();
     }
@@ -91,10 +92,10 @@ public class AbsolutePath {
      */
 
     public String getPathUsingUris() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         for (AbsolutePath.PathElement pe : path) {
-            fsb.cat('/');
-            pe.toString(fsb, 'u');
+            fsb.append('/');
+            pe.addToString(fsb, 'u');
         }
         return fsb.toString();
     }
@@ -106,10 +107,10 @@ public class AbsolutePath {
      */
 
     public String getPathUsingAbbreviatedUris() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         for (AbsolutePath.PathElement pe : path) {
-            fsb.cat('/');
-            pe.toString(fsb, 's');
+            fsb.append('/');
+            pe.addToString(fsb, 's');
         }
         return fsb.toString();
     }
@@ -137,6 +138,15 @@ public class AbsolutePath {
         return systemId;
     }
 
+    /**
+     * Get the path as a list of {@link PathElement} objects
+     * @return a list of PathElements giving the names and positions of ancestor elements
+     * of the invalid element, starting at the root.
+     */
+
+    public List<PathElement> getPathElements() {
+        return path;
+    }
 
     /**
      * Inner class representing one step in the path
@@ -199,27 +209,27 @@ public class AbsolutePath {
          *               'p': use namepace prefix. 'u': use full URI. 's': use abbreviated URI
          */
 
-        public void toString(FastStringBuffer fsb, char option) {
+        public void addToString(StringBuilder fsb, char option) {
             switch (nodeKind) {
                 case Type.DOCUMENT:
                     fsb.append("(/)");
                     break;
                 case Type.ATTRIBUTE:
-                    fsb.cat('@');
-                    if (!name.getURI().isEmpty()) {
+                    fsb.append('@');
+                    if (!name.getNamespaceUri().isEmpty()) {
                         if (option == 'u') {
                             fsb.append("Q{");
-                            fsb.append(name.getURI());
+                            fsb.append(name.getNamespaceUri());
                             fsb.append("}");
                         } else if (option == 'p') {
                             String prefix = name.getPrefix();
                             if (!prefix.isEmpty()) {
                                 fsb.append(prefix);
-                                fsb.cat(':');
+                                fsb.append(':');
                             }
                         } else if (option == 's') {
                             fsb.append("Q{");
-                            fsb.append(Err.abbreviateURI(name.getURI()));
+                            fsb.append(Err.abbreviateURI(name.getNamespaceUri()));
                             fsb.append("}");
                         }
                     }
@@ -228,18 +238,18 @@ public class AbsolutePath {
                 case Type.ELEMENT:
                     if (option == 'u') {
                         fsb.append("Q{");
-                        fsb.append(name.getURI());
+                        fsb.append(name.getNamespaceUri());
                         fsb.append("}");
                     } else if (option == 'p') {
                         String prefix = name.getPrefix();
                         if (!prefix.isEmpty()) {
                             fsb.append(prefix);
-                            fsb.cat(':');
+                            fsb.append(':');
                         }
                     } else if (option == 's') {
-                        if (!name.getURI().isEmpty()) {
+                        if (!name.getNamespaceUri().isEmpty()) {
                             fsb.append("Q{");
-                            fsb.append(Err.abbreviateURI(name.getURI()));
+                            fsb.append(Err.abbreviateURI(name.getNamespaceUri()));
                             fsb.append("}");
                         }
                     }
@@ -271,12 +281,12 @@ public class AbsolutePath {
             }
         }
 
-        private void appendPredicate(FastStringBuffer fsb) {
+        private void appendPredicate(StringBuilder fsb) {
             int index = getIndex();
             if (index != -1) {
-                fsb.cat('[');
+                fsb.append('[');
                 fsb.append(getIndex() + "");
-                fsb.cat(']');
+                fsb.append(']');
             }
         }
     }

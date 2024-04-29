@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -51,16 +52,6 @@ public interface Receiver extends Result {
 
     /*@NotNull*/
     PipelineConfiguration getPipelineConfiguration();
-
-    /**
-     * Set the System ID of the tree represented by this event stream
-     *
-     * @param systemId the system ID (which is used as the base URI of the nodes
-     *                 if there is no xml:base attribute)
-     */
-
-    @Override
-    void setSystemId(String systemId);
 
     /**
      * Notify the start of the event stream
@@ -141,7 +132,7 @@ public interface Receiver extends Result {
      * @throws XPathException if an error occurs
      */
 
-    void characters(CharSequence chars, Location location, int properties)
+    void characters(UnicodeString chars, Location location, int properties)
             throws XPathException;
 
     /**
@@ -155,7 +146,7 @@ public interface Receiver extends Result {
      * @throws XPathException            if an error occurs
      */
 
-    void processingInstruction(String name, CharSequence data, Location location, int properties)
+    void processingInstruction(String name, UnicodeString data, Location location, int properties)
             throws XPathException;
 
     /**
@@ -168,7 +159,7 @@ public interface Receiver extends Result {
      * @throws XPathException            if an error occurs
      */
 
-    void comment(CharSequence content, Location location, int properties) throws XPathException;
+    void comment(UnicodeString content, Location location, int properties) throws XPathException;
 
     /**
      * Append an arbitrary item (node, atomic value, or function) to the output. The default

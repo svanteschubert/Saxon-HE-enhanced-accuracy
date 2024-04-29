@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,9 @@
 package net.sf.saxon.dom;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.type.AnyType;
+import net.sf.saxon.type.Derivation;
 import net.sf.saxon.type.SchemaType;
 import org.w3c.dom.TypeInfo;
 
@@ -50,7 +52,7 @@ public class TypeInfoImpl implements TypeInfo {
 
     @Override
     public String getTypeNamespace() {
-        return schemaType.getStructuredQName().getURI();
+        return schemaType.getStructuredQName().getNamespaceUri().toString();
     }
 
     /**
@@ -60,8 +62,8 @@ public class TypeInfoImpl implements TypeInfo {
      *
      * @param typeNamespaceArg the namespace of the "other" type
      * @param typeNameArg      the local name of the "other" type
-     * @param derivationMethod the derivation method: zero or more of {@link SchemaType#DERIVATION_RESTRICTION},
-     *                         {@link SchemaType#DERIVATION_EXTENSION}, {@link SchemaType#DERIVATION_LIST}, or {@link SchemaType#DERIVATION_UNION}.
+     * @param derivationMethod the derivation method: zero or more of {@link Derivation#DERIVATION_RESTRICTION},
+     *                         {@link Derivation#DERIVATION_EXTENSION}, {@link Derivation#DERIVATION_LIST}, or {@link Derivation#DERIVATION_UNION}.
      *                         Zero means derived by any possible route.
      */
 
@@ -70,7 +72,7 @@ public class TypeInfoImpl implements TypeInfo {
                                  String typeNameArg,
                                  int derivationMethod) throws IllegalStateException {
         SchemaType base = schemaType.getBaseType();
-        int fingerprint = config.getNamePool().allocateFingerprint(typeNamespaceArg, typeNameArg);
+        int fingerprint = config.getNamePool().allocateFingerprint(NamespaceUri.of(typeNamespaceArg), typeNameArg);
         if (derivationMethod == 0 || (derivationMethod & schemaType.getDerivationMethod()) != 0) {
             if (base.getFingerprint() == fingerprint) {
                 return true;

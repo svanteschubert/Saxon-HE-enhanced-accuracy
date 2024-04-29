@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,63 +7,42 @@
 
 package net.sf.saxon.tree.iter;
 
-import net.sf.saxon.s9api.Location;
+import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.UnparsedTextFunction;
+import net.sf.saxon.java.CleanerProxy;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
 import net.sf.saxon.value.StringValue;
-
-import java.util.function.IntPredicate;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import java.io.IOException;
 import java.io.LineNumberReader;
+import java.io.Reader;
 import java.net.URI;
 
 /**
  * An iterator that iterates over a file line by line, returning each line as a {@link StringValue}
  */
+@CSharpInjectMembers(code={"~TextLinesIterator() { reader?.Close(); /* finalizer */ }"})
 public abstract class TextLinesIterator implements SequenceIterator {
 
     protected LineNumberReader reader;
-    protected IntPredicate checker;
+    protected IntPredicateProxy checker;
     StringValue current = null;
     int position = 0;
     protected Location location;
     protected URI uri;
-
+    private CleanerProxy.CleanableProxy cleanable;
     protected TextLinesIterator() {
-
     }
-
-    /**
-     * Create a TextLinesIterator over a given reader
-     *
-     * @param reader   the reader that reads the file
-     * @param checker  checks that the characters in the file are legal XML characters
-     * @param location the location of the instruction being executed, for diagnostics. May be null.
-     * @param uri      the URI of the file being read, for diagnostics
-     * @throws net.sf.saxon.trans.XPathException
-     *          if a dynamic error occurs
-     */
-
-    public TextLinesIterator(LineNumberReader reader, Location location, URI uri, IntPredicate checker) throws XPathException {
-        this.reader = reader;
-        this.location = location;
-        this.uri = uri;
-        this.checker = checker;
-    }
-
-//    public TextLinesIterator(File file, String encoding) throws IOException {
-//        this.file = file;
-//        this.encoding = encoding;
-//        this.reader = new LineNumberReader(new InputStreamReader(new FileInputStream(file), encoding));
-//        this.checker = Name11Checker.getInstance();
-//    }
 
     /*@Nullable*/
     @Override
-    public StringValue next() throws XPathException {
+    public StringValue next() {
         if (position < 0) {
             // input already exhausted
             close();
@@ -77,7 +56,7 @@ public abstract class TextLinesIterator implements SequenceIterator {
                 close();
                 return null;
             }
-            if (position == 0 && s.startsWith("\ufeff")) {
+            if (position == 0 && s.length() > 0 && s.charAt(0) == '\ufeff') {
                 // remove any BOM found at start of file
                 s = s.substring(1);
             }
@@ -87,18 +66,18 @@ public abstract class TextLinesIterator implements SequenceIterator {
             return current;
         } catch (IOException err) {
             close();
-            XPathException e = UnparsedTextFunction.handleIOError(uri, err, null);
+            XPathException e = handleIOError(uri, err);
             if (location != null) {
                 e.setLocator(location);
             }
-            throw e;
-//        } catch (Exception err) {
-//            XPathException e = new XPathException(err.getMessage(), "XPST0001");
-//            if (location != null) {
-//                e.setLocator(location);
-//            }
-//            throw e;
+            throw new UncheckedXPathException(e);
+        } catch (XPathException err) {
+            throw new UncheckedXPathException(err);
         }
+    }
+
+    protected XPathException handleIOError(URI uri, IOException err) {
+        return UnparsedTextFunction.handleIOError(uri, err);
     }
 
     @Override
@@ -108,10 +87,13 @@ public abstract class TextLinesIterator implements SequenceIterator {
         } catch (IOException err) {
             //
         }
+        if (cleanable != null) {
+            cleanable.clean();
+        }
     }
 
 
-    private void checkLine(IntPredicate checker, /*@NotNull*/ String buffer) throws XPathException {
+    private void checkLine(IntPredicateProxy checker, /*@NotNull*/ String buffer) throws XPathException {
         for (int c = 0; c < buffer.length(); ) {
             int ch32 = buffer.charAt(c++);
             if (UTF16CharacterSet.isHighSurrogate(ch32)) {
@@ -119,13 +101,24 @@ public abstract class TextLinesIterator implements SequenceIterator {
                 ch32 = UTF16CharacterSet.combinePair((char) ch32, low);
             }
             if (!checker.test(ch32)) {
-                XPathException err = new XPathException("The unparsed-text file contains a character that is illegal in XML (line=" +
-                        position + " column=" + (c + 1) + " value=hex " + Integer.toHexString(ch32) + ')');
-                err.setErrorCode("FOUT1190");
-                err.setLocator(location);
-                throw err;
+                throw new XPathException("The unparsed-text file contains a character that is illegal in XML (line=" +
+                        position + " column=" + (c + 1) + " value=hex " + Integer.toHexString(ch32) + ')')
+                        .withErrorCode("FOUT1190")
+                        .withLocation(location);
             }
         }
     }
+
+    protected void arrangeCleanup(Reader reader, XPathContext context) {
+        cleanable = context.getConfiguration().registerCleanupAction(this, () -> {
+            try {
+                reader.close();
+            } catch (Exception err) {
+                // no action
+            }
+        });
+    }
+
+
 }
 

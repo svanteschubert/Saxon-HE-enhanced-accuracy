@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,15 +9,18 @@ package net.sf.saxon.s9api;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.query.QueryResult;
+import net.sf.saxon.s9api.streams.Step;
 import net.sf.saxon.s9api.streams.Steps;
 import net.sf.saxon.s9api.streams.XdmStream;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.wrapper.VirtualNode;
+import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
 import javax.xml.transform.Source;
@@ -35,16 +38,19 @@ import java.util.stream.Stream;
  * its typed value. Navigation to other nodes is supported through a single method, {@link #axisIterator},
  * which allows other nodes to be retrieved by following any of the XPath axes.</p>
  * <p>Note that node identity cannot be inferred from object identity. The same node may be represented
- * by different <code>XdmNode</code> instances at different times, or even at the same time. The equals()
+ * by different <code>XdmNode</code> instances at different times, or even at the same time. The {@link #equals}
  * method on this class can be used to test for node identity.</p>
+ * <p>Navigation from a node to other related nodes can be achieved using the {@link XdmValue#select(Step)}
+ * method which this class inherits. Simple navigation to children or attributes can also be achieved using
+ * the {@link #children} and {@link #attribute} methods.</p>
  * @see net.sf.saxon.sapling.SaplingDocument#toXdmNode(Processor)
  * @see net.sf.saxon.sapling.SaplingElement#toXdmNode(Processor)
  *
  * @since 9.0
  */
+@CSharpModifiers(code = {"internal"})
 public class XdmNode extends XdmItem {
 
-    private XdmNode() {}
 
     /**
      * Construct an XdmNode as a wrapper around an existing NodeInfo object
@@ -55,7 +61,7 @@ public class XdmNode extends XdmItem {
      */
 
     public XdmNode(NodeInfo node) {
-        setValue(node);
+        super(node);
     }
 
     /**
@@ -144,11 +150,11 @@ public class XdmNode extends XdmItem {
                 if (n.getLocalPart().isEmpty()) {
                     return null;
                 } else {
-                    return new QName(new StructuredQName("", "", n.getLocalPart()));
+                    return new QName(new StructuredQName("", NamespaceUri.NULL, n.getLocalPart()));
                 }
             case Type.ELEMENT:
             case Type.ATTRIBUTE:
-                return new QName(n.getPrefix(), n.getURI(), n.getLocalPart());
+                return new QName(new StructuredQName(n.getPrefix(), n.getNamespaceUri(), n.getLocalPart()));
             default:
                 return null;
         }
@@ -170,6 +176,31 @@ public class XdmNode extends XdmItem {
         } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
+    }
+
+    /**
+     * Get the name of the type annotation of this node.
+     *
+     * <p>If the node is an element or attribute node that has been validated against a schema,
+     * the result will be the name of the schema type (complex or simple type) against which it
+     * was validated. If this is an anonymous type, a system-generated name is returned,
+     * having the namespace <code>http://ns.saxonica.com/anonymous-type</code>.</p>
+     *
+     * <p>If the node is an element or attribute node that has not been validated against
+     * a schema, the result will be <code>xs:untyped</code> or <code>xs:untypedAtomic</code>
+     * respectively.</p>
+     *
+     * <p>For a document node, the method returns <code>xs:anyType</code> if the document
+     * has been validated, or <code>xs:untyped</code> otherwise.</p>
+     *
+     * <p>If the node is any other kind of node, the result will be null.</p>
+     *
+     * @return the type annotation of the node, or null
+     */
+
+    public QName getTypeAnnotationName() {
+        SchemaType type = getUnderlyingNode().getSchemaType();
+        return type == null ? null : new QName(type.getStructuredQName());
     }
 
     /**
@@ -213,9 +244,8 @@ public class XdmNode extends XdmItem {
      */
 
     public Source asSource() {
-        return getUnderlyingNode();
+        return getUnderlyingNode().asActiveSource();
     }
-
 
     /**
      * Get the children of this node
@@ -270,7 +300,8 @@ public class XdmNode extends XdmItem {
 
     /**
      * Get an iterator over the nodes reachable from this node via a given axis.
-     *
+     * <p>Note: a more powerful way of achieving this is to use the {@link XdmValue#select(Step)} method
+     * which this class inherits.</p>
      * @param axis identifies which axis is to be navigated
      * @return an iterator over the nodes on the specified axis, starting from this node as the
      *         context node. The nodes are returned in axis order, that is, in document order for a forwards
@@ -285,6 +316,9 @@ public class XdmNode extends XdmItem {
     /**
      * Get an iterator over the nodes reachable from this node via a given axis, selecting only
      * those nodes with a specified name.
+     *
+     * <p>Note: a more powerful way of achieving this is to use the {@link XdmValue#select(Step)} method
+     *  which this class inherits.</p>
      *
      * @param axis identifies which axis is to be navigated
      * @param name identifies the name of the nodes to be selected. The selected nodes will be those
@@ -312,8 +346,8 @@ public class XdmNode extends XdmItem {
                 break;
         }
         NodeInfo node = getUnderlyingNode();
-        NameTest test = new NameTest(kind, name.getNamespaceURI(), name.getLocalName(),
-            node.getConfiguration().getNamePool());
+        NameTest test = new NameTest(kind, name.getNamespaceUri(), name.getLocalName(),
+                                     node.getConfiguration().getNamePool());
         AxisIterator base = node.iterateAxis(axis.getAxisNumber(), test);
         return XdmSequenceIterator.ofNodes(base);
     }
@@ -342,6 +376,30 @@ public class XdmNode extends XdmItem {
     }
 
     /**
+     * Get the outermost element of the tree containing this node.
+     *
+     * <p>If this node is a document node, the method returns the first child node
+     * that is an element (ignoring any subsequent element nodes); if there is no
+     * element child, the method returns null. In other words, the method returns
+     * <code>child::*[1]</code></p>
+     *
+     * <p>In all other cases, the method finds the outermost ancestor-of-self element whose
+     * parent is either a document node or absent: that is, it returns
+     * <code>ancestor-or-self::*[last()]</code>. If there is no such ancestor, the
+     * method returns null.</p>
+     *
+     * @since 12.0
+     */
+
+    public XdmNode getOutermostElement() {
+        if (getNodeKind() == XdmNodeKind.DOCUMENT) {
+            return select(Steps.child("*")).firstItem();
+        } else {
+            return select(Steps.ancestorOrSelf("*")).lastItem();
+        }
+    }
+
+    /**
      * Get the string value of a named attribute of this element
      *
      * @param name the name of the required attribute
@@ -352,7 +410,8 @@ public class XdmNode extends XdmItem {
 
     public String getAttributeValue(QName name) {
         NodeInfo node = getUnderlyingNode();
-        return node.getAttributeValue(name.getNamespaceURI(), name.getLocalName());
+        StructuredQName sq = name.getStructuredQName();
+        return node.getAttributeValue(sq.getNamespaceUri(), sq.getLocalPart());
     }
 
     /**
@@ -366,7 +425,7 @@ public class XdmNode extends XdmItem {
      */
 
     public String attribute(String name) {
-        return getUnderlyingNode().getAttributeValue("", name);
+        return getUnderlyingNode().getAttributeValue(NamespaceUri.NULL, name);
     }
 
 
@@ -434,61 +493,61 @@ public class XdmNode extends XdmItem {
                 getUnderlyingNode().equals(((XdmNode) other).getUnderlyingNode());
     }
 
-    /**
-     * The toString() method returns a simple XML serialization of the node
-     * with defaulted serialization parameters.
-     * <p>In the case of an element node, the result will be a well-formed
-     * XML document serialized as defined in the W3C XSLT/XQuery serialization specification,
-     * using options method="xml", indent="yes", omit-xml-declaration="yes".</p>
-     * <p>In the case of a document node, the result will be a well-formed
-     * XML document provided that the document node contains exactly one element child,
-     * and no text node children. In other cases it will be a well-formed external
-     * general parsed entity.</p>
-     * <p>In the case of an attribute node, the output is a string in the form
-     * <code>name="value"</code>. The name will use the original namespace prefix.</p>
-     * <p>In the case of a namespace node, the output is a string in the form of a namespace
-     * declaration, that is <code>xmlns="uri"</code> or <code>xmlns:pre="uri"</code>.</p>
-     * <p>Other nodes, such as text nodes, comments, and processing instructions, are
-     * represented as they would appear in lexical XML. Note: this means that in the case
-     * of text nodes, special characters such as <code>&amp;</code> and <code>&lt;</code>
-     * are output in escaped form. To get the unescaped string value of a text node, use
-     * {@link #getStringValue()} instead.</p>
-     * <p><i>For more control over serialization, use the {@link Serializer} class.</i></p>
-     *
-     * @return a simple XML serialization of the node. Under error conditions the method
-     * may return an error message which will always begin with the label "Error: ".
-     */
-
-    public String toString() {
-        NodeInfo node = getUnderlyingNode();
-
-        if (node.getNodeKind() == Type.ATTRIBUTE) {
-            String val = node.getStringValue()
-                    .replace("&", "&amp;")
-                    .replace("\"", "&quot;")
-                    .replace("<", "&lt;");
-            return node.getDisplayName() + "=\"" + val + '"';
-        } else if (node.getNodeKind() == Type.NAMESPACE) {
-            String val = node.getStringValue()
-                    .replace("&", "&amp;")
-                    .replace("\"", "&quot;")
-                    .replace("<", "&lt;");
-            String name = node.getDisplayName();
-            name = name.equals("") ? "xmlns" : "xmlns:" + name;
-            return name + "=\"" + val + '"';
-        } else if (node.getNodeKind() == Type.TEXT) {
-            return node.getStringValue()
-                    .replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace("]]>", "]]&gt;");
-        }
-
-        try {
-            return QueryResult.serialize(node).trim();
-        } catch (XPathException err) {
-            throw new IllegalStateException(err);
-        }
-    }
+//    /**
+//     * The toString() method returns a simple XML serialization of the node
+//     * with defaulted serialization parameters.
+//     * <p>In the case of an element node, the result will be a well-formed
+//     * XML document serialized as defined in the W3C XSLT/XQuery serialization specification,
+//     * using options method="xml", indent="yes", omit-xml-declaration="yes".</p>
+//     * <p>In the case of a document node, the result will be a well-formed
+//     * XML document provided that the document node contains exactly one element child,
+//     * and no text node children. In other cases it will be a well-formed external
+//     * general parsed entity.</p>
+//     * <p>In the case of an attribute node, the output is a string in the form
+//     * <code>name="value"</code>. The name will use the original namespace prefix.</p>
+//     * <p>In the case of a namespace node, the output is a string in the form of a namespace
+//     * declaration, that is <code>xmlns="uri"</code> or <code>xmlns:pre="uri"</code>.</p>
+//     * <p>Other nodes, such as text nodes, comments, and processing instructions, are
+//     * represented as they would appear in lexical XML. Note: this means that in the case
+//     * of text nodes, special characters such as <code>&amp;</code> and <code>&lt;</code>
+//     * are output in escaped form. To get the unescaped string value of a text node, use
+//     * {@link #getStringValue()} instead.</p>
+//     * <p><i>For more control over serialization, use the {@link Serializer} class.</i></p>
+//     *
+//     * @return a simple XML serialization of the node. Under error conditions the method
+//     * may return an error message which will always begin with the label "Error: ".
+//     */
+//
+//    public String toString() {
+//        NodeInfo node = getUnderlyingNode();
+//
+//        if (node.getNodeKind() == Type.ATTRIBUTE) {
+//            String val = node.getStringValue()
+//                    .replace("&", "&amp;")
+//                    .replace("\"", "&quot;")
+//                    .replace("<", "&lt;");
+//            return node.getDisplayName() + "=\"" + val + '"';
+//        } else if (node.getNodeKind() == Type.NAMESPACE) {
+//            String val = node.getStringValue()
+//                    .replace("&", "&amp;")
+//                    .replace("\"", "&quot;")
+//                    .replace("<", "&lt;");
+//            String name = node.getDisplayName();
+//            name = name.equals("") ? "xmlns" : "xmlns:" + name;
+//            return name + "=\"" + val + '"';
+//        } else if (node.getNodeKind() == Type.TEXT) {
+//            return node.getStringValue()
+//                    .replace("&", "&amp;")
+//                    .replace("<", "&lt;")
+//                    .replace("]]>", "]]&gt;");
+//        }
+//
+//        try {
+//            return QueryResult.serialize(node).trim();
+//        } catch (XPathException err) {
+//            throw new IllegalStateException(err);
+//        }
+//    }
 
     /**
      * Get the underlying Saxon implementation object representing this node. This provides
@@ -519,10 +578,6 @@ public class XdmNode extends XdmItem {
         } else {
             return null;
         }
-    }
-
-    public XdmSequenceIterator<XdmNode> nodeIterator() {
-        return XdmSequenceIterator.ofNode(this);
     }
 
     /**

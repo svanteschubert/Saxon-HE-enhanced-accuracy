@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,10 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.URIQueryParameters;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.om.SpaceStrippingRule;
+import net.sf.saxon.query.InputStreamMarker;
+import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trans.Maker;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingIncident;
 import org.xml.sax.XMLReader;
@@ -23,6 +26,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.Optional;
 
 /**
  * AbstractCollection is an abstract superclass for the various implementations
@@ -35,6 +39,8 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
     protected Configuration config;
     protected String collectionURI;
     protected URIQueryParameters params = null;
+    protected boolean noExceptions = false;
+
 
     /**
      * Create a resource collection
@@ -43,6 +49,21 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
 
     public AbstractResourceCollection(Configuration config) {
         this.config = config;
+    }
+
+    /**
+     * If the collectionURI is null, report that no default collection exists
+     * @param collectionURI the collection URI to be tested
+     * @param context XPath evaluation context
+     * @throws XPathException if the collectionURI is null
+     */
+
+    public static void checkNotNull(String collectionURI, XPathContext context) throws XPathException {
+        if (collectionURI == null) {
+            throw new XPathException("No default collection has been defined")
+                    .withErrorCode("FODC0002")
+                    .withXPathContext(context);
+        }
     }
 
     @Override
@@ -66,11 +87,11 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
         if (params == null) {
             return false;
         }
-        Boolean stable = params.getStable();
-        if (stable == null) {
+        Optional<Boolean> stable = params.getStable();
+        if (!stable.isPresent()) {
             return context.getConfiguration().getBooleanProperty(Feature.STABLE_COLLECTION_URI);
         } else {
-            return stable;
+            return stable.get();
         }
     }
 
@@ -88,66 +109,84 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
 
     /**
      * Analyze URI query parameters and convert them to a set of parser options
-     * @param params the query parameters extracted from the URI
+     *
+     * @param params  the query parameters extracted from the URI
      * @param context the XPath evaluation context
      * @return a set of options to control document parsing
      */
 
+    @SuppressWarnings("OptionalIsPresent")
     protected ParseOptions optionsFromQueryParameters(URIQueryParameters params, XPathContext context) {
-        ParseOptions options = new ParseOptions(context.getConfiguration().getParseOptions());
+        ParseOptions options = context.getConfiguration().getParseOptions();
 
         if (params != null) {
-            Integer v = params.getValidationMode();
-            if (v != null) {
-                options.setSchemaValidationMode(v);
+            Optional<Integer> v = params.getValidationMode();
+            if (v.isPresent()) {
+                options = options.withSchemaValidationMode(v.get());
             }
 
-            Boolean xInclude = params.getXInclude();
-            if (xInclude != null) {
-                options.setXIncludeAware(xInclude);
+            Optional<Boolean> xInclude = params.getXInclude();
+            if (xInclude.isPresent()) {
+                options = options.withXIncludeAware(xInclude.get());
             }
 
-            SpaceStrippingRule stripSpace = params.getSpaceStrippingRule();
-            if (stripSpace != null) {
-                options.setSpaceStrippingRule(stripSpace);
+            Optional<SpaceStrippingRule> stripSpace = params.getSpaceStrippingRule();
+            if (stripSpace.isPresent()) {
+                options = options.withSpaceStrippingRule(stripSpace.get());
             }
 
-            Maker<XMLReader> p = params.getXMLReaderMaker();
-            if (p != null) {
-                options.setXMLReaderMaker(p);
+            Optional<Maker<XMLReader>> p = params.getXMLReaderMaker();
+            if (p.isPresent()) {
+                options = options.withXMLReaderMaker(p.get());
             }
-
 
             // If the URI requested suppression of errors, or that errors should be treated
             // as warnings, we set up a special ErrorListener to achieve this
 
             int onError = URIQueryParameters.ON_ERROR_FAIL;
-            if (params.getOnError() != null) {
-                onError = params.getOnError();
+            if (params.getOnError().isPresent()) {
+                onError = params.getOnError().get();
             }
             final Controller controller = context.getController();
-            final ErrorReporter oldErrorListener =
+
+            final ErrorReporter oldErrorReporter =
                     controller == null ? context.getConfiguration().makeErrorReporter() : controller.getErrorReporter();
 
-            setupErrorHandlingForCollection(options, onError, oldErrorListener);
+            options = setupErrorHandlingForCollection(options, onError, oldErrorReporter);
         }
         return options;
     }
 
-    public static void setupErrorHandlingForCollection(ParseOptions options, int onError, ErrorReporter oldErrorListener) {
+    public static ParseOptions setupErrorHandlingForCollection(ParseOptions options, int onError, ErrorReporter oldErrorReporter) {
         if (onError == URIQueryParameters.ON_ERROR_IGNORE) {
-            options.setErrorReporter(error -> {});
+            options = options.withErrorReporter(new ErrorSuppressor());
         } else if (onError == URIQueryParameters.ON_ERROR_WARNING) {
-            options.setErrorReporter(error -> {
-                if (error.isWarning()) {
-                    oldErrorListener.report(error);
-                } else {
-                    oldErrorListener.report(error.asWarning());
-                    XmlProcessingIncident supp = new XmlProcessingIncident("The document will be excluded from the collection").asWarning();
-                    supp.setLocation(error.getLocation());
-                    oldErrorListener.report(supp);
-                }
-            } );
+            options = options.withErrorReporter(new ErrorAsWarningReporter(oldErrorReporter));
+        }
+        return options;
+    }
+
+    private static class ErrorSuppressor implements ErrorReporter {
+        @Override
+        public void report(XmlProcessingError error) {}
+    }
+
+    private static class ErrorAsWarningReporter implements ErrorReporter {
+        private final ErrorReporter originalErrorReporter;
+        public ErrorAsWarningReporter(ErrorReporter originalErrorReporter) {
+            this.originalErrorReporter = originalErrorReporter;
+        }
+        @Override
+        public void report(XmlProcessingError error) {
+            if (error.isWarning()) {
+                originalErrorReporter.report(error);
+            } else {
+                originalErrorReporter.report(error.asWarning());
+                XmlProcessingIncident supp = new XmlProcessingIncident("The document will be excluded from the collection",
+                                                                       SaxonErrorCode.SXWN9050).asWarning();
+                supp.setLocation(error.getLocation());
+                originalErrorReporter.report(supp);
+            }
         }
     }
 
@@ -189,33 +228,30 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
 
         /**
          * Get an input stream that delivers the binary content of the resource
+         *
          * @return the content, as an input stream
          * @throws IOException if the input cannot be read
          */
-        public InputStream getInputStream() throws IOException {
-            URLConnection connection = RedirectHandler.resolveConnection(new URL(resourceUri));
-            return connection.getInputStream();
+        public InputStream getInputStream(Configuration config) throws IOException {
+            return ResourceLoader.urlStream(config, resourceUri);
         }
 
         /**
          * Get the binary content of the resource, either as stored,
          * or by encoding the character content, or by reading the input stream
+         *
          * @return the binary content of the resource
          * @throws XPathException if the binary content cannot be obtained
          */
 
-        public byte[] obtainBinaryContent() throws XPathException {
+        public byte[] obtainBinaryContent(Configuration config) throws XPathException {
             if (binaryContent != null) {
                 return binaryContent;
             } else if (characterContent != null) {
                 String e = encoding != null ? encoding : "UTF-8";
-                try {
-                    return characterContent.getBytes(e);
-                } catch (UnsupportedEncodingException ex) {
-                    throw new XPathException(e);
-                }
+                return BinaryResource.encode(characterContent, e);
             } else {
-                try (InputStream stream = getInputStream()) {
+                try (InputStream stream = getInputStream(config)) {
                     return BinaryResource.readBinaryFromStream(stream, resourceUri);
                 } catch (IOException e) {
                     throw new XPathException(e);
@@ -226,30 +262,33 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
         /**
          * Get the character content of the resource, either as stored, or by
          * reading and decoding the input stream
-         * @return the character content of the resource
-         * @throws XPathException in the event of a failure
+         *
+         * @return the character content of the resource, or null if the resource cannot be read and
+         * errors are suppressed.
+         * @throws XPathException in the event of a failure, if the default setting on-error=fail is used;
+         * otherwise, return null in the event of a failure.
          */
 
-        public String obtainCharacterContent() throws XPathException {
+        public String obtainCharacterContent(Configuration config) throws XPathException {
             if (characterContent != null) {
                 return characterContent;
             } else if (binaryContent != null && encoding != null) {
-                try {
-                    return new String(binaryContent, encoding);
-                } catch (UnsupportedEncodingException e) {
-                    throw new XPathException(e);
-                }
+                return BinaryResource.decode(binaryContent, encoding);
             } else {
-                try (InputStream stream = getInputStream()) {
-                    StringBuilder builder = null;
+                try {
+                    InputStream stream = getInputStream(config);
                     String enc = encoding;
                     if (enc == null) {
-                        enc = StandardUnparsedTextResolver.inferStreamEncoding(stream, null);
+                        stream = InputStreamMarker.ensureMarkSupported(stream);
+                        enc = EncodingDetector.inferStreamEncoding(stream, "UTF-8", null);
                     }
-                    builder = CatalogCollection.makeStringBuilderFromStream(stream, enc);
-                    return characterContent = builder.toString();
+                    return characterContent = CatalogCollection.makeStringFromStream(stream, enc);
                 } catch (IOException e) {
-                    throw new XPathException(e);
+                    if (onError == URIQueryParameters.ON_ERROR_FAIL) {
+                        throw new XPathException(e);
+                    } else {
+                        return null;
+                    }
                 }
             }
         }
@@ -257,6 +296,7 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
 
     /**
      * Get details of a resource given the resource URI
+     *
      * @param resourceURI the resource URI
      * @return details of the resource
      * @throws XPathException if the information cannot be obtained
@@ -269,14 +309,13 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
             inputDetails.resourceUri = resourceURI;
             URI uri = new URI(resourceURI);
             if ("file".equals(uri.getScheme())) {
-                if (params != null && params.getContentType() != null) {
-                    inputDetails.contentType = params.getContentType();
+                if (params != null && params.getContentType().isPresent()) {
+                    inputDetails.contentType = params.getContentType().get();
                 } else {
                     inputDetails.contentType = guessContentTypeFromName(resourceURI);
                 }
             } else {
-                URLConnection connection = RedirectHandler.resolveConnection(uri.toURL());
-                //inputDetails.inputStream = connection.getInputStream();
+                URLConnection connection = ResourceLoader.urlConnection(uri.toURL());
                 inputDetails.contentType = connection.getContentType();
                 inputDetails.encoding = connection.getContentEncoding();
                 for (String param : inputDetails.contentType.replace(" ", "").split(";")) {
@@ -300,14 +339,13 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
                         stream = new ByteArrayInputStream(inputDetails.binaryContent);
                     }
                 } else {
-                    URLConnection connection = RedirectHandler.resolveConnection(uri.toURL());
-                    stream = connection.getInputStream();
+                    stream = ResourceLoader.urlStream(config, uri.toString());
                 }
                 inputDetails.contentType = guessContentTypeFromContent(stream);
                 stream.close();
             }
-            if (params != null && params.getOnError() != null) {
-                inputDetails.onError = params.getOnError();
+            if (params != null && params.getOnError().isPresent()) {
+                inputDetails.onError = params.getOnError().get();
             }
             return inputDetails;
 
@@ -321,6 +359,7 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
      * Attempt to establish the media type of a resource, given the resource URI.
      * This makes use of {@code URLConnection#guessContentTypeFromName}, and failing that
      * the mapping from file extensions to media types held in the Saxon {@link Configuration}
+     *
      * @param resourceURI the resource URI
      * @return the media type if it can be gleaned, otherwise null.
      */
@@ -340,6 +379,7 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
     /**
      * Attempt to establish the media type of a resource, given the actual content.
      * This makes use of {@code URLConnection#guessContentTypeFromStream}
+     *
      * @param stream the input stream. This should be positioned at the start; the
      *               reading position is not affected by the call.
      * @return the media type if it can be gleaned, otherwise null.
@@ -347,9 +387,7 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
 
     protected String guessContentTypeFromContent(InputStream stream) {
         try {
-            if (!stream.markSupported()) {
-                stream = new BufferedInputStream(stream);
-            }
+            stream = InputStreamMarker.ensureMarkSupported(stream);
             return URLConnection.guessContentTypeFromStream(stream);
         } catch (IOException err) {
             return null;
@@ -377,35 +415,36 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
      * making decisions about the type of resource. This method can be overridden in a user-defined
      * subclass.
      *
-     * @param config  The Saxon configuration
+     * @param context  The Saxon configuration
      * @param details Details of the input.
      * @return a newly created Resource representing the content of this entry in the ZIP or JAR file
      */
 
-    public Resource makeResource(Configuration config, InputDetails details) throws XPathException {
+    public Resource makeResource(XPathContext context, InputDetails details) throws XPathException {
 
         ResourceFactory factory = null;
         String contentType = details.contentType;
         if (contentType != null) {
-            factory = config.getResourceFactoryForMediaType(contentType);
+            factory = context.getConfiguration().getResourceFactoryForMediaType(contentType);
         }
         if (factory == null) {
             factory = BinaryResource.FACTORY;
         }
 
-        return factory.makeResource(config, details);
+        return factory.makeResource(context, details);
     }
 
     /**
      * Given a resource whose type may be unknown, create a Resource of a specific type,
      * for example an XML or JSON resource
-     * @param config the Saxon Configuration
+     *
+     * @param context        the evaluation context
      * @param basicResource the resource, whose type may be unknown
      * @return a Resource of a specific type
      * @throws XPathException if a failure occurs (for example an XML or JSON parsing failure)
      */
 
-    public Resource makeTypedResource(Configuration config, Resource basicResource) throws XPathException {
+    public Resource makeTypedResource(XPathContext context, Resource basicResource) throws XPathException {
 
         String mediaType = basicResource.getContentType();
         ResourceFactory factory = config.getResourceFactoryForMediaType(mediaType);
@@ -417,13 +456,13 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
             details.binaryContent = ((BinaryResource) basicResource).getData();
             details.contentType = mediaType;
             details.resourceUri = basicResource.getResourceURI();
-            return factory.makeResource(config, details);
+            return factory.makeResource(context, details);
         } else if (basicResource instanceof UnparsedTextResource) {
             InputDetails details = new InputDetails();
             details.characterContent = ((UnparsedTextResource) basicResource).getContent();
             details.contentType = mediaType;
             details.resourceUri = basicResource.getResourceURI();
-            return factory.makeResource(config, details);
+            return factory.makeResource(context, details);
         } else {
             return basicResource;
         }
@@ -437,9 +476,9 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
      * @return the corresponding resource
      */
 
-    public Resource makeResource(Configuration config, String resourceURI) throws XPathException {
+    public Resource makeResource(XPathContext context, String resourceURI) throws XPathException {
         InputDetails details = getInputDetails(resourceURI);
-        return makeResource(config, details);
+        return makeResource(context, details);
     }
 
     /**
@@ -457,7 +496,6 @@ public abstract class AbstractResourceCollection implements ResourceCollection {
      * default (returned by this method if not overridden) is false.
      */
 
-    @Override
     public boolean stripWhitespace(SpaceStrippingRule rules) {
         return false;
     }

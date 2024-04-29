@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.om.*;
@@ -17,6 +18,8 @@ import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * Castable Expression: implements "Expr castable as atomic-type?".
@@ -47,20 +50,23 @@ public final class CastableExpression extends CastingExpression {
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         getOperand().typeCheck(visitor, contextInfo);
         SequenceType atomicType = SequenceType.ATOMIC_SEQUENCE;
+
         Configuration config = visitor.getConfiguration();
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.TYPE_OP, "castable as", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.TYPE_OP, "castable as", 0);
+
         TypeChecker tc = config.getTypeChecker(false);
         Expression operand = tc.staticTypeCheck(getBaseExpression(), atomicType, role, visitor);
         setBaseExpression(operand);
+
         if (operand instanceof Literal) {
             return preEvaluate();
         }
+
         return this;
     }
 
-
-    protected Expression preEvaluate() throws XPathException {
-        GroundedValue literalOperand = ((Literal) getBaseExpression()).getValue();
+    private Expression preEvaluate() {
+        GroundedValue literalOperand = ((Literal) getBaseExpression()).getGroundedValue();
         if (literalOperand instanceof AtomicValue && converter != null) {
             ConversionResult result = converter.convert((AtomicValue) literalOperand);
             return Literal.makeLiteral(BooleanValue.get(!(result instanceof ValidationFailure)), this);
@@ -119,7 +125,7 @@ public final class CastableExpression extends CastingExpression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode() ^ 0x5555;
     }
 
@@ -137,8 +143,7 @@ public final class CastableExpression extends CastingExpression {
      * Get the static type of the expression as a UType, following precisely the type
      * inference rules defined in the XSLT 3.0 specification.
      *
-     * @return the static item type of the expression according to the XSLT 3.0 defined rules
-     * @param contextItemType
+     * @return the static item type of the expression according to the XSLT 3.0 defined rules: always xs:boolean
      */
     @Override
     public UType getStaticUType(UType contextItemType) {
@@ -147,7 +152,7 @@ public final class CastableExpression extends CastingExpression {
 
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -172,41 +177,7 @@ public final class CastableExpression extends CastingExpression {
 
     @Override
     public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
-        // This method does its own atomization so that it can distinguish between atomization
-        // failures and casting failures
-        int count = 0;
-        SequenceIterator iter = getBaseExpression().iterate(context);
-        Item item;
-        while ((item = iter.next()) != null) {
-            if (item instanceof NodeInfo) {
-                AtomicSequence atomizedValue = item.atomize();
-                int length = SequenceTool.getLength(atomizedValue);
-                count += length;
-                if (count > 1) {
-                    return false;
-                }
-                if (length != 0) {
-                    AtomicValue av = atomizedValue.head();
-                    if (!isCastable(av, getTargetType(), context)) {
-                        return false;
-                    }
-                }
-            } else if (item instanceof AtomicValue) {
-                AtomicValue av = (AtomicValue) item;
-                count++;
-                if (count > 1) {
-                    return false;
-                }
-                if (!isCastable(av, getTargetType(), context)) {
-                    return false;
-                }
-            } else if (item instanceof ArrayItem) {
-                return false;
-            } else {
-                throw new XPathException("Input to cast cannot be atomized", "XPTY0004");
-            }
-        }
-        return count != 0 || allowsEmpty();
+        return makeElaborator().elaborateForBoolean().eval(context);
     }
 
     /**
@@ -259,13 +230,62 @@ public final class CastableExpression extends CastingExpression {
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
         export(out, "castable");
-//        out.startElement("castable", this);
-//        out.emitAttribute("as", getTargetType().toExportString());
-//        out.emitAttribute("code", getTargetType().getBasicAlphaCode());
-//        out.emitAttribute("emptiable", allowsEmpty() ? "1" : "0");
-//        getBaseExpression().export(out);
-//        out.endElement();
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new CastableExpressionElaborator();
+    }
+
+    private static class CastableExpressionElaborator extends BooleanElaborator {
+
+        @Override
+        public BooleanEvaluator elaborateForBoolean() {
+            CastableExpression expr = (CastableExpression) getExpression();
+            PullEvaluator argPull = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                // This method does its own atomization so that it can distinguish between atomization
+                // failures and casting failures
+                int count = 0;
+                SequenceIterator iter = argPull.iterate(context);
+                for (Item item; (item = iter.next()) != null; ) {
+                    if (item instanceof NodeInfo) {
+                        AtomicSequence atomizedValue = item.atomize();
+                        int length = SequenceTool.getLength(atomizedValue);
+                        count += length;
+                        if (count > 1) {
+                            return false;
+                        }
+                        if (length != 0) {
+                            AtomicValue av = atomizedValue.head();
+                            if (!expr.isCastable(av, expr.getTargetType(), context)) {
+                                return false;
+                            }
+                        }
+                    } else if (item instanceof AtomicValue) {
+                        AtomicValue av = (AtomicValue) item;
+                        count++;
+                        if (count > 1) {
+                            return false;
+                        }
+                        if (!expr.isCastable(av, expr.getTargetType(), context)) {
+                            return false;
+                        }
+                    } else if (item instanceof ArrayItem) {
+                        return false;
+                    } else {
+                        throw new XPathException("Input to cast cannot be atomized", "XPTY0004");
+                    }
+                }
+                return count != 0 || expr.allowsEmpty();
+            };
+        }
+
+    }
 }
 

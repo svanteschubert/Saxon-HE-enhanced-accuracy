@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -24,7 +27,7 @@ import net.sf.saxon.value.BooleanValue;
 
 public final class IsLastExpression extends Expression {
 
-    private boolean condition;
+    private final boolean condition;
 
     /**
      * Construct a condition that tests position() eq last() (if condition
@@ -66,7 +69,7 @@ public final class IsLastExpression extends Expression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NO_NODES_NEWLY_CREATED;
     }
@@ -74,6 +77,11 @@ public final class IsLastExpression extends Expression {
     @Override
     public BooleanValue evaluateItem(XPathContext c) throws XPathException {
         return BooleanValue.get(condition == c.isAtLast());
+    }
+
+    @Override
+    public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
+        return condition == context.isAtLast();
     }
 
     /**
@@ -93,7 +101,7 @@ public final class IsLastExpression extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -110,7 +118,7 @@ public final class IsLastExpression extends Expression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that must be rebound (not used)
      */
 
     /*@NotNull*/
@@ -150,8 +158,8 @@ public final class IsLastExpression extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
-        return condition ? 0x236b91a0 : 0x896b92a0;
+    protected int computeHashCode() {
+        return condition ? 0x236b91a0 : 0x396b92a0;
     }
 
     /**
@@ -204,6 +212,35 @@ public final class IsLastExpression extends Expression {
     @Override
     public String getStreamerName() {
         return "IsLastExpr";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new IsLastElaborator();
+    }
+
+
+    /**
+     * Elaborator for an "isLast" expression, equivalent to {@code position() = last()} or {@code position() != last()}
+     */
+
+    public static class IsLastElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            IsLastExpression expr = (IsLastExpression) getExpression();
+            if (expr.getCondition()) {
+                return XPathContext::isAtLast;
+            } else {
+                return context -> !context.isAtLast();
+            }
+        }
+
     }
 }
 

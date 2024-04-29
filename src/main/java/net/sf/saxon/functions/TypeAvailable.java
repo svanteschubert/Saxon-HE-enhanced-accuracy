@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,8 +10,9 @@ package net.sf.saxon.functions;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
+import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
@@ -30,23 +31,22 @@ public class TypeAvailable extends SystemFunction {
         StructuredQName qName;
         try {
             if (lexicalName.indexOf(':') < 0 && !lexicalName.startsWith("Q{")) {
-                String uri = getRetainedStaticContext().getURIForPrefix("", true);
-                qName = new StructuredQName("", uri, lexicalName);
+                NamespaceUri defaultNS = getRetainedStaticContext().getURIForPrefix("", true);
+                qName = new StructuredQName("", defaultNS, lexicalName);
             } else {
                 qName = StructuredQName.fromLexicalQName(lexicalName,
                         false, true,
                         getRetainedStaticContext());
             }
         } catch (XPathException e) {
-            e.setErrorCode("XTDE1428");
-            throw e;
+            throw e.withErrorCode("XTDE1428");
         }
 
-        String uri = qName.getURI();
-        if (uri.equals(NamespaceConstant.JAVA_TYPE)) {
+        NamespaceUri uri = qName.getNamespaceUri();
+        if (uri.equals(NamespaceUri.JAVA_TYPE)) {
             try {
                 String className = JavaExternalObjectType.localNameToClassName(qName.getLocalPart());
-                config.getClass(className, false, null);
+                config.getClass(className, false);
                 return true;
             } catch (XPathException err) {
                 return false;
@@ -88,9 +88,9 @@ public class TypeAvailable extends SystemFunction {
     @Override
     public Expression makeFunctionCall(Expression[] arguments) {
         try {
-            if (arguments[0] instanceof Literal) {
+            if (arguments[0] instanceof StringLiteral) {
                 boolean b = typeAvailable(
-                    ((Literal)arguments[0]).getValue().getStringValue(),
+                    ((StringLiteral)arguments[0]).stringify(),
                     getRetainedStaticContext().getConfiguration());
                 return Literal.makeLiteral(BooleanValue.get(b));
             }

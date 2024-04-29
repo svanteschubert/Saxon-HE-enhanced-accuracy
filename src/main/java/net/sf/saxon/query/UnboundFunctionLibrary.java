@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import net.sf.saxon.expr.parser.XPathParser;
 import net.sf.saxon.functions.CallableFunction;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
@@ -24,6 +24,7 @@ import net.sf.saxon.type.AnyFunctionType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * An UnboundFunctionLibrary is not a real function library; rather, it is used to keep track of function calls
@@ -35,7 +36,7 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
 
     private List<UserFunctionResolvable> unboundFunctionReferences = new ArrayList<>(20);
     private List<StaticContext> correspondingStaticContext = new ArrayList<>(20);
-    private List<List<String>> correspondingReasons = new ArrayList<>();
+    private final List<List<String>> correspondingReasons = new ArrayList<>();
     private boolean resolving = false;
 
     /**
@@ -64,7 +65,7 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
 
     /*@Nullable*/
     @Override
-    public Expression bind(SymbolicName.F functionName, /*@NotNull*/  Expression[] arguments, StaticContext env, List<String> reasons) {
+    public Expression bind(SymbolicName.F functionName, /*@NotNull*/  Expression[] arguments, Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons) {
         if (resolving) {
             return null;
         }
@@ -72,9 +73,8 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
             // The function call matched a private function in another module; don't attempt a late binding
             return null;
         }
-        UserFunctionCall ufc = new UserFunctionCall();
-        ufc.setFunctionName(functionName.getComponentName());
-        ufc.setArguments(arguments);
+        UnboundFunctionCallDetails details = new UnboundFunctionCallDetails(functionName, arguments, keywords, env);
+        UserFunctionCall ufc = new UserFunctionCall(details);
         unboundFunctionReferences.add(ufc);
         correspondingStaticContext.add(env);
         correspondingReasons.add(reasons);
@@ -93,7 +93,7 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
      *         function item; or null if the function does not exist
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) {
         if (resolving) {
             return null;
         }
@@ -111,10 +111,11 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
      * <p>This supports the function-available() function in XSLT.</p>
      *
      * @param functionName the qualified name of the function being called
+     * @param languageLevel the XPath language level times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         return false;  // function-available() is not used in XQuery
     }
 
@@ -144,33 +145,19 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
                 correspondingStaticContext.set(i, null);    // for garbage collection purposes
                 // The original UserFunctionCall is effectively a dummy: we weren't able to find a function
                 // definition at the time. So we try again.
-                final StructuredQName q = ufc.getFunctionName();
-                final int arity = ufc.getArity();
-
-                XQueryFunction fd = lib.getDeclaration(q, arity);
-                if (fd != null) {
-                    fd.registerReference(ufc);
-                    ufc.setStaticType(fd.getResultType());
-                }
-
-//                if (fd == null && importingModule.importsNamespace(q.getURI())) {
-//                    XQueryFunctionBinder global = importingModule.getExecutable().getFunctionLibrary();
-//                    fd = global.getDeclaration(q, arity);
-//                    if (fd != null) {
-//                        fd.registerReference(ufc);
-//                        ufc.setStaticType(fd.getResultType());
-//                    }
-//                }
-
-                if (fd == null) {
-                    StringBuilder sb = new StringBuilder("Cannot find a " + arity +
-                            "-argument function named " + q.getEQName() + "()");
+                UnboundFunctionCallDetails details = ufc.getUnboundCallDetails();
+                boolean success = lib.bindUnboundFunctionCall(ufc, new ArrayList<>());
+                if (success) {
+                    // all done
+                } else {
+                    StringBuilder sb = new StringBuilder("Cannot find a " + details.arguments.length +
+                                                                 "-argument function named " + details.functionName.getComponentName().getEQName() + "()");
                     List<String> reasons = correspondingReasons.get(i);
                     for (String reason : reasons) {
                         sb.append(". ").append(reason);
                     }
                     if (reasons.isEmpty()) {
-                        String supplementary = XPathParser.getMissingFunctionExplanation(q, config);
+                        String supplementary = XPathParser.getMissingFunctionExplanation(details.functionName.getComponentName(), config);
                         if (supplementary != null) {
                             sb.append(". ").append(supplementary);
                         }
@@ -197,10 +184,7 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
                     if (!config.getBooleanProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS)) {
                         msg += ". Note: external function calls have been disabled";
                     }
-                    XPathException err = new XPathException(msg);
-                    err.setErrorCode("XPST0017");
-                    err.setIsStaticError(true);
-                    throw err;
+                    throw new XPathException(msg).withErrorCode("XPST0017").asStaticError();
                 }
             }
         }
@@ -222,6 +206,23 @@ public class UnboundFunctionLibrary implements FunctionLibrary {
         qfl.correspondingStaticContext = new ArrayList<>(correspondingStaticContext);
         qfl.resolving = resolving;
         return qfl;
+    }
+
+    public static class UnboundFunctionCallDetails  {
+
+        public SymbolicName.F functionName;
+        public Expression[] arguments;
+        public Map<StructuredQName, Integer> keywords;
+        public StaticContext env;
+
+        public UnboundFunctionCallDetails(SymbolicName.F functionName, Expression[] arguments, Map<StructuredQName, Integer> keywords, StaticContext env) {
+            this.functionName = functionName;
+            this.arguments = arguments;
+            this.keywords = keywords;
+            this.env = env;
+
+        }
+
     }
 
 }

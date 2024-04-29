@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,10 @@
 
 package net.sf.saxon.ma.arrays;
 
-import net.sf.saxon.ma.parray.ImmList;
+import net.sf.saxon.ma.zeno.ZenoChain;
 import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.z.IntIterator;
 import net.sf.saxon.z.IntSet;
 
@@ -21,14 +23,46 @@ import java.util.Arrays;
 
 public class ImmutableArrayItem extends AbstractArrayItem {
 
-    private ImmList<GroundedValue> vector;
+    private final ZenoChain<GroundedValue> vector;
+
+    /**
+     * Create an <code>ImmutableArrayItem</code> as a copy of a supplied
+     * <code>SimpleArrayItem</code>
+     * @param other the supplied <code>SimpleArrayItem</code>
+     */
 
     public ImmutableArrayItem(SimpleArrayItem other) {
-        this.vector = ImmList.fromList(other.getMembers());
+        this.vector = new ZenoChain<GroundedValue>().addAll(other.getMembers());
     }
 
-    private ImmutableArrayItem(ImmList<GroundedValue> vector) {
+    /**
+     * Create an <code>ImmutableArrayItem</code> , supplying the members of the array as a
+     * list (or other iterable) of values
+     *
+     * @param members the supplied collection of members.
+     */
+
+    public ImmutableArrayItem(Iterable<GroundedValue> members ) {
+        this.vector = new ZenoChain<GroundedValue>().addAll(members);
+    }
+
+    private ImmutableArrayItem(ZenoChain<GroundedValue> vector) {
         this.vector = vector;
+    }
+
+    /**
+     * Construct an array whose members are all single items, from the items supplied by
+     * a {@link SequenceIterator}
+     * @param iter delivers the items to make up the array
+     * @return an array whose members are single items.
+     */
+
+    public static ImmutableArrayItem from(SequenceIterator iter) {
+        ZenoChain<GroundedValue> content = new ZenoChain<>();
+        for (Item item; (item = iter.next()) != null; ) {
+            content = content.add(item);
+        }
+        return new ImmutableArrayItem(content);
     }
 
     /**
@@ -53,7 +87,7 @@ public class ImmutableArrayItem extends AbstractArrayItem {
      */
     @Override
     public ArrayItem put(int index, GroundedValue newValue)  {
-        ImmList<GroundedValue> v2 = vector.replace(index, newValue);
+        ZenoChain<GroundedValue> v2 = vector.replace(index, newValue);
         return v2 == vector ? this : new ImmutableArrayItem(v2);
     }
 
@@ -67,13 +101,25 @@ public class ImmutableArrayItem extends AbstractArrayItem {
      */
     @Override
     public ArrayItem insert(int position, GroundedValue member) {
-        ImmList<GroundedValue> v2 = vector.insert(position, member);
+        ZenoChain<GroundedValue> v2 = vector.insert(position, member);
+        return new ImmutableArrayItem(v2);
+    }
+
+    /**
+     * Add a member to this array
+     *
+     * @param newMember the member to be added
+     * @return the new array, comprising the members of this array and then
+     * one additional member.
+     */
+    @Override
+    public ArrayItem append(GroundedValue newMember) {
+        ZenoChain<GroundedValue> v2 = vector.add(newMember);
         return new ImmutableArrayItem(v2);
     }
 
     /**
      * Get the number of members in the array
-     * <p>
      * <p>Note: the {@link #getLength() method always returns 1, because an array is an item}</p>
      *
      * @return the number of members in this array.
@@ -128,13 +174,13 @@ public class ImmutableArrayItem extends AbstractArrayItem {
         if (other.arrayLength() == 0) {
             return this;
         }
-        ImmList<GroundedValue> v1;
+        ZenoChain<GroundedValue> otherChain;
         if (other instanceof ImmutableArrayItem) {
-            v1 = ((ImmutableArrayItem)other).vector;
+            otherChain = ((ImmutableArrayItem) other).vector;
         } else {
-            v1 = new ImmutableArrayItem((SimpleArrayItem)other).vector;
+            otherChain = new ImmutableArrayItem((SimpleArrayItem) other).vector;
         }
-        ImmList<GroundedValue> v2 = vector.appendList(v1);
+        ZenoChain<GroundedValue> v2 = vector.addAll(otherChain);
         return new ImmutableArrayItem(v2);
     }
 
@@ -147,12 +193,8 @@ public class ImmutableArrayItem extends AbstractArrayItem {
      */
     @Override
     public ArrayItem remove(int index) {
-        //try {
-        ImmList<GroundedValue> v2 = vector.remove(index);
-            return v2 == vector ? this : new ImmutableArrayItem(v2);
-//        } catch (IndexOutOfBoundsException e) {
-//            throw new XPathException(e.getMessage(), "FOAR0001");
-//        }
+        ZenoChain<GroundedValue> v2 = vector.remove(index);
+        return v2 == vector ? this : new ImmutableArrayItem(v2);
     }
 
     /**
@@ -171,7 +213,7 @@ public class ImmutableArrayItem extends AbstractArrayItem {
             p[i++] = ii.next();
         }
         Arrays.sort(p);
-        ImmList<GroundedValue> v2 = vector;
+        ZenoChain<GroundedValue> v2 = vector;
         for (int j=p.length-1; j>=0; j--) {
             v2 = v2.remove(p[j]);
         }

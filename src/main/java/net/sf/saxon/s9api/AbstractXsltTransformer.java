@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,12 +15,15 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.instruct.GlobalParameterSet;
 import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.lib.*;
+import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
+import net.sf.saxon.transpile.CSharpInnerClass;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.tiny.TinyBuilder;
 
 import javax.xml.transform.ErrorListener;
@@ -34,18 +37,23 @@ import java.io.Writer;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * A class that exists to contain common code shared between XsltTransformer and Xslt30Transformer
  */
 
-abstract class AbstractXsltTransformer {
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<net.sf.saxon.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
+@CSharpModifiers(code = {"abstract", "internal"})
+public abstract class AbstractXsltTransformer {
     protected Processor processor;
     protected XsltController controller;
     protected boolean baseOutputUriWasSet = false;
-    private MessageListener messageListener;
     private MessageListener2 messageListener2;
-
 
     AbstractXsltTransformer(Processor processor, XsltController controller) {
         this.processor = processor;
@@ -92,10 +100,44 @@ abstract class AbstractXsltTransformer {
      *
      * @param resolver An object that implements the URIResolver interface, or
      *                 null.
+     * @deprecated since 11.1. Use {@link #setResourceResolver} in preference.
      */
 
+    @Deprecated
     public void setURIResolver(URIResolver resolver) {
-        controller.setURIResolver(resolver);
+        controller.setResourceResolver(new ResourceResolverWrappingURIResolver(resolver));
+    }
+
+    /**
+     * Set the <code>ResourceResolver</code> to be used during stylesheet execution.
+     * The <code>ResourceResolver</code> is used for dereferencing
+     * an absolute URI (after URI resolution) to return a {@link javax.xml.transform.Source} representing the
+     * required resource.
+     * <p>This <code>ResourceResolver</code> is used to dereference the URIs appearing in the <code>doc()</code>,
+     * <code>doc-available()</code>, and <code>document()</code> functions: in these cases it may return any
+     * supported <code>Source</code> object.</p>
+     * <p>It is also used to dereference the URI supplied to the <code>xsl:source-document</code>
+     * instruction. In this case the resource request passed to the resolver indicates whether the
+     * instruction has the attribute <code>streamable="yes"</code>; if it does, the returned
+     * <code>Source</code> object must be a <code>StreamSource</code> or <code>SAXSource</code>.</p>
+     * <p>The resolver is also used for a number of other cases where URIs are dereferenced during
+     * stylesheet execution, for example in the <code>fn:transform</code> function</p>
+     *
+     * @param resolver the <code>ResourceResolver</code> to be used during stylesheet execution.
+     */
+
+    public void setResourceResolver(ResourceResolver resolver) {
+        controller.setResourceResolver(resolver);
+    }
+
+    /**
+     * Get the resource resolver.
+     *
+     * @return the user-supplied resource resolver if there is one, or null otherwise
+     */
+
+    public ResourceResolver getResourceResolver() {
+        return controller.getResourceResolver();
     }
 
     /**
@@ -105,8 +147,38 @@ abstract class AbstractXsltTransformer {
      */
 
     public URIResolver getURIResolver() {
-        return controller.getURIResolver();
+        ResourceResolver resolver = controller.getResourceResolver();
+        if (resolver instanceof ResourceResolverWrappingURIResolver) {
+            return ((ResourceResolverWrappingURIResolver)resolver).getWrappedURIResolver();
+        }
+        return null;
     }
+
+    /**
+     * Set an object that will be used to resolve URIs used in
+     * <code>fn:unparsed-text()</code> and related functions.
+     *
+     * @param resolver An object that implements the UnparsedTextURIResolver interface, or
+     *                 null.
+     * @since 11
+     */
+
+    public void setUnparsedTextResolver(UnparsedTextURIResolver resolver) {
+        controller.setUnparsedTextURIResolver(resolver);
+    }
+
+    /**
+     * Get the URI resolver used for <code>fn:unparsed-text()</code> and related functions.
+     *
+     * @return the user-supplied URI resolver if there is one, or the
+     * system-defined one otherwise
+     * @since 11
+     */
+
+    public UnparsedTextURIResolver getUnparsedTextURIResolver() {
+        return controller.getUnparsedTextURIResolver();
+    }
+
 
     /**
      * Set the ErrorListener to be used during this transformation
@@ -122,9 +194,9 @@ abstract class AbstractXsltTransformer {
     /**
      * Get the ErrorListener being used during this transformation
      *
-     * @return listener The error listener in use. This is notified of all dynamic errors detected during the
-     * transformation. If no user-supplied ErrorListener has been set the method will return a system-supplied
-     * ErrorListener. If an explicit ErrorListener has been set using {@link #setErrorListener(ErrorListener)},
+     * @return the error listener in use. If no user-supplied {@code ErrorListener} has been set the method will return
+     * a system-supplied ErrorListener that delegates to the {@link ErrorReporter}.
+     * If an explicit {@code ErrorListener} has been set using {@link #setErrorListener(ErrorListener)},
      * then that ErrorListener will generally be returned, unless the internal ErrorListener has been changed
      * by some other mechanism.
      */
@@ -139,12 +211,22 @@ abstract class AbstractXsltTransformer {
     }
 
     /**
-     * Set a callback that will be used when reporting a dynamic error or warning
+     * Set a callback that will be used when reporting a dynamic error or warning. This is relevant primarily
+     * for non-fatal errors.
+     * <p>By default, errors are reported to a default error reporter which writes to
+     * the logging destination associated with the Saxon {@link Configuration}, which
+     * in turn defaults to the system error stream.</p>
+     * @param reporter the callback
      */
 
     public void setErrorReporter(ErrorReporter reporter) {
         controller.setErrorReporter(reporter);
     }
+
+    /**
+     * Get the callback that will be used when reporting a dynamic error or warning
+     * @return the callback
+     */
 
     public ErrorReporter getErrorReporter() {
         return controller.getErrorReporter();
@@ -157,7 +239,8 @@ abstract class AbstractXsltTransformer {
      * and returns a {@link Destination}, which will be used as the destination for the result document.
      * <p>If the {@code href} argument of the {@code xsl:result-document} instruction is absent or if
      * it is set to a zero length string, then the callback function is not normally called; instead
-     * a {@code Receiver} for the secondary output is obtained by making a second call on {@link Destination#getReceiver(PipelineConfiguration, SerializationProperties)}
+     * a {@code Receiver} for the secondary output is obtained by making a second call on
+     * {@link Destination#getReceiver(PipelineConfiguration, SerializationProperties)}
      * for the principal destination of the transformation. In that situation, this result document handler
      * is invoked only if the call on {@link Destination#getReceiver(PipelineConfiguration, SerializationProperties)}
      * returns null. </p>
@@ -176,6 +259,10 @@ abstract class AbstractXsltTransformer {
      * @param handler the callback function to be invoked whenever an {@code xsl:result-document}
      *                instruction is evaluated.
      */
+
+    @CSharpInnerClass(
+            outer=false,
+            extra={"System.Func<System.Uri,Saxon.Hej.s9api.Destination> handler"})
 
     public void setResultDocumentHandler(java.util.function.Function<URI, Destination> handler) {
         controller.setResultDocumentResolver(new ResultDocumentResolver() {
@@ -207,47 +294,27 @@ abstract class AbstractXsltTransformer {
     }
 
     /**
-     * Set the MessageListener to be notified whenever the stylesheet evaluates an
-     * <code>xsl:message</code> instruction.  If no MessageListener is nominated,
-     * the output of <code>xsl:message</code> instructions will be serialized and sent
-     * to the standard error stream.
-     *
-     * @param listener the MessageListener to be used
-     * @deprecated since 10.0 - use {@link #setMessageListener(MessageListener2)}
+     * Set the MessageListener to be notified of {@code xsl:message} and {@code xsl:assert} output.
+     * @param listener the MessageListener to be notified
+     * @deprecated since 12.0 - use {@link #setMessageHandler(Consumer)}
      */
 
-    public synchronized void setMessageListener(MessageListener listener) {
-        this.messageListener = listener;
-        controller.setMessageFactory(() -> new MessageListenerProxy(listener, controller.makePipelineConfiguration()));
-    }
-
-    /**
-     * Set the MessageListener to be notified whenever the stylesheet evaluates an
-     * <code>xsl:message</code> instruction.  If no MessageListener is nominated,
-     * the output of <code>xsl:message</code> instructions will be serialized and sent
-     * to the standard error stream.
-     * <p>
-     * <p>The <code>MessageListener2</code> interface differs from <code>MessageListener</code>
-     * in allowing the error code supplied to xsl:message to be notified.</p>
-     *
-     * @param listener the MessageListener to be used
-     */
-
+    @Deprecated
     public synchronized void setMessageListener(MessageListener2 listener) {
-        this.messageListener2 = listener;
-        controller.setMessageFactory(() -> new MessageListener2Proxy(listener, controller.makePipelineConfiguration()));
+        messageListener2 = listener;
+        setMessageHandler(message -> listener.message(
+                message.getContent(), message.getErrorCode(), message.isTerminate(), message.getLocation())
+        );
     }
 
     /**
-     * Get the MessageListener to be notified whenever the stylesheet evaluates an
-     * <code>xsl:message</code> instruction. If no MessageListener has been nominated,
-     * return null
-     *
-     * @return the user-supplied MessageListener, or null if none has been supplied
+     * Set a message handler to be notified of {@code xsl:message} and {@code xsl:assert} output.
+     * @param messageHandler the message handler to be notified
+     * @since 11
      */
 
-    public MessageListener getMessageListener() {
-        return messageListener;
+    public void setMessageHandler(Consumer<Message> messageHandler) {
+        controller.setMessageHandler(messageHandler);
     }
 
     /**
@@ -256,11 +323,14 @@ abstract class AbstractXsltTransformer {
      * return null
      *
      * @return the user-supplied MessageListener2, or null if none has been supplied
+     * @deprecated since 12.0
      */
 
+    @Deprecated
     public MessageListener2 getMessageListener2() {
         return messageListener2;
     }
+
 
     /**
      * Say whether assertions (xsl:assert instructions) should be enabled at run time. By default
@@ -348,7 +418,7 @@ abstract class AbstractXsltTransformer {
     protected void applyTemplatesToSource(Source source, Receiver out) throws XPathException {
         Objects.requireNonNull(source);
         Objects.requireNonNull(out);
-        if (controller.getInitialMode().isDeclaredStreamable() && isStreamableSource(source)) {
+        if (controller.getInitialMode().isDeclaredStreamable()) {
             controller.applyStreamingTemplates(source, out);
         } else {
             NodeInfo node;
@@ -415,16 +485,19 @@ abstract class AbstractXsltTransformer {
      *                 mode defined in the stylesheet header as the default mode.
      *                 The value null also indicates the default mode (which defaults to the unnamed
      *                 mode, but can be set differently in an XSLT 3.0 stylesheet).
-     * @throws IllegalArgumentException if the requested mode is not defined in the stylesheet
-     * @since changed in 9.6 to throw an exception if the mode is not defined in the stylesheet.
-     * Chaned in 9.7 so that null means the default mode, not necessarily the unnamed mode.
+     * @throws SaxonApiException if the requested mode is not defined in the stylesheet, or if
+     * it is defined with visibility="private".
+     * @since Changed in 9.6 to throw an exception if the mode is not defined in the stylesheet.
+     * Changed in 9.7 so that null means the default mode, not necessarily the unnamed mode.
+     * Changed in 11 to throw SaxonApiException rather than IllegalArgumentException, to
+     * prevent the error code being lost.
      */
 
-    public void setInitialMode(QName modeName) throws IllegalArgumentException {
+    public void setInitialMode(QName modeName) throws SaxonApiException {
         try {
             controller.setInitialMode(modeName == null ? null : modeName.getStructuredQName());
         } catch (XPathException e) {
-            throw new IllegalArgumentException(e);
+            throw new SaxonApiException(e);
         }
     }
 
@@ -458,6 +531,7 @@ abstract class AbstractXsltTransformer {
 
     /**
      * Get a Receiver corresponding to the chosen Destination for the transformation
+     * @param controller the Controller for the transformation
      * @param destination the destination for the results of this transformation
      * @return a receiver that sends the results to this destination
      * @throws SaxonApiException if anything goes wrong
@@ -500,6 +574,9 @@ abstract class AbstractXsltTransformer {
      * <code>XsltTransformer</code> implements <code>Destination</code>, allowing one transformation
      * to receive the results of another in a pipeline.</p>
      *
+     * @param controller the Controller for the transformation
+     * @param parameters the global parameters
+     * @param finalDestination the destination for the results of this transformation
      * @return the Receiver to which events are to be sent.
      * @throws SaxonApiException     if the Receiver cannot be created
      * @throws IllegalStateException if no Destination has been supplied
@@ -517,6 +594,7 @@ abstract class AbstractXsltTransformer {
             }
         } else {
             final Builder sourceTreeBuilder = controller.makeBuilder();
+            sourceTreeBuilder.setDurability(Durability.LASTING);
             if (sourceTreeBuilder instanceof TinyBuilder) {
                 ((TinyBuilder) sourceTreeBuilder).setStatistics(config.getTreeStatistics().SOURCE_DOCUMENT_STATISTICS);
             }
@@ -524,33 +602,42 @@ abstract class AbstractXsltTransformer {
             if (controller.isStylesheetStrippingTypeAnnotations()) {
                 stripper = controller.getConfiguration().getAnnotationStripper(stripper);
             }
-            return new TreeReceiver(stripper) {
-                boolean closed = false;
-
-                @Override
-                public void close() throws XPathException {
-                    if (!closed) {
-                        try {
-                            NodeInfo doc = sourceTreeBuilder.getCurrentRoot();
-                            if (doc != null) {
-                                doc.getTreeInfo().setSpaceStrippingRule(controller.getSpaceStrippingRule());
-                                Receiver result = getDestinationReceiver(controller, finalDestination);
-                                try {
-                                    controller.setGlobalContextItem(doc);
-                                    controller.initializeController(parameters);
-                                    controller.applyTemplates(doc, result);
-                                } catch (TransformerException e) {
-                                    throw new SaxonApiException(e);
-                                }
-                            }
-                        } catch (SaxonApiException e) {
-                            throw XPathException.makeXPathException(e);
-                        }
-                        closed = true;
-                    }
-                }
-            };
+            return makeTreeReceiver(controller, parameters, finalDestination, sourceTreeBuilder, stripper);
         }
+    }
+
+    @CSharpInnerClass(outer=true,
+            extra={ "Saxon.Hej.@event.Builder sourceTreeBuilder",
+                    "Saxon.Hej.trans.XsltController controller",
+                    "Saxon.Hej.s9api.Destination finalDestination",
+                    "Saxon.Hej.expr.instruct.GlobalParameterSet parameters"})
+    private TreeReceiver makeTreeReceiver(XsltController controller, GlobalParameterSet parameters, Destination finalDestination, Builder sourceTreeBuilder, Receiver stripper) {
+        return new TreeReceiver(stripper) {
+            boolean closed = false;
+
+            @Override
+            public void close() throws XPathException {
+                if (!closed) {
+                    try {
+                        NodeInfo doc = sourceTreeBuilder.getCurrentRoot();
+                        if (doc != null) {
+                            doc.getTreeInfo().setSpaceStrippingRule(controller.getSpaceStrippingRule());
+                            Receiver result = getDestinationReceiver(controller, finalDestination);
+                            try {
+                                controller.setGlobalContextItem(doc);
+                                controller.initializeController(parameters);
+                                controller.applyTemplates(doc, result);
+                            } catch (TransformerException e) {
+                                throw new SaxonApiException(e);
+                            }
+                        }
+                    } catch (SaxonApiException e) {
+                        throw XPathException.makeXPathException(e);
+                    }
+                    closed = true;
+                }
+            }
+        };
     }
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,14 +10,20 @@ package net.sf.saxon.functions;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.ParseOptions;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
+import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.EmptySequence;
 
 /**
  * Implement the fn:doc() function - a simplified form of the Document function
@@ -59,6 +65,7 @@ public class Doc extends SystemFunction implements Callable {
         return expr == null ? super.makeFunctionCall(arguments) : expr;
     }
 
+    @CSharpInnerClass(outer=false, extra={"Saxon.Hej.functions.SystemFunction sf"})
     public static Expression maybePreEvaluate(final SystemFunction sf, final Expression[] arguments) {
         if (arguments.length > 1 ||
                 !sf.getRetainedStaticContext().getConfiguration().getBooleanProperty(Feature.PRE_EVALUATE_DOC_FUNCTION)) {
@@ -72,7 +79,7 @@ public class Doc extends SystemFunction implements Callable {
                 public Expression preEvaluate(ExpressionVisitor visitor) {
                     Configuration config = visitor.getConfiguration();
                     try {
-                        GroundedValue firstArg = ((Literal) getArg(0)).getValue();
+                        GroundedValue firstArg = ((Literal) this.getArg(0)).getGroundedValue();
                         if (firstArg.getLength() == 0) {
                             return null;
                         } else if (firstArg.getLength() > 1) {
@@ -82,10 +89,12 @@ public class Doc extends SystemFunction implements Callable {
                         if (href.indexOf('#') >= 0) {
                             return this;
                         }
-                        NodeInfo item = DocumentFn.preLoadDoc(href, sf.getStaticBaseUriString(), config, getLocation());
+                        NodeInfo item = DocumentFn.preLoadDoc(href, sf.getStaticBaseUriString(),
+                                                              sf.getRetainedStaticContext().getPackageData(),
+                                                              config, getLocation());
                         if (item != null) {
                             Expression constant = Literal.makeLiteral(item);
-                            ExpressionTool.copyLocationInfo(getArg(0), constant);
+                            ExpressionTool.copyLocationInfo(this.getArg(0), constant);
                             return constant;
                         }
                     } catch (Exception err) {
@@ -121,10 +130,10 @@ public class Doc extends SystemFunction implements Callable {
      * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue hrefVal = (AtomicValue) arguments[0].head();
         if (hrefVal == null) {
-            return ZeroOrOne.empty();
+            return EmptySequence.getInstance();
         }
         String href = hrefVal.getStringValue();
         PackageData packageData = getRetainedStaticContext().getPackageData();
@@ -139,7 +148,7 @@ public class Doc extends SystemFunction implements Callable {
                     item.getTreeInfo(), parseOptions.getApplicableAccumulators()
             );
         }
-        return new ZeroOrOne(item);
+        return item;
     }
 
     /**

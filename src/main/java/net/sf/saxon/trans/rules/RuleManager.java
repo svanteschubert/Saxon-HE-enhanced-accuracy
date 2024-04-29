@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,13 +9,9 @@ package net.sf.saxon.trans.rules;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Component;
-import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.instruct.TemplateRule;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.Token;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.style.StylesheetModule;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -30,12 +26,12 @@ import java.util.HashMap;
 
 public final class RuleManager {
 
-    private StylesheetPackage stylesheetPackage;
-    private Configuration config;
-    private SimpleMode unnamedMode;           // template rules with default mode
-    private HashMap<StructuredQName, Mode> modes;
+    private final StylesheetPackage stylesheetPackage;
+    private final Configuration config;
+    private final SimpleMode unnamedMode;           // template rules with default mode
+    private final HashMap<StructuredQName, Mode> modes;
     // tables of rules for non-default modes
-    private SimpleMode omniMode = null;       //template rules that specify mode="all"
+    //private SimpleMode omniMode = null;       //template rules that specify mode="all"
     private boolean unnamedModeExplicit;
     private CompilerInfo compilerInfo; // We may need access to information on the compilation as distinct from the configuration
     private int nextSequenceNumber = 0;
@@ -90,6 +86,7 @@ public final class RuleManager {
 
     /**
      * Get the stylesheet package
+     *
      * @return the stylesheet package
      */
 
@@ -137,11 +134,8 @@ public final class RuleManager {
         if (modeName == null || modeName.equals(Mode.UNNAMED_MODE_NAME)) {
             return unnamedMode;
         }
-        if (modeName.equals(Mode.OMNI_MODE)) {
-            if (omniMode == null) {
-                omniMode = config.makeMode(modeName, compilerInfo);
-            }
-            return omniMode;
+        if (modeName.equals(Mode.OMNI_MODE_NAME)) {
+            throw new IllegalArgumentException("#all is not a real mode");
         }
 
         Mode m = modes.get(modeName);
@@ -157,10 +151,6 @@ public final class RuleManager {
 
     public void registerMode(Mode mode) {
         modes.put(mode.getModeName(), mode);
-    }
-
-    public boolean existsOmniMode() {
-        return omniMode != null;
     }
 
     public int allocateSequenceNumber() {
@@ -188,41 +178,8 @@ public final class RuleManager {
     public int registerRule(Pattern pattern, TemplateRule eh,
                             Mode mode, StylesheetModule module, double priority, int position, int part) {
 
-        // for a union pattern, register the parts separately
-        // Technically this is only necessary if using default priorities and if the priorities
-        // of the two halves are different. However, splitting increases the chance that the pattern
-        // can be matched by hashing on the element name, so we do it always. But we need to do it
-        // in such a way that next-match only processes the template once (test case next-match-024)
-        if (pattern instanceof UnionPattern) {
-            UnionPattern up = (UnionPattern) pattern;
-            Pattern p1 = up.getLHS();
-            Pattern p2 = up.getRHS();
-            int lhsParts = registerRule(p1, eh, mode, module, priority, position, part);
-            int rhsParts = registerRule(p2, eh, mode, module, priority, position, lhsParts);
-            return lhsParts + rhsParts;
-        }
-        // some union patterns end up as a CombinedNodeTest. Need to split these.
-        // (Same reasoning as above)
-        if (pattern instanceof NodeTestPattern &&
-                pattern.getItemType() instanceof CombinedNodeTest &&
-                ((CombinedNodeTest) pattern.getItemType()).getOperator() == Token.UNION) {
-            CombinedNodeTest cnt = (CombinedNodeTest) pattern.getItemType();
-            NodeTest[] nt = cnt.getComponentNodeTests();
-            final NodeTestPattern nt0 = new NodeTestPattern(nt[0]);
-            ExpressionTool.copyLocationInfo(pattern, nt0);
-            int lhsParts = registerRule(nt0, eh, mode, module, priority, position, part);
-            final NodeTestPattern nt1 = new NodeTestPattern(nt[1]);
-            ExpressionTool.copyLocationInfo(pattern, nt1);
-            int rhsParts = registerRule(nt1, eh, mode, module, priority, position, lhsParts);
-            return lhsParts + rhsParts;
-        }
         if (Double.isNaN(priority)) {
             priority = pattern.getDefaultPriority();
-        } else {
-            // Priorities were user-allocated, so the rule-splitting is purely an optimization, so
-            // we give all sub-rules the same part number, meaning that next-match will only
-            // evaluate one of them
-            part = 0;
         }
 
         if (mode instanceof SimpleMode) {
@@ -233,28 +190,6 @@ public final class RuleManager {
         return 1;
     }
 
-
-    /**
-     * Get the template rule matching a given item whose import precedence
-     * is in a particular range. This is used to support the xsl:apply-imports function
-     *
-     * @param item The item to be matched
-     * @param mode The mode for which a rule is required
-     * @param min  The minimum import precedence that the rule must have
-     * @param max  The maximum import precedence that the rule must have
-     * @param c    The Controller for the transformation
-     * @return The template rule to be invoked
-     * @throws XPathException if an error occurs matching a pattern
-     */
-
-    public Rule getTemplateRule(Item item, Mode mode, int min, int max, XPathContext c)
-            throws XPathException {
-        // DO NOT DELETE: USED FROM BYTECODE
-        if (mode == null) {
-            mode = unnamedMode;
-        }
-        return mode.getRule(item, min, max, c);
-    }
 
     /**
      * Allocate rankings to the rules within each mode. This method must be called when all
@@ -291,9 +226,9 @@ public final class RuleManager {
      */
 
     public void checkConsistency() throws XPathException {
-        unnamedMode.checkForConflictingProperties(this);
+        unnamedMode.resolveProperties(this);
         for (Mode mode : modes.values()) {
-            mode.getActivePart().checkForConflictingProperties(this);
+            mode.getActivePart().resolveProperties(this);
         }
     }
 

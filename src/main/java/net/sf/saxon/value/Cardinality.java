@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -105,9 +105,9 @@ public final class Cardinality {
      */
 
     public static int sum(int c1, int c2) {
-        int min = min(c1) + min(c2);
-        int max = max(c1) + max(c2);
-        return fromMinAndMax(min, max);
+        int mini = min(c1) + min(c2);
+        int maxi = max(c1) + max(c2);
+        return fromMinAndMax(mini, maxi);
     }
 
     /**
@@ -201,7 +201,7 @@ public final class Cardinality {
      * @return the representation as a string, for example "zero or one", "zero or more"
      */
 
-    public static String toString(int cardinality) {
+    public static String describe(int cardinality) {
         switch (cardinality) {
             case StaticProperty.ALLOWS_ZERO_OR_ONE:
                 return "zero or one";

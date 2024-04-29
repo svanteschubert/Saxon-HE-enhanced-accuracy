@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,7 @@
 
 package net.sf.saxon.serialize.charcode;
 
-import net.sf.saxon.tree.tiny.CharSlice;
-
+import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 import java.util.HashMap;
@@ -24,13 +23,13 @@ public class JavaCharacterSet implements CharacterSet {
 
     public static HashMap<Charset, JavaCharacterSet> map;
 
-    private CharsetEncoder encoder;
+    private final CharsetEncoder encoder;
 
     // This class is written on the assumption that the CharsetEncoder.canEncode()
     // method may be expensive. For BMP characters, it therefore remembers the results
     // so each character is only looked up the first time it is encountered.
 
-    private byte[] charinfo = new byte[65536];
+    private final byte[] charinfo = new byte[65536];
     // rely on initialization to zeroes
 
     //private final static byte UNKNOWN = 0;
@@ -77,7 +76,8 @@ public class JavaCharacterSet implements CharacterSet {
             char[] cc = new char[2];
             cc[0] = UTF16CharacterSet.highSurrogate(c);
             cc[1] = UTF16CharacterSet.lowSurrogate(c);
-            return encoder.canEncode(new CharSlice(cc));
+            CharBuffer cb = CharBuffer.wrap(cc);
+            return encoder.canEncode(cb);
         }
 
     }

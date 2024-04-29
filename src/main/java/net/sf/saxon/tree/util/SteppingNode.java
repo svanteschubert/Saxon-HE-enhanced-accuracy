@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,13 +8,14 @@
 package net.sf.saxon.tree.util;
 
 
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 
 /**
  * This interface can be implemented by an implementation of NodeInfo to take advantage of a generic implementation
  * of the descendant axis found in class {@link net.sf.saxon.tree.util.SteppingNavigator}
  */
-public interface SteppingNode<N extends SteppingNode> extends NodeInfo {
+public interface SteppingNode extends NodeInfo {
 
     /**
      * Get the parent of this node
@@ -23,14 +24,14 @@ public interface SteppingNode<N extends SteppingNode> extends NodeInfo {
      */
 
     @Override
-    N getParent();
+    SteppingNode getParent();
 
     /**
      * Get the next sibling of this node
      *
      * @return the next sibling if there is one, or null otherwise
      */
-    N getNextSibling();
+    SteppingNode getNextSibling();
 
     /**
      * Get the previous sibling of this node
@@ -38,7 +39,7 @@ public interface SteppingNode<N extends SteppingNode> extends NodeInfo {
      * @return the previous sibling if there is one, or null otherwise
      */
 
-    N getPreviousSibling();
+    SteppingNode getPreviousSibling();
 
     /**
      * Get the first child of this node
@@ -46,7 +47,7 @@ public interface SteppingNode<N extends SteppingNode> extends NodeInfo {
      * @return the first child if there is one, or null otherwise
      */
 
-    N getFirstChild();
+    SteppingNode getFirstChild();
 
     /**
      * Find the next matching element in document order; that is, the first child element
@@ -61,7 +62,7 @@ public interface SteppingNode<N extends SteppingNode> extends NodeInfo {
      *         within the subtree being navigated
      */
 
-    N getSuccessorElement(N anchor, String uri, String local);
+    SteppingNode getSuccessorElement(SteppingNode anchor, NamespaceUri uri, String local);
 
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,6 @@
 
 package net.sf.saxon.style;
 
-import net.sf.saxon.Configuration;
 import net.sf.saxon.functions.DocumentFn;
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.DocumentKey;
@@ -18,7 +17,6 @@ import net.sf.saxon.tree.linked.ElementImpl;
 import net.sf.saxon.value.Whitespace;
 
 import javax.xml.transform.Source;
-import javax.xml.transform.URIResolver;
 
 
 /**
@@ -53,7 +51,7 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
     public abstract boolean isImport();
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
@@ -103,12 +101,10 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
         try {
             PrincipalStylesheetModule psm = importer.getPrincipalStylesheetModule();
             //PreparedStylesheet pss = psm.getPreparedStylesheet();
-            URIResolver resolver = getCompilation().getCompilerInfo().getURIResolver();
-            Configuration config = getConfiguration();
             XSLStylesheet includedSheet;
             StylesheetModule incModule;
 
-            DocumentKey key = DocumentFn.computeDocumentKey(href, getBaseURI(), getCompilation().getPackageData(), resolver, false);
+            DocumentKey key = DocumentFn.computeDocumentKey(href, getBaseURI(), getCompilation().getPackageData(), false);
             includedSheet = (XSLStylesheet)psm.getStylesheetDocument(key);
             if (includedSheet != null) {
                 // we already have the stylesheet document in cache; but we need to create a new module,
@@ -117,7 +113,7 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
                 incModule.setImporter(importer);
 
                 // check for recursion
-                if (checkForRecursion(importer, incModule.getRootElement())) {
+                if (checkForRecursion(importer, incModule.getRootElement().asActiveSource())) {
                     return null;
                 }
 
@@ -168,9 +164,7 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
             return incModule;
 
         } catch (XPathException err) {
-            err.setErrorCode("XTSE0165");
-            err.setIsStaticError(true);
-            compileError(err);
+            compileError(err.withErrorCode("XTSE0165").asStaticError());
             return null;
         }
     }

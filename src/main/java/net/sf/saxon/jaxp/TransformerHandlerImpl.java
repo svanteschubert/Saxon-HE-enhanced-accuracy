@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceivingContentHandler;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
+import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.NoElementsSpaceStrippingRule;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.tree.tiny.TinyBuilder;
@@ -42,8 +43,8 @@ import javax.xml.transform.sax.TransformerHandler;
 
 public class TransformerHandlerImpl extends ReceivingContentHandler implements TransformerHandler {
 
-    private TransformerImpl transformer;
-    private Builder builder;
+    private final TransformerImpl transformer;
+    private final Builder builder;
     private Receiver receiver;
     private Result result;
     private String systemId;
@@ -63,22 +64,24 @@ public class TransformerHandlerImpl extends ReceivingContentHandler implements T
         Configuration config = transformer.getConfiguration();
         int validation = controller.getSchemaValidationMode();
         builder = controller.makeBuilder();
+        builder.setDurability(Durability.LASTING);
         if (builder instanceof TinyBuilder) {
             ((TinyBuilder) builder).setStatistics(config.getTreeStatistics().SOURCE_DOCUMENT_STATISTICS);
         }
         PipelineConfiguration pipe = builder.getPipelineConfiguration();
-        ParseOptions options = pipe.getParseOptions();
-        options.setCheckEntityReferences(true);
+        ParseOptions options = pipe.getParseOptions()
+                .withCheckEntityReferences(true);
         setPipelineConfiguration(pipe);
         receiver = controller.makeStripper(builder);
         if (controller.isStylesheetStrippingTypeAnnotations()) {
             receiver = config.getAnnotationStripper(receiver);
         }
         if (validation != Validation.PRESERVE) {
-            options.setSchemaValidationMode(validation);
-            options.setSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+            options = options.withSchemaValidationMode(validation);
+            options = options.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
             receiver = config.getDocumentValidator(receiver, getSystemId(), options, null);
         }
+        pipe.setParseOptions(options);
         setReceiver(receiver);
     }
 
@@ -173,15 +176,16 @@ public class TransformerHandlerImpl extends ReceivingContentHandler implements T
     public void endDocument() throws SAXException {
         super.endDocument();
         NodeInfo doc = builder.getCurrentRoot();
-        doc.getTreeInfo().setSpaceStrippingRule(
-                transformer.getUnderlyingXsltTransformer().getUnderlyingController().getSpaceStrippingRule());
-        builder.reset();
         if (doc == null) {
             throw new SAXException("No source document has been built");
         }
+        doc.getTreeInfo().setSpaceStrippingRule(
+                transformer.getUnderlyingXsltTransformer().getUnderlyingController().getSpaceStrippingRule());
+        builder.reset();
+
 
         try {
-            transformer.transform(doc, result);
+            transformer.transform(doc.asActiveSource(), result);
         } catch (TransformerException err) {
             throw new SAXException(err);
         }

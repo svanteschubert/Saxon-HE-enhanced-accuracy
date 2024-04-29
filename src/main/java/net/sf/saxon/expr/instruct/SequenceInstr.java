@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,10 @@ package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
@@ -27,6 +31,8 @@ public class SequenceInstr extends UnaryExpression {
 
     /**
      * Create the instruction
+     *
+     * @param base the base expression
      */
     public SequenceInstr(Expression base) {
         super(base);
@@ -143,7 +149,7 @@ public class SequenceInstr extends UnaryExpression {
      */
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        getBaseExpression().process(output, context);
+        dispatchTailCall(makeElaborator().elaborateForPush().processLeavingTail(output, context));
     }
 
     /**
@@ -181,6 +187,27 @@ public class SequenceInstr extends UnaryExpression {
     public String getStreamerName() {
 
         return "SequenceInstr";
+    }
+
+    public Elaborator getElaborator() {
+        return new SequenceInstrElaborator();
+    }
+
+    public static class SequenceInstrElaborator extends PushElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            UnaryExpression expr = (UnaryExpression) getExpression();
+            PullEvaluator basePull = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> basePull.iterate(context);
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            UnaryExpression expr = (UnaryExpression) getExpression();
+            PushEvaluator basePush = expr.getBaseExpression().makeElaborator().elaborateForPush();
+            return (output, context) -> basePush.processLeavingTail(output, context);
+        }
     }
 }
 

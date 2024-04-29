@@ -9,14 +9,17 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.lib.ConversionRules;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * A class that represents a union type declared locally, for example using
@@ -39,7 +42,19 @@ public class LocalUnionType implements PlainType, UnionType {
 
     @Override
     public StructuredQName getTypeName() {
-        return new StructuredQName("", NamespaceConstant.ANONYMOUS, "U" + hashCode());
+        return new StructuredQName("", NamespaceUri.ANONYMOUS, "U" + hashCode());
+    }
+
+    @Override
+    public String getDescription() {
+        StringBuilder builder = new StringBuilder("union(");
+        for (AtomicType at : memberTypes) {
+            builder.append(at.getDescription());
+            builder.append(", ");
+        }
+        builder.setLength(builder.length() - 2);
+        builder.append(")");
+        return builder.toString();
     }
 
     /**
@@ -52,7 +67,12 @@ public class LocalUnionType implements PlainType, UnionType {
         this.memberTypes = memberTypes;
     }
 
-    public List<AtomicType> getMemberTypes() {
+    public LocalUnionType(AtomicType... memberTypes) {
+        this.memberTypes = new ArrayList<AtomicType>();
+        this.memberTypes.addAll(Arrays.asList(memberTypes));
+    }
+
+    public List<? extends AtomicType> getMemberTypes() {
         return memberTypes;
     }
 
@@ -89,11 +109,6 @@ public class LocalUnionType implements PlainType, UnionType {
         return true;
     }
 
-    @Override
-    public boolean isTrueItemType() {
-        return true;
-    }
-
     /**
      * Get the SequenceType that most accurately describes the result of casting a value to this union type
      *
@@ -105,6 +120,15 @@ public class LocalUnionType implements PlainType, UnionType {
         return SequenceType.makeSequenceType(this, StaticProperty.ALLOWS_ZERO_OR_ONE);
     }
 
+    private boolean someMemberTypeSatisfies(Predicate<AtomicType> condition) {
+        for (AtomicType member : memberTypes) {
+            if (condition.test(member)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Ask whether this type is an ID type. This is defined to be any simple type
      * who typed value may contain atomic values of type xs:ID: that is, it includes types derived
@@ -114,7 +138,7 @@ public class LocalUnionType implements PlainType, UnionType {
      */
 
     public boolean isIdType() {
-        return memberTypes.stream().anyMatch(AtomicType::isIdType);
+        return someMemberTypeSatisfies(AtomicType::isIdType);
     }
 
     /**
@@ -124,7 +148,7 @@ public class LocalUnionType implements PlainType, UnionType {
      */
 
     public boolean isIdRefType() {
-        return memberTypes.stream().anyMatch(AtomicType::isIdRefType);
+        return someMemberTypeSatisfies(AtomicType::isIdRefType);
     }
 
     /**
@@ -193,7 +217,7 @@ public class LocalUnionType implements PlainType, UnionType {
 
     @Override
     public boolean isNamespaceSensitive() {
-        return memberTypes.stream().anyMatch(AtomicType::isNamespaceSensitive);
+        return someMemberTypeSatisfies(AtomicType::isNamespaceSensitive);
     }
 
     /**
@@ -211,7 +235,7 @@ public class LocalUnionType implements PlainType, UnionType {
      */
 
     /*@Nullable*/
-    public ValidationFailure validateContent(/*@NotNull*/ CharSequence value, NamespaceResolver nsResolver, /*@NotNull*/ ConversionRules rules) {
+    public ValidationFailure validateContent(UnicodeString value, NamespaceResolver nsResolver, /*@NotNull*/ ConversionRules rules) {
         for (AtomicType at : memberTypes) {
             ValidationFailure err = at.validateContent(value, nsResolver, rules);
             if (err == null) {
@@ -240,7 +264,7 @@ public class LocalUnionType implements PlainType, UnionType {
     }
 
     @Override
-    public AtomicValue getTypedValue(CharSequence value, NamespaceResolver resolver, ConversionRules rules)
+    public AtomicValue getTypedValue(UnicodeString value, NamespaceResolver resolver, ConversionRules rules)
             throws ValidationException {
         for (AtomicType type : memberTypes) {
             StringConverter converter = rules.makeStringConverter(type);
@@ -266,7 +290,7 @@ public class LocalUnionType implements PlainType, UnionType {
     @Override
     public boolean matches(Item item, TypeHierarchy th) {
         if (item instanceof AtomicValue) {
-            return memberTypes.stream().anyMatch(at -> at.matches(item, th));
+            return someMemberTypeSatisfies(at -> at.matches(item, th));
         } else {
             return false;
         }
@@ -313,7 +337,8 @@ public class LocalUnionType implements PlainType, UnionType {
      *         in its transitive membership, in declaration order
      */
     @Override
-    public Iterable<AtomicType> getPlainMemberTypes()  {
+    @CSharpReplaceBody(code="return new System.Collections.Generic.List<Saxon.Hej.type.PlainType>(memberTypes);")
+    public List<? extends PlainType> getPlainMemberTypes()  {
         return memberTypes;
     }
 
@@ -342,7 +367,7 @@ public class LocalUnionType implements PlainType, UnionType {
      */
 
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         fsb.append("union(");
         for (AtomicType at : memberTypes) {
             String member = at.getDisplayName();
@@ -356,7 +381,7 @@ public class LocalUnionType implements PlainType, UnionType {
 
     @Override
     public String toExportString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         fsb.append("union(");
         for (AtomicType at : memberTypes) {
             fsb.append(at.toExportString());
@@ -369,4 +394,4 @@ public class LocalUnionType implements PlainType, UnionType {
 
 }
 
-// Copyright (c) 2004-2020 Saxonica Limited
+// Copyright (c) 2004-2023 Saxonica Limited

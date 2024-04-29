@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,15 +20,14 @@ import java.util.Map;
  * each query module has its own set of decimal formats, and in XSLT 3.0 decimal formats are local to a package.
  * The DecimalFormatManager to use is therefore linked from the format-number() call on the expression tree.</p>
  *
- * @author Michael H. Kay
  */
 
 public class DecimalFormatManager {
 
-    private DecimalSymbols defaultDFS;
-    private HashMap<StructuredQName, DecimalSymbols> formatTable;   // table for named decimal formats
-    private HostLanguage language;
-    private int languageLevel;
+    private final DecimalSymbols defaultDFS;
+    private final HashMap<StructuredQName, DecimalSymbols> formatTable;   // table for named decimal formats
+    private final HostLanguage language;
+    private final int languageLevel;
 
     /**
      * create a DecimalFormatManager and initialise variables

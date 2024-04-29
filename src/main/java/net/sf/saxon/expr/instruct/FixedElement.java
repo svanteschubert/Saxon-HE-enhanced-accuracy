@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,19 +8,26 @@
 package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.event.ComplexContentOutputter;
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.ComplexNodePushElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.CombinedNodeTest;
 import net.sf.saxon.pattern.ContentTypeTest;
 import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.type.*;
 
 import java.util.function.BiConsumer;
@@ -35,7 +42,7 @@ import java.util.function.BiConsumer;
 
 public class FixedElement extends ElementCreator {
 
-    private NodeName elementName;
+    private final NodeName elementName;
     /*@NotNull*/ protected NamespaceMap namespaceBindings;
     private ItemType itemType;
 
@@ -62,6 +69,11 @@ public class FixedElement extends ElementCreator {
         this.inheritNamespacesFromParent = inheritNamespacesFromParent;
         setValidationAction(validation, schemaType);
         preservingTypes = schemaType == null && validation == Validation.PRESERVE;
+    }
+
+    @Override
+    public void setLocation(Location id) {
+        super.setLocation(id);
     }
 
     @Override
@@ -140,58 +152,6 @@ public class FixedElement extends ElementCreator {
     }
 
     /**
-     * Remove namespaces that are not required for this element because they are output on
-     * the parent element
-     *
-     * @param visitor          the expression visitor
-     * @param parentNamespaces the namespaces that are output by the parent element
-     */
-
-    private void removeRedundantNamespaces(ExpressionVisitor visitor, NamespaceMap parentNamespaces) {
-        // It's only safe to remove any namespaces if the element is incapable of creating any attribute nodes
-        // in a non-null namespace
-        // This is because namespaces created on this element take precedence over namespaces created by namespace
-        // fixup based on the prefix used in the attribute name (see atrs24)
-        if (namespaceBindings.isEmpty()) {
-            return;
-        }
-        TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
-        ItemType contentType = getContentExpression().getItemType();
-        boolean ok = th.relationship(contentType, NodeKindTest.ATTRIBUTE) == Affinity.DISJOINT;
-        if (!ok) {
-            // if the content might include attributes, discount any that are known to be in the null namespace
-            if (getContentExpression() instanceof Block) {
-                ok = true;
-                for (Operand o : getContentExpression().operands()) {
-                    Expression exp = o.getChildExpression();
-                    if (exp instanceof FixedAttribute) {
-                        if (!((FixedAttribute)exp).getAttributeName().hasURI("")) {
-                            ok = false;
-                            break;
-                        }
-                    } else {
-                        ItemType childType = exp.getItemType();
-                        if (th.relationship(childType, NodeKindTest.ATTRIBUTE) != Affinity.DISJOINT) {
-                            ok = false;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if (ok) {
-            NamespaceMap reduced = namespaceBindings;
-            // TODO: implement difference() operation on NamespaceMap
-            for (NamespaceBinding childNamespace : namespaceBindings) {
-                if (childNamespace.getURI().equals(parentNamespaces.getURI(childNamespace.getPrefix()))) {
-                    reduced = reduced.remove(childNamespace.getPrefix());
-                }
-            }
-            namespaceBindings = reduced;
-        }
-    }
-
-    /**
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
@@ -233,22 +193,18 @@ public class FixedElement extends ElementCreator {
             if (validation == Validation.STRICT) {
                 SchemaDeclaration decl = config.getElementDeclaration(fp);
                 if (decl == null) {
-                    XPathException err = new XPathException("There is no global element declaration for " +
-                            elementName.getStructuredQName().getEQName() +
-                            ", so strict validation will fail");
-                    err.setErrorCode(instr.isXSLT() ? "XTTE1512" : "XQDY0084");
-                    err.setIsTypeError(true); // technically this is a type error in XSLT but not in XQuery
-                    err.setLocation(instr.getLocation());
-                    throw err;
+                    throw new XPathException("There is no global element declaration for " +
+                            elementName.getStructuredQName().getEQName() + ", so strict validation will fail")
+                            .withErrorCode(instr.isXSLT() ? "XTTE1512" : "XQDY0084")
+                            .asTypeError() // technically this is a type error in XSLT but not in XQuery
+                            .withLocation(instr.getLocation());
                 }
                 if (decl.isAbstract()) {
-                    XPathException err = new XPathException("The element declaration for " +
-                            elementName.getStructuredQName().getEQName() +
-                            " is abstract, so strict validation will fail");
-                    err.setErrorCode(instr.isXSLT() ? "XTTE1512" : "XQDY0027");
-                    err.setIsTypeError(true); // technically this is a type error in XSLT but not in XQuery
-                    err.setLocation(instr.getLocation());
-                    throw err;
+                    throw new XPathException("The element declaration for " +
+                            elementName.getStructuredQName().getEQName() + " is abstract, so strict validation will fail")
+                            .withErrorCode(instr.isXSLT() ? "XTTE1512" : "XQDY0084")
+                            .asTypeError() // technically this is a type error in XSLT but not in XQuery
+                            .withLocation(instr.getLocation());
                 }
                 SchemaType declaredType = decl.getType();
                 SchemaType xsiType = instr.getXSIType(env);
@@ -263,13 +219,12 @@ public class FixedElement extends ElementCreator {
                     Token.INTERSECT,
                     new ContentTypeTest(Type.ELEMENT, schemaType, config, false));
                 if (xsiType != null || !decl.hasTypeAlternatives()) {
-                    instr.getValidationOptions().setTopLevelType(schemaType);
+                    instr.setValidationOptions(instr.getValidationOptions().withTopLevelType(schemaType));
                     try {
                         schemaType.analyzeContentExpression(content, Type.ELEMENT);
                     } catch (XPathException e) {
-                        e.setErrorCode(instr.isXSLT() ? "XTTE1510" : "XQDY0027");
-                        e.setLocation(instr.getLocation());
-                        throw e;
+                        throw e.withErrorCode(instr.isXSLT() ? "XTTE1510" : "XQDY0027")
+                                .withLocation(instr.getLocation());
                     }
                     if (xsiType != null) {
                         try {
@@ -288,11 +243,11 @@ public class FixedElement extends ElementCreator {
                 SchemaDeclaration decl = config.getElementDeclaration(fp);
                 if (decl == null) {
                     env.issueWarning("There is no global element declaration for " +
-                            elementName.getDisplayName(), instr.getLocation());
+                            elementName.getDisplayName(), SaxonErrorCode.SXWN9031, instr.getLocation());
                     itemType = new NameTest(Type.ELEMENT, fp, config.getNamePool());
                 } else {
                     schemaType = decl.getType();
-                    instr.getValidationOptions().setTopLevelType(schemaType);
+                    instr.setValidationOptions(instr.getValidationOptions().withTopLevelType(schemaType));
                     itemType = new CombinedNodeTest(
                             new NameTest(Type.ELEMENT, fp, config.getNamePool()),
                             Token.INTERSECT,
@@ -300,9 +255,8 @@ public class FixedElement extends ElementCreator {
                     try {
                         schemaType.analyzeContentExpression(content, Type.ELEMENT);
                     } catch (XPathException e) {
-                        e.setErrorCode(instr.isXSLT() ? "XTTE1515" : "XQDY0027");
-                        e.setLocation(instr.getLocation());
-                        throw e;
+                        throw e.withErrorCode(instr.isXSLT() ? "XTTE1515" : "XQDY0027")
+                                .withLocation(instr.getLocation());
                     }
                 }
             } else if (validation == Validation.PRESERVE) {
@@ -327,9 +281,7 @@ public class FixedElement extends ElementCreator {
             try {
                 schemaType.analyzeContentExpression(content, Type.ELEMENT);
             } catch (XPathException e) {
-                e.setErrorCode(instr.isXSLT() ? "XTTE1540" : "XQDY0027");
-                e.setLocation(instr.getLocation());
-                throw e;
+                throw e.withErrorCode(instr.isXSLT() ? "XTTE1540" : "XQDY0027").withLocation(instr.getLocation());
             }
         }
         return itemType;
@@ -349,21 +301,21 @@ public class FixedElement extends ElementCreator {
         return itemType;
     }
 
-    /**
-     * Callback from the superclass ElementCreator to get the nameCode
-     * for the element name
-     *
-     * @param context    The evaluation context (not used)
-     * @param copiedNode For the benefit of the xsl:copy instruction, the node to be copied
-     * @return the name code for the element name
-     */
+//    /**
+//     * Callback from the superclass ElementCreator to get the nameCode
+//     * for the element name
+//     *
+//     * @param context    The evaluation context (not used)
+//     * @param copiedNode For the benefit of the xsl:copy instruction, the node to be copied
+//     * @return the name code for the element name
+//     */
+//
+//    @Override
+//    public NodeName getElementName(XPathContext context, NodeInfo copiedNode) {
+//        return elementName;
+//    }
 
-    @Override
-    public NodeName getElementName(XPathContext context, NodeInfo copiedNode) {
-        return elementName;
-    }
-
-    public NodeName getElementName() {
+    public NodeName getFixedElementName() {
         return elementName;
     }
 
@@ -377,15 +329,15 @@ public class FixedElement extends ElementCreator {
      */
     @Override
     public void gatherProperties(BiConsumer<String, Object> consumer) {
-        consumer.accept("name", getElementName());
+        consumer.accept("name", getFixedElementName());
     }
 
 
-
-    @Override
-    public String getNewBaseURI(XPathContext context, NodeInfo copiedNode) {
-        return getStaticBaseURIString();
-    }
+//
+//    @Override
+//    public String getNewBaseURI(XPathContext context, NodeInfo copiedNode) {
+//        return getStaticBaseURIString();
+//    }
 
     /**
      * Determine whether the element constructor creates a fixed xsi:type attribute, and if so, return the
@@ -436,11 +388,11 @@ public class FixedElement extends ElementCreator {
             if (attValue instanceof StringLiteral) {
                 try {
                     String[] parts = NameChecker.getQNameParts(
-                            ((StringLiteral) attValue).getStringValue());
+                            ((StringLiteral) attValue).stringify());
                     // The only namespace bindings we can trust are those declared on this element
                     // We could also trust those on enclosing LREs in the same function/template,
                     // but it's not a big win to go looking for them.
-                    String uri = namespaceBindings.getURI(parts[0]);
+                    NamespaceUri uri = namespaceBindings.getNamespaceUri(parts[0]);
                     if (uri == null) {
                         return null;
                     } else {
@@ -465,17 +417,13 @@ public class FixedElement extends ElementCreator {
     @Override
     public void checkPermittedContents(SchemaType parentType, boolean whole) throws XPathException {
         if (parentType instanceof SimpleType) {
-            XPathException err = new XPathException("Element " + elementName.getDisplayName() +
-                    " is not permitted here: the containing element is of simple type " + parentType.getDescription());
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("Element " + elementName.getDisplayName() +
+                    " is not permitted here: the containing element is of simple type " + parentType.getDescription())
+                    .asTypeError().withLocation(getLocation());
         } else if (((ComplexType) parentType).isSimpleContent()) {
-            XPathException err = new XPathException("Element " + elementName.getDisplayName() +
-                    " is not permitted here: the containing element has a complex type with simple content");
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("Element " + elementName.getDisplayName() +
+                    " is not permitted here: the containing element has a complex type with simple content")
+                    .asTypeError().withLocation(getLocation());
         }
 
         // Check that a sequence consisting of this element alone is valid against the content model
@@ -509,23 +457,42 @@ public class FixedElement extends ElementCreator {
         try {
             getContentExpression().checkPermittedContents(type, true);
         } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            throw e;
+            throw e.maybeWithLocation(getLocation());
         }
+    }
+
+    @Override
+    public ElementCreationDetails makeElementCreationDetails() {
+        return new ElementCreationDetails() {
+            @Override
+            public NodeName getNodeName(XPathContext context) {
+                return getFixedElementName();
+            }
+
+            @Override
+            public String getSystemId(XPathContext context) {
+                return getStaticBaseURIString();
+            }
+
+            @Override
+            public void processContent(Outputter output, XPathContext context) throws XPathException {
+                getContentExpression().process(output, context);
+            }
+        };
     }
 
     /**
      * Callback from the superclass ElementCreator to output the namespace nodes
      * @param out        The receiver to handle the output
      * @param nodeName   the name of this element
-     * @param copiedNode in the case of xsl:copy, the node being copied
+     * @param details in the case of xsl:copy, the node being copied
      */
 
     @Override
-    public void outputNamespaceNodes(Outputter out, NodeName nodeName, NodeInfo copiedNode)
+    public void outputNamespaceNodes(Outputter out, NodeName nodeName, ElementCreationDetails details)
             throws XPathException {
         for (NamespaceBinding ns : namespaceBindings) {
-            out.namespace(ns.getPrefix(), ns.getURI(), ReceiverOption.NONE);
+            out.namespace(ns.getPrefix(), ns.getNamespaceUri(), ReceiverOption.NONE);
         }
     }
 
@@ -547,9 +514,9 @@ public class FixedElement extends ElementCreator {
     public void export(ExpressionPresenter out) throws XPathException {
         out.startElement("elem", this);
         out.emitAttribute("name", elementName.getDisplayName());
-        out.emitAttribute("nsuri", elementName.getURI());
+        out.emitAttribute("nsuri", elementName.getNamespaceUri().toString());
         String flags = getInheritanceFlags();
-        if (!elementName.getURI().isEmpty() && elementName.getPrefix().isEmpty()) {
+        if (!elementName.getNamespaceUri().isEmpty() && elementName.getPrefix().isEmpty()) {
             flags += "d";  // "d" to indicate default namespace
         }
         if (isLocal()) {
@@ -558,17 +525,17 @@ public class FixedElement extends ElementCreator {
         if (!flags.isEmpty()) {
             out.emitAttribute("flags", flags);
         }
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         if (!namespaceBindings.isEmpty()) {
             for (NamespaceBinding ns : namespaceBindings) {
                 String prefix = ns.getPrefix();
                 if (!prefix.equals("xml")) {
                     fsb.append(prefix.isEmpty() ? "#" : prefix);
-                    if (!ns.getURI().equals(getRetainedStaticContext().getURIForPrefix(prefix, true))) {
-                        fsb.cat('=');
-                        fsb.append(ns.getURI());
+                    if (!ns.getNamespaceUri().equals(getRetainedStaticContext().getURIForPrefix(prefix, true))) {
+                        fsb.append('=');
+                        fsb.append(ns.getNamespaceUri());
                     }
-                    fsb.cat(' ');
+                    fsb.append(' ');
                 }
             }
             fsb.setLength(fsb.length() - 1);
@@ -599,6 +566,92 @@ public class FixedElement extends ElementCreator {
     @Override
     public String getExpressionName() {
         return "element";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new FixedElementElaborator();
+    }
+
+    /**
+     * Elaborator for a FixedElement (literal result element) expression.
+     */
+
+    public static class FixedElementElaborator extends ComplexNodePushElaborator {
+
+        @Override
+        @CSharpInnerClass(outer = false, extra = {"Saxon.Hej.expr.instruct.FixedElement instr", "Saxon.Hej.expr.elab.PushEvaluator contentPusher"})
+        public PushEvaluator elaborateForPush() {
+            final FixedElement expr = (FixedElement) getExpression();
+            final PushEvaluator contentPusher =
+                    expr.getContentExpression().makeElaborator().elaborateForPush();
+
+            SchemaType typeCode = expr.getValidationAction() == Validation.PRESERVE
+                    ? AnyType.getInstance()
+                    : Untyped.getInstance();
+
+            int properties = ReceiverOption.NONE;
+            if (!expr.bequeathNamespacesToChildren) {
+                properties |= ReceiverOption.DISINHERIT_NAMESPACES;
+            }
+            if (!expr.inheritNamespacesFromParent) {
+                properties |= ReceiverOption.REFUSE_NAMESPACES;
+            }
+            properties |= ReceiverOption.ALL_NAMESPACES;
+            final int finalProperties = properties;
+
+            return (out, context) -> {
+                try {
+
+                    NodeName elemName = expr.getFixedElementName();
+
+                    Receiver elemOut = out;
+                    if (!expr.preservingTypes) {
+                        ParseOptions options = expr.getValidationOptions()
+                                .withTopLevelElement(elemName.getStructuredQName());
+                        context.getConfiguration().prepareValidationReporting(context, options);
+                        Receiver validator = context.getConfiguration().getElementValidator(
+                                elemOut, options, expr.getLocation());
+
+                        if (validator != elemOut) {
+                            out = new ComplexContentOutputter(validator);
+                        }
+                    }
+
+                    if (out.getSystemId() == null) {
+                        out.setSystemId(expr.getStaticBaseURIString());
+                    }
+
+                    out.startElement(elemName, typeCode, expr.getLocation(), finalProperties);
+
+                    // output the required namespace nodes via a callback
+
+                    for (NamespaceBinding ns : expr.namespaceBindings) {
+                        out.namespace(ns.getPrefix(), ns.getNamespaceUri(), ReceiverOption.NONE);
+                    }
+
+                    // process subordinate instructions to generate attributes and content
+                    TailCall tc = contentPusher.processLeavingTail(out, context);
+                    Expression.dispatchTailCall(tc);
+
+                    // output the element end tag (which will fail if validation fails)
+                    out.endElement();
+
+                } catch (XPathException e) {
+                    throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                }
+                return null;
+            };
+        }
+
+
+
     }
 }
 

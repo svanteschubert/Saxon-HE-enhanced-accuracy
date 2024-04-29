@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,14 +9,15 @@ package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.flwor.OuterForExpression;
 import net.sf.saxon.expr.instruct.Choose;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
@@ -25,6 +26,7 @@ import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * A ForExpression maps an expression over a sequence.
@@ -80,9 +82,16 @@ public class ForExpression extends Assignation {
             SequenceType decl = requiredType;
             SequenceType sequenceType = SequenceType.makeSequenceType(
                     decl.getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE);
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, variableName.getDisplayName(), 0);
-            setSequence(TypeChecker.strictTypeCheck(
-                    getSequence(), sequenceType, role, visitor.getStaticContext()));
+            Supplier<RoleDiagnostic> role =
+                    () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, variableName.getDisplayName(), 0);
+            if (visitor.getStaticContext().getXPathVersion() < 40) {
+                setSequence(TypeChecker.strictTypeCheck(
+                        getSequence(), sequenceType, role, visitor.getStaticContext()));
+            } else {
+                TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
+                setSequence(tc.staticTypeCheck(getSequence(), sequenceType, role, visitor));
+
+            }
             ItemType actualItemType = getSequence().getItemType();
             refineTypeInformation(actualItemType,
                                   getRangeVariableCardinality(),
@@ -403,31 +412,9 @@ public class ForExpression extends Assignation {
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        int slot = getLocalSlotNumber();
-        getSequence().iterate(context).forEachOrFail(item -> {
-            context.setLocalVariable(slot, item);
-            getAction().process(output, context);
-        });
+        dispatchTailCall(makeElaborator().elaborateForPush().processLeavingTail(output, context));
     }
 
-
-    /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     */
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        int slot = getLocalSlotNumber();
-        getSequence().iterate(context).forEachOrFail(item -> {
-            context.setLocalVariable(slot, item);
-            getAction().evaluatePendingUpdates(context, pul);
-        });
-    }
 
     /**
      * Determine the data type of the items returned by the expression, if possible
@@ -459,7 +446,7 @@ public class ForExpression extends Assignation {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         int c1 = getSequence().getCardinality();
         int c2 = getAction().getCardinality();
         return Cardinality.multiply(c1, c2);
@@ -475,6 +462,7 @@ public class ForExpression extends Assignation {
 
     public String toString() {
         return "for $" + getVariableEQName() +
+                allowingEmptyString() +
                 " in " + (getSequence() == null ? "(...)" : getSequence().toString()) +
                 " return " + (getAction() == null ? "(...)" : ExpressionTool.parenthesize(getAction()));
     }
@@ -482,8 +470,13 @@ public class ForExpression extends Assignation {
     @Override
     public String toShortString() {
         return "for $" + getVariableQName().getDisplayName() +
+                allowingEmptyString() +
                 " in " + (getSequence() == null ? "(...)" : getSequence().toShortString()) +
                 " return " + (getAction() == null ? "(...)" : getAction().toShortString());
+    }
+
+    protected String allowingEmptyString() {
+        return "";
     }
 
     /**
@@ -517,12 +510,11 @@ public class ForExpression extends Assignation {
      * source sequence. It acts as the MappingFunction for the mapping iterator.
      */
 
-    public static class MappingAction
-            implements MappingFunction, ItemMappingFunction {
+    public static class MappingAction implements MappingFunction, ItemMappingFunction {
 
         protected XPathContext context;
-        private int slotNumber;
-        private Expression action;
+        private final int slotNumber;
+        private final Expression action;
 
         public MappingAction(XPathContext context,
                              int slotNumber,
@@ -533,14 +525,12 @@ public class ForExpression extends Assignation {
         }
 
         /*@Nullable*/
-        @Override
         public SequenceIterator map(Item item) throws XPathException {
             context.setLocalVariable(slotNumber, item);
             return action.iterate(context);
         }
 
         /*@Nullable*/
-        @Override
         public Item mapItem(Item item) throws XPathException {
             context.setLocalVariable(slotNumber, item);
             return action.evaluateItem(context);
@@ -553,6 +543,86 @@ public class ForExpression extends Assignation {
         return "ForExpression";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new ForExprElaborator();
+    }
+
+    /**
+     * An elaborator for a "for" expression, typically written as {for $x in SEQ return R}.
+     *
+     * <p>Provides both "pull" and "push" implementations.</p>
+     */
+
+    public static class ForExprElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final ForExpression expr = (ForExpression) getExpression();
+            final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
+            final int actionCardinality = expr.getAction().getCardinality();
+            final int slot = expr.getLocalSlotNumber();
+
+            if (Cardinality.allowsMany(actionCardinality)) {
+                final PullEvaluator actionEval = expr.getAction().makeElaborator().elaborateForPull();
+                return context -> {
+                    SequenceIterator base = selectEval.iterate(context);
+                    return new MappingIterator(base, item -> {
+                        context.setLocalVariable(slot, item);
+                        return actionEval.iterate(context);
+                    });
+                };
+            } else {
+                final ItemEvaluator actionEval = expr.getAction().makeElaborator().elaborateForItem();
+                return context -> {
+                    SequenceIterator base = selectEval.iterate(context);
+                    return new ItemMappingIterator(base, item -> {
+                        context.setLocalVariable(slot, item);
+                        return actionEval.eval(context);
+                    });
+                };
+            }
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            final ForExpression expr = (ForExpression) getExpression();
+            final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
+            final PushEvaluator actionEval = expr.getAction().makeElaborator().elaborateForPush();
+            final int slot = expr.getLocalSlotNumber();
+            return (out, context) -> {
+                SequenceIterator base = selectEval.iterate(context);
+                for (Item item; (item = base.next()) != null; ) {
+                    context.setLocalVariable(slot, item);
+                    TailCall tc = actionEval.processLeavingTail(out, context);
+                    dispatchTailCall(tc);
+                }
+                return null;
+            };
+        }
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            final ForExpression expr = (ForExpression) getExpression();
+            final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
+            final UpdateEvaluator actionEval = expr.getAction().makeElaborator().elaborateForUpdate();
+            final int slot = expr.getLocalSlotNumber();
+            return (context, pul) -> {
+                try {
+                    SequenceTool.supply(selectEval.iterate(context), (ItemConsumer<? super Item>) item -> {
+                        context.setLocalVariable(slot, item);
+                        actionEval.registerUpdates(context, pul);
+                    });
+                } catch (UncheckedXPathException e) {
+                    throw e.getXPathException();
+                }
+            };
+        }
+    }
 }
 

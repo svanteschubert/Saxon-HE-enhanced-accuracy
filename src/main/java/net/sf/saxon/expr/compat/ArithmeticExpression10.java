@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,14 +13,16 @@ import net.sf.saxon.expr.instruct.Choose;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.Number_1;
 import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
+
+import java.util.function.Supplier;
 
 /**
  * Arithmetic Expression: an expression using one of the operators
@@ -73,10 +75,10 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
         SequenceType atomicType = SequenceType.OPTIONAL_ATOMIC;
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(true);
 
-        RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+        Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), atomicType, role0, visitor));
 
-        RoleDiagnostic role1 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
+        Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), atomicType, role1, visitor));
 
         final ItemType itemType0 = getLhsExpression().getItemType();
@@ -124,7 +126,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
 
         if (operator == Token.NEGATE) {
             if (getRhsExpression() instanceof Literal) {
-                GroundedValue v = ((Literal) getRhsExpression()).getValue();
+                GroundedValue v = ((Literal) getRhsExpression()).getGroundedValue();
                 if (v instanceof NumericValue) {
                     return Literal.makeLiteral(((NumericValue) v).negate(), this);
                 }
@@ -170,11 +172,10 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
                 ArithmeticExpression.mapOpCode(operator), mustResolve);
 
         if (calculator == null) {
-            XPathException de = new XPathException("Arithmetic operator is not defined for arguments of types (" +
-                    type0.getDescription() + ", " + type1.getDescription() + ")");
-            de.setLocation(getLocation());
-            de.setErrorCode("XPTY0004");
-            throw de;
+            throw new XPathException("Arithmetic operator is not defined for arguments of types (" +
+                    type0.getDescription() + ", " + type1.getDescription() + ")")
+                    .withLocation(getLocation())
+                    .withErrorCode("XPTY0004");
         }
         return calculator;
     }
@@ -201,7 +202,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
                 th.isSubType(type, BuiltInAtomicType.FLOAT) ||
                 th.isSubType(type, BuiltInAtomicType.DECIMAL)) {
             if (operand instanceof Literal) {
-                GroundedValue val = ((Literal) operand).getValue();
+                GroundedValue val = ((Literal) operand).getGroundedValue();
                 return Literal.makeLiteral(Number_1.convert((AtomicValue) val, config), this);
             } else {
                 return SystemFunction.makeCall("number", getRetainedStaticContext(), operand);
@@ -211,7 +212,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
 
         LetExpression let = new LetExpression();
         let.setRequiredType(SequenceType.OPTIONAL_ATOMIC);
-        let.setVariableQName(new StructuredQName("nn", NamespaceConstant.SAXON, "nn" + let.hashCode()));
+        let.setVariableQName(new StructuredQName("nn", NamespaceUri.SAXON, "nn" + let.hashCode()));
         let.setSequence(operand);
 
         LocalVariableReference var = new LocalVariableReference(let);
@@ -282,7 +283,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that must be re-bound
      */
 
     /*@NotNull*/

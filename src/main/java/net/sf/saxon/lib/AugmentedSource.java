@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -36,10 +36,14 @@ import java.util.List;
  *
  * @since 8.8
  */
-
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<Saxon.Hej.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
 public class AugmentedSource implements Source {
 
-    private Source source;
+    private final Source source;
     private ParseOptions options = new ParseOptions();
     private String systemID;
 
@@ -109,13 +113,20 @@ public class AugmentedSource implements Source {
     }
 
     /**
-     * Add a filter to the list of filters to be applied to the raw input
+     * Add a filter to the list of filters to be applied to the raw input.
      *
-     * @param filter a factory for the filter to be added
+     * <p>User-supplied filters are applied to the input stream after
+     * applying any system-defined filters such as the whitespace stripper
+     * and the schema validator.</p>
+     *
+     * <p>Example: {@code addFilter(receiver -> new MyFilter(receiver)}, where
+     * <code>MyFilter</code> extends {@link net.sf.saxon.event.ProxyReceiver}</p>
+     *
+     * @param filter a factory for the filter to be added.
      */
 
     public void addFilter(FilterFactory filter) {
-        options.addFilter(filter);
+        options = options.withFilter(filter);
     }
 
     /**
@@ -151,6 +162,10 @@ public class AugmentedSource implements Source {
         return options;
     }
 
+    public void setParseOptions(ParseOptions options) {
+        this.options = options;
+    }
+
     /**
      * Set the tree model to use. Default is the tiny tree
      *
@@ -161,7 +176,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setModel(TreeModel model) {
-        options.setModel(model);
+        options = options.withModel(model);
     }
 
     /**
@@ -188,7 +203,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setSchemaValidationMode(int option) {
-        options.setSchemaValidationMode(option);
+        options = options.withSchemaValidationMode(option);
     }
 
     /**
@@ -213,7 +228,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setTopLevelElement(StructuredQName elementName) {
-        options.setTopLevelElement(elementName);
+        options = options.withTopLevelElement(elementName);
     }
 
     /**
@@ -238,7 +253,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setTopLevelType(SchemaType type) {
-        options.setTopLevelType(type);
+        options = options.withTopLevelType(type);
     }
 
     /**
@@ -263,7 +278,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setDTDValidationMode(int option) {
-        options.setDTDValidationMode(option);
+        options = options.withDTDValidationMode(option);
     }
 
     /**
@@ -287,7 +302,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setLineNumbering(boolean lineNumbering) {
-        options.setLineNumbering(lineNumbering);
+        options = options.withLineNumbering(lineNumbering);
     }
 
     /**
@@ -320,7 +335,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setXMLReader(XMLReader parser) {
-        options.setXMLReader(parser);
+        options = options.withXMLReader(parser);
         if (source instanceof SAXSource) {
             ((SAXSource) source).setXMLReader(parser);
         }
@@ -343,40 +358,6 @@ public class AugmentedSource implements Source {
         } else {
             return null;
         }
-    }
-
-    /**
-     * Assuming that the contained Source is a node in a tree, indicate whether a tree should be created
-     * as a view of this supplied tree, or as a copy.
-     * <p>This option is used only when the Source is supplied to an interface such as the JAXP
-     * Transformer.transform() method where there is no other way of indicating whether a supplied
-     * external document should be wrapped or copied. It is not used when the Source is supplied to
-     * a Saxon-defined interface.</p>
-     *
-     * @param wrap if true, the node in the supplied Source is wrapped, to create a view. If false, the node
-     *             and its contained subtree is copied. If null, the system default is chosen.
-     * @since 8.8
-     */
-
-    public void setWrapDocument(Boolean wrap) {
-        options.setWrapDocument(wrap);
-    }
-
-    /**
-     * Assuming that the contained Source is a node in a tree, determine whether a tree will be created
-     * as a view of this supplied tree, or as a copy.
-     * <p>This option is used only when the Source is supplied to an interface such as the JAXP
-     * Transformer.transform() method where there is no other way of indicating whether a supplied
-     * external document should be wrapped or copied. It is not used when the Source is supplied to
-     * a Saxon-defined interface.</p>
-     *
-     * @return if true, the node in the supplied Source is wrapped, to create a view. If false, the node
-     *         and its contained subtree is copied. If null, the system default is chosen.
-     * @since 8.8
-     */
-
-    public Boolean getWrapDocument() {
-        return options.getWrapDocument();
     }
 
     /**
@@ -417,7 +398,7 @@ public class AugmentedSource implements Source {
      * @since 8.9
      */
     public void setXIncludeAware(boolean state) {
-        options.setXIncludeAware(state);
+        options = options.withXIncludeAware(state);
     }
 
     /**
@@ -452,7 +433,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setEntityResolver(EntityResolver resolver) {
-        options.setEntityResolver(resolver);
+        options = options.withEntityResolver(resolver);
     }
 
     /**
@@ -467,6 +448,7 @@ public class AugmentedSource implements Source {
         return options.getEntityResolver();
     }
 
+
     /**
      * Set an ErrorReporter to be used when parsing
      *
@@ -475,7 +457,7 @@ public class AugmentedSource implements Source {
      */
 
     public void setErrorReporter(ErrorReporter listener) {
-        options.setErrorReporter(listener);
+        options = options.withErrorReporter(listener);
     }
 
     /**
@@ -492,7 +474,7 @@ public class AugmentedSource implements Source {
 
 
     /**
-     * Set whether or not the user of this Source is encouraged to close it as soon as reading is finished.
+     * Say whether the user of this Source is encouraged to close it as soon as reading is finished.
      * Normally the expectation is that any Stream in a StreamSource will be closed by the component that
      * created the Stream. However, in the case of a Source returned by a URIResolver, there is no suitable
      * interface (the URIResolver has no opportunity to close the stream). Also, in some cases such as reading
@@ -505,11 +487,11 @@ public class AugmentedSource implements Source {
      */
 
     public void setPleaseCloseAfterUse(boolean close) {
-        options.setPleaseCloseAfterUse(close);
+        options = options.withPleaseCloseAfterUse(close);
     }
 
     /**
-     * Determine whether or not the user of this Source is encouraged to close it as soon as reading is
+     * Ask whether the user of this Source is encouraged to close it as soon as reading is
      * finished.
      *
      * @return true if the source should be closed as soon as it has been consumed

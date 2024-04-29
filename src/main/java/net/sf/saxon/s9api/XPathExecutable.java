@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,10 +13,9 @@ import net.sf.saxon.s9api.streams.Step;
 import net.sf.saxon.sxpath.IndependentContext;
 import net.sf.saxon.sxpath.XPathExpression;
 import net.sf.saxon.sxpath.XPathVariable;
+import net.sf.saxon.transpile.CSharpModifiers;
 
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Stream;
 
 /**
@@ -29,11 +28,12 @@ import java.util.stream.Stream;
  * on the {@link XPathCompiler} class.</p>
  */
 
+@CSharpModifiers(code = {"internal"})
 public class XPathExecutable {
 
-    private XPathExpression exp;
-    private Processor processor;
-    private IndependentContext env;
+    private final XPathExpression exp;
+    private final Processor processor;
+    private final IndependentContext env;
 
     // protected constructor
 
@@ -53,8 +53,7 @@ public class XPathExecutable {
 
     public XPathSelector load() {
         Map<StructuredQName, XPathVariable> declaredVariables = new LinkedHashMap<StructuredQName, XPathVariable>();
-        for (Iterator iter = env.iterateExternalVariables(); iter.hasNext(); ) {
-            XPathVariable var = (XPathVariable) iter.next();
+        for (XPathVariable var :env.getExternalVariables()) {
             declaredVariables.put(var.getVariableQName(), var);
         }
         return new XPathSelector(exp, declaredVariables);
@@ -86,7 +85,6 @@ public class XPathExecutable {
     }
 
 
-
     /**
      * Get the ItemType of the items in the result of the expression, as determined by static analysis. This
      * is the most precise ItemType that the processor is able to determine from static examination of the
@@ -98,9 +96,8 @@ public class XPathExecutable {
      */
 
     public ItemType getResultItemType() {
-        net.sf.saxon.type.ItemType it =
-                exp.getInternalExpression().getItemType();
-        return new ConstructedItemType(it, processor);
+        net.sf.saxon.type.ItemType it = exp.getInternalExpression().getItemType();
+        return new ConstructedItemType(it, processor.getUnderlyingConfiguration());
     }
 
     /**
@@ -118,10 +115,10 @@ public class XPathExecutable {
 
     /**
      * Get an iterator over the names of all the external variables. This includes both variables that have
-     * been explicitly declared using a call to <tt>declareVariable()</tt>, and variables that are implicitly
-     * declared by reference in the case where the <tt>allowUndeclaredVariables</tt> option is set. It does
-     * not include range variables bound in a <tt>for</tt>, <tt>some</tt>, or <tt>every</tt> expression.
-     * <p>If the <tt>allowUndeclaredVariables</tt> option is set, this method allows discovery of the variable
+     * been explicitly declared using a call to <code>declareVariable()</code>, and variables that are implicitly
+     * declared by reference in the case where the <code>allowUndeclaredVariables</code> option is set. It does
+     * not include range variables bound in a <code>for</code>, <code>some</code>, or <code>every</code> expression.
+     * <p>If the <code>allowUndeclaredVariables</code> option is set, this method allows discovery of the variable
      * references that appear in the compiled expression.</p>
      *
      * @return an iterator over the names of the external variables defined in the XPath expression
@@ -129,23 +126,11 @@ public class XPathExecutable {
      */
 
     public Iterator<QName> iterateExternalVariables() {
-        final Iterator varIterator = env.iterateExternalVariables();
-        return new Iterator<QName>() {
-            @Override
-            public boolean hasNext() {
-                return varIterator.hasNext();
-            }
-
-            @Override
-            public QName next() {
-                return new QName(((XPathVariable) varIterator.next()).getVariableQName());
-            }
-
-            @Override
-            public void remove() {
-                throw new UnsupportedOperationException("remove");
-            }
-        };
+        List<QName> list = new ArrayList<>();
+        for (XPathVariable var : env.getExternalVariables()) {
+            list.add(new QName(var.getVariableQName()));
+        }
+        return list.iterator();
     }
 
     /**
@@ -156,7 +141,7 @@ public class XPathExecutable {
      *         <p>If the variable was explicitly declared, this will be the item type that was set when the
      *         variable was declared. If no item type was set, it will be {@link ItemType#ANY_ITEM}.</p>
      *         <p>If the variable was implicitly declared by reference (which can happen only when the
-     *         <tt>allowUndeclaredVariables</tt> option is set), the returned type will be {@link ItemType#ANY_ITEM}.</p>
+     *         <code>allowUndeclaredVariables</code> option is set), the returned type will be {@link ItemType#ANY_ITEM}.</p>
      *         <p>If no variable with the specified QName has been declared either explicitly or implicitly,
      *         the method returns null.</p>
      * @since 9.2
@@ -168,7 +153,7 @@ public class XPathExecutable {
         if (var == null) {
             return null;
         } else {
-            return new ConstructedItemType(var.getRequiredType().getPrimaryType(), processor);
+            return new ConstructedItemType(var.getRequiredType().getPrimaryType(), processor.getUnderlyingConfiguration());
         }
     }
 
@@ -180,7 +165,7 @@ public class XPathExecutable {
      *         <p>If the variable was explicitly declared, this will be the occurrence indicator that was set when the
      *         variable was declared. If no item type was set, it will be {@link OccurrenceIndicator#ZERO_OR_MORE}.</p>
      *         <p>If the variable was implicitly declared by reference (which can happen only when the
-     *         <tt>allowUndeclaredVariables</tt> option is set), the returned type will be
+     *         <code>allowUndeclaredVariables</code> option is set), the returned type will be
      *         {@link OccurrenceIndicator#ZERO_OR_MORE}.</p>
      *         <p>If no variable with the specified QName has been declared either explicitly or implicitly,
      *         the method returns null.</p>

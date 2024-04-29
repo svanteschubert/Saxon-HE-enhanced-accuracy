@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -39,13 +39,13 @@ public class XSLFork extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return false;
     }
 
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
@@ -81,7 +81,8 @@ public class XSLFork extends StyleElement {
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
         Expression content = compileSequenceConstructor(exec, decl, true);
         if (content instanceof Block) {
-            return new Fork(((Block) content).getOperanda());
+            return new Fork(((Block) content).getOperanda())
+                    .withLocation(saveLocation());
         } else {
             return content;
         }

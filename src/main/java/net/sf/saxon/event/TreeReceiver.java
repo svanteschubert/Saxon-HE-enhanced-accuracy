@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -31,7 +32,7 @@ import java.util.Arrays;
  */
 
 public class TreeReceiver extends SequenceReceiver {
-    private Receiver nextReceiver;
+    private final Receiver nextReceiver;
     private int level = 0;
     private boolean[] isDocumentLevel = new boolean[20];
     // The sequence of events can include startElement/endElement pairs or startDocument/endDocument
@@ -170,8 +171,8 @@ public class TreeReceiver extends SequenceReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (chars.length() > 0) {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (!chars.isEmpty()) {
             nextReceiver.characters(chars, locationId, properties);
         }
         previousAtomic = false;
@@ -183,7 +184,7 @@ public class TreeReceiver extends SequenceReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         nextReceiver.processingInstruction(target, data, locationId, properties);
         previousAtomic = false;
     }
@@ -193,7 +194,7 @@ public class TreeReceiver extends SequenceReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         nextReceiver.comment(chars, locationId, properties);
         previousAtomic = false;
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.om;
 
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.Closure;
 
@@ -40,11 +41,11 @@ public interface Sequence {
      *
      * @return an iterator (specifically, a Saxon {@link SequenceIterator}, which is
      * not a {@link java.util.Iterator}) over all the items
-     * @throws XPathException in the situation where the sequence is evaluated lazily, and
+     * @throws UncheckedXPathException in the situation where the sequence is evaluated lazily, and
      *                        constructing an iterator over the items causes a dynamic error.
      */
 
-    SequenceIterator iterate() throws XPathException;
+    SequenceIterator iterate();
 
     /**
      * Create a {@link GroundedValue} containing the same items as this Sequence.
@@ -52,12 +53,16 @@ public interface Sequence {
      * any rate, it guarantees that the entire sequence can be read without any
      * possibility of XPath dynamic errors arising.
      * @return a {@link GroundedValue} containing the same items as this Sequence
-     * @throws XPathException if evaluating the contents of the sequence fails with
+     * @throws XPathException if evaluating the contents of the sequence (lazily) fails with
      * a dynamic error.
      */
 
     default GroundedValue materialize() throws XPathException {
-        return iterate().materialize();
+        try {
+            return SequenceTool.toGroundedValue(iterate());
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
+        }
     }
 
     /**
@@ -75,7 +80,6 @@ public interface Sequence {
     default Sequence makeRepeatable() throws XPathException {
         return this;
     }
-
 
 }
 

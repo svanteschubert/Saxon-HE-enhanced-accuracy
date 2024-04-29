@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.instruct.GlobalVariable;
 import net.sf.saxon.expr.instruct.NamedTemplate;
 import net.sf.saxon.expr.instruct.UserFunction;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.NameTest;
@@ -25,25 +26,29 @@ import java.util.List;
 public class XSLExpose extends XSLAcceptExpose {
 
     protected void checkCompatibility(SymbolicName name, Visibility declared, Visibility exposed) {
+        if (exposed == Visibility.ABSTRACT && declared != Visibility.ABSTRACT) {
+            compileError("The " + name + " cannot be exposed as " + Err.describeVisibility(exposed)
+                    + " because it is not originally declared as abstract", "XTSE3025");
+        }
         if (!isCompatible(declared, exposed)) {
             String code =  "XTSE3010";
-            compileError("The " + name + " is declared as " + declared.show() + " and cannot be exposed as " + exposed.show(), code);
+            compileError("The " + name + " is declared as " + Err.describeVisibility(declared)
+                                 + " and cannot be exposed as " + Err.describeVisibility(exposed), code);
         }
     }
 
     public static boolean isCompatible(Visibility declared, Visibility exposed) {
-        if (declared == null || declared == exposed) {
+        if (declared == exposed || declared == Visibility.UNDEFINED) {
             return true;
         }
         switch (declared) {
             case PUBLIC:
-                return exposed == Visibility.PUBLIC || exposed == Visibility.PRIVATE ||
-                        exposed == Visibility.FINAL || exposed == Visibility.HIDDEN;
-            case ABSTRACT:
-                return exposed == Visibility.ABSTRACT || exposed == Visibility.HIDDEN;
-            case FINAL:
                 return exposed == Visibility.PRIVATE ||
                         exposed == Visibility.FINAL || exposed == Visibility.HIDDEN;
+            case ABSTRACT:
+                return exposed == Visibility.HIDDEN;
+            case FINAL:
+                return exposed == Visibility.PRIVATE || exposed == Visibility.HIDDEN;
             default:
                 return false;
         }
@@ -67,7 +72,7 @@ public class XSLExpose extends XSLAcceptExpose {
         // The following code checks that explicit references to components (as distinct from
         // wildcards) refer to actual components, and that the exposed visibility is consistent
         // with the declared visibility. It doesn't actually change the component's visibility property.
-        // This is done later, in PrincipalStylesheetModuleEE#adjustExposedVisibility.
+        // This is done later, in PrincipalStylesheetModule#adjustExposedVisibility.
 
         for (ComponentTest test : getExplicitComponentTests()) {
             QNameTest nameTest = test.getQNameTest();
@@ -118,8 +123,7 @@ public class XSLExpose extends XSLAcceptExpose {
                             checkCompatibility(sName, mode.getDeclaredVisibility(), getVisibility());
                         }
                         if (getVisibility() == Visibility.ABSTRACT) {
-                            // obviously wrong, though I don't see a rule in the spec
-                            compileError("The visibility of a mode cannot be abstract");
+                            compileError("The visibility of a mode cannot be abstract", "XTSE3025");
                         }
                         break;
                     case StandardNames.XSL_FUNCTION:
@@ -145,8 +149,8 @@ public class XSLExpose extends XSLAcceptExpose {
                         }
                         break;
                 }
-                if (!found) {
-                    compileError("No " + sName.toString() + " exists in the containing package", "XTSE3020");
+                if (!found && !qName.equals(new StructuredQName("saxon", NamespaceUri.SAXON, "error-name"))) {
+                    compileError("No " + sName + " exists in the containing package", "XTSE3020");
                 }
 
             }

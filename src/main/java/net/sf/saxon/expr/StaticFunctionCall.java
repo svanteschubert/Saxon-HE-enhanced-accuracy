@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,15 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.instruct.OriginalFunction;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -27,9 +30,9 @@ import net.sf.saxon.type.*;
  */
 public class StaticFunctionCall extends FunctionCall implements Callable {
 
-    private Function target;
+    private final FunctionItem target;
 
-    public StaticFunctionCall(Function target, Expression[] arguments) {
+    public StaticFunctionCall(FunctionItem target, Expression[] arguments) {
         if (target.getArity() != arguments.length) {
             throw new IllegalArgumentException("Function call to " + target.getFunctionName() + " with wrong number of arguments (" + arguments.length + ")");
         }
@@ -43,7 +46,7 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
      * @return the target function
      */
 
-    public Function getTargetFunction() {
+    public FunctionItem getTargetFunction() {
         return target;
     }
 
@@ -55,7 +58,7 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
      * @return the target function
      */
     @Override
-    public Function getTargetFunction(XPathContext context) {
+    public FunctionItem getTargetFunction(XPathContext context) {
         return getTargetFunction();
     }
 
@@ -202,7 +205,7 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
         if (target instanceof OriginalFunction) {
-            ExpressionPresenter.ExportOptions options = (ExpressionPresenter.ExportOptions) out.getOptions();
+            ExpressionPresenter.ExportOptions options = out.getOptions();
             OriginalFunction pf = (OriginalFunction) target;
             out.startElement("origFC", this);
             out.emitAttribute("name", pf.getFunctionName());
@@ -266,6 +269,30 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
         }
     }
 
+    @Override
+    public Elaborator getElaborator() {
+        return new StaticFunctionCallElaborator();
+    }
 
+    private static class StaticFunctionCallElaborator extends FunctionCallElaborator {
+
+        @Override
+        public void setExpression(Expression expr) {
+            super.setExpression(expr);
+            allocateArgumentEvaluators((FunctionCall) expr, true);
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            StaticFunctionCall expr = (StaticFunctionCall) getExpression();
+            return context -> expr.call(context, evaluateArguments(context)).iterate();
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            StaticFunctionCall expr = (StaticFunctionCall) getExpression();
+            return context -> expr.call(context, evaluateArguments(context)).head();
+        }
+    }
 }
 

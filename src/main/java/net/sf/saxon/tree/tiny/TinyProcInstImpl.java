@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,18 +9,17 @@ package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
 
 /**
- * TProcInstImpl is an implementation of ProcInstInfo
- *
- * @author Michael H. Kay
- * @version 16 July 1999
+ * TinyProcInstImpl is a node in the TinyTree representing a processing instruction
  */
 
 
@@ -32,15 +31,13 @@ final class TinyProcInstImpl extends TinyNodeImpl {
     }
 
     @Override
-    public String getStringValue() {
+    public UnicodeString getUnicodeStringValue() {
         int start = tree.alpha[nodeNr];
         int len = tree.beta[nodeNr];
         if (len == 0) {
-            return "";    // need to special-case this for the Microsoft JVM
+            return EmptyUnicodeString.getInstance();    // need to special-case this for the Microsoft JVM
         }
-        char[] dest = new char[len];
-        tree.commentBuffer.getChars(start, start + len, dest, 0);
-        return new String(dest, 0, len);
+        return tree.commentBuffer.substring(start, start + len);
     }
 
     /**
@@ -50,7 +47,7 @@ final class TinyProcInstImpl extends TinyNodeImpl {
 
     @Override
     public AtomicSequence atomize() {
-        return new StringValue(getStringValue());
+        return new StringValue(getUnicodeStringValue());
     }
 
     @Override
@@ -73,7 +70,7 @@ final class TinyProcInstImpl extends TinyNodeImpl {
 
     @Override
     public void copy(Receiver out, int copyOptions, Location locationId) throws XPathException {
-        out.processingInstruction(getDisplayName(), getStringValue(), locationId, ReceiverOption.NONE);
+        out.processingInstruction(getDisplayName(), getUnicodeStringValue(), locationId, ReceiverOption.NONE);
     }
 
     // DOM methods
@@ -100,8 +97,8 @@ final class TinyProcInstImpl extends TinyNodeImpl {
      */
 
     /*@NotNull*/
-    public String getData() {
-        return getStringValue();
+    public UnicodeString getData() {
+        return getUnicodeStringValue();
     }
 
 }

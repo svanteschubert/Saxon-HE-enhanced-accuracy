@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -147,7 +148,7 @@ public class DOMWriter extends Builder {
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties) throws XPathException {
         String qname = elemName.getDisplayName();
-        String uri = elemName.getURI();
+        String uri = elemName.getNamespaceUri().toString();
         try {
             Element element = document.createElementNS("".equals(uri) ? null : uri, qname);
             if (nextSibling != null && level == 0) {
@@ -162,7 +163,7 @@ public class DOMWriter extends Builder {
                 NamespaceBinding[] declarations = namespaces.getDifferences(parentNamespaces, false);
                 for (NamespaceBinding ns : declarations) {
                     String prefix = ns.getPrefix();
-                    String nsuri = ns.getURI();
+                    String nsuri = ns.getNamespaceUri().toString();
                     if (!nsuri.equals(NamespaceConstant.XML)) {
                         if (prefix.isEmpty()) {
                             element.setAttributeNS(NamespaceConstant.XMLNS, "xmlns", nsuri);
@@ -177,11 +178,11 @@ public class DOMWriter extends Builder {
 
             for (AttributeInfo att : attributes) {
                 NodeName attName = att.getNodeName();
-                String atturi = attName.getURI();
+                String atturi = attName.getNamespaceUri().toString();
                 element.setAttributeNS("".equals(atturi) ? null : atturi, attName.getDisplayName(), att.getValue());
                 if (attName.equals(StandardNames.XML_ID_NAME) ||
                         ReceiverOption.contains(properties, ReceiverOption.IS_ID) ||
-                        attName.hasURI(NamespaceConstant.XML) && attName.getLocalPart().equals("id")) {
+                        attName.hasURI(NamespaceUri.XML) && attName.getLocalPart().equals("id")) {
                     String localName = attName.getLocalPart();
                     element.setIdAttributeNS("".equals(atturi) ? null : atturi, localName, true);
                 }
@@ -218,8 +219,8 @@ public class DOMWriter extends Builder {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (level == 0 && nextSibling == null && Whitespace.isWhite(chars)) {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (level == 0 && nextSibling == null && Whitespace.isAllWhite(chars)) {
             return; // no action for top-level whitespace
         }
         try {
@@ -240,7 +241,7 @@ public class DOMWriter extends Builder {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties)
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties)
             throws XPathException {
         try {
             ProcessingInstruction pi =
@@ -260,7 +261,7 @@ public class DOMWriter extends Builder {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         try {
             Comment comment = document.createComment(chars.toString());
             if (nextSibling != null && level == 0) {
@@ -347,6 +348,7 @@ public class DOMWriter extends Builder {
 
     /**
      * Get all in-scope namespaces for the node to which we are attaching a new subtree
+     *
      * @param anchor the (document or element) node to which we are attaching
      * @return the in-scope namespaces of a supplied DOM node
      */
@@ -364,13 +366,13 @@ public class DOMWriter extends Builder {
                         String attName = att.getName();
                         if (attName.startsWith("xmlns")) {
                             if (attName.length() == 5) {
-                                if (nsMap.getURI("") == null) {
-                                    nsMap = nsMap.bind("", att.getValue());
+                                if (nsMap.getNamespaceUri("") == null) {
+                                    nsMap = nsMap.bind("", NamespaceUri.of(att.getValue()));
                                 }
                             } else if (attName.charAt(5) == ':') {
                                 String prefix = attName.substring(6);
-                                if (nsMap.getURI(prefix) == null) {
-                                    nsMap = nsMap.bind(attName.substring(6), att.getValue());
+                                if (nsMap.getNamespaceUri(prefix) == null) {
+                                    nsMap = nsMap.bind(attName.substring(6), NamespaceUri.of(att.getValue()));
                                 }
                             }
                         }
@@ -380,7 +382,7 @@ public class DOMWriter extends Builder {
                 if (parent == null || parent.getNodeType() != Type.ELEMENT) {
                     return nsMap;
                 }
-                elem = (Element)parent;
+                elem = (Element) parent;
             }
         } else {
             // not an element node

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -38,7 +38,7 @@ public interface BuildingStreamWriter extends XMLStreamWriter {
      * @throws SaxonApiException if any failure occurs
      */
 
-    public XdmNode getDocumentNode() throws SaxonApiException;
+    XdmNode getDocumentNode() throws SaxonApiException;
 
     /**
      * Say whether names and values are to be checked for conformance with XML rules
@@ -46,7 +46,7 @@ public interface BuildingStreamWriter extends XMLStreamWriter {
      * @param check true if names and values are to be checked. Default is true.
      */
 
-    public void setCheckValues(boolean check);
+    void setCheckValues(boolean check);
 
     /**
      * Ask whether names and values are to be checked for conformance with XML rules
@@ -54,7 +54,7 @@ public interface BuildingStreamWriter extends XMLStreamWriter {
      * @return true if names and values are to be checked. Default is true.
      */
 
-    public boolean isCheckValues();
+    boolean isCheckValues();
 
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,22 +9,21 @@ package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.Stripper;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.ComplexType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
 import net.sf.saxon.value.Whitespace;
-
-import java.util.function.Predicate;
 
 
 /**
@@ -102,7 +101,7 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
     public static boolean isPreservedNode(NodeInfo node, SpaceStrippedDocument docWrapper, NodeInfo actualParent) {
 
         // Non-text nodes, non-whitespace nodes, and parentless nodes are preserved
-        if (node.getNodeKind() != Type.TEXT || actualParent == null || !Whitespace.isWhite(node.getStringValueCS())) {
+        if (node.getNodeKind() != Type.TEXT || actualParent == null || !Whitespace.isAllWhite(node.getUnicodeStringValue())) {
             return true;
         }
 
@@ -118,7 +117,7 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
             // the document contains one or more xml:space="preserve" attributes, so we need to see
             // if one of them is on an ancestor of this node
             while (p.getNodeKind() == Type.ELEMENT) {
-                String val = p.getAttributeValue(NamespaceConstant.XML, "space");
+                String val = p.getAttributeValue(NamespaceUri.XML, "space");
                 if (val != null) {
                     if ("preserve".equals(val)) {
                         return true;
@@ -187,6 +186,15 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
         }
     }
 
+    /**
+     * The hashCode() method obeys the contract for hashCode(): that is, if two objects are equal
+     * (represent the same node) then they must have the same hashCode()
+     */
+    @Override
+    public int hashCode() {
+        return node.hashCode();
+    }
+
 
     /**
      * Determine the relative position of this node and another node, in document order.
@@ -208,28 +216,25 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
     }
 
     /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
+     * Get the string value of the item.
+     * @return the string value of the node
      */
 
     @Override
-    public CharSequence getStringValueCS() {
+    public UnicodeString getUnicodeStringValue() {
         // Might not be the same as the string value of the underlying node because of space stripping
         switch (getNodeKind()) {
             case Type.DOCUMENT:
             case Type.ELEMENT:
                 AxisIterator iter = iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.makeNodeKindTest(Type.TEXT));
-                FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
-                while (true) {
-                    NodeInfo it = iter.next();
-                    if (it == null) {
-                        break;
-                    }
-                    sb.cat(it.getStringValueCS());
+                UnicodeBuilder sb = new UnicodeBuilder();
+                NodeInfo it;
+                while ((it = iter.next()) != null) {
+                    sb.accept(it.getUnicodeStringValue());
                 }
-                return sb.condense();
+                return sb.toUnicodeString();
             default:
-                return node.getStringValueCS();
+                return node.getUnicodeStringValue();
         }
     }
 
@@ -250,14 +255,14 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
     }
 
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
         if (nodeTest instanceof NodeTest &&
                 ((NodeTest)nodeTest).getUType().intersection(UType.TEXT) == UType.VOID ||
                 axisNumber == AxisInfo.ATTRIBUTE || axisNumber == AxisInfo.NAMESPACE) {
             // iteration does not include text nodes, so no stripping needed
             return new WrappingIterator(node.iterateAxis(axisNumber, nodeTest), this, getParentForAxis(axisNumber));
         } else {
-            return new StrippingIterator(node.iterateAxis(axisNumber, nodeTest), getParentForAxis(axisNumber));
+            return new StrippingIterator(node.iterateAxis(axisNumber, nodeTest), (SpaceStrippedDocument) docWrapper, getParentForAxis(axisNumber));
         }
     }
 
@@ -276,17 +281,17 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
             case AxisInfo.NAMESPACE:
                 return new WrappingIterator(node.iterateAxis(axisNumber), this, this);
             case AxisInfo.CHILD:
-                return new StrippingIterator(node.iterateAxis(axisNumber), this);
+                return new StrippingIterator(node.iterateAxis(axisNumber), (SpaceStrippedDocument) docWrapper, this);
             case AxisInfo.FOLLOWING_SIBLING:
             case AxisInfo.PRECEDING_SIBLING:
                 SpaceStrippedNode parent = (SpaceStrippedNode) getParent();
                 if (parent == null) {
                     return EmptyIterator.ofNodes();
                 } else {
-                    return new StrippingIterator(node.iterateAxis(axisNumber), parent);
+                    return new StrippingIterator(node.iterateAxis(axisNumber), (SpaceStrippedDocument) docWrapper, parent);
                 }
             default:
-                return new StrippingIterator(node.iterateAxis(axisNumber), null);
+                return new StrippingIterator(node.iterateAxis(axisNumber), (SpaceStrippedDocument) docWrapper, null);
         }
     }
 
@@ -328,11 +333,12 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
      * skips them.
      */
 
-    private final class StrippingIterator implements AxisIterator {
+    private static class StrippingIterator implements AxisIterator {
 
         AxisIterator base;
         SpaceStrippedNode parent;
         NodeInfo currentVirtualNode;
+        SpaceStrippedDocument docWrapper;
         int position;
 
         /**
@@ -343,8 +349,9 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
          *               it can be specified here. Otherwise specify null.
          */
 
-        public StrippingIterator(AxisIterator base, SpaceStrippedNode parent) {
+        public StrippingIterator(AxisIterator base, SpaceStrippedDocument docWrapper, SpaceStrippedNode parent) {
             this.base = base;
+            this.docWrapper = docWrapper;
             this.parent = parent;
             position = 0;
         }
@@ -354,18 +361,15 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
         @Override
         public NodeInfo next() {
             NodeInfo nextRealNode;
-            while (true) {
+            do {
                 nextRealNode = base.next();
                 if (nextRealNode == null) {
                     return null;
                 }
-                if (isPreserved(nextRealNode)) {
-                    break;
-                }
                 // otherwise skip this whitespace text node
-            }
+            } while (!isPreserved(nextRealNode));
 
-            currentVirtualNode = makeWrapper(nextRealNode, (SpaceStrippedDocument) docWrapper, parent);
+            currentVirtualNode = makeWrapper(nextRealNode, docWrapper, parent);
             position++;
             return currentVirtualNode;
         }
@@ -376,7 +380,7 @@ public class SpaceStrippedNode extends AbstractVirtualNode implements WrappingFu
             }
             NodeInfo actualParent =
                     parent == null ? nextRealNode.getParent() : parent.node;
-            return isPreservedNode(nextRealNode, (SpaceStrippedDocument)docWrapper, actualParent);
+            return isPreservedNode(nextRealNode, docWrapper, actualParent);
         }
 
         @Override

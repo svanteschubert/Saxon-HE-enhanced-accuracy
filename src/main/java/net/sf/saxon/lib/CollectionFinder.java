@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.lib;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpDelegate;
 
 /**
  * An instance of CollectionFinder can be registered with the Saxon configuration; it is called in response
@@ -18,7 +19,7 @@ import net.sf.saxon.trans.XPathException;
  * called to get a {@link ResourceCollection} object representing the collection of resources identified by
  * the supplied collection URI.
  *
- * @since 9.7: Supersedes URICollectionResolver.
+ * @since 9.7: Supersedes CollectionURIResolver.
  * The interface was changed to return Resource objects, to allow streamed
  * processing of the documents in a collection; and to pass a properties object that
  * can be used to indicate whether the collection is stable (that is, repeated requests
@@ -26,6 +27,7 @@ import net.sf.saxon.trans.XPathException;
  */
 
 @FunctionalInterface
+@CSharpDelegate(true)
 public interface CollectionFinder {
 
     /**
@@ -38,7 +40,7 @@ public interface CollectionFinder {
      * by this collection URI. Result should not be null.
      * @throws XPathException if the collection was not found
      */
-
+    //@CSharpReplaceMethod(code="object findCollection(net.sf.saxon.expr.XPathContext context, string collectionURI);")
     ResourceCollection findCollection(XPathContext context, String collectionURI) throws XPathException;
 
 }

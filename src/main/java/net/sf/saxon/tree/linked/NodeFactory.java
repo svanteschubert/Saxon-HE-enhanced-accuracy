@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.type.SchemaType;
 
 
@@ -21,8 +22,6 @@ import net.sf.saxon.type.SchemaType;
  * A Factory for nodes used to build a tree. <br>
  * Currently only allows Element nodes to be user-constructed.
  *
- * @author Michael H. Kay
- * @version 25 February 2000
  */
 
 public interface NodeFactory {
@@ -62,7 +61,7 @@ public interface NodeFactory {
      * @return the constructed text node
      */
 
-    public TextImpl makeTextNode(NodeInfo parent, CharSequence content);
+    TextImpl makeTextNode(NodeInfo parent, UnicodeString content);
 
 }
 

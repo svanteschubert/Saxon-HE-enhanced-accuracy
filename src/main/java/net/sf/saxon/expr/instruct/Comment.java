@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,20 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.elab.SimpleNodePushElaborator;
+import net.sf.saxon.expr.elab.UnicodeStringEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringConstants;
+import net.sf.saxon.str.Twine8;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
@@ -60,7 +68,7 @@ public final class Comment extends SimpleNodeConstructor {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables to be re-bound
      */
 
     /*@NotNull*/
@@ -77,8 +85,8 @@ public final class Comment extends SimpleNodeConstructor {
         // Do early checking of content if known statically
 
         if (getSelect() instanceof Literal) {
-            String s = ((Literal) getSelect()).getValue().getStringValue();
-            String s2 = checkContent(s, visitor.getStaticContext().makeEarlyEvaluationContext());
+            UnicodeString s = ((Literal) getSelect()).getGroundedValue().getUnicodeStringValue();
+            UnicodeString s2 = checkContent(s, visitor.getStaticContext().makeEarlyEvaluationContext());
             if (!s2.equals(s)) {
                 setSelect(new StringLiteral(s2));
             }
@@ -96,8 +104,8 @@ public final class Comment extends SimpleNodeConstructor {
      */
 
     @Override
-    public void processValue(CharSequence value, Outputter output, XPathContext context) throws XPathException {
-        String comment = checkContent(value.toString(), context);
+    public void processValue(UnicodeString value, Outputter output, XPathContext context) throws XPathException {
+        UnicodeString comment = checkContent(value, context);
         output.comment(comment, getLocation(), ReceiverOption.NONE);
     }
 
@@ -112,16 +120,15 @@ public final class Comment extends SimpleNodeConstructor {
      */
 
     @Override
-    protected String checkContent(String comment, XPathContext context) throws XPathException {
+    public UnicodeString checkContent(UnicodeString comment, XPathContext context) throws XPathException {
         if (isXSLT()) {
             return checkContentXSLT(comment);
         } else {
             try {
                 return checkContentXQuery(comment);
             } catch (XPathException err) {
-                err.setXPathContext(context);
-                err.setLocation(getLocation());
-                throw err;
+                throw err.withXPathContext(context)
+                        .withLocation(getLocation());
             }
         }
     }
@@ -133,13 +140,16 @@ public final class Comment extends SimpleNodeConstructor {
      * @return the adjusted text of the comment
      */
 
-    public static String checkContentXSLT(String comment) {
-        int hh;
-        while ((hh = comment.indexOf("--")) >= 0) {
-            comment = comment.substring(0, hh + 1) + ' ' + comment.substring(hh + 1);
-        }
-        if (comment.endsWith("-")) {
-            comment = comment + ' ';
+    public static UnicodeString checkContentXSLT(UnicodeString comment) {
+        String message = invalidity(comment);
+        if (message != null) {
+            long hh;
+            while ((hh = comment.indexOf(TWO_HYPHENS, 0)) >= 0) {
+                comment = comment.substring(0, hh + 1).concat(StringConstants.SINGLE_SPACE).concat(comment.substring(hh + 1));
+            }
+            if (comment.codePointAt(comment.length()-1) == '-') {
+                comment = comment.concat(StringConstants.SINGLE_SPACE);
+            }
         }
         return comment;
     }
@@ -153,15 +163,25 @@ public final class Comment extends SimpleNodeConstructor {
      *          if the content is invalid
      */
 
-    public static String checkContentXQuery(String comment) throws XPathException {
-        if (comment.contains("--")) {
-            throw new XPathException("Invalid characters (--) in comment", "XQDY0072");
-        }
-        if (comment.length() > 0 && comment.charAt(comment.length() - 1) == '-') {
-            throw new XPathException("Comment cannot end in '-'", "XQDY0072");
+    public static UnicodeString checkContentXQuery(UnicodeString comment) throws XPathException {
+        String message = invalidity(comment);
+        if (message != null) {
+            throw new XPathException(message, "XQDY0072");
         }
         return comment;
     }
+
+    private static String invalidity(UnicodeString comment) {
+        if (comment.indexOf(TWO_HYPHENS, 0) >= 0) {
+            return "Invalid characters (--) in comment";
+        }
+        if (comment.length() > 0 && comment.codePointAt(comment.length() - 1) == '-') {
+            return "Comment cannot end in '-'";
+        }
+        return null;
+    }
+
+    private final static UnicodeString TWO_HYPHENS = new Twine8(StringConstants.TWO_HYPHENS);
 
 
     /**
@@ -181,6 +201,42 @@ public final class Comment extends SimpleNodeConstructor {
         }
         getSelect().export(out);
         out.endElement();
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new CommentElaborator();
+    }
+
+
+    private static class CommentElaborator extends SimpleNodePushElaborator {
+        @Override
+        public PushEvaluator elaborateForPush() {
+            Comment expr = (Comment)getExpression();
+            Location loc = expr.getLocation();
+            UnicodeStringEvaluator contentEval = expr.getSelect().makeElaborator().elaborateForUnicodeString(true);
+            if (expr.isXSLT()) {
+                return (out, context) -> {
+                    UnicodeString content = contentEval.eval(context);
+                    content = Comment.checkContentXSLT(content);
+                    out.comment(content, loc, ReceiverOption.NONE);
+                    return null;
+                };
+            } else {
+                return (out, context) -> {
+                    UnicodeString content = contentEval.eval(context);
+                    Comment.checkContentXQuery(content);
+                    out.comment(content, loc, ReceiverOption.NONE);
+                    return null;
+                };
+            }
+        }
     }
 
 }

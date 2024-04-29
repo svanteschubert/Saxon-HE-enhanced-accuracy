@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,9 +12,10 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.value.StringValue;
 
 /**
  * This abstract class is provided to allow user-written extension functions to be implemented
@@ -83,6 +84,7 @@ public abstract class ExtensionFunctionCall implements Callable {
      *                        consistent with each other).
      */
 
+    @CSharpModifiers(code={"public", "virtual"})
     public void supplyStaticContext(StaticContext context, int locationId, Expression[] arguments) throws XPathException {
         // default implementation does nothing
     }
@@ -109,25 +111,24 @@ public abstract class ExtensionFunctionCall implements Callable {
      */
 
     /*@Nullable*/
+    @CSharpModifiers(code = {"public", "virtual"})
     public Expression rewrite(StaticContext context, Expression[] arguments) throws XPathException {
         // default implementation does nothing
         return null;
     }
 
     /**
-     * Copy local data from one copy of the function to another. This method must be implemented
-     * in any implementation that maintains local data retained from the static context; the job of the
-     * method is to copy this local data to the supplied destination function.
-     * <p>This method is called if a call to the extension function needs to be copied during
-     * the process of optimization. For example, this occurs if the function containing the call
-     * to the extension function is inlined.</p>
-     * <p>If any objects held as local data for the function call are mutable then deep copies must
-     * be made.</p>
+     * Copy local data from one copy of the function to another.
+     * <p>This method is no longer used: functions do not need to provide an implementation, and if they
+     * do so, the implementation will never be called. It is retained for the time being for backwards
+     * compatibility</p>
      *
-     * @param destination the function to which the local data must be copied. This will always
-     *                    be an instance of the same function class as the source function.
+     * @param destination the function to which the local data must be copied.
+     * @deprecated since 12.0
      */
 
+    @CSharpModifiers(code = {"public", "virtual"})
+    @Deprecated
     public void copyLocalData(ExtensionFunctionCall destination) {
         // default implementation does nothing
     }
@@ -152,7 +153,7 @@ public abstract class ExtensionFunctionCall implements Callable {
      *         which means that the items in the sequence are computed lazily on demand. This means that any errors that occur
      *         while computing the sequence might not be thrown until the relevant item is actually read from the sequence.</p>
      *         <p>If the result is a single item, it can be returned directly, since single items all implement <code>Sequence</code>.
-     *         For example a string can be returned as an instance of {@link net.sf.saxon.value.StringValue}, and a boolean as an instance
+     *         For example a string can be returned as an instance of {@link StringValue}, and a boolean as an instance
      *         of {@link net.sf.saxon.value.BooleanValue}.
      *         If the result is an empty sequence, the method should return {@link net.sf.saxon.value.EmptySequence#getInstance()}</p>
      * @throws XPathException if a dynamic error occurs during evaluation of the function. The Saxon run-time
@@ -183,6 +184,7 @@ public abstract class ExtensionFunctionCall implements Callable {
      *                        code will add information about the error location.
      */
 
+    @CSharpModifiers(code = {"public", "virtual"})
     public boolean effectiveBooleanValue(XPathContext context, Sequence[] arguments) throws XPathException {
         return ExpressionTool.effectiveBooleanValue(call(context, arguments).iterate());
     }
@@ -194,6 +196,7 @@ public abstract class ExtensionFunctionCall implements Callable {
      * @return the streaming implementation of the extension function
      */
 
+    @CSharpModifiers(code = {"public", "virtual"})
     public Object getStreamingImplementation() {
         return null;
     }

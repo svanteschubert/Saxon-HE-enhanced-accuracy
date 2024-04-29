@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,6 +25,7 @@ public interface GlobalVariableManager {
      * on the static context should never be considered equivalent. If no equivalent global
      * variable is found, return null. An implementation can always return null if
      * it wants to avoid a lengthy search.
+     * @param select the expression to which the variable is bound
      * @return an existing global variable with the same select expression, if one
      * can be found; otherwise null.
      */
@@ -42,5 +43,5 @@ public interface GlobalVariableManager {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 

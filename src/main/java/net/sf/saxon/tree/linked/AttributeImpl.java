@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,10 @@ import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
@@ -170,6 +172,11 @@ public class AttributeImpl extends NodeImpl {
      */
 
     @Override
+    public UnicodeString getUnicodeStringValue() {
+        return StringView.tidy(getAttributeInfo().getValue());
+    }
+
+    @Override
     public String getStringValue() {
         return getAttributeInfo().getValue();
     }
@@ -222,10 +229,10 @@ public class AttributeImpl extends NodeImpl {
      */
 
     @Override
-    public void generateId(/*@NotNull*/ FastStringBuffer buffer) {
+    public void generateId(/*@NotNull*/ StringBuilder buffer) {
         getParent().generateId(buffer);
-        buffer.cat('a');
-        buffer.append(Integer.toString(getSiblingPosition()));
+        buffer.append('a');
+        buffer.append(getSiblingPosition());
     }
 
     /**
@@ -299,7 +306,8 @@ public class AttributeImpl extends NodeImpl {
             if (n.getNodeKind() != Type.ATTRIBUTE) {
                 throw new IllegalArgumentException("Replacement nodes must be attributes");
             }
-            element.addAttribute(NameOfNode.makeName(n), BuiltInAtomicType.UNTYPED_ATOMIC, n.getStringValue(), ReceiverOption.NONE, inherit);
+            element.addAttribute(NameOfNode.makeName(n), BuiltInAtomicType.UNTYPED_ATOMIC,
+                                 n.getStringValue(), ReceiverOption.NONE, inherit);
         }
     }
 
@@ -307,25 +315,25 @@ public class AttributeImpl extends NodeImpl {
      * Rename this node
      *
      * @param newNameCode the NamePool code of the new name
-     * @param inheritNamespaces
+     * @param inherit true if any new namespace binding is to be inherited
      */
 
     @Override
-    public void rename(NodeName newNameCode, boolean inheritNamespaces) {
+    public void rename(NodeName newNameCode, boolean inherit) {
         // The attribute node itself is transient; we need to update the attribute collection held in the parent
         ElementImpl owner = (ElementImpl)getRawParent();
         if (owner != null && !isDeleted()) {
             AttributeInfo att = getAttributeInfo();
             owner.setAttributeInfo(getSiblingPosition(),
                                    new AttributeInfo(newNameCode, BuiltInAtomicType.UNTYPED_ATOMIC, att.getValue(), att.getLocation(), att.getProperties()));
-            String newURI = newNameCode.getURI();
+            NamespaceUri newURI = newNameCode.getNamespaceUri();
             if (!newURI.isEmpty()) {
                 // new attribute name is in a namespace
                 String newPrefix = newNameCode.getPrefix();
                 NamespaceBinding newBinding = new NamespaceBinding(newPrefix, newURI);
-                String oldURI = ((ElementImpl) getRawParent()).getURIForPrefix(newPrefix, false);
+                NamespaceUri oldURI = ((ElementImpl) getRawParent()).getURIForPrefix(newPrefix, false);
                 if (oldURI == null) {
-                    owner.addNamespace(newBinding, inheritNamespaces);
+                    owner.addNamespace(newBinding, inherit);
                 } else if (!oldURI.equals(newURI)) {
                     throw new IllegalArgumentException(
                             "Namespace binding of new name conflicts with existing namespace binding");
@@ -335,7 +343,7 @@ public class AttributeImpl extends NodeImpl {
     }
 
     @Override
-    public void replaceStringValue(CharSequence stringValue) {
+    public void replaceStringValue(UnicodeString stringValue) {
         ElementImpl owner = (ElementImpl)getRawParent();
         if (owner != null && !isDeleted()) {
             AttributeInfo att = getAttributeInfo();

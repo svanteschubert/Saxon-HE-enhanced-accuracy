@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,10 @@
 package net.sf.saxon.expr;
 
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.instruct.Choose;
 import net.sf.saxon.expr.parser.*;
@@ -16,12 +20,13 @@ import net.sf.saxon.functions.PositionAndLast;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.functions.registry.VendorFunctionSetHE;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
 
@@ -41,6 +46,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
     private boolean filterIsIndependent;        // true if the filter expression does not
     // depend on the context item or position. (It may depend on last()).
     public boolean doneReorderingPredicates = false;
+    private boolean indexingDisabled;
     public static final int FILTERED = 10000;
 
     public final static OperandRole FILTER_PREDICATE =
@@ -70,6 +76,10 @@ public final class FilterExpression extends BinaryExpression implements ContextS
 
     public void setBase(Expression base) {
         setLhsExpression(base);
+    }
+
+    public void disableIndexing() {
+        indexingDisabled = true;
     }
 
     /**
@@ -143,7 +153,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
     }
 
     /**
-     * Ask if the filter is positional (used from bytecode)
+     * Ask if the filter is positional
      * @return true filter is positional
      */
     public boolean isFilterIsPositional() {
@@ -215,7 +225,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
         }
 
         // check whether the filter is a constant true() or false()
-        if (getFilter() instanceof Literal && !(((Literal) getFilter()).getValue() instanceof NumericValue)) {
+        if (getFilter() instanceof Literal && !(((Literal) getFilter()).getGroundedValue() instanceof NumericValue)) {
             try {
                 if (getFilter().effectiveBooleanValue(new EarlyEvaluationContext(getConfiguration()))) {
                     return getBase();
@@ -223,8 +233,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     return Literal.makeEmptySequence();
                 }
             } catch (XPathException e) {
-                e.maybeSetLocation(getLocation());
-                throw e;
+                throw e.maybeWithLocation(getLocation());
             }
         }
 
@@ -365,7 +374,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                 && ((CompareToStringConstant) getFilter()).getLhsExpression().isCallOn(LocalName_1.class)
                 && ((SystemFunctionCall)((CompareToStringConstant) getFilter()).getLhsExpression()).getArg(0) instanceof ContextItemExpression) {
             AxisExpression ax2 = new AxisExpression(((AxisExpression) getBase()).getAxis(),
-                                       new LocalNameTest(config.getNamePool(), Type.ELEMENT, ((CompareToStringConstant) getFilter()).getComparand()));
+                                       new LocalNameTest(config.getNamePool(), Type.ELEMENT, ((CompareToStringConstant) getFilter()).getComparand().toString()));
             ExpressionTool.copyLocationInfo(this, ax2);
             return ax2;
         }
@@ -381,8 +390,8 @@ public final class FilterExpression extends BinaryExpression implements ContextS
         }
 
         // the filter expression may have been reduced to a constant boolean by previous optimizations
-        if (getFilter() instanceof Literal && ((Literal) getFilter()).getValue() instanceof BooleanValue) {
-            if (((BooleanValue) ((Literal) getFilter()).getValue()).getBooleanValue()) {
+        if (getFilter() instanceof Literal && ((Literal) getFilter()).getGroundedValue() instanceof BooleanValue) {
+            if (((BooleanValue) ((Literal) getFilter()).getGroundedValue()).getBooleanValue()) {
                 if (tracing) {
                     opt.trace("Redundant filter removed", getBase());
                 }
@@ -404,7 +413,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                         getFilter().getItemType().equals(BuiltInAtomicType.BOOLEAN);
 
         // determine whether the filter is indexable
-        if (!filterIsPositional && !visitor.isOptimizeForStreaming()) {
+        if (!filterIsPositional && !visitor.isOptimizeForStreaming() && !indexingDisabled) {
             int isIndexable = opt.isIndexableFilter(getFilter());
 
             // If the filter is indexable consider creating a key, or an indexed filter expression
@@ -458,7 +467,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                 ((IsLastExpression) getFilter()).getCondition()) {
 
             if (getBase() instanceof Literal) {
-                setFilter(Literal.makeLiteral(new Int64Value(((Literal) getBase()).getValue().getLength()), this));
+                setFilter(Literal.makeLiteral(new Int64Value(((Literal) getBase()).getGroundedValue().getLength()), this));
             } else {
                 return new LastItemExpression(getBase());
             }
@@ -552,7 +561,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     !ExpressionTool.refersToVariableOrFunction(getFilter()) &&
                     (getFilter().getDependencies() & ~StaticProperty.DEPENDS_ON_FOCUS) == 0) {
                 XPathContext context = visitor.getStaticContext().makeEarlyEvaluationContext();
-                return iterate(context).materialize();
+                return SequenceTool.toGroundedValue(iterate(context));
             }
         } catch (Exception e) {
             // can happen for a variety of reasons, for example the filter references a global parameter,
@@ -607,7 +616,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
         Configuration config = visitor.getConfiguration();
         TypeHierarchy th = config.getTypeHierarchy();
         if (getFilter() instanceof Literal) {
-            GroundedValue val = ((Literal) getFilter()).getValue();
+            GroundedValue val = ((Literal) getFilter()).getGroundedValue();
             if (val instanceof NumericValue) {
                 Expression result;
                 int lvalue = ((NumericValue)val).asSubscript();
@@ -672,7 +681,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
             if (Cardinality.allowsZero(card)) {
                 LetExpression let = new LetExpression();
                 let.setRequiredType(SequenceType.makeSequenceType(comparand.getItemType(), card));
-                let.setVariableQName(new StructuredQName("pp", NamespaceConstant.SAXON, "pp" + let.hashCode()));
+                let.setVariableQName(new StructuredQName("pp", NamespaceUri.SAXON, "pp" + let.hashCode()));
                 let.setSequence(comparand);
                 comparand = new LocalVariableReference(let);
                 LocalVariableReference existsArg = new LocalVariableReference(let);
@@ -715,7 +724,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
 
             LetExpression let = new LetExpression();
             let.setRequiredType(SequenceType.SINGLE_INTEGER);
-            let.setVariableQName(new StructuredQName("nn", NamespaceConstant.SAXON, "nn" + let.hashCode()));
+            let.setVariableQName(new StructuredQName("nn", NamespaceUri.SAXON, "nn" + let.hashCode()));
             let.setSequence(min);
             min = new LocalVariableReference(let);
             LocalVariableReference min2 = new LocalVariableReference(let);
@@ -743,7 +752,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                 case Token.FEQ: {
                     if (Literal.isConstantOne(comparand)) {
                         return FirstItemExpression.makeFirstItemExpression(start);
-                    } else if (comparand instanceof Literal && ((IntegerValue) ((Literal) comparand).getValue()).asBigInteger().compareTo(BigInteger.ZERO) <= 0) {
+                    } else if (comparand instanceof Literal && ((IntegerValue) ((Literal) comparand).getGroundedValue()).asBigInteger().compareTo(BigInteger.ZERO) <= 0) {
                         return Literal.makeEmptySequence();
                     } else {
                         return new SubscriptExpression(start, comparand);
@@ -755,7 +764,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     args[0] = start;
                     args[1] = Literal.makeLiteral(Int64Value.makeIntegerValue(1), start);
                     if (Literal.isAtomic(comparand)) {
-                        long n = ((NumericValue) ((Literal) comparand).getValue()).longValue();
+                        long n = ((NumericValue) ((Literal) comparand).getGroundedValue()).longValue();
                         args[2] = Literal.makeLiteral(Int64Value.makeIntegerValue(n - 1), start);
                     } else {
                         ArithmeticExpression decrement = new ArithmeticExpression(
@@ -780,7 +789,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     Expression[] args = new Expression[2];
                     args[0] = start;
                     if (Literal.isAtomic(comparand)) {
-                        long n = ((NumericValue) ((Literal) comparand).getValue()).longValue();
+                        long n = ((NumericValue) ((Literal) comparand).getGroundedValue()).longValue();
                         args[1] = Literal.makeLiteral(Int64Value.makeIntegerValue(n + 1), start);
                     } else {
                         args[1] = new ArithmeticExpression(
@@ -807,7 +816,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     LetExpression let = new LetExpression();
                     let.setRequiredType(SequenceType.makeSequenceType(
                             comparand.getItemType(), StaticProperty.ALLOWS_ONE));
-                    let.setVariableQName(new StructuredQName("pp", NamespaceConstant.SAXON, "pp" + let.hashCode()));
+                    let.setVariableQName(new StructuredQName("pp", NamespaceUri.SAXON, "pp" + let.hashCode()));
                     let.setSequence(comparand);
                     LocalVariableReference isWholeArg = new LocalVariableReference(let);
                     LocalVariableReference arithArg = new LocalVariableReference(let);
@@ -835,7 +844,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     ExpressionTool.copyLocationInfo(start, let);
                     let.setRequiredType(SequenceType.makeSequenceType(
                             comparand.getItemType(), StaticProperty.ALLOWS_ONE));
-                    let.setVariableQName(new StructuredQName("pp", NamespaceConstant.SAXON, "pp" + let.hashCode()));
+                    let.setVariableQName(new StructuredQName("pp", NamespaceUri.SAXON, "pp" + let.hashCode()));
                     let.setSequence(comparand);
                     LocalVariableReference isWholeArg = new LocalVariableReference(let);
                     LocalVariableReference castArg = new LocalVariableReference(let);
@@ -855,7 +864,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     LetExpression let = new LetExpression();
                     let.setRequiredType(SequenceType.makeSequenceType(
                             comparand.getItemType(), StaticProperty.ALLOWS_ONE));
-                    let.setVariableQName(new StructuredQName("pp", NamespaceConstant.SAXON, "pp" + let.hashCode()));
+                    let.setVariableQName(new StructuredQName("pp", NamespaceUri.SAXON, "pp" + let.hashCode()));
                     let.setSequence(comparand);
                     LocalVariableReference isWholeArg = new LocalVariableReference(let);
                     LocalVariableReference arithArg = new LocalVariableReference(let);
@@ -978,9 +987,9 @@ public final class FilterExpression extends BinaryExpression implements ContextS
      */
 
     @Override
-    public int computeCardinality() {
-        if (getFilter() instanceof Literal && ((Literal) getFilter()).getValue() instanceof NumericValue) {
-            if (((NumericValue) ((Literal) getFilter()).getValue()).compareTo(1) == 0 &&
+    protected int computeCardinality() {
+        if (getFilter() instanceof Literal && ((Literal) getFilter()).getGroundedValue() instanceof NumericValue) {
+            if (((NumericValue) ((Literal) getFilter()).getGroundedValue()).compareTo(1) == 0 &&
                     !Cardinality.allowsZero(getBase().getCardinality())) {
                 return StaticProperty.ALLOWS_ONE;
             } else {
@@ -1016,7 +1025,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return getBase().getSpecialProperties();
     }
 
@@ -1043,7 +1052,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return "FilterExpression".hashCode() + getBase().hashCode() + getFilter().hashCode();
     }
 
@@ -1068,8 +1077,8 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                 base instanceof AxisExpression &&
                 ((AxisExpression) base).getAxis() == AxisInfo.CHILD &&
                 (filter.getDependencies() & StaticProperty.DEPENDS_ON_LAST) == 0) {
-            if (filter instanceof Literal && ((Literal) filter).getValue() instanceof IntegerValue) {
-                return new SimplePositionalPattern((NodeTest) basePattern.getItemType(), (int) ((IntegerValue) ((Literal) filter).getValue()).longValue());
+            if (filter instanceof Literal && ((Literal) filter).getGroundedValue() instanceof IntegerValue) {
+                return new SimplePositionalPattern((NodeTest) basePattern.getItemType(), (int) ((IntegerValue) ((Literal) filter).getGroundedValue()).longValue());
             } else {
                 return new GeneralPositionalPattern((NodeTest) basePattern.getItemType(), filter);
             }
@@ -1100,7 +1109,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                 SequenceIterator it = getFilter().iterate(context);
                 Item first = it.next();
                 if (first == null) {
-                    return EmptyIterator.emptyIterator();
+                    return EmptyIterator.getInstance();
                 }
                 if (first instanceof NumericValue) {
                     if (it.next() != null) {
@@ -1113,21 +1122,20 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                                 Sequence baseVal = ((VariableReference) getBase()).evaluateVariable(context);
                                 if (baseVal instanceof MemoClosure) {
                                     Item m = ((MemoClosure) baseVal).itemAt(pos - 1);
-                                    return m == null ? EmptyIterator.emptyIterator() : m.iterate();
+                                    return SingletonIterator.makeIterator(m);
                                 } else {
                                     Item m = baseVal.materialize().itemAt(pos - 1);
-                                    return m == null ? EmptyIterator.emptyIterator() : m.iterate();
+                                    return SingletonIterator.makeIterator(m);
                                 }
                             } else if (getBase() instanceof Literal) {
-                                Item i = ((Literal) getBase()).getValue().itemAt(pos - 1);
-                                return i == null ? EmptyIterator.emptyIterator() : i.iterate();
+                                Item i = ((Literal) getBase()).getGroundedValue().itemAt(pos - 1);
+                                return SingletonIterator.makeIterator(i);
                             } else {
-                                SequenceIterator baseIter = getBase().iterate(context);
-                                return SubsequenceIterator.make(baseIter, pos, pos);
+                                return SubsequenceIterator.make(getBase().iterate(context), pos, pos);
                             }
                         }
                         // a non-integer value or non-positive number will never be equal to position()
-                        return EmptyIterator.emptyIterator();
+                        return EmptyIterator.getInstance();
                     }
                 } else {
                     // Filter is focus-independent, but not numeric: need to use the effective boolean value
@@ -1140,7 +1148,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                             ExpressionTool.ebvError("sequence of two or more items starting with a boolean value", getFilter());
                         }
                     } else if (first instanceof StringValue) {
-                        ebv = !((StringValue) first).isZeroLength();
+                        ebv = !((StringValue) first).isEmpty();
                         if (it.next() != null) {
                             ExpressionTool.ebvError("sequence of two or more items starting with a boolean value", getFilter());
                         }
@@ -1150,30 +1158,16 @@ public final class FilterExpression extends BinaryExpression implements ContextS
                     if (ebv) {
                         return getBase().iterate(context);
                     } else {
-                        return EmptyIterator.emptyIterator();
+                        return EmptyIterator.getInstance();
                     }
                 }
             } catch (XPathException e) {
-                e.maybeSetLocation(getLocation());
-                throw e;
+                throw e.maybeWithLocation(getLocation());
             }
         }
 
-        // get an iterator over the base nodes
-
-        SequenceIterator baseIter = getBase().iterate(context);
-
-        // quick exit for an empty sequence
-
-        if (baseIter instanceof EmptyIterator) {
-            return baseIter;
-        }
-
-        if (filterIsPositional && !filterIsSingletonBoolean) {
-            return new FilterIterator(baseIter, getFilter(), context);
-        } else {
-            return new FilterIterator.NonNumeric(baseIter, getFilter(), context);
-        }
+        PullEvaluator puller = makeElaborator().elaborateForPull();
+        return puller.iterate(context);
 
     }
 
@@ -1194,6 +1188,7 @@ public final class FilterExpression extends BinaryExpression implements ContextS
         fe.filterIsIndependent = filterIsIndependent;
         fe.filterIsPositional = filterIsPositional;
         fe.filterIsSingletonBoolean = filterIsSingletonBoolean;
+        fe.indexingDisabled = indexingDisabled;
         return fe;
     }
 
@@ -1256,6 +1251,139 @@ public final class FilterExpression extends BinaryExpression implements ContextS
         filterIsSingletonBoolean = flags.contains("b");
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new FilterExprElaborator();
+    }
+
+    /**
+     * Elaborator for a filter expression
+     */
+
+    public static class FilterExprElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final FilterExpression expr = (FilterExpression) getExpression();
+            final PullEvaluator baseEval = expr.getBase().makeElaborator().elaborateForPull();
+            if (expr.isSimpleBooleanFilter()) {
+                final BooleanEvaluator conditionEval = expr.getFilter().makeElaborator().elaborateForBoolean();
+                return context -> {
+                    SequenceIterator base = baseEval.iterate(context);
+                    XPathContext c2 = context.newMinorContext();
+                    c2.setCurrentIterator(c2.getController().makeFocusTracker(base, false));
+                    return new SimpleFilteredIterator(c2, conditionEval);
+                };
+            } else {
+                final PullEvaluator conditionEval = expr.getFilter().makeElaborator().elaborateForPull();
+                return context -> {
+                    SequenceIterator base = baseEval.iterate(context);
+                    XPathContext c2 = context.newMinorContext();
+                    c2.setCurrentIterator(c2.getController().makeFocusTracker(base, false));
+                    return new PositionalFilteredIterator(c2, conditionEval);
+                };
+            }
+
+        }
+
+        /**
+         * An iterator for a filter expression in which the predicate is capable of evaluating as a number
+         * (in which case it needs to be compared with the context position, rather than being converted
+         * to a boolean)
+         */
+
+        public static class PositionalFilteredIterator implements SequenceIterator {
+            private final XPathContext outerContext;
+            private final FocusIterator base;
+            private final PullEvaluator condition;
+
+            /**
+             * Construct a AxisFilter
+             *
+             * @param outerContext the underlying iterator that returns all the nodes on
+             *             a required axis.
+             * @param condition a test that is applied to each node returned by the
+             *             underlying SequenceIterator; only those items that pass the NodeTest are
+             *             returned by the filter
+             */
+
+            public PositionalFilteredIterator(XPathContext outerContext, PullEvaluator condition) {
+                this.outerContext = outerContext;
+                this.base = outerContext.getCurrentIterator();
+                this.condition = condition;
+            }
+
+            /*@Nullable*/
+            @Override
+            public Item next() {
+                try {
+                    while (true) {
+                        Item next = base.next();
+                        if (next == null) {
+                            return null;
+                        }
+                        if (FilterIterator.testPredicateValue(condition.iterate(outerContext), base.position(), null)) {
+                            return next;
+                        }
+                    }
+                } catch (XPathException e) {
+                    throw new UncheckedXPathException(e);
+                }
+            }
+
+        }
+
+        /**
+         * An iterator for a filter expression where it is known that the filter value will not be numeric,
+         * and can therefore be evaluated directly as a boolean
+         */
+
+        public static class SimpleFilteredIterator implements SequenceIterator {
+            private final XPathContext outerContext;
+            private final FocusIterator base;
+            private final BooleanEvaluator condition;
+
+            /**
+             * Construct a AxisFilter
+             *
+             * @param outerContext the underlying iterator that returns all the nodes on
+             *                     a required axis.
+             * @param condition    a test that is applied to each node returned by the
+             *                     underlying SequenceIterator; only those items that pass the NodeTest are
+             *                     returned by the filter
+             */
+
+            public SimpleFilteredIterator(XPathContext outerContext, BooleanEvaluator condition) {
+                this.outerContext = outerContext;
+                this.base = outerContext.getCurrentIterator();
+                this.condition = condition;
+            }
+
+            /*@Nullable*/
+            @Override
+            public Item next() {
+                try {
+                    while (true) {
+                        Item next = base.next();
+                        if (next == null) {
+                            return null;
+                        }
+                        if (condition.eval(outerContext)) {
+                            return next;
+                        }
+                    }
+                } catch (XPathException e) {
+                    throw new UncheckedXPathException(e);
+                }
+            }
+
+        }
+
+    }
 }
 

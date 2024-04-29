@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,8 @@ package net.sf.saxon.expr.parser;
 
 import net.sf.saxon.om.NameChecker;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.Whitespace;
 
 import java.util.ArrayList;
@@ -23,6 +25,11 @@ import java.util.List;
 
 public final class Tokenizer {
 
+    public static final char FULL_WIDTH_LT = '＜'; // xFF1C
+    public static final char FULL_WIDTH_GT = '＞'; // xFF1E
+
+    @CSharpModifiers(code={"public", "const"})    // The transpiler handles this for int but not for char??
+    public final static char NUL = (char)0;
 
     private int state = DEFAULT_STATE;
     // we may need to make this a stack at some time
@@ -80,7 +87,7 @@ public final class Tokenizer {
      */
     public int inputOffset = 0;
     /**
-     * The length of the input string
+     * The length of the input string (in 2-byte chars)
      */
     private int inputLength;
     /**
@@ -241,7 +248,7 @@ public final class Tokenizer {
                 }
                 break;
             case Token.LT:
-                if (isXQuery && followsOperator(precedingToken)) {
+                if (isXQuery && followsOperator(precedingToken) && !currentTokenValue.equals("" + FULL_WIDTH_LT)) {
                     currentToken = Token.TAG;
                 }
                 break;
@@ -252,7 +259,8 @@ public final class Tokenizer {
                 break;
         }
 
-        if (currentToken == Token.TAG || currentToken == Token.RCURLY) {
+        if (currentToken == Token.TAG || currentToken == Token.RCURLY || currentToken == Token.BACKTICK) {
+
             // No lookahead after encountering "<" at the start of an XML-like tag.
             // After an RCURLY, the parser must do an explicit lookahead() to continue
             // tokenizing; otherwise it can continue with direct character reading
@@ -263,145 +271,229 @@ public final class Tokenizer {
         lookAhead();
 
         if (currentToken == Token.NAME) {
+
             if (state == BARE_NAME_STATE) {
                 return;
             }
             if (oldPrecedingToken == Token.DOLLAR) {
                 return;
             }
-            switch (nextToken) {
-                case Token.LPAR:
-                    int op = getBinaryOp(currentTokenValue);
-                    // the test on followsOperator() is to cater for an operator being used as a function name,
-                    // e.g. is(): see XQTS test K-FunctionProlog-66
-                    if (op == Token.UNKNOWN || followsOperator(oldPrecedingToken)) {
-                        currentToken = getFunctionType(currentTokenValue);
-                        lookAhead();    // swallow the "("
-                    } else {
-                        currentToken = op;
-                    }
-                    break;
 
-                case Token.LCURLY:
-                    if (!(state == SEQUENCE_TYPE_STATE)) {
-                        currentToken = Token.KEYWORD_CURLY;
-                        lookAhead();        // swallow the "{"
-                    }
-                    break;
-
-                case Token.COLONCOLON:
-                    lookAhead();
-                    currentToken = Token.AXIS;
-                    break;
-
-                case Token.HASH:
-                    lookAhead();
-                    currentToken = Token.NAMED_FUNCTION_REF;
-                    break;
-
-                case Token.COLONSTAR:
-                    lookAhead();
-                    currentToken = Token.PREFIX;
-                    break;
-
-                case Token.DOLLAR:
-                    switch (currentTokenValue) {
-                        case "for":
-                            currentToken = Token.FOR;
-                            break;
-                        case "some":
-                            currentToken = Token.SOME;
-                            break;
-                        case "every":
-                            currentToken = Token.EVERY;
-                            break;
-                        case "let":
-                            currentToken = Token.LET;
-                            break;
-                        case "count":
-                            currentToken = Token.COUNT;
-                            break;
-                        case "copy":
-                            currentToken = Token.COPY;
-                            break;
-                    }
-                    break;
-
-                case Token.PERCENT:
-                    if (currentTokenValue.equals("declare")) {
-                        currentToken = Token.DECLARE_ANNOTATED;
-                    }
-                    break;
-
-                case Token.NAME:
-                    int candidate = -1;
-                    switch (currentTokenValue) {
-                        case "element":
-                            candidate = Token.ELEMENT_QNAME;
-                            break;
-                        case "attribute":
-                            candidate = Token.ATTRIBUTE_QNAME;
-                            break;
-                        case "processing-instruction":
-                            candidate = Token.PI_QNAME;
-                            break;
-                        case "namespace":
-                            candidate = Token.NAMESPACE_QNAME;
-                            break;
-                    }
-                    if (candidate != -1) {
-                        // <'element' QName '{'> constructor
-                        // <'attribute' QName '{'> constructor
-                        // <'processing-instruction' QName '{'> constructor
-                        // <'namespace' QName '{'> constructor
-
-                        String qname = nextTokenValue;
-                        String saveTokenValue = currentTokenValue;
-                        int savePosition = inputOffset;
-                        lookAhead();
-                        if (nextToken == Token.LCURLY) {
-                            currentToken = candidate;
-                            currentTokenValue = qname;
-                            lookAhead();
-                            return;
-                        } else {
-                            // backtrack (we don't have 2-token lookahead; this is the
-                            // only case where it's needed. So we backtrack instead.)
-                            currentToken = Token.NAME;
-                            currentTokenValue = saveTokenValue;
-                            inputOffset = savePosition;
-                            nextToken = Token.NAME;
-                            nextTokenValue = qname;
-                        }
-
-                    }
-                    String composite = currentTokenValue + ' ' + nextTokenValue;
-                    Integer val = Token.doubleKeywords.get(composite);
-                    if (val == null) {
-                        break;
-                    } else {
-                        currentToken = val;
-                        currentTokenValue = composite;
-                        // some tokens are actually triples
-                        if (currentToken == Token.REPLACE_VALUE) {
-                            // this one's a quadruplet - "replace value of node"
-                            lookAhead();
-                            if (nextToken != Token.NAME || !nextTokenValue.equals("of")) {
-                                throw new XPathException("After '" + composite + "', expected 'of'");
-                            }
-                            lookAhead();
-                            if (nextToken != Token.NAME || !nextTokenValue.equals("node")) {
-                                throw new XPathException("After 'replace value of', expected 'node'");
-                            }
-                            nextToken = currentToken;   // to reestablish after-operator state
-                        }
-                        lookAhead();
-                        return;
-                    }
-                default:
-                    // no action needed
-            }
+            handleNextToken(oldPrecedingToken);
         }
+    }
+
+    /**
+     * Return true if there is a thin arrow ("-&gt;") somewhere beyond the current position. This can be used
+     * to eliminate unnecessary lookahead
+     * @return true if a thin arrow is present. Of course, this might be a false positive.
+     */
+
+    public boolean thereMightBeAnArrowAhead() {
+        return input.indexOf("->", currentTokenStartOffset) >= 0 || input.indexOf("-＞", currentTokenStartOffset) >= 0;
+    }
+
+    private void handleNextToken(int oldPrecedingToken) throws XPathException {
+
+        switch (nextToken)
+        {
+        case Token.LPAR:
+            handleLPAR(oldPrecedingToken);
+            break;
+
+        case Token.LCURLY:
+            handleLCURLY();
+            break;
+
+        case Token.COLONCOLON:
+            handleCOLONCOLON();
+            break;
+
+        case Token.HASH:
+            handleHASH();
+            break;
+
+        case Token.COLONSTAR:
+            handleCOLONSTAR();
+            break;
+
+        case Token.DOLLAR:
+            handleDOLLAR();
+            break;
+
+        case Token.PERCENT:
+            handlePERCENT();
+            break;
+
+        case Token.NAME:
+            int candidate = getCandidate();
+
+            if (candidate != -1)
+            {
+                // <'element' QName '{'> constructor
+                // <'attribute' QName '{'> constructor
+                // <'processing-instruction' QName '{'> constructor
+                // <'namespace' QName '{'> constructor
+
+                String qname = nextTokenValue;
+                String saveTokenValue = currentTokenValue;
+                int savePosition = inputOffset;
+                lookAhead();
+                if (nextToken == Token.LCURLY)
+                {
+                    currentToken = candidate;
+                    currentTokenValue = qname;
+                    lookAhead();
+                    return;
+                }
+                else
+                {
+                    // backtrack (we don't have 2-token lookahead; this is the
+                    // only case where it's needed. So we backtrack instead.)
+                    currentToken = Token.NAME;
+                    currentTokenValue = saveTokenValue;
+                    inputOffset = savePosition;
+                    nextToken = Token.NAME;
+                    nextTokenValue = qname;
+                }
+
+            }
+
+            String composite = currentTokenValue + ' ' + nextTokenValue;
+            int possibleToken = Token.doubleKeywords.getOrDefault(composite, Token.UNKNOWN);
+
+            if (possibleToken == Token.UNKNOWN)
+            {
+                break;
+            }
+            else
+            {
+                handleNotUnknown(composite, possibleToken);
+                return;
+            }
+        default:
+            // no action needed
+        }
+    }
+
+    private void handleLPAR(int oldPrecedingToken) throws XPathException
+    {
+        int op = getBinaryOp(currentTokenValue);
+        // the test on followsOperator() is to cater for an operator being used as a function name,
+        // e.g. is(): see XQTS test K-FunctionProlog-66
+        if (op == Token.UNKNOWN || followsOperator(oldPrecedingToken))
+        {
+            currentToken = getFunctionType(currentTokenValue);
+            lookAhead();    // swallow the "("
+        }
+        else
+        {
+            currentToken = op;
+        }
+    }
+
+    private void handleLCURLY() throws XPathException
+    {
+        if (state != SEQUENCE_TYPE_STATE) {
+            currentToken = Token.KEYWORD_CURLY;
+            lookAhead();        // swallow the "{"
+        }
+    }
+
+    private void handleCOLONCOLON() throws XPathException
+    {
+        lookAhead();
+        currentToken = Token.AXIS;
+    }
+
+    private void handleHASH() throws XPathException
+    {
+        lookAhead();
+        currentToken = Token.NAMED_FUNCTION_REF;
+    }
+
+    private void handleCOLONSTAR() throws XPathException
+    {
+        lookAhead();
+        currentToken = Token.PREFIX;
+    }
+
+    private void handleDOLLAR() throws XPathException
+    {
+        switch (currentTokenValue)
+        {
+        case "for":
+            currentToken = Token.FOR;
+            break;
+        case "some":
+            currentToken = Token.SOME;
+            break;
+        case "every":
+            currentToken = Token.EVERY;
+            break;
+        case "let":
+            currentToken = Token.LET;
+            break;
+        case "count":
+            currentToken = Token.COUNT;
+            break;
+        case "copy":
+            currentToken = Token.COPY;
+            break;
+        }
+    }
+
+    private void handlePERCENT() throws XPathException
+    {
+        if (currentTokenValue.equals("declare"))
+        {
+            currentToken = Token.DECLARE_ANNOTATED;
+        }
+    }
+
+    private int getCandidate()
+    {
+        int candidate = -1;
+        switch (currentTokenValue)
+        {
+        case "element":
+            candidate = Token.ELEMENT_QNAME;
+            break;
+        case "attribute":
+            candidate = Token.ATTRIBUTE_QNAME;
+            break;
+        case "processing-instruction":
+            candidate = Token.PI_QNAME;
+            break;
+        case "namespace":
+            candidate = Token.NAMESPACE_QNAME;
+            break;
+        }
+
+        return candidate;
+    }
+
+    private void handleNotUnknown(String composite, int possibleToken) throws XPathException
+    {
+        currentToken = possibleToken;
+        currentTokenValue = composite;
+        // some tokens are actually triples
+        if (currentToken == Token.REPLACE_VALUE)
+        {
+            // this one's a quadruplet - "replace value of node"
+            lookAhead();
+            if (nextToken != Token.NAME || !nextTokenValue.equals("of"))
+            {
+                throw new XPathException("After '" + composite + "', expected 'of'");
+            }
+            lookAhead();
+            if (nextToken != Token.NAME || !nextTokenValue.equals("node"))
+            {
+                throw new XPathException("After 'replace value of', expected 'node'");
+            }
+            nextToken = currentToken;   // to reestablish after-operator state
+        }
+        lookAhead();
     }
 
     /**
@@ -479,6 +571,13 @@ public final class Tokenizer {
                     nextToken = Token.AT;
                     return;
                 case '?':
+                    if (inputOffset < inputLength) {
+                        if (input.charAt(inputOffset) == '?') {
+                            inputOffset++;
+                            nextToken = Token.QMARK_QMARK;
+                            return;
+                        }
+                    }
                     nextToken = Token.QMARK;
                     return;
                 case '[':
@@ -560,23 +659,39 @@ public final class Tokenizer {
                     nextToken = Token.PLUS;
                     return;
                 case '-':
+                    if (inputOffset < inputLength && isGreaterThanChar(input.charAt(inputOffset))) {
+                        inputOffset++;
+                        nextToken = Token.THIN_ARROW;
+                        return;
+                    }
                     nextToken = Token.MINUS;   // not detected if part of a name
                     return;
                 case '=':
-                    if (inputOffset < inputLength
-                            && input.charAt(inputOffset) == '>') {
+                    if (inputOffset < inputLength && isGreaterThanChar(input.charAt(inputOffset))) {
                         inputOffset++;
-                        nextToken = Token.ARROW;
+                        nextToken = Token.FAT_ARROW;
+                        return;
+                    }
+                    if (inputOffset < inputLength - 1
+                            && input.charAt(inputOffset) == '!'
+                            && isGreaterThanChar(input.charAt(inputOffset+1))) {
+                        inputOffset+=2;
+                        nextToken = Token.MAPPING_ARROW;  // Accepted in 4.0 only
                         return;
                     }
                     nextToken = Token.EQUALS;
                     return;
                 case '!':
-                    if (inputOffset < inputLength
-                            && input.charAt(inputOffset) == '=') {
-                        inputOffset++;
-                        nextToken = Token.NE;
-                        return;
+                    if (inputOffset < inputLength) {
+                        if (input.charAt(inputOffset) == '=') {
+                            inputOffset++;
+                            nextToken = Token.NE;
+                            return;
+                        } else if (input.charAt(inputOffset) == '!') {
+                            inputOffset++;
+                            nextToken = Token.BANG_BANG;
+                            return;
+                        }
                     }
                     nextToken = Token.BANG;
                     return;
@@ -592,11 +707,44 @@ public final class Tokenizer {
                     }
                     nextToken = Token.STAR;
                     return;
+                case '×':
+                    if (languageLevel >= 40) {
+                        nextToken = Token.MATH_MULT;
+                        return;
+                    } else {
+                        throw new XPathException("Multiply operator '×' is recognized only when XPath 4.0 is enabled");
+                    }
+                case '÷':
+                    if (languageLevel >= 40) {
+                        nextToken = Token.MATH_DIVIDE;
+                        return;
+                    } else {
+                        throw new XPathException("Divide operator '÷' is recognized only when XPath 4.0 is enabled");
+                    }
                 case ',':
                     nextToken = Token.COMMA;
                     return;
                 case '$':
                     nextToken = Token.DOLLAR;
+                    return;
+                case FULL_WIDTH_LT:
+                case '<':
+                    if (c == FULL_WIDTH_LT && languageLevel < 40) {
+                        throw new XPathException("Operator character FULL_WIDTH_LESS_THAN (xFF1C) requires XPath 4.0 to be enabled");
+                    }
+                    if (inputOffset < inputLength
+                            && input.charAt(inputOffset) == '=') {
+                        inputOffset++;
+                        nextToken = Token.LE;
+                        return;
+                    }
+                    if (inputOffset < inputLength && c == input.charAt(inputOffset)) {
+                        inputOffset++;
+                        nextToken = Token.PRECEDES;
+                        return;
+                    }
+                    nextToken = Token.LT;
+                    nextTokenValue = c + "";  // The parser needs to know which character was used
                     return;
                 case '|':
                     if (inputOffset < inputLength && input.charAt(inputOffset) == '|') {
@@ -609,30 +757,18 @@ public final class Tokenizer {
                 case '#':
                     nextToken = Token.HASH;
                     return;
-                case '<':
-                    if (inputOffset < inputLength
-                            && input.charAt(inputOffset) == '=') {
-                        inputOffset++;
-                        nextToken = Token.LE;
-                        return;
-                    }
-                    if (inputOffset < inputLength
-                            && input.charAt(inputOffset) == '<') {
-                        inputOffset++;
-                        nextToken = Token.PRECEDES;
-                        return;
-                    }
-                    nextToken = Token.LT;
-                    return;
                 case '>':
+                case FULL_WIDTH_GT:
+                    if (c == FULL_WIDTH_GT && languageLevel < 40) {
+                        throw new XPathException("Operator character FULL_WIDTH_GREATER_THAN (xFF1E) requires XPath 4.0 to be enabled");
+                    }
                     if (inputOffset < inputLength
                             && input.charAt(inputOffset) == '=') {
                         inputOffset++;
                         nextToken = Token.GE;
                         return;
                     }
-                    if (inputOffset < inputLength
-                            && input.charAt(inputOffset) == '>') {
+                    if (inputOffset < inputLength && c == input.charAt(inputOffset)) {
                         inputOffset++;
                         nextToken = Token.FOLLOWS;
                         return;
@@ -646,6 +782,7 @@ public final class Tokenizer {
                         nextToken = Token.DOTDOT;
                         return;
                     }
+                    // TODO: drop this experimental syntax (.{expr} becomes ->{expr})
                     if (inputOffset < inputLength
                             && input.charAt(inputOffset) == '{') {
                         inputOffset++;
@@ -659,8 +796,38 @@ public final class Tokenizer {
                         nextToken = Token.DOT;
                         return;
                     }
+                    CSharp.emitCode("goto case '0';");
                     // otherwise drop through: we have a number starting with a decimal point
                 case '0':
+                    if (inputOffset < inputLength && languageLevel >= 40) {
+                        if (input.charAt(inputOffset) == 'x') {
+                            inputOffset++;
+                            while (inputOffset < inputLength && "0123456789abcdefABCDEF_".indexOf(input.charAt(inputOffset)) >= 0) {
+                                inputOffset++;
+                            }
+                            String body = input.substring(nextTokenStartOffset + 2, inputOffset);
+                            if (body.startsWith("_") || body.endsWith("_")) {
+                                throw new XPathException("Underscore not allowed at start or end of hex literal");
+                            }
+                            nextTokenValue = body.replace("_", "");
+                            nextToken = Token.HEX_INTEGER;
+                            return;
+                        } else if (input.charAt(inputOffset) == 'b') {
+                            inputOffset++;
+                            while (inputOffset < inputLength && "01_".indexOf(input.charAt(inputOffset)) >= 0) {
+                                inputOffset++;
+                            }
+                            String body = input.substring(nextTokenStartOffset + 2, inputOffset);
+                            if (body.startsWith("_") || body.endsWith("_")) {
+                                throw new XPathException("Underscore not allowed at start or end of binary literal");
+                            }
+                            nextTokenValue = body.replace("_", "");
+                            nextToken = Token.BINARY_INTEGER;
+                            return;
+                        }
+                    }
+                    CSharp.emitCode("goto case '1';");
+                    // otherwise drop through: it's not a hex or binary numeric literal
                 case '1':
                 case '2':
                 case '3':
@@ -677,7 +844,8 @@ public final class Tokenizer {
                     boolean allowE = true;
                     boolean allowSign = false;
                     boolean allowDot = true;
-                    numloop:
+                    boolean keepGoing = true;
+                    boolean allowUnderscore = languageLevel >= 40;
                     while (true) {
                         switch (c) {
                             case '0':
@@ -698,9 +866,23 @@ public final class Tokenizer {
                                     allowSign = false;
                                 } else {
                                     inputOffset--;
-                                    break numloop;
+                                    keepGoing = false;
+                                    //break numloop;
                                 }
                                 break;
+                            case '_':
+                                if (allowUnderscore) {
+                                    //System.err.println("InputOffset = " + inputOffset + " InputLength = " + inputLength);
+                                    if (inputOffset >= inputLength || "0123456789_".indexOf(input.charAt(inputOffset)) < 0) {
+                                        throw new XPathException("Underscore must be followed by a digit (or another underscore)");
+                                    }
+                                    if (inputOffset < 2 || "0123456789_".indexOf(input.charAt(inputOffset-2)) < 0) {
+                                        throw new XPathException("Underscore must be preceded by a digit (or another underscore)");
+                                    }
+                                    break;
+                                } else {
+                                    throw new XPathException("Underscore is not allowed in numeric literal unless 4.0 is enabled");
+                                }
                             case 'E':
                             case 'e':
                                 if (allowE) {
@@ -708,7 +890,8 @@ public final class Tokenizer {
                                     allowE = false;
                                 } else {
                                     inputOffset--;
-                                    break numloop;
+                                    keepGoing = false;
+                                    //break numloop;
                                 }
                                 break;
                             case '+':
@@ -717,7 +900,8 @@ public final class Tokenizer {
                                     allowSign = false;
                                 } else {
                                     inputOffset--;
-                                    break numloop;
+                                    keepGoing = false;
+                                    //break numloop;
                                 }
                                 break;
                             default:
@@ -726,14 +910,16 @@ public final class Tokenizer {
                                     throw new XPathException("Separator needed after numeric literal");
                                 }
                                 inputOffset--;
-                                break numloop;
+                                keepGoing = false;
+                                break;
+                                //break numloop;
                         }
-                        if (inputOffset >= inputLength) {
+                        if (!keepGoing || inputOffset >= inputLength) {
                             break;
                         }
                         c = input.charAt(inputOffset++);
                     }
-                    nextTokenValue = input.substring(nextTokenStartOffset, inputOffset);
+                    nextTokenValue = input.substring(nextTokenStartOffset, inputOffset).replace("_", "");
                     nextToken = Token.NUMBER;
                     return;
                 case '"':
@@ -774,9 +960,12 @@ public final class Tokenizer {
                     nextToken = Token.STRING_LITERAL;
                     return;
                 case '`':
-                    if (isXQuery && inputOffset < inputLength - 1
+                    if (inputOffset < inputLength - 1
                             && input.charAt(inputOffset) == '`'
                             && input.charAt(inputOffset + 1) == '[') {
+                        if (!isXQuery) {
+                            throw new XPathException("String constructors (starting '``[') are allowed only in XQuery, not XPath");
+                        }
                         inputOffset += 2;
                         int j = inputOffset;
                         int newlines = 0;
@@ -795,7 +984,8 @@ public final class Tokenizer {
                             } else if (input.charAt(j) == ']' && j + 2 < inputLength
                                     && input.charAt(j + 1) == '`' && input.charAt(j + 2) == '`') {
                                 nextToken = Token.STRING_LITERAL_BACKTICKED;
-                                // Can't return STRING_LITERAL because it's not accepted everywhere that a string literal is
+                                // Can't return STRING_LITERAL because it's not accepted everywhere that a string literal is, and
+                                // because it doesn't get unescaped (bug 5647)
                                 nextTokenValue = input.substring(inputOffset, j);
                                 inputOffset = j + 3;
                                 incrementLineNumber(newlines);
@@ -804,11 +994,13 @@ public final class Tokenizer {
                             j++;
                         }
                     } else {
-                        throw new XPathException("Invalid character '`' (backtick) in expression");
+                        nextToken = Token.BACKTICK;
+                        return;
                     }
                 case '\n':
                     incrementLineNumber();
-                    // drop through
+                    CSharp.emitCode("goto case ' ';");
+                    // fall through
                 case ' ':
                 case '\t':
                 case '\r':
@@ -824,7 +1016,7 @@ public final class Tokenizer {
                             throw new XPathException("Missing closing brace in EQName");
                         }
                         String uri = input.substring(inputOffset, close);
-                        uri = Whitespace.collapseWhitespace(uri).toString(); // Bug 29708
+                        uri = Whitespace.collapseWhitespace(uri); // Bug 29708
                         if (uri.contains("{")) {
                             throw new XPathException("EQName must not contain opening brace");
                         }
@@ -851,15 +1043,17 @@ public final class Tokenizer {
 
 
                     }
+                    CSharp.emitCode("goto default;");
                     /* else fall through */
                 default:
                     if (c < 0x80 && !Character.isLetter(c)) {
-                        throw new XPathException("Invalid character '" + c + "' in expression");
+                        throw new XPathException("Invalid character '" + c + "' (x" + Integer.toHexString((int)c) + ") in expression");
                     }
+                    CSharp.emitCode("goto case '_';");
                     /* fall through */
                 case '_':
                     boolean foundColon = false;
-                    loop:
+                    boolean breakLoop = false;
                     for (; inputOffset < inputLength; inputOffset++) {
                         c = input.charAt(inputOffset);
                         switch (c) {
@@ -893,7 +1087,7 @@ public final class Tokenizer {
                                     }
                                     foundColon = true;
                                 } else {
-                                    break loop;
+                                    breakLoop = true;
                                 }
                                 break;
                             case '.':
@@ -907,15 +1101,19 @@ public final class Tokenizer {
                                     nextToken = getBinaryOp(input.substring(nextTokenStartOffset, inputOffset));
                                     return;
                                 }
+                                CSharp.emitCode("goto case '_';");
                                 // else fall through
                             case '_':
                                 break;
 
                             default:
                                 if (c < 0x80 && !Character.isLetterOrDigit(c)) {
-                                    break loop;
+                                    breakLoop = true;
                                 }
                                 break;
+                        }
+                        if (breakLoop) {
+                            break;
                         }
                     }
                     nextTokenValue = input.substring(nextTokenStartOffset, inputOffset);
@@ -1008,6 +1206,14 @@ public final class Tokenizer {
         }
     }
 
+    private boolean isLessThanChar(char c) {
+        return c == '<' || (languageLevel >= 40 && c == FULL_WIDTH_LT);
+    }
+
+    private boolean isGreaterThanChar(char c) {
+        return c == '>' || (languageLevel >= 40 && c == FULL_WIDTH_GT);
+    }
+
     /**
      * Distinguish nodekind names, "if", and function names, which are all
      * followed by a "("
@@ -1020,11 +1226,15 @@ public final class Tokenizer {
         switch (s) {
             case "if":
                 return Token.IF;
-            case "map":
             case "namespace-node":
-            case "array":
             case "function":
-                return languageLevel == 20 ? Token.FUNCTION : Token.NODEKIND;
+                return languageLevel == 20 ? Token.FUNCTION : Token.KEYWORD_LBRA;
+            case "fn":
+                return languageLevel >= 40 ? Token.KEYWORD_LBRA : Token.FUNCTION;
+            case "array":
+            case "map":
+                 // first reserved in 3.1, unreserved again in 4.0
+                return languageLevel == 31 ? Token.KEYWORD_LBRA : Token.FUNCTION;
             case "node":
             case "schema-attribute":
             case "schema-element":
@@ -1036,12 +1246,14 @@ public final class Tokenizer {
             case "item":
             case "text":
             case "attribute":
-                return Token.NODEKIND;
+                return Token.KEYWORD_LBRA;
             case "atomic":
-            case "tuple":
+            case "tuple": // Retained as synonym of "record" for the time being
+            case "record":
             case "type":
             case "union":
-                return allowSaxonExtensions ? Token.NODEKIND : Token.FUNCTION; // Saxon extension types
+            case "enum":
+                return allowSaxonExtensions ? Token.KEYWORD_LBRA : Token.FUNCTION; // Saxon extension types
             case "switch":
                 // Reserved in XPath 3.0, even though only used in XQuery
                 return languageLevel == 20 ? Token.FUNCTION : Token.SWITCH;
@@ -1068,21 +1280,34 @@ public final class Tokenizer {
     /**
      * Read next character directly. Used by the XQuery parser when parsing pseudo-XML syntax
      *
-     * @return the next character from the input
-     * @throws StringIndexOutOfBoundsException
-     *          if an attempt is made to read beyond
-     *          the end of the string. This will only occur in the event of a syntax error in the
-     *          input.
+     * @return the next character from the input, or NUL at the end of the input
      */
 
-    public char nextChar() throws StringIndexOutOfBoundsException {
-        char c = input.charAt(inputOffset++);
-        //c = normalizeLineEnding(c);
-        if (c == '\n') {
-            incrementLineNumber();
-            lineNumber++;
+    public char nextChar() {
+        if (inputOffset < inputLength) {
+            char c = input.charAt(inputOffset++);
+            //c = normalizeLineEnding(c);
+            if (c == '\n') {
+                incrementLineNumber();
+                lineNumber++;
+            }
+            return c;
+        } else {
+            inputOffset++; // in case of an unreadChar()
+            return NUL;
         }
-        return c;
+    }
+
+    /**
+     * Look ahead to see what the next character will be, without changing the current state
+     * @return the next character, or NUL at the end of the input.
+     */
+    public char peekChar() {
+        if (inputOffset < inputLength) {
+            return input.charAt(inputOffset);
+        } else {
+            return NUL;
+        }
     }
 
     /**
@@ -1113,9 +1338,13 @@ public final class Tokenizer {
 
     /**
      * Step back one character. If this steps back to a previous line, adjust the line number.
+     * If we have already read off the end of the input, do nothing.
      */
 
     public void unreadChar() {
+        if (inputOffset > inputLength) {
+            return;
+        }
         if (input.charAt(--inputOffset) == '\n') {
             nextLineNumber--;
             lineNumber--;
@@ -1142,7 +1371,7 @@ public final class Tokenizer {
                 return input.substring(0, inputOffset);
             } else {
                 return Whitespace.collapseWhitespace(
-                        "..." + input.substring(inputOffset - 30, inputOffset)).toString();
+                        "..." + input.substring(inputOffset - 30, inputOffset));
             }
         } else {
             // if a specific offset was supplied, we want the text *starting* at that offset
@@ -1152,8 +1381,34 @@ public final class Tokenizer {
             }
             return Whitespace.collapseWhitespace(
                     (offset > 0 ? "..." : "") +
-                            input.substring(offset, end)).toString();
+                            input.substring(offset, end));
         }
+    }
+
+    /**
+     * Checkpoint the state of this tokenizer so that unbounded lookahead is possible
+     * (or, restore the state of the tokenizer from a checkpoint)
+     * @param u When checkpointing, a Tokenizer used simply to hold the state so that
+     *          it can be restored later. This tokenizer is not capable of active
+     *          tokenizing because many of its variables are uninitialised. When restoring
+     *          from a checkpoint, the original tokenizer whose state is to be restored.
+     */
+    public void copyTo(Tokenizer u) {
+        u.currentToken = currentToken;
+        u.currentTokenValue = currentTokenValue;
+        u.precedingToken = precedingToken;
+        u.precedingTokenValue = precedingTokenValue;
+        u.nextToken = nextToken;
+        u.nextTokenValue = nextTokenValue;
+        u.inputOffset = inputOffset;
+        u.lineNumber = lineNumber;
+        u.nextLineNumber = nextLineNumber;
+        if (newlineOffsets == null) { // written this way for transpilation reasons
+            u.newlineOffsets = null;
+        } else {
+            u.newlineOffsets = new ArrayList<>(newlineOffsets);
+        }
+        u.state = state;
     }
 
     /**

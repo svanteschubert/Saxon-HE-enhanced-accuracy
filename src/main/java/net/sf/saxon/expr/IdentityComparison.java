@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
 import net.sf.saxon.om.NodeInfo;
@@ -17,6 +21,8 @@ import net.sf.saxon.type.UType;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -86,13 +92,13 @@ public final class IdentityComparison extends BinaryExpression {
             }
         }
 
-        RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+        Supplier<RoleDiagnostic> role0 =
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
-        //role0.setSourceLocator(this);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), SequenceType.OPTIONAL_NODE, role0, visitor));
 
-        RoleDiagnostic role1 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
-        //role1.setSourceLocator(this);
+        Supplier<RoleDiagnostic> role1 =
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), SequenceType.OPTIONAL_NODE, role1, visitor));
 
         if (!Cardinality.allowsZero(getLhsExpression().getCardinality()) && !Cardinality.allowsZero(getRhsExpression().getCardinality())) {
@@ -141,7 +147,7 @@ public final class IdentityComparison extends BinaryExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings  variables that must be re-bound
      */
 
     /*@NotNull*/
@@ -242,7 +248,6 @@ public final class IdentityComparison extends BinaryExpression {
      * inference rules defined in the XSLT 3.0 specification.
      *
      * @return the static item type of the expression according to the XSLT 3.0 defined rules
-     * @param contextItemType
      */
     @Override
     public UType getStaticUType(UType contextItemType) {
@@ -261,6 +266,101 @@ public final class IdentityComparison extends BinaryExpression {
         return "nodeComparison";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new IdentityComparisonElaborator();
+    }
+
+    /**
+     * Elaborator for an identity comparison (operators {@code is}, {@code <<}, and {@code >>} )
+     */
+
+    public static class IdentityComparisonElaborator extends ItemElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            final IdentityComparison exp = (IdentityComparison)getExpression();
+            final ItemEvaluator p0 = exp.getLhsExpression().makeElaborator().elaborateForItem();
+            final ItemEvaluator p1 = exp.getRhsExpression().makeElaborator().elaborateForItem();
+            final boolean nullable0 = Cardinality.allowsZero(exp.getLhsExpression().getCardinality());
+            final boolean nullable1 = Cardinality.allowsZero(exp.getRhsExpression().getCardinality());
+            final int operator = exp.getOperator();
+
+            return context -> {
+                NodeInfo v0 = (NodeInfo)p0.eval(context);
+                if (nullable0 && v0 == null) {
+                    return false;
+                }
+                NodeInfo v1 = (NodeInfo)p1.eval(context);
+                if (nullable1 && v1 == null) {
+                    return false;
+                }
+                switch (operator) {
+                    case Token.IS:
+                        return v0.equals(v1);
+                    case Token.PRECEDES:
+                        return GlobalOrderComparer.getInstance().compare(v0, v1) < 0;
+                    case Token.FOLLOWS:
+                        return GlobalOrderComparer.getInstance().compare(v0, v1) > 0;
+                    default:
+                        throw new UnsupportedOperationException("Unknown node identity test");
+                }
+            };
+
+        }
+
+        public ItemEvaluator elaborateForItem() {
+            final IdentityComparison exp = (IdentityComparison) getExpression();
+            final ItemEvaluator p0 = exp.getLhsExpression().makeElaborator().elaborateForItem();
+            final ItemEvaluator p1 = exp.getRhsExpression().makeElaborator().elaborateForItem();
+            final boolean nullable0 = Cardinality.allowsZero(exp.getLhsExpression().getCardinality());
+            final boolean nullable1 = Cardinality.allowsZero(exp.getRhsExpression().getCardinality());
+            final int operator = exp.getOperator();
+
+            switch (operator) {
+                case Token.IS:
+                    if (nullable0 || nullable1) {
+                        return context -> {
+                            NodeInfo v0 = (NodeInfo) p0.eval(context);
+                            NodeInfo v1 = (NodeInfo) p1.eval(context);
+                            if (v0 == null || v1 == null) {
+                                return null;
+                            }
+                            return BooleanValue.get(v0.equals(v1));
+                        };
+                    } else {
+                        return context -> BooleanValue.get(p0.eval(context).equals(p1.eval(context)));
+                    }
+                case Token.PRECEDES:
+                    return context -> {
+                        NodeInfo v0 = (NodeInfo) p0.eval(context);
+                        NodeInfo v1 = (NodeInfo) p1.eval(context);
+                        if (v0 == null || v1 == null) {
+                            return null;
+                        }
+                        return BooleanValue.get(GlobalOrderComparer.getInstance().compare(v0, v1) < 0);
+                    };
+                case Token.FOLLOWS:
+                    return context -> {
+                        NodeInfo v0 = (NodeInfo) p0.eval(context);
+                        NodeInfo v1 = (NodeInfo) p1.eval(context);
+                        if (v0 == null || v1 == null) {
+                            return null;
+                        }
+                        return BooleanValue.get(GlobalOrderComparer.getInstance().compare(v0, v1) > 0);
+                    };
+                default:
+                    throw new IllegalStateException();
+            }
+
+        }
+
+
+    }
 }
 

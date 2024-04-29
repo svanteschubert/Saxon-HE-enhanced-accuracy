@@ -1,3 +1,10 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018-2023 Saxonica Limited
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /**
  * <p>This package provides classes associated with numbering and the <code>xsl:number</code> instruction. </p>
  * <p>It is possible to extend the range of numberings available by providing a Numberer
@@ -11,13 +18,13 @@
  * <p>The class <code>Numberer_en</code> provides the standard numbering options. As well as the
  * format tokens defined in the XSLT 1.0 specification (for example, "1", "001", "a", "i") it supports
  * other numbering options including:</p>
- * <li>
- * <ul>Greek upper and lower case letters</ul>
- * <ul>Cyrillic upper and lower case letters</ul>
- * <ul>Hebrew letters</ul>
- * <ul>Japanese: Hiragana-A, Hiragana-B, Katakana-A, or Katakana-B letters, and Kanji digits</ul>
- * <ul>English words: the format token "one" produces numbers such as "twenty five"</ul>
- * </li>
+ * <ul>
+ * <li>Greek upper and lower case letters</li>
+ * <li>Cyrillic upper and lower case letters</li>
+ * <li>Hebrew letters</li>
+ * <li>Japanese: Hiragana-A, Hiragana-B, Katakana-A, or Katakana-B letters, and Kanji digits</li>
+ * <li>English words: the format token "one" produces numbers such as "twenty five"</li>
+ * </ul>
  * <p>Localizations for a number of European languages are provided in package <code>net.sf.saxon.option.local</code>.
  * In Saxon-PE and Saxon-EE these are issued in binary form as part of the Saxon JAR. For Saxon-HE, they are
  * issued only in source code form.</p>

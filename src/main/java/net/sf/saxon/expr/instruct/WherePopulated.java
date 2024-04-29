@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,10 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.WherePopulatedOutputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.MapItem;
@@ -32,6 +36,8 @@ public class WherePopulated extends UnaryExpression implements ItemMappingFuncti
 
     /**
      * Create the instruction
+     *
+     * @param base the base expression
      */
     public WherePopulated(Expression base) {
         super(base);
@@ -78,7 +84,7 @@ public class WherePopulated extends UnaryExpression implements ItemMappingFuncti
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return super.computeCardinality() | StaticProperty.ALLOWS_ZERO;
     }
 
@@ -109,8 +115,7 @@ public class WherePopulated extends UnaryExpression implements ItemMappingFuncti
      */
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        WherePopulatedOutputter filter = new WherePopulatedOutputter(output);
-        getBaseExpression().process(filter, context);
+        dispatchTailCall(makeElaborator().elaborateForPush().processLeavingTail(output, context));
     }
 
     /**
@@ -140,10 +145,10 @@ public class WherePopulated extends UnaryExpression implements ItemMappingFuncti
                 case Type.ELEMENT:
                     return !((NodeInfo) item).hasChildNodes();
                 default:
-                    return item.getStringValueCS().length() == 0;
+                    return item.getUnicodeStringValue().length() == 0;
             }
         } else if (item instanceof StringValue || item instanceof HexBinaryValue || item instanceof Base64BinaryValue) {
-            return item.getStringValueCS().length() == 0;
+            return item.getUnicodeStringValue().length() == 0;
         } else if (item instanceof MapItem) {
             return ((MapItem)item).isEmpty();
         } else if (item instanceof ArrayItem) {
@@ -191,6 +196,32 @@ public class WherePopulated extends UnaryExpression implements ItemMappingFuncti
     @Override
     public String getStreamerName() {
         return "WherePopulated";
+    }
+
+    public Elaborator getElaborator() {
+        return new WherePopulatedElaborator();
+    }
+
+    private static class WherePopulatedElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            WherePopulated expr = (WherePopulated) getExpression();
+            PushEvaluator basePush = expr.getBaseExpression().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+                WherePopulatedOutputter filter = new WherePopulatedOutputter(output);
+                TailCall tc = basePush.processLeavingTail(filter, context);
+                dispatchTailCall(tc);
+                return null;
+            };
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            WherePopulated expr = (WherePopulated) getExpression();
+            PullEvaluator basePull = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> new ItemMappingIterator(basePull.iterate(context), expr);
+        }
     }
 }
 

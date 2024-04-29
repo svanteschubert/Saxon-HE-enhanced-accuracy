@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,9 +15,10 @@ import net.sf.saxon.expr.sort.SortKeyDefinition;
 import net.sf.saxon.expr.sort.SortKeyDefinitionList;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.ORDER_BY;
 
@@ -142,8 +143,12 @@ public class OrderByClause extends Clause {
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
         for (SortKeyDefinition skd : sortKeys) {
             Expression sortKey = skd.getSortKey();
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.ORDER_BY, "", i);
-            role.setErrorCode("XPTY0004");
+            final int pos = i;
+            Supplier<RoleDiagnostic> role = () -> {
+                RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.ORDER_BY, "", pos);
+                role0.setErrorCode("XPTY0004");
+                return role0;
+            };
             sortKey = tc.staticTypeCheck(sortKey, SequenceType.OPTIONAL_ATOMIC, role, visitor);
             skd.setSortKey(sortKey, false);
             skd.typeCheck(visitor, contextInfo);
@@ -187,7 +192,7 @@ public class OrderByClause extends Clause {
     }
 
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         fsb.append("order by ... ");
         return fsb.toString();
     }

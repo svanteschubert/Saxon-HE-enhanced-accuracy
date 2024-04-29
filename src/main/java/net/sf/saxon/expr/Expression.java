@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,9 @@ package net.sf.saxon.expr;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.FallbackElaborator;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.KeyFn;
 import net.sf.saxon.functions.SuperId;
@@ -21,23 +24,27 @@ import net.sf.saxon.pattern.NodeSetPattern;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trace.Traceable;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.tree.jiter.MonoIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.UType;
-import net.sf.saxon.value.*;
+import net.sf.saxon.value.Cardinality;
+import net.sf.saxon.value.Int64Value;
+import net.sf.saxon.value.IntegerValue;
+import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.z.IntHashSet;
 import net.sf.saxon.z.IntIterator;
 
 import java.net.URI;
 import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * Interface supported by an XPath expression. This includes both compile-time
@@ -80,6 +87,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     private Map<String, Object> extraProperties;
     private double cost = -1;
     private int cachedHashCode = -1;
+    private Elaborator elaborator;
 
 //    public int serial;  // used to identify expressions for internal diagnostics
 //    private static int nextSerial = 0;
@@ -103,8 +111,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
     /**
      * Get the immediate sub-expressions of this expression, with information about the relationship
-     * of each expression to its parent expression. Default implementation
-     * works off the results of iterateSubExpressions()
+     * of each expression to its parent expression.
      *
      * <p>If the expression is a Callable, then it is required that the order of the operands
      * returned by this function is the same as the order of arguments supplied to the corresponding
@@ -116,17 +123,6 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     /*@NotNull*/
     public Iterable<Operand> operands() {
         return Collections.emptyList();
-    }
-
-    /**
-     * Get the interpreted form of the expression. Normally this returns the expression unchanged;
-     * but on a CompiledExpression (the result of bytecode generation) it returns the original
-     * interpreted form.
-     * @return the interpreted form of this expression
-     */
-
-    public Expression getInterpretedExpression() {
-        return this;
     }
 
     /**
@@ -158,7 +154,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
                 } catch (Exception err) {
                     throw new IllegalStateException(message);
                 }
-                child.setParentExpression(Expression.this);
+                child.setParentExpression(this);
             }
             if (child.getRetainedStaticContext() == null) {
                 child.setRetainedStaticContext(getRetainedStaticContext());
@@ -248,7 +244,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     public void restoreParentPointers() {
         for (Operand o : operands()) {
             Expression child = o.getChildExpression();
-            child.setParentExpression(Expression.this);
+            child.setParentExpression(this);
             child.restoreParentPointers();
         }
     }
@@ -301,6 +297,25 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
                 && ((d & StaticProperty.DEPENDS_ON_ASSIGNABLE_GLOBALS) == 0)
                 && ((d & StaticProperty.DEPENDS_ON_POSITION) == 0)   // bug 3758
                 && ((d & StaticProperty.DEPENDS_ON_LAST) == 0);
+    }
+
+    /**
+     * Ask whether the expression supports lazy evaluation.
+     * @return false either if the expression cannot be evaluated lazily
+     * because it has dependencies that cannot be saved in the context, or
+     * because lazy evaluation is pointless (for example, for literals
+     * and variable references).
+     */
+
+    public boolean supportsLazyEvaluation() {
+        return (getDependencies() &
+                     (StaticProperty.DEPENDS_ON_POSITION |
+                              StaticProperty.DEPENDS_ON_LAST |
+                              StaticProperty.DEPENDS_ON_CURRENT_ITEM |
+                              StaticProperty.DEPENDS_ON_CURRENT_GROUP |
+                              StaticProperty.DEPENDS_ON_REGEX_GROUP)) == 0;
+            // we can't save these values in a closure, so we evaluate
+            // the expression eagerly
     }
 
     /**
@@ -362,7 +377,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     /*@NotNull*/
     public Expression simplify() throws XPathException {
         simplifyChildren();
-        return Expression.this;
+        return this;
     }
 
     /**
@@ -525,7 +540,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     public Expression typeCheck(ExpressionVisitor visitor,
                                 ContextItemStaticInfo contextInfo) throws XPathException {
         typeCheckChildren(visitor, contextInfo);
-        return Expression.this;
+        return this;
     }
 
     /**
@@ -558,7 +573,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      *
      * @param req                 the required type
      * @param backwardsCompatible true if backwards compatibility mode applies
-     * @param role                the role of the expression in relation to the required type
+     * @param roleSupplier                the role of the expression in relation to the required type
      * @param visitor             an expression visitor
      * @return the expression after type checking (perhaps augmented with dynamic type checking code)
      * @throws XPathException if failures occur, for example if the static type of one branch of the conditional
@@ -567,7 +582,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
     public Expression staticTypeCheck(SequenceType req,
                                       boolean backwardsCompatible,
-                                      RoleDiagnostic role, ExpressionVisitor visitor)
+                                      Supplier<RoleDiagnostic> roleSupplier, ExpressionVisitor visitor)
             throws XPathException {
         throw new UnsupportedOperationException("staticTypeCheck");
     }
@@ -595,7 +610,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
             optimizeChildren(visitor, contextInfo);
             visitor.decrementDepth();
         }
-        return Expression.this;
+        return this;
     }
 
     /**
@@ -675,7 +690,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      */
 
     public Expression unordered(boolean retainAllNodes, boolean forStreaming) throws XPathException {
-        return Expression.this;
+        return this;
     }
 
     /**
@@ -799,8 +814,8 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
         return null;
     }
 
-    public static final IntegerValue UNBOUNDED_LOWER = (IntegerValue) IntegerValue.makeIntegerValue(new DoubleValue(-1e100));
-    public static final IntegerValue UNBOUNDED_UPPER = (IntegerValue) IntegerValue.makeIntegerValue(new DoubleValue(+1e100));
+    public static final IntegerValue UNBOUNDED_LOWER = (IntegerValue) IntegerValue.fromDouble(-1e100);
+    public static final IntegerValue UNBOUNDED_UPPER = (IntegerValue) IntegerValue.fromDouble(+1e100);
     public static final IntegerValue MAX_STRING_LENGTH = Int64Value.makeIntegerValue(Integer.MAX_VALUE);
     public static final IntegerValue MAX_SEQUENCE_LENGTH = Int64Value.makeIntegerValue(Integer.MAX_VALUE);
 
@@ -870,7 +885,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     /*@NotNull*/
     public SequenceIterator iterate(XPathContext context) throws XPathException {
         Item value = evaluateItem(context);
-        return value == null ? EmptyIterator.emptyIterator() : SingletonIterator.rawIterator(value);
+        return SequenceTool.itemOrEmpty(value).iterate();
     }
 
     /**
@@ -889,9 +904,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
         try {
             return ExpressionTool.effectiveBooleanValue(iterate(context));
         } catch (XPathException e) {
-            e.maybeSetFailingExpression(this);
-            e.maybeSetContext(context);
-            throw e;
+            throw e.maybeWithFailingExpression(this).maybeWithContext(context);
         }
     }
 
@@ -913,17 +926,16 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      *                            expression is not xs:string?, xs:untypedAtomic?, or xs:anyURI?
      */
 
-    public CharSequence evaluateAsString(XPathContext context) throws XPathException {
+    public UnicodeString evaluateAsString(XPathContext context) throws XPathException {
         Item o = evaluateItem(context);
-        StringValue value = (StringValue) o;  // the ClassCastException is deliberate
-        if (value == null) {
-            return "";
+        if (o == null) {
+            return EmptyUnicodeString.getInstance();
         }
-        return value.getStringValueCS();
+        return o.getUnicodeStringValue();
     }
 
     /**
-     * Process the instruction, without returning any tail calls
+     * Process the instruction
      *
      *
      * @param output the destination for the result
@@ -938,7 +950,6 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
         boolean hasEvaluateMethod = (m & EVALUATE_METHOD) != 0;
         boolean hasIterateMethod = (m & ITERATE_METHOD) != 0;
-
         try {
             if (hasEvaluateMethod && (!hasIterateMethod || !Cardinality.allowsMany(getCardinality()))) {
                 Item item = evaluateItem(context);
@@ -946,34 +957,23 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
                     output.append(item, getLocation(), ReceiverOption.ALL_NAMESPACES);
                 }
             } else if (hasIterateMethod) {
-                iterate(context).forEachOrFail(it -> output.append(it, getLocation(), ReceiverOption.ALL_NAMESPACES));
+                SequenceTool.supply(iterate(context), (ItemConsumer<? super Item>) it -> output.append(it, getLocation(), ReceiverOption.ALL_NAMESPACES));
             } else {
                 throw new AssertionError("process() is not implemented in the subclass " + getClass());
             }
+        } catch (UncheckedXPathException unxe) {
+            throw unxe.getXPathException()
+                    .maybeWithLocation(getLocation())
+                    .maybeWithContext(context);
         } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            e.maybeSetContext(context);
-            throw e;
+            throw e.maybeWithLocation(getLocation())
+                    .maybeWithContext(context);
         }
     }
 
-    /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     * @throws net.sf.saxon.trans.XPathException
-     *                                       if evaluation fails
-     * @throws UnsupportedOperationException if the expression is not an updating expression
-     */
-
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        if (isVacuousExpression()) {
-            iterate(context).next(); // typically, a call on fn:error
-        } else {
-            throw new UnsupportedOperationException("Expression " + getClass() + " is not an updating expression");
+    public static void dispatchTailCall(TailCall tc) throws XPathException {
+        while (tc != null) {
+            tc = tc.processLeavingTail();
         }
     }
 
@@ -993,7 +993,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
     public String toString() {
         // fallback implementation
-        FastStringBuffer buff = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder buff = new StringBuilder(64);
         String className = getClass().getName();
         while (true) {
             int dot = className.indexOf('.');
@@ -1105,16 +1105,16 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 //                }
 //            }
 //        }
-        child.setParentExpression(Expression.this);
+        child.setParentExpression(this);
 
         if (child.retainedStaticContext == null) {
             child.retainedStaticContext = retainedStaticContext;
         }
 
         if (getLocation() == null || getLocation() == Loc.NONE) {
-            ExpressionTool.copyLocationInfo(child, Expression.this);
+            ExpressionTool.copyLocationInfo(child, this);
         } else if (child.getLocation() == null || child.getLocation() == Loc.NONE) {
-            ExpressionTool.copyLocationInfo(Expression.this, child);
+            ExpressionTool.copyLocationInfo(this, child);
         }
         resetLocalStaticProperties();
     }
@@ -1127,6 +1127,11 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
     public void setLocation(Location id) {
         location = id;
+    }
+
+    public Expression withLocation(Location id) {
+        setLocation(id);
+        return this;
     }
 
     /**
@@ -1278,7 +1283,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      * on the context position, while (position()+1) does not. The default implementation
      * of the method returns 0, indicating "no dependencies".
      *
-     * @return a set of bit-significant flags identifying the "intrinsic"
+     * @return an integer containing bit-significant flags identifying the "intrinsic"
      *         dependencies. The flags are documented in class net.sf.saxon.value.StaticProperty
      */
 
@@ -1315,10 +1320,9 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
             }
             sub.checkForUpdatingSubexpressions();
             if (sub.isUpdatingExpression()) {
-                XPathException err = new XPathException(
-                        "Updating expression appears in a context where it is not permitted", "XUST0001");
-                err.setLocation(sub.getLocation());
-                throw err;
+                throw new XPathException(
+                        "Updating expression appears in a context where it is not permitted", "XUST0001")
+                        .withLocation(sub.getLocation());
             }
         }
     }
@@ -1397,10 +1401,10 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
         ItemType type = getItemType();
         if (((getDependencies() & StaticProperty.DEPENDS_ON_NON_DOCUMENT_FOCUS) == 0) &&
                 (type instanceof NodeTest || this instanceof VariableReference)) {
-            return new NodeSetPattern(Expression.this);
+            return new NodeSetPattern(this);
         }
         if (isCallOn(KeyFn.class) || isCallOn(SuperId.class)) {
-            return new NodeSetPattern(Expression.this);
+            return new NodeSetPattern(this);
         }
         throw new XPathException("Cannot convert the expression {" + this + "} to a pattern");
     }
@@ -1419,7 +1423,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
             return slotsUsed;
         }
         IntHashSet slots = new IntHashSet(10);
-        gatherSlotsUsed(Expression.this, slots);
+        gatherSlotsUsed(this, slots);
         slotsUsed = new int[slots.size()];
         int i = 0;
         IntIterator iter = slots.iterator();
@@ -1431,7 +1435,6 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     }
 
     private static void gatherSlotsUsed(Expression exp, IntHashSet slots) {
-        exp = exp.getInterpretedExpression();
         if (exp instanceof LocalVariableReference) {
             slots.add(((LocalVariableReference)exp).getSlotNumber());
         } else if (exp instanceof SuppliedParameterReference) {
@@ -1454,10 +1457,9 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      */
 
     protected void dynamicError(String message, String code, XPathContext context) throws XPathException {
-        XPathException err = new XPathException(message, code, getLocation());
-        err.setXPathContext(context);
-        err.setFailingExpression(this);
-        throw err;
+        throw new XPathException(message, code, getLocation())
+                .withXPathContext(context)
+                .withFailingExpression(this);
     }
 
     /**
@@ -1470,11 +1472,10 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      */
 
     protected void typeError(String message, String errorCode, XPathContext context) throws XPathException {
-        XPathException e = new XPathException(message, errorCode, getLocation());
-        e.setIsTypeError(true);
-        e.setXPathContext(context);
-        e.setFailingExpression(this);
-        throw e;
+        throw new XPathException(message, errorCode, getLocation())
+                .asTypeError()
+                .withXPathContext(context)
+                .withFailingExpression(this);
     }
 
     public String getTracingTag() {
@@ -1490,7 +1491,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     /*@Nullable*/
     public Object getProperty(String name) {
         if (name.equals("expression")) {
-            return Expression.this.getLocation();
+            return getLocation();
         } else {
             return null;
         }
@@ -1531,12 +1532,12 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
     /*@Nullable*/
     public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, /*@Nullable*/ PathMap.PathMapNodeSet pathMapNodeSet) {
-        boolean dependsOnFocus = ExpressionTool.dependsOnFocus(Expression.this);
+        boolean dependsOnFocus = ExpressionTool.dependsOnFocus(this);
         PathMap.PathMapNodeSet attachmentPoint;
         if (pathMapNodeSet == null) {
             if (dependsOnFocus) {
                 ContextItemExpression cie = new ContextItemExpression();
-                ExpressionTool.copyLocationInfo(Expression.this, cie);
+                ExpressionTool.copyLocationInfo(this, cie);
                 pathMapNodeSet = new PathMap.PathMapNodeSet(pathMap.makeNewRoot(cie));
             }
             attachmentPoint = pathMapNodeSet;
@@ -1573,7 +1574,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      */
 
     public boolean isSubtreeExpression() {
-        if (ExpressionTool.dependsOnFocus(Expression.this)) {
+        if (ExpressionTool.dependsOnFocus(this)) {
             if ((getIntrinsicDependencies() & StaticProperty.DEPENDS_ON_FOCUS) != 0) {
                 return false;
             } else {
@@ -1590,7 +1591,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     }
 
     public void setEvaluationMethod(int method) {
-        Expression.this.evaluationMethod = method;
+        this.evaluationMethod = method;
     }
 
     public int getEvaluationMethod() {
@@ -1681,7 +1682,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      * equality test ignores the location of the expression.
      *
      * @param other the value to be compared with
-     * @return true if the two values are indentical, false otherwise
+     * @return true if the two values are identical, false otherwise
      */
     @Override
     public boolean isIdentical(IdentityComparable other) {
@@ -1695,7 +1696,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
      */
     @Override
     public int identityHashCode() {
-        return System.identityHashCode(Expression.this.getLocation());
+        return System.identityHashCode(getLocation());
     }
 
     /**
@@ -1741,6 +1742,32 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
     public String getStreamerName() {
         return null;
+    }
+
+    /**
+     * Make an elaborator for this expression
+     * @return an appropriate {@link Elaborator}
+     */
+
+    public Elaborator getElaborator() {
+        return new FallbackElaborator();
+    }
+
+    /**
+     * Factory method to construct an {@code Elaborator} for this expression
+     * @return an elaborator for the expression. We only create one elaborator
+     * for a given expression; it is reused for multiple evaluations of the expression,
+     * and in multiple threads.
+     */
+
+    public final synchronized Elaborator makeElaborator() {
+        if (elaborator == null) {
+            Elaborator elab = getElaborator();
+            elab.setExpression(this);
+            return elaborator = elab;
+        } else {
+            return elaborator;
+        }
     }
 
 

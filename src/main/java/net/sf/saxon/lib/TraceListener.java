@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,42 +13,42 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.trace.Traceable;
 import net.sf.saxon.trans.Mode;
 
-import java.util.EventListener;
 import java.util.Map;
 
 /**
  * This interface defines methods that are called by Saxon during the execution of
- * a stylesheet, if tracing is switched on. Tracing can be switched on by nominating
+ * a stylesheet or query, if tracing is switched on. Tracing can be switched on by nominating
  * an implementation of this class using the TRACE_LISTENER feature of the TransformerFactory,
- * or using the addTraceListener() method of the Controller, which is Saxon's implementation
- * of tyhe JAXP javax.xml.transform.Transformer interface.
+ * or using the addTraceListener() method of the Controller.
  */
 
-public interface TraceListener extends EventListener {
+public interface TraceListener {
 
     /**
-     * Method called to supply the destination for output
+     * Method called to supply the destination for output. The default implementation does nothing.
      *
      * @param stream a Logger to which any output produced by the TraceListener should be written
      * @since 8.0. Changed in 9.6 to accept a Logger.
      */
 
-    void setOutputDestination(Logger stream);
+    default void setOutputDestination(Logger stream) {}
 
     /**
-     * Method called at the start of execution, that is, when the run-time transformation starts
+     * Method called at the start of execution, that is, when the run-time transformation starts.
+     * The default implementation does nothing.
      *
      * @param controller identifies the transformation controller, and provides the listener with
      *                   access to context and configuration information
      */
 
-    void open(Controller controller);
+    default void open(Controller controller) {};
 
     /**
-     * Method called at the end of execution, that is, when the run-time execution ends
+     * Method called at the end of execution, that is, when the run-time execution ends. The default
+     * implementation does nothing.
      */
 
-    void close();
+    default void close() {};
 
     /**
      * Method that is called when an instruction in the stylesheet gets processed. Default implementation
@@ -79,26 +79,26 @@ public interface TraceListener extends EventListener {
      * Method that is called by an instruction that changes the current item
      * in the source document: that is, xsl:for-each, xsl:apply-templates, xsl:for-each-group.
      * The method is called after the enter method for the relevant instruction, and is called
-     * once for each item processed.
+     * once for each item processed. The default implementation does nothing.
      *
      * @param currentItem the new current item. Item objects are not mutable; it is safe to retain
      *                    a reference to the Item for later use.
      */
 
-    void startCurrentItem(Item currentItem);
+    default void startCurrentItem(Item currentItem) {}
 
     /**
      * Method that is called when an instruction has finished processing a new current item
      * and is ready to select a new current item or revert to the previous current item.
      * The method will be called before the leave() method for the instruction that made this
-     * item current.
+     * item current. The default implementation does nothing.
      *
      * @param currentItem the item that was current, whose processing is now complete. This will represent
      *                    the same underlying item as the corresponding startCurrentItem() call, though it will
      *                    not necessarily be the same actual object.
      */
 
-    void endCurrentItem(Item currentItem);
+    default void endCurrentItem(Item currentItem) {}
 
     /**
      * Method called when a search for a template rule is about to start
@@ -114,7 +114,7 @@ public interface TraceListener extends EventListener {
      * @param item the item that was checked against
      */
 
-    default void endRuleSearch(Object rule, Mode mode, Item item) {};
+    default void endRuleSearch(Object rule, Mode mode, Item item) {}
 
 }
 

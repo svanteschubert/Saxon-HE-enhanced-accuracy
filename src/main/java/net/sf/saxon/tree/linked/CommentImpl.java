@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,9 @@ package net.sf.saxon.tree.linked;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
@@ -18,23 +19,22 @@ import net.sf.saxon.value.StringValue;
 /**
  * CommentImpl is an implementation of a Comment node
  *
- * @author Michael H. Kay
  */
 
 
 public class CommentImpl extends NodeImpl {
 
-    String comment;
+    UnicodeString comment;
     String systemId;
     int lineNumber = -1;
     int columnNumber = -1;
 
-    public CommentImpl(String content) {
+    public CommentImpl(UnicodeString content) {
         this.comment = content;
     }
 
     @Override
-    public final String getStringValue() {
+    public final UnicodeString getUnicodeStringValue() {
         return comment;
     }
 
@@ -46,7 +46,7 @@ public class CommentImpl extends NodeImpl {
     /*@NotNull*/
     @Override
     public AtomicSequence atomize() {
-        return new StringValue(getStringValue());
+        return new StringValue(getUnicodeStringValue());
     }
 
     @Override
@@ -71,15 +71,16 @@ public class CommentImpl extends NodeImpl {
      */
 
     @Override
-    public void replaceStringValue(/*@NotNull*/ CharSequence stringValue) {
-        comment = stringValue.toString();
+    public void replaceStringValue(/*@NotNull*/ UnicodeString stringValue) {
+        comment = stringValue;
     }
 
     /**
      * Set the system ID and line number
      *
-     * @param uri        the system identifier
-     * @param lineNumber the line number
+     * @param uri          the system identifier
+     * @param lineNumber   the line number
+     * @param columnNumber the column number
      */
 
     public void setLocation(String uri, int lineNumber, int columnNumber) {

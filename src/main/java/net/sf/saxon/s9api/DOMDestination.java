@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,16 +11,17 @@ import net.sf.saxon.dom.DOMWriter;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.serialize.SerializationProperties;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
  * This class represents a Destination (for example, the destination of the output of a transformation)
  * in which the results are written to a newly constructed DOM tree in memory. The caller must supply
  * a Document node, which will be used as the root of the constructed tree
  */
-
+@CSharpModifiers(code = {"internal"})
 public class DOMDestination extends AbstractDestination {
 
-    private DOMWriter domWriter;
+    private final DOMWriter domWriter;
 
     /**
      * Create a DOMDestination, supplying a node in a DOM document to which the
@@ -41,7 +42,7 @@ public class DOMDestination extends AbstractDestination {
      * @param pipe The Saxon configuration. This is supplied so that the destination can
      *               use information from the configuration (for example, a reference to the name pool)
      *               to construct or configure the returned Receiver.
-     * @param params
+     * @param params the serialization properties
      * @return the Receiver to which events are to be sent.
      */
 

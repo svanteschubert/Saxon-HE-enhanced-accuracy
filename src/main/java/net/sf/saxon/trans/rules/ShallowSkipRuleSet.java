@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,11 +12,12 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.instruct.TailCall;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.ma.arrays.ArrayFunctionSet;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.type.Type;
 
 /**
@@ -25,7 +26,7 @@ import net.sf.saxon.type.Type;
  */
 public class ShallowSkipRuleSet implements BuiltInRuleSet {
 
-    private static ShallowSkipRuleSet THE_INSTANCE = new ShallowSkipRuleSet();
+    private static final ShallowSkipRuleSet THE_INSTANCE = new ShallowSkipRuleSet();
 
     /**
      * Get the singleton instance of this class
@@ -37,7 +38,7 @@ public class ShallowSkipRuleSet implements BuiltInRuleSet {
         return THE_INSTANCE;
     }
 
-    private ShallowSkipRuleSet() {
+    protected ShallowSkipRuleSet() {
     }
 
     /**
@@ -69,6 +70,7 @@ public class ShallowSkipRuleSet implements BuiltInRuleSet {
                     while (tc != null) {
                         tc = tc.processLeavingTail();
                     }
+                    CSharp.emitCode("goto case Saxon.Hej.type.Type.DOCUMENT;");
                 }   // fall through!
                 case Type.DOCUMENT: {
                     XPathContextMajor c2 = context.newContext();
@@ -123,8 +125,10 @@ public class ShallowSkipRuleSet implements BuiltInRuleSet {
      * @return the default action for unmatched nodes: one of DEEP_COPY, APPLY_TEMPLATES, DEEP_SKIP, FAIL
      */
     @Override
-    public int[] getActionForParentNodes(int nodeKind) {
-        return new int[]{APPLY_TEMPLATES_TO_ATTRIBUTES, APPLY_TEMPLATES_TO_CHILDREN};
+    public BuiltInRules[] getActionForParentNodes(int nodeKind) {
+        return new BuiltInRules[]{
+                BuiltInRules.APPLY_TEMPLATES_TO_ATTRIBUTES,
+                BuiltInRules.APPLY_TEMPLATES_TO_CHILDREN};
     }
 }
 

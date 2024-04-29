@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -138,6 +138,12 @@ public class SaxonErrorCode {
     public static final String SXSQ0004 = "SXSQ0004";
 
     /**
+     * SXSQ0005: Warning JDBC is not thread safe
+     */
+
+    public static final String SXSQ0005 = "SXSQ0005";
+
+    /**
      * SXJE0001:  Must supply an argument for a non-static extension function
      */
 
@@ -220,6 +226,12 @@ public class SaxonErrorCode {
      */
 
     public static final String SXPK0004 = "SXPK0004";
+
+    /**
+     * SXPK0005: unresolved component reference in SEF file
+     */
+
+    public static final String SXPK0005 = "SXPK0005";
 
     /**
      * SXRD0001: URI supplied to xsl:result-document does not identify a writable destination
@@ -311,6 +323,11 @@ public class SaxonErrorCode {
 
     public static final String SXST0071 = "SXST0071";
 
+    /**
+     * SXST0072: Exporting a stylesheet containing extensions instruction
+     */
+
+    public static final String SXST0072 = "SXST0072";
 
     /**
      * SXTA0001: unresolved type alias
@@ -330,7 +347,7 @@ public class SaxonErrorCode {
 
 
     /**
-     * SXUP0081: attempt to update a non-updateable node
+     * SXUP0081: attempt to update a non-updatable node
      */
 
     public static final String SXUP0081 = "SXUP0081";
@@ -451,6 +468,269 @@ public class SaxonErrorCode {
      */
 
     public static final String SXWN9018 = "SXWN9018";
+
+    /**
+     * SXWN9019: stylesheet module included or imported more than once
+     */
+
+    public static final String SXWN9019 = "SXWN9019";
+
+    /**
+     * SXWN9020: unrecognized XSLT version
+     */
+
+    public static final String SXWN9020 = "SXWN9020";
+
+    /**
+     * SXWN9021: extension attribute ignored because not recognized in this Saxon version
+     */
+
+    public static final String SXWN9021 = "SXWN9021";
+
+    /**
+     * SXWN9022: warning returned by regular expression compiler
+     */
+
+    public static final String SXWN9022 = "SXWN9022";
+
+    /**
+     * SXWN9023: mode="#current" specified when not inside xsl:template
+     */
+
+    public static final String SXWN9023 = "SXWN9023";
+
+    /**
+     * SXWN9024: Fallback to non-streamed execution
+     */
+
+    public static final String SXWN9024 = "SXWN9024";
+
+    /**
+     * SXWN9025: Comparison will always be false
+     */
+
+    public static final String SXWN9025 = "SXWN9025";
+
+    /**
+     * SXWN9026: The only value that can pass type checking is an empty sequence
+     */
+
+    public static final String SXWN9026 = "SXWN9026";
+
+    /**
+     * SXWN9027: Expression is valid statically, but will always fail if executed
+     */
+
+    public static final String SXWN9027 = "SXWN9027";
+
+    /**
+     * SXWN9028: XPath Construct A/[XYZ] is probably not intended: try A/*[XYZ]
+     */
+
+    public static final String SXWN9028 = "SXWN9028";
+
+    /**
+     * SXWN9029: xsl:on-empty/xsl:on-non-empty in this context has no effect
+     */
+
+    public static final String SXWN9029 = "SXWN9029";
+
+    /**
+     * SXWN9030: creating an attribute or namespace is likely to fail because children have already been created
+     */
+
+    public static final String SXWN9030 = "SXWN9030";
+
+    /**
+     * SXWN9031: lax validation has no effect because there is no element/attribute declaration in the schema
+     */
+
+    public static final String SXWN9031 = "SXWN9031";
+
+    /**
+     * SXWN9032: Function result should be computed using xsl:sequence, not xsl:value-of
+     */
+
+    public static final String SXWN9032 = "SXWN9032";
+
+    /**
+     * SXWN9033: Value of sort key doesn't depend on the context item
+     */
+
+    public static final String SXWN9033 = "SXWN9033";
+
+    /**
+     * SXWN9034: Cannot resolve relative collation URI
+     */
+
+    public static final String SXWN9034 = "SXWN9034";
+
+    /**
+     * SXWN9035: Concatenation operator ('||') used with boolean operands
+     */
+
+    public static final String SXWN9035 = "SXWN9035";
+
+    /**
+     * SXWN9036: Suspicious use of curly braces in xsl:analyze-string/@regex
+     */
+
+    public static final String SXWN9036 = "SXWN9036";
+
+    /**
+     * SXWN9037: Result of evaluation will always be an empty sequence
+     */
+
+    public static final String SXWN9037 = "SXWN9037";
+
+    /**
+     * SXWN9038: Field name not defined in record type
+     */
+
+    public static final String SXWN9038 = "SXWN9038";
+
+    /**
+     * SXWN9039: Value will always be a singleton; occurrence indicator has no effect
+     */
+
+    public static final String SXWN9039 = "SXWN9039";
+
+    /**
+     * SXWN9040: Possible confusion between language keyword and element name
+     */
+
+    public static final String SXWN9040 = "SXWN9040";
+
+    /**
+     * SXWN9041: An attribute node cannot have a complex type
+     */
+
+    public static final String SXWN9041 = "SXWN9041";
+
+    /**
+     * SXWN9042: Unrecognized or invalid extension in Saxon namespace
+     */
+
+    public static final String SXWN9042 = "SXWN9042";
+
+    /**
+     * SXWN9043: Invalid or unrecognized serialization property
+     */
+
+    public static final String SXWN9043 = "SXWN9043";
+
+
+
+    /**
+     * SXWN9045: non-streamed input supplied for a streamable stylesheet
+     */
+
+    public static final String SXWN9045 = "SXWN9045";
+
+    /**
+     * SXWN9046: predicate [0] selects nothing
+     */
+
+    public static final String SXWN9046 = "SXWN9046";
+
+    /**
+     * SXWN9047: dynamic error evaluating expression used in XSD type alternative
+     */
+
+    public static final String SXWN9047 = "SXWN9047";
+
+    /**
+     * SXWN9048: An xs:ID element at the outermost level has no effect
+     */
+
+    public static final String SXWN9048 = "SXWN9048";
+
+    /**
+     * SXWN9049: Requested XQuery version not supported (request ignored)
+     */
+
+    public static final String SXWN9049 = "SXWN9049";
+
+    /**
+     * SXWN9050: Invalid document excluded from collection
+     */
+
+    public static final String SXWN9050 = "SXWN9050";
+
+
+    /**
+     * SXSD1000: unknown attribute group
+     */
+    public static final String SXSD1000 = "SXSD1000";
+
+    /**
+     * SXSD1001: unknown attribute declaration
+     */
+    public static final String SXSD1001 = "SXSD1001";
+
+    /**
+     * SXSD1002: invalid substitution group membership
+     */
+    public static final String SXSD1002 = "SXSD1002";
+    /**
+     * SXSD1003: unknown element declaration
+     */
+    public static final String SXSD1003 = "SXSD1003";
+
+    /**
+     * SXSD1004: field declaration may select no nodes, or multiple nodes
+     */
+    public static final String SXSD1004 = "SXSD1004";
+    /**
+     * SXSD1005: field declaration selects a node that cannot be atomized
+     */
+    public static final String SXSD1005 = "SXSD1005";
+    /**
+     * SXSD1006: unknown named model group
+     */
+    public static final String SXSD1006 = "SXSD1006";
+    /**
+     * SXSD1007: missing component in schema
+     */
+    public static final String SXSD1007 = "SXSD1007";
+    /**
+     * SXSD1008: unknown schema type
+     */
+    public static final String SXSD1008 = "SXSD1008";
+    /**
+     * SXSD1009: constraints in derived type may not be compatible with constraints in the base type
+     */
+    public static final String SXSD1009 = "SXSD1009";
+    /**
+     * SXSD1010: enumeration value is not a valid instance of the type
+     */
+    public static final String SXSD1010 = "SXSD1010";
+    /**
+     * SXSD1011: type of local element is not derived from type of global element
+     */
+    public static final String SXSD1011 = "SXSD1011";
+    /**
+     * SXSD1012: minOccurs/maxOccurs limits adjusted because out of supported range
+     */
+    public static final String SXSD1012 = "SXSD1012";
+    /**
+     * SXSD1014: unrecognized schema versioning attribute
+     */
+    public static final String SXSD1014 = "SXSD1014";
+    /**
+     * SXSD1015: use="prohibited" on an attribute group has no effect
+     */
+    public static final String SXSD1015 = "SXSD1015";
+    /**
+     * SXSD1016: redefined component is in the wrong schema module
+     */
+    public static final String SXSD1016 = "SXSD1016";
+    /**
+     * SXSD1017: target of xs:override is not a valid schema
+     */
+    public static final String SXSD1017 = "SXSD1017";
+
+
 
 
 }

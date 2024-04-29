@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,19 +9,19 @@ package net.sf.saxon.trans.rules;
 
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.TemplateRule;
-import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 
 /**
- * Rule: a template rule, or a strip-space rule used to support the implementation
+ * Rule: common functionality representing an abstraction of a template rule, a strip-space rule,
+ * or an accumulator rule
  */
 
 public class Rule {
-    protected Pattern pattern;      // The pattern that fires this rule
-    protected RuleTarget action;      // The action associated with this rule (usually a Template)
+    protected Pattern pattern;        // The pattern that fires this rule
+    protected RuleTarget action;      // The action associated with this rule (a TemplateRule, accumulator rule, etc)
     protected int precedence;         // The import precedence
     protected int minImportPrecedence;// The minimum import precedence to be considered by xsl:apply-imports
     protected double priority;        // The priority of the rule
@@ -30,13 +30,14 @@ public class Rule {
     protected int sequence;           // The relative position of this rule, its position in declaration order
     protected int part;               // The relative position of this rule relative to others formed by splitting
                                       // on a union pattern
-    private boolean alwaysMatches;  // True if the pattern does not need to be tested, because the rule
-    // is on a rule-chain such that the pattern is necessarily satisfied
-    private int rank;               // Indicates the relative precedence/priority of a rule within a mode;
-    // used for quick comparison
+    private boolean alwaysMatches;    // True if the pattern does not need to be tested, because the rule
+                                      // is on a rule-chain such that the pattern is necessarily satisfied
+    private int rank;                 // Indicates the relative precedence/priority of a rule within a mode;
+                                      // used for quick comparison
 
 
-    public Rule() {}
+    protected Rule() {}
+
     /**
      * Create a Rule.
      *
@@ -60,34 +61,34 @@ public class Rule {
         o.registerRule(this);
     }
 
-    /**
-     * Copy a rule, including optionally the chain of rules linked to it
-     *
-     * @param r the rule to be copied
-     * @param copyChain true if the whole chain of rules is to be copied
-     */
-
-    protected void copyFrom(Rule r, boolean copyChain) {
-        pattern = r.pattern.copy(new RebindingMap());
-        action = r.action instanceof TemplateRule ? ((TemplateRule) r.action).copy() : r.action;
-        precedence = r.precedence;
-        minImportPrecedence = r.minImportPrecedence;
-        priority = r.priority;
-        sequence = r.sequence;
-        part = r.part;
-        if (r.next == null || !copyChain) {
-            next = null;
-        } else {
-            next = r.next.copy(true);
-        }
-        action.registerRule(this);
-    }
-
-    public Rule copy(boolean copyChain) {
-        Rule r2 = new Rule();
-        r2.copyFrom(this, copyChain);
-        return r2;
-    }
+//    /**
+//     * Copy a rule, including optionally the chain of rules linked to it
+//     *
+//     * @param r the rule to be copied
+//     * @param copyChain true if the whole chain of rules is to be copied
+//     */
+//
+//    protected void copyFrom(Rule r, boolean copyChain) {
+//        pattern = r.pattern.copy(new RebindingMap());
+//        action = r.action instanceof TemplateRule ? ((TemplateRule) r.action).copy() : r.action;
+//        precedence = r.precedence;
+//        minImportPrecedence = r.minImportPrecedence;
+//        priority = r.priority;
+//        sequence = r.sequence;
+//        part = r.part;
+//        if (r.next == null || !copyChain) {
+//            next = null;
+//        } else {
+//            next = r.next.copy(true);
+//        }
+//        action.registerRule(this);
+//    }
+//
+//    public Rule copy(boolean copyChain) {
+//        Rule r2 = new Rule();
+//        r2.copyFrom(this, copyChain);
+//        return r2;
+//    }
 
     public int getSequence() {
         return sequence;
@@ -236,7 +237,7 @@ public class Rule {
     }
 
     public boolean matches(Item item, XPathContextMajor context) throws XPathException {
-        return alwaysMatches || pattern.matches(item, context);
+        return alwaysMatches || pattern.matchesItem(item, context);
     }
 
 

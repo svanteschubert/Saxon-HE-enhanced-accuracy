@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import java.net.URI;
 import java.util.function.Consumer;
 
 /**
- * A <tt>Destination</tt> represents a place where XDM values can be sent. It is used, for example,
+ * A <code>Destination</code> represents a place where XDM values can be sent. It is used, for example,
  * to define the output of a transformation or query.
  * <p>
  * A {@code Destination} is either a tree destination or a raw destination. A <b>tree destination</b>

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,12 @@
 package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.*;
+import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.ItemToBeSorted;
+import net.sf.saxon.expr.sort.SortKeyDefinitionList;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceException;
 
 import java.util.ArrayList;
 
@@ -20,12 +23,12 @@ import java.util.ArrayList;
  */
 public class OrderByClausePull extends TuplePull {
 
-    private TuplePull base;
-    private OrderByClause orderByClause;
-    private TupleExpression tupleExpr;
+    private final TuplePull base;
+    private final OrderByClause orderByClause;
+    private final TupleExpression tupleExpr;
     private int currentPosition = -1;
-    private AtomicComparer[] comparers;
-    private ArrayList<ItemToBeSorted> tupleArray = new ArrayList<ItemToBeSorted>(100);
+    private final AtomicComparer[] comparers;
+    private final ArrayList<ItemToBeSorted> tupleArray = new ArrayList<ItemToBeSorted>(100);
 
     public OrderByClausePull(TuplePull base, TupleExpression tupleExpr, OrderByClause orderBy, XPathContext context) {
         this.base = base;
@@ -49,6 +52,7 @@ public class OrderByClausePull extends TuplePull {
      *         are undefined.
      */
     @Override
+    @CSharpReplaceException(from="net.sf.saxon.transpile.CSharpUncheckedException", to="System.InvalidOperationException")
     public boolean nextTuple(XPathContext context) throws XPathException {
         if (currentPosition < 0) {
             currentPosition = 0;
@@ -85,11 +89,9 @@ public class OrderByClausePull extends TuplePull {
                     // TODO: unnecessary, we are now using a stable sort routine
                     return a.originalPosition - b.originalPosition;
                 });
-                //GenericSorter.quickSort(0, position, this);
             } catch (ClassCastException e) {
-                XPathException err = new XPathException("Non-comparable types found while sorting: " + e.getMessage());
-                err.setErrorCode("XPTY0004");
-                throw err;
+                throw new XPathException("Non-comparable types found while sorting: " + e.getMessage())
+                        .withErrorCode("XPTY0004").asTypeError();
             }
         }
 

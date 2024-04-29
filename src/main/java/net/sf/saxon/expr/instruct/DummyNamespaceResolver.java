@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,9 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.tree.jiter.PairIterator;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.tree.jiter.PairIterator;
 
 import java.util.Iterator;
 
@@ -48,14 +48,14 @@ public final class DummyNamespaceResolver implements NamespaceResolver {
      */
 
     @Override
-    public String getURIForPrefix(String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
         if (prefix.isEmpty()) {
-            return NamespaceConstant.NULL;
+            return NamespaceUri.NULL;
         } else if ("xml".equals(prefix)) {
-            return NamespaceConstant.XML;
+            return NamespaceUri.XML;
         } else {
             // this is a dummy namespace resolver, we don't actually know the URI
-            return NamespaceConstant.NULL;
+            return NamespaceUri.NULL;
         }
     }
 

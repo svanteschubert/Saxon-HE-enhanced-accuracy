@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,9 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.sort.GroupIterator;
+import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
 
@@ -17,7 +20,7 @@ import net.sf.saxon.trans.XPathException;
  * Implements the XSLT function current-grouping-key()
  */
 
-public class CurrentGroupingKey extends SystemFunction {
+public class CurrentGroupingKey extends ContextAccessorFunction {
 
     /**
      * Make an expression that either calls this function, or that is equivalent to a call
@@ -30,6 +33,22 @@ public class CurrentGroupingKey extends SystemFunction {
     @Override
     public Expression makeFunctionCall(Expression... arguments) {
         return new CurrentGroupingKeyCall();
+    }
+
+    @Override
+    public FunctionItem bindContext(XPathContext context) throws XPathException {
+        if (getRetainedStaticContext().getPackageData().getHostLanguageVersion() < 40) {
+            throw new XPathException("Dynamic call on current-grouping-key() fails (the current group is absent)", "XTDE1071");
+        }
+        GroupIterator gi = context.getCurrentGroupIterator();
+        if (gi == null) {
+            throw new XPathException("There is no current grouping key", "XTDE1071");
+        }
+        AtomicSequence groupingKey = gi.getCurrentGroupingKey();
+        ConstantFunction fn = new ConstantFunction(groupingKey);
+        fn.setDetails(getDetails());
+        fn.setRetainedStaticContext(getRetainedStaticContext());
+        return fn;
     }
 
     /**

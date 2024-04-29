@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,7 @@
 package net.sf.saxon.style;
 
 import net.sf.saxon.expr.StaticProperty;
-import net.sf.saxon.om.AttributeInfo;
-import net.sf.saxon.om.AxisInfo;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
@@ -32,7 +29,7 @@ public class XSLContextItem extends StyleElement {
 
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String asAtt = null;
         String useAtt = null;
@@ -59,7 +56,7 @@ public class XSLContextItem extends StyleElement {
                 st = makeSequenceType(asAtt);
             } catch (XPathException e) {
                 st = SequenceType.SINGLE_ITEM;
-                compileErrorInAttribute(e.getMessage(), e.getErrorCodeLocalPart(), "as");
+                compileErrorInAttribute(e, "as");
             }
             if (st.getCardinality() != StaticProperty.EXACTLY_ONE) {
                 compileError("The xsl:context-item/@use attribute must be an item type (no occurrence indicator allowed)", "XTSE0020");
@@ -84,7 +81,8 @@ public class XSLContextItem extends StyleElement {
             }
         }
         if (asAtt != null && absentFocus) {
-            compileError("The 'as' attribute must be omitted when use='absent' is specified", "XTSE3089");
+            compileError("The 'as' attribute must be omitted when use='absent' is specified",
+                         this instanceof XSLGlobalContextItem ? "XTSE3089": "XTSE3088");
         }
     }
 
@@ -109,8 +107,8 @@ public class XSLContextItem extends StyleElement {
                 "XTSE0020");
         }
         ((XSLTemplate)getParent()).setContextItemRequirements(requiredType, mayBeOmitted, absentFocus);
-        iterateAxis(AxisInfo.PRECEDING_SIBLING).forEachOrFail(prec -> {
-            if (((NodeInfo)prec).getNodeKind() != Type.TEXT || !Whitespace.isWhite(prec.getStringValueCS())) {
+        SequenceTool.supply(iterateAxis(AxisInfo.PRECEDING_SIBLING), (ItemConsumer<? super Item>) prec -> {
+            if (((NodeInfo) prec).getNodeKind() != Type.TEXT || !Whitespace.isAllWhite(prec.getUnicodeStringValue())) {
                 compileError("xsl:context-item must be the first child of xsl:template");
             }
         });

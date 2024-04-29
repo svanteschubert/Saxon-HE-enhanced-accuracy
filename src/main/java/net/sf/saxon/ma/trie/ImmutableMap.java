@@ -13,7 +13,7 @@ import java.util.Iterator;
 // by Saxonica Limited with permission from the author
 
 
-public interface ImmutableMap<K, V> extends Iterable<Tuple2<K, V>>{
+public interface ImmutableMap<K, V> extends Iterable<TrieKVP<K, V>>{
     /**
      * Add a new entry to the map. If an entry already exists with the
      * given key, the returned map will contain this entry, but not the
@@ -54,5 +54,5 @@ public interface ImmutableMap<K, V> extends Iterable<Tuple2<K, V>>{
      */
 
     @Override
-    Iterator<Tuple2<K, V>> iterator();
+    Iterator<TrieKVP<K, V>> iterator();
 }

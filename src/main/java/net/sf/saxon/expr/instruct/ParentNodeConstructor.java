@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -71,6 +71,10 @@ public abstract class ParentNodeConstructor extends Instruction
         return validationOptions;
     }
 
+    public void setValidationOptions(ParseOptions options) {
+        this.validationOptions = options;
+    }
+
     /**
      * Set the validation mode for the new document or element node
      *
@@ -87,10 +91,10 @@ public abstract class ParentNodeConstructor extends Instruction
                 validationOptions = new ParseOptions();
             }
             if (schemaType == Untyped.getInstance()) {
-                validationOptions.setSchemaValidationMode(Validation.SKIP);
+                validationOptions = validationOptions.withSchemaValidationMode(Validation.SKIP);
             } else {
-                validationOptions.setSchemaValidationMode(mode);
-                validationOptions.setTopLevelType(schemaType);
+                validationOptions = validationOptions.withSchemaValidationMode(mode)
+                        .withTopLevelType(schemaType);
             }
         }
     }
@@ -151,7 +155,7 @@ public abstract class ParentNodeConstructor extends Instruction
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 

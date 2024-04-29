@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,13 +25,13 @@ import java.util.List;
 
 public abstract class Assignation extends Expression implements LocalBinding {
 
-    private Operand sequenceOp;
-    private Operand actionOp;
+    private final Operand sequenceOp;
+    private final Operand actionOp;
     protected int slotNumber = -999;     // slot number for range variable
     // (initialized to ensure a crash if no real slot is allocated)
     protected StructuredQName variableName;
     protected SequenceType requiredType;
-    protected boolean isIndexedVariable = false;
+    protected boolean indexedVariable = false;
     protected boolean hasLoopingReference = false;
     protected List<VariableReference> references = null;
 
@@ -134,7 +134,7 @@ public abstract class Assignation extends Expression implements LocalBinding {
      */
     @Override
     public int computeDependencies() {
-        int d = super.computeDependencies();
+        int d = super.computeDependencies() | StaticProperty.DEPENDS_ON_OWN_RANGE_VARIABLES;
         // Unset the DEPENDS_ON_LOCAL_VARIABLES bit if the only dependencies are to
         // variables declared within the expression itself (typically, the variable
         // bound by this Assignation)
@@ -151,7 +151,7 @@ public abstract class Assignation extends Expression implements LocalBinding {
     @Override
     public Sequence evaluateVariable(XPathContext context) throws XPathException {
         Sequence actual = context.evaluateLocalVariable(slotNumber);
-        if (!(actual instanceof GroundedValue || actual instanceof NodeInfo)) {
+        if (!(actual instanceof GroundedValue)) {
             actual = actual.materialize();
             context.setLocalVariable(slotNumber, actual);
         }
@@ -362,14 +362,14 @@ public abstract class Assignation extends Expression implements LocalBinding {
      * Get the name of the range variable as a Name or EQName.
      *
      * @return the name of the range variable. For system allocated
-     *         variables, the namespace "http://ns.saxonica.com/anonymous-var"
+     *         variables, the namespace <code>http://ns.saxonica.com/anonymous-var</code>
      *         is used. For names in no namespace, the local name alone is used
      */
 
     public String getVariableEQName() {
         if (variableName == null) {
             return "Q{http://ns.saxonica.com/anonymous-var}var" + computeHashCode();
-        } else if (variableName.hasURI("")) {
+        } else if (variableName.hasURI(NamespaceUri.NULL)) {
             return variableName.getLocalPart();
         } else {
             return variableName.getEQName();
@@ -434,7 +434,7 @@ public abstract class Assignation extends Expression implements LocalBinding {
      */
 
     public int getNominalReferenceCount() {
-        if (isIndexedVariable) {
+        if (indexedVariable) {
             return FilterExpression.FILTERED;
         } else if (references == null || hasLoopingReference) {
             return 10;
@@ -531,13 +531,12 @@ public abstract class Assignation extends Expression implements LocalBinding {
 
     @Override
     public boolean isIndexedVariable() {
-        return isIndexedVariable;
+        return indexedVariable;
     }
 
     /**
      * Replace all references to the variable bound by this let expression,
      * that occur within the action expression, with the given expression
-     *
      *
      * @param seq the expression
      * @return true if the variable was successfully inlined. (Returns false, for example,
@@ -562,7 +561,7 @@ public abstract class Assignation extends Expression implements LocalBinding {
 
     @Override
     public void setIndexedVariable() {
-        isIndexedVariable = true;
+        indexedVariable = true;
     }
 }
 

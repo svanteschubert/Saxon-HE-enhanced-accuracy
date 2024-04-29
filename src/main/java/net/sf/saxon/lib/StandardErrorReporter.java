@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,10 +11,16 @@ import net.sf.saxon.expr.EarlyEvaluationContext;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.XPathParser;
-import net.sf.saxon.s9api.*;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.HostLanguage;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.s9api.QName;
+import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.AttributeLocation;
 import net.sf.saxon.type.ValidationException;
 import org.xml.sax.SAXParseException;
@@ -43,10 +49,11 @@ public class StandardErrorReporter
     private int maximumNumberOfErrors = 1000;
     private int maxOrdinaryCharacter = 255;
     private int stackTraceDetail = 2;
-    private Set<String> warningsIssued = new HashSet<>();
+    private final Set<String> warningsIssued = new HashSet<>();
     protected transient Logger logger = new StandardLogger();
     private XmlProcessingError latestError;
     private boolean outputErrorCodes = true;
+    private Set<StructuredQName> suppressedWarnings;
 
     /**
      * Create a Standard Error Reporter
@@ -132,14 +139,14 @@ public class StandardErrorReporter
     }
 
     /**
-     * Set the maximum codepoint value for a character to be considered non-special.
+     * Get the maximum codepoint value for a character to be considered non-special.
      * Special characters (codepoints above this value) will be expanded in hex for
      * extra clarity in the error message.
      *
-     * @param max the highest codepoint considered non-special (defaults to 255)
+     * @return the highest codepoint considered non-special (defaults to 255)
      */
 
-    public int getMaxOrdinaryCharacter(int max) {
+    public int getMaxOrdinaryCharacter() {
         return maxOrdinaryCharacter;
     }
 
@@ -182,19 +189,50 @@ public class StandardErrorReporter
     }
 
     /**
+     * Suppress warning messages using a particular error code. The method may be called repeatedly
+     * to suppress multiple warnings.
+     * @param code the error code to be suppressed. For an error code in the standard error namespace,
+     * supply the local name. For an error code in another namespace, supply the code in the form
+     * <code>Q{uri}local</code>.
+     */
+
+    public void suppressWarning(String code) {
+        if (suppressedWarnings == null) {
+            suppressedWarnings = new HashSet<>();
+        }
+        if (code.startsWith("Q{")) {
+            suppressedWarnings.add(StructuredQName.fromEQName(code));
+        } else {
+            suppressedWarnings.add(new StructuredQName("err", NamespaceConstant.ERR, code));
+        }
+    }
+
+    /**
+     * Ask whether a particular warning is suppressed.
+     * @param errorCode the errorCode about which we are asking
+     * @return true if reporting of this warning condition has been suppressed.
+     */
+
+    public boolean isSuppressedWarning(StructuredQName errorCode) {
+        return suppressedWarnings != null && suppressedWarnings.contains(errorCode);
+    }
+
+    /**
      * Report an error or warning
      *
-     * @param error the error or warning being reported
+     * @param processingError the error or warning being reported
      */
 
     @Override
-    public void report(XmlProcessingError error) {
-        if (error != latestError) {
-            latestError = error;
-            if (error.isWarning()) {
-                warning(error);
+    public void report(XmlProcessingError processingError) {
+        if (processingError != latestError) {
+            latestError = processingError;
+            if (processingError.isWarning()) {
+                if (processingError.getErrorCode() == null || !isSuppressedWarning(processingError.getErrorCode().getStructuredQName())) {
+                    warning(processingError);
+                }
             } else {
-                error(error);
+                error(processingError);
             }
         }
     }
@@ -219,11 +257,14 @@ public class StandardErrorReporter
         }
         String message = constructMessage(error, "", "Warning ");
         if (!warningsIssued.contains(message)) {
-            logger.warning(message);
-            warningCount++;
             if (warningCount > getMaximumNumberOfWarnings()) {
-                logger.info("No more warnings will be displayed");
+                if (warningCount == getMaximumNumberOfWarnings() + 1) {
+                    logger.info("No more warnings will be displayed");
+                }
+            } else {
+                logger.warning(message);
             }
+            warningCount++;
             warningsIssued.add(message);
         }
     }
@@ -241,27 +282,36 @@ public class StandardErrorReporter
     }
 
     /**
+     * Get the number of warnings reported
+     * @return the number of warnings that have been reported
+     */
+
+    public int getNumberOfWarnings() {
+        return warningCount;
+    }
+
+    /**
      * Receive notification of an error.
      *
      * <p>After calling this method to report a static error, the compiler will normally
      * continue to detect and report further errors, but the method can abort the
-     * compilation by calling {@link StaticError#setFatal(String)}</p>
+     * compilation by calling {@link XmlProcessingError#setTerminationMessage(String)}</p>
      *
-     * @param error The error information.
+     * @param err The error information.
      */
 
-    protected void error(XmlProcessingError error) {
+    protected void error(XmlProcessingError err) {
         if (errorCount++ > maximumNumberOfErrors) {
-            error.setFatal("Too many errors reported");
+            err.setTerminationMessage("Too many errors reported");
         }
         if (logger == null) {
             logger = new StandardLogger();
         }
         String message;
 
-        HostLanguage lang = error.getHostLanguage();
+        HostLanguage lang = err.getHostLanguage();
         String langText = "";
-        if (lang != null) {
+        if (lang != HostLanguage.UNKNOWN) {
             switch (lang) {
                 case XSLT:
                     break;
@@ -282,23 +332,33 @@ public class StandardErrorReporter
         }
 
         String kind = "Error ";
-        if (error.isTypeError()) {
+        if (err.isTypeError()) {
             kind = "Type error ";
-        } else if (error.isStaticError()) {
+        } else if (err.isStaticError()) {
             kind = "Static error ";
         }
 
-        message = constructMessage(error, langText, kind);
+        message = constructMessage(err, langText, kind);
 
         logger.error(message);
 
-        if (error instanceof XmlProcessingException) {
-            XPathException exception = ((XmlProcessingException)error).getXPathException();
+        if (err instanceof XmlProcessingException) {
+            XPathException exception = ((XmlProcessingException)err).getXPathException();
             XPathContext context = exception.getXPathContext();
             if (context != null && !(context instanceof EarlyEvaluationContext)) {
                 outputStackTrace(logger, context);
             }
         }
+    }
+
+    /**
+     * Get the number of errors reported
+     *
+     * @return the number of errors that have been reported
+     */
+
+    public int getNumberOfErrors() {
+        return errorCount;
     }
 
     /**
@@ -339,14 +399,12 @@ public class StandardErrorReporter
             XPathParser.NestedLocation nestedLoc = (XPathParser.NestedLocation)locator;
             Location outerLoc = nestedLoc.getContainingLocation();
 
-            int line = nestedLoc.getLocalLineNumber();
-            int column = nestedLoc.getColumnNumber();
-            String lineInfo = line <= 0 ? "" : "on line " + line + ' ';
-            String columnInfo = column < 0 ? "" : "at " + (line <= 0 ? "char " : "column ") + column + ' ';
+            int line = nestedLoc.getLocalLineNumber() + 1;
+            int column = nestedLoc.getColumnNumber() + 1;
+            String lineInfo = line <= 1 ? "" : "on line " + line + ' ';
+            String columnInfo = column <= 1 ? "" : "at " + (line <= 1 ? "char " : "column ") + column + ' ';
             String nearBy = nestedLoc.getNearbyText();
-
-            Expression failingExpression = null;
-            String extraContext = formatExtraContext(failingExpression, nearBy);
+            String extraContext = formatExtraContext(error.getFailingExpression(), nearBy);
 
             if (outerLoc instanceof AttributeLocation) {
                 // Typical XSLT case
@@ -409,14 +467,14 @@ public class StandardErrorReporter
      *     was violated;</li>
      *     <li>For other exceptions, it returns a string comprising two characters
      *     of indentation, followed by the result of calling {@link #getExpandedMessage(XmlProcessingError)}
-     *     and then formatting the result using {@link #wordWrap(String)} and {@link #expandSpecialCharacters(CharSequence)}.</li>
+     *     and then formatting the result using {@link #wordWrap(String)} and {@link #expandSpecialCharacters(String)}.</li>
      * </ul>
      * @param err the original reported exception
      * @return the string to be used as the second line of the error message
      */
 
     public String constructSecondLine(XmlProcessingError err) {
-        return expandSpecialCharacters(wordWrap(getExpandedMessage(err))).toString();
+        return expandSpecialCharacters(wordWrap(getExpandedMessage(err)));
     }
 
     /**
@@ -474,18 +532,18 @@ public class StandardErrorReporter
      */
 
     public String formatNestedMessages(XmlProcessingError err, String message) {
-        if (err.getCause() == null) {
+        if (err.getCause() == null || isSAXParseException(err.getCause())) {
             return message;
         } else {
             StringBuilder sb = new StringBuilder(message);
             Throwable e = err.getCause();
             while (e != null) {
-                if (!(e instanceof SAXParseException)) {
+                if (!(isSAXParseException(e))) {
                     if (e instanceof RuntimeException) {
                         StringWriter sw = new StringWriter();
-                        e.printStackTrace(new PrintWriter(sw));
+                        appendStackTrace(e, sw);
                         sb.append('\n').append(sw);
-                    } else {
+                    } else if (!message.contains(e.getMessage())) {
                         sb.append(". Caused by ").append(e.getClass().getName());
                     }
                 }
@@ -497,6 +555,18 @@ public class StandardErrorReporter
             }
             return sb.toString();
         }
+    }
+
+    @CSharpReplaceBody(code="sw.WriteLine(e.StackTrace);")
+    private void appendStackTrace(Throwable e, StringWriter sw) {
+        e.printStackTrace(new PrintWriter(sw));
+    }
+
+    @SuppressWarnings({"", "PointlessBooleanExpression"})
+    private boolean isSAXParseException(Throwable err) {
+        return false
+            || err instanceof SAXParseException
+                ;
     }
 
     /**
@@ -515,7 +585,7 @@ public class StandardErrorReporter
         if (outputErrorCodes) {
             QName qCode = err.getErrorCode();
             if (qCode != null) {
-                if (qCode.getNamespaceURI().equals(NamespaceConstant.ERR)) {
+                if (qCode.getNamespaceUri().equals(NamespaceUri.ERR)) {
                     return qCode.getLocalName() + " ";
                 } else {
                     return qCode.toString() + " ";
@@ -538,14 +608,14 @@ public class StandardErrorReporter
      * in this way is to mark the logger as being unicode-aware.</p>
      *
      * <p>If messages are expanded, then they will be expanded using the method
-     * {@link #expandSpecialCharacters(CharSequence, int)}, which can be overridden
+     * {@link #expandSpecialCharacters(String, int)}, which can be overridden
      * to define the actual format in which special characters are displayed.</p>
      *
      * @param in the message to be expanded
      * @return the expanded message
      */
 
-    public CharSequence expandSpecialCharacters(CharSequence in) {
+    public String expandSpecialCharacters(String in) {
         if (logger.isUnicodeAware()) {
             return in;
         } else {
@@ -561,9 +631,12 @@ public class StandardErrorReporter
      */
 
     protected void outputStackTrace(Logger out, XPathContext context) {
-        printStackTrace(context, out, stackTraceDetail);
+        logStackTrace(context, out, stackTraceDetail);
     }
 
+    public XmlProcessingError getLatestError() {
+        return latestError;
+    }
 
 }
 

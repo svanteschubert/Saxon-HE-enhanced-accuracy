@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -71,14 +71,14 @@ public class Idref extends SystemFunction {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrMore<NodeInfo> call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         NodeInfo start = arguments.length == 1 ? getContextNode(context) : (NodeInfo) arguments[1].head();
         NodeInfo arg2 = start.getRoot();
         if (arg2.getNodeKind() != Type.DOCUMENT) {
             throw new XPathException("In the idref() function," +
                     " the tree being searched must be one whose root is a document node", "FODC0001", context);
         }
-        return new ZeroOrMore<>(getIdrefMultiple(arg2.getTreeInfo(), arguments[0].iterate(), context));
+        return new LazySequence(getIdrefMultiple(arg2.getTreeInfo(), arguments[0].iterate(), context));
     }
 
     private static class IdrefMappingFunction implements MappingFunction {

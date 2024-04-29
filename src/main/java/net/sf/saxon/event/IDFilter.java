@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,11 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
-import net.sf.saxon.type.SimpleType;
-
-import java.util.HashSet;
 
 
 /**
@@ -26,11 +24,10 @@ import java.util.HashSet;
 
 public class IDFilter extends ProxyReceiver {
 
-    private String requiredId;
+    private final String requiredId;
     private int activeDepth = 0;
 
     private boolean matched = false;
-    private HashSet<SimpleType> nonIDs;
 
     public IDFilter(Receiver next, String id) {
         // System.err.println("IDFilter, looking for " + id);
@@ -84,7 +81,7 @@ public class IDFilter extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (activeDepth > 0) {
             super.characters(chars, locationId, properties);
         }
@@ -95,7 +92,7 @@ public class IDFilter extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (activeDepth > 0) {
             super.processingInstruction(target, data, locationId, properties);
         }
@@ -106,7 +103,7 @@ public class IDFilter extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (activeDepth > 0) {
             super.comment(chars, locationId, properties);
         }

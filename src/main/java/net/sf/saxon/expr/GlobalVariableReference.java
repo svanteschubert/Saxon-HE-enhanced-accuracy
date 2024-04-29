@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,11 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.instruct.GlobalVariable;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.Visibility;
@@ -120,11 +119,10 @@ public class GlobalVariableReference extends VariableReference implements Compon
             }
             Component target = c.getTargetComponent(bindingSlot);
             if (target.isHiddenAbstractComponent()) {
-                XPathException err = new XPathException("Cannot evaluate an abstract variable ("
+                throw new XPathException("Cannot evaluate an abstract variable ("
                                                                 + getVariableName().getDisplayName()
-                                                                + ") with no overriding declaration", "XTDE3052");
-                err.setLocation(getLocation());
-                throw err;
+                                                                + ") with no overriding declaration", "XTDE3052")
+                        .withLocation(getLocation());
             }
             GlobalVariable p = (GlobalVariable) target.getActor();
             return p.evaluateVariable(c, target);
@@ -153,5 +151,83 @@ public class GlobalVariableReference extends VariableReference implements Compon
         Set<Expression> pre = new HashSet<Expression>();
         //pre.add(this.copy());
         return pre;
+    }
+
+    /**
+     * Get a name identifying the kind of expression, in terms meaningful to a user.
+     *
+     * @return a name identifying the kind of expression, in terms meaningful to a user.
+     * The name will always be in the form of a lexical XML QName, and should match the name used
+     * in export() output displaying the expression.
+     */
+    @Override
+    public String getExpressionName() {
+        return "gVarRef";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new GlobalVariableReferenceElaborator();
+    }
+
+    /**
+     * Elaborator for a global variable reference, for example {@code $globalVar}.
+     */
+
+    public static class GlobalVariableReferenceElaborator extends PullElaborator implements SequenceEvaluator {
+
+        /**
+         * Evaluate a construct to produce a value (which might be a lazily evaluated Sequence)
+         *
+         * @param context the evaluation context
+         * @return a Sequence (not necessarily grounded)
+         * @throws XPathException if a dynamic error occurs during the evaluation.
+         */
+        @Override
+        public Sequence evaluate(XPathContext context) throws XPathException {
+            GlobalVariableReference varRef = (GlobalVariableReference) getExpression();
+            return varRef.evaluateVariable(context);
+        }
+
+        @Override
+        public SequenceEvaluator eagerly() {
+            return this;
+        }
+
+        @Override
+        public SequenceEvaluator lazily(boolean repeatable, boolean lazyEvaluationRequired) {
+            return this;
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            GlobalVariableReference varRef = (GlobalVariableReference)getExpression();
+            return context -> varRef.evaluateVariable(context).iterate();
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            GlobalVariableReference varRef = (GlobalVariableReference) getExpression();
+            return (out, context) -> {
+                SequenceIterator value = varRef.evaluateVariable(context).iterate();
+                for (Item it; (it = value.next()) != null;) {
+                    out.append(it);
+                }
+                return null;
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            GlobalVariableReference varRef = (GlobalVariableReference) getExpression();
+            return context -> varRef.evaluateVariable(context).head();
+        }
+
     }
 }

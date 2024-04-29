@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,19 +7,22 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.Controller;
-import net.sf.saxon.event.Outputter;
-import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.lib.TraceListener;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.FocusIterator;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.PrependSequenceIterator;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
+import net.sf.saxon.value.Int64Value;
+import net.sf.saxon.value.IntegerRange;
 
 /**
  * Handler for xsl:for-each elements in a stylesheet. The same class handles the "!" operator in XPath 3.0,
@@ -27,14 +30,14 @@ import net.sf.saxon.value.Cardinality;
  * is known that the rhs delivers atomic values.
  */
 
-public class ForEach extends Instruction implements ContextMappingFunction, ContextSwitchingExpression {
+public class ForEach extends Instruction implements ContextSwitchingExpression {
 
     protected boolean containsTailCall;
     protected Operand selectOp;
     protected Operand actionOp;
     protected Operand separatorOp;
     protected Operand threadsOp;
-    protected boolean isInstruction;
+    protected boolean _isInstruction;
 
     /**
      * Create an xsl:for-each instruction
@@ -62,11 +65,13 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
         if (threads != null) {
             threadsOp = new Operand(this, threads, OperandRole.SINGLE_ATOMIC);
         }
-        this.containsTailCall = containsTailCall && action instanceof TailCallReturner;
+        this.containsTailCall = containsTailCall;
     }
 
     /**
      * Set the separator expression (Saxon extension)
+     *
+     * @param separator the separator expression
      */
 
     public void setSeparatorExpression(Expression separator) {
@@ -84,7 +89,7 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
      */
 
     public void setInstruction(boolean inst) {
-        isInstruction = inst;
+        _isInstruction = inst;
     }
 
     /**
@@ -96,7 +101,29 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
 
     @Override
     public boolean isInstruction() {
-        return isInstruction;
+        return _isInstruction;
+    }
+
+    /**
+     * Set whether this expression contains a call (on call-template or apply-templates) that is
+     * treated as a tail call because the select expression is known to be a singleton
+     *
+     * @param tc true if the action expression is to be treated as a tail call
+     */
+
+    public void setContainsTailCall(boolean tc) {
+        containsTailCall = tc;
+    }
+
+    /**
+     * Ask whether this expression contains a call (on call-template or apply-templates) that is
+     * treated as a tail call because the select expression is known to be a singleton
+     *
+     * @return true if the action expression is to be treated as a tail call
+     */
+
+    public boolean isContainsTailCall() {
+        return containsTailCall;
     }
 
 
@@ -322,10 +349,77 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
             return new SimpleStepExpression(getSelect(), getAction());
         }
 
-        if (threadsOp != null && !Literal.isEmptySequence(getThreads())) {
+        // Rewrite (1 to $N) ! (. + $M) as ($N to $N + $M)
+        if (getSelect() instanceof RangeExpression && isSimpleArithmeticShift(getAction())) {
+            ArithmeticExpression arith = (ArithmeticExpression) getAction();
+
+            RangeExpression range = (RangeExpression) getSelect();
+            return new RangeExpression(
+                    new ArithmeticExpression(range.getStartExpression().copy(new RebindingMap()),
+                                             arith.getOperator(),
+                                             arith.getRhsExpression().copy(new RebindingMap())),
+                    new ArithmeticExpression(range.getEndExpression().copy(new RebindingMap()),
+                                             arith.getOperator(),
+                                             arith.getRhsExpression().copy(new RebindingMap())))
+
+                    .typeCheck(visitor, contextInfo)
+                    .optimize(visitor, contextInfo);
+        }
+
+
+        // Rewrite (1 to 1000) ! (. + $N) as ($N to 1000 + $N)
+        if (getSelect() instanceof Literal
+                && ((Literal)getSelect()).getGroundedValue() instanceof IntegerRange
+                &&  isSimpleArithmeticShift(getAction())
+                && getSeparatorExpression() == null) {
+            ArithmeticExpression arith = (ArithmeticExpression) getAction();
+            IntegerRange range = (IntegerRange) ((Literal) getSelect()).getGroundedValue();
+            Expression shift = arith.getRhsExpression();
+            Expression newStart = new ArithmeticExpression(
+                    Literal.makeLiteral(new Int64Value(range.start), this),
+                    arith.getOperator(),
+                    shift.copy(new RebindingMap()));
+            Expression newEnd = new ArithmeticExpression(
+                    Literal.makeLiteral(new Int64Value(range.end), this),
+                    arith.getOperator(),
+                    shift.copy(new RebindingMap()));
+
+            return new RangeExpression(newStart, newEnd)
+                    .typeCheck(visitor, contextInfo)
+                    .optimize(visitor, contextInfo);
+
+        }
+
+
+        if (threadsOp != null && !Literal.isEmptySequence(getThreads()) && !containsTailCall) {
             return visitor.obtainOptimizer().generateMultithreadedInstruction(this);
         }
         return this;
+    }
+
+
+    /**
+     * Test whether the supplied expression takes the form (. + X) or (. - X) where X is a literal
+     * or variable reference. (We don't allow anything more complex because it would involve
+     * introducing a new local variable).
+     * @param exp the expression to be tested
+     * @return true if it takes the required form
+     */
+    private boolean isSimpleArithmeticShift(Expression exp) {
+        if (!(exp instanceof ArithmeticExpression)) {
+            return false;
+        }
+        ArithmeticExpression arith = (ArithmeticExpression) exp;
+        if (!(arith.getLhsExpression() instanceof ContextItemExpression)) {
+            return false;
+        }
+        if (!(arith.getOperator() == Token.PLUS || arith.getOperator() == Token.MINUS)) {
+            return false;
+        }
+        if (!(arith.getRhsExpression() instanceof Literal || arith.getRhsExpression() instanceof VariableReference)) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -396,7 +490,7 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
      * @return a set of flags indicating static properties of this expression
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         if (getSelect().getCardinality() == StaticProperty.EXACTLY_ONE) {
             p |= getAction().getSpecialProperties();
@@ -432,10 +526,9 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
     @Override
     public void checkForUpdatingSubexpressions() throws XPathException {
         if (getSelect().isUpdatingExpression()) {
-            XPathException err = new XPathException(
-                    "Updating expression appears in a context where it is not permitted", "XUST0001");
-            err.setLocation(getSelect().getLocation());
-            throw err;
+            throw new XPathException(
+                    "Updating expression appears in a context where it is not permitted", "XUST0001")
+                    .withLocation(getSelect().getLocation());
         }
     }
 
@@ -464,75 +557,78 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
         getAction().checkPermittedContents(parentType, false);
     }
 
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        assert controller != null;
-
-        XPathContextMajor c2 = context.newContext();
-        c2.setOrigin(this);
-        FocusIterator iter = c2.trackFocus(getSelect().iterate(context));
-        c2.setCurrentTemplateRule(null);
-
-        Expression action = getAction();
-        if (containsTailCall) {
-            if (controller.isTracing()) {
-                TraceListener listener = controller.getTraceListener();
-                assert listener != null;
-                Item item = iter.next();
-                if (item == null) {
-                    return null;
-                }
-                listener.startCurrentItem(item);
-                TailCall tc = ((TailCallReturner) action).processLeavingTail(output, c2);
-                listener.endCurrentItem(item);
-                return tc;
-            } else {
-                Item item = iter.next();
-                if (item == null) {
-                    return null;
-                }
-                return ((TailCallReturner) action).processLeavingTail(output, c2);
-            }
-        } else {
-            PipelineConfiguration pipe = output.getPipelineConfiguration();
-            pipe.setXPathContext(c2);
-            NodeInfo separator = null;
-            if (separatorOp != null) {
-                separator = makeSeparator(context);
-            }
-            if (controller.isTracing() || separator != null) {
-                TraceListener listener = controller.getTraceListener();
-                Item item;
-                boolean first = true;
-                while ((item = iter.next()) != null) {
-                    if (controller.isTracing()) {
-                        assert listener != null;
-                        listener.startCurrentItem(item);
-                    }
-                    if (separator != null) {
-                        if (first) {
-                            first = false;
-                        } else {
-                            output.append(separator);
-                        }
-                    }
-                    action.process(output, c2);
-                    if (controller.isTracing()) {
-                        listener.endCurrentItem(item);
-                    }
-                }
-            } else {
-                iter.forEachOrFail(item -> action.process(output, c2));
-            }
-            pipe.setXPathContext(context);
-        }
-        return null;
-    }
+//    @Override
+//    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
+//        Controller controller = context.getController();
+//        assert controller != null;
+//
+//        XPathContextMajor c2 = context.newContext();
+//        c2.setOrigin(this);
+//        FocusIterator iter = c2.trackFocus(getSelect().iterate(context));
+//        c2.setCurrentTemplateRule(null);
+//
+//        Expression action = getAction();
+//        if (containsTailCall) {
+//            if (controller.isTracing()) {
+//                TraceListener listener = controller.getTraceListener();
+//                assert listener != null;
+//                Item item = iter.next();
+//                if (item == null) {
+//                    return null;
+//                }
+//                listener.startCurrentItem(item);
+//                TailCall tc = ((TailCallReturner) action).processLeavingTail(output, c2);
+//                listener.endCurrentItem(item);
+//                return tc;
+//            } else {
+//                Item item = iter.next();
+//                if (item == null) {
+//                    return null;
+//                }
+//                return ((TailCallReturner) action).processLeavingTail(output, c2);
+//            }
+//        } else {
+//            PipelineConfiguration pipe = output.getPipelineConfiguration();
+//            pipe.setXPathContext(c2);
+//            NodeInfo separator = null;
+//            if (separatorOp != null) {
+//                separator = makeSeparator(context);
+//            }
+//            if (controller.isTracing() || separator != null) {
+//                TraceListener listener = controller.getTraceListener();
+//                boolean first = true;
+//                for (Item item; (item = iter.next()) != null; ) {
+//                    if (controller.isTracing()) {
+//                        assert listener != null;
+//                        listener.startCurrentItem(item);
+//                    }
+//                    if (separator != null) {
+//                        if (first) {
+//                            first = false;
+//                        } else {
+//                            output.append(separator);
+//                        }
+//                    }
+//                    action.process(output, c2);
+//                    if (controller.isTracing()) {
+//                        listener.endCurrentItem(item);
+//                    }
+//                }
+//            } else {
+//                try {
+//                    SequenceTool.supply(iter, (ItemConsumer<? super Item>) item -> action.process(output, c2));
+//                } catch (UncheckedXPathException err) {
+//                    throw err.getXPathException();
+//                }
+//            }
+//            pipe.setXPathContext(context);
+//        }
+//        return null;
+//    }
 
     protected NodeInfo makeSeparator(XPathContext context) throws XPathException {
         NodeInfo separator;
-        CharSequence sepValue = separatorOp.getChildExpression().evaluateAsString(context);
+        UnicodeString sepValue = separatorOp.getChildExpression().evaluateAsString(context);
         Orphan orphan = new Orphan(context.getConfiguration());
         orphan.setNodeKind(Type.TEXT);
         orphan.setStringValue(sepValue);
@@ -556,53 +652,17 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
         XPathContextMinor c2 = context.newMinorContext();
         c2.trackFocus(getSelect().iterate(context));
         if (separatorOp == null) {
-            return new ContextMappingIterator(this, c2);
+            return new ContextMappingIterator(c3 -> getAction().iterate(c3), c2);
         } else {
             NodeInfo separator = makeSeparator(context);
             ContextMappingFunction mapper = cxt -> {
                if (cxt.getCurrentIterator().position() == 1) {
-                   return ForEach.this.map(cxt);
+                   return getAction().iterate(cxt);
                } else {
-                   return new PrependSequenceIterator(separator, ForEach.this.map(cxt));
+                   return new PrependSequenceIterator(separator, getAction().iterate(cxt));
                }
             };
             return new ContextMappingIterator(mapper, c2);
-        }
-    }
-
-    /**
-     * Map one item to a sequence.
-     *
-     * @param context The processing context. The item to be mapped is the context item identified
-     *                from this context: the values of position() and last() also relate to the set of items being mapped
-     * @return a SequenceIterator over the sequence of items that the supplied input
-     *         item maps to
-     */
-
-    @Override
-    public SequenceIterator map(XPathContext context) throws XPathException {
-        return getAction().iterate(context);
-    }
-
-    /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     * @throws net.sf.saxon.trans.XPathException if evaluation fails
-     * @throws UnsupportedOperationException     if the expression is not an updating expression
-     */
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        XPathContextMinor c2 = context.newMinorContext();
-        c2.trackFocus(getSelect().iterate(context));
-        SequenceIterator iter = c2.getCurrentIterator();
-        Item item;
-        while ((item = iter.next()) != null) {
-            getAction().evaluatePendingUpdates(c2, pul);
         }
     }
 
@@ -614,6 +674,9 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
         out.startElement("forEach", this);
+        if (containsTailCall) {
+            out.emitAttribute("flags", "t");
+        }
         getSelect().export(out);
         getAction().export(out);
         if (separatorOp != null) {
@@ -667,6 +730,127 @@ public class ForEach extends Instruction implements ContextMappingFunction, Cont
     @Override
     public String getStreamerName() {
         return "ForEach";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new ForEachElaborator();
+    }
+
+    public static class ForEachElaborator extends PullElaborator {
+
+        private NodeInfo makeSeparator(UnicodeStringEvaluator evaluator, XPathContext context) throws XPathException {
+            UnicodeString sepValue = evaluator.eval(context);
+            Orphan orphan = new Orphan(context.getConfiguration());
+            orphan.setNodeKind(Type.TEXT);
+            orphan.setStringValue(sepValue);
+            return orphan;
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            ForEach forEach = (ForEach) getExpression();
+            PullEvaluator select = forEach.getSelectExpression().makeElaborator().elaborateForPull();
+            PullEvaluator action = forEach.getActionExpression().makeElaborator().elaborateForPull();
+            if (forEach.getSeparatorExpression() == null) {
+                ContextMappingFunction mapper = cxt -> action.iterate(cxt);
+                return context -> {
+                    XPathContextMinor c2 = context.newMinorContext();
+                    c2.trackFocus(select.iterate(context));
+                    return new ContextMappingIterator(mapper, c2);
+                };
+            } else {
+                UnicodeStringEvaluator sepEval = forEach.getSeparatorExpression().makeElaborator().elaborateForUnicodeString(true);
+                return context -> {
+                    NodeInfo separator = makeSeparator(sepEval, context);
+                    ContextMappingFunction mapper = cxt -> {
+                        if (cxt.getCurrentIterator().position() == 1) {
+                            return action.iterate(cxt);
+                        } else {
+                            return new PrependSequenceIterator(separator, action.iterate(cxt));
+                        }
+                    };
+                    XPathContextMinor c2 = context.newMinorContext();
+                    c2.trackFocus(select.iterate(context));
+                    return new ContextMappingIterator(mapper, c2);
+                };
+
+            }
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            ForEach forEach = (ForEach)getExpression();
+            PullEvaluator select = forEach.getSelectExpression().makeElaborator().elaborateForPull();
+            PushEvaluator action = forEach.getActionExpression().makeElaborator().elaborateForPush();
+            if (forEach.getSeparatorExpression() == null) {
+                if (forEach.containsTailCall) {
+                    // This path is used when a for-each has a singleton select and contains a call-template
+                    // or apply-templates that is classified as a tail call. The iterator deliberately doesn't
+                    // advance beyond the first (and only) item. See bug 5845.
+                    return (out, context) -> {
+                        XPathContextMinor c2 = context.newMinorContext();
+                        FocusIterator iter = c2.trackFocus(select.iterate(context));
+                        TailCall tc = null;
+                        if (iter.next() != null) {
+                            tc = action.processLeavingTail(out, c2);
+                        }
+                        return tc;
+                    };
+                } else {
+                    return (out, context) -> {
+                        XPathContextMinor c2 = context.newMinorContext();
+                        FocusIterator iter = c2.trackFocus(select.iterate(context));
+                        TailCall tc = null;
+                        while (iter.next() != null) {
+                            dispatchTailCall(tc);
+                            tc = action.processLeavingTail(out, c2);
+                        }
+                        return tc;
+                    };
+                }
+            } else {
+                UnicodeStringEvaluator sepEval = forEach.getSeparatorExpression().makeElaborator().elaborateForUnicodeString(true);
+                return (out, context) -> {
+                    NodeInfo separator = makeSeparator(sepEval, context);
+                    XPathContextMinor c2 = context.newMinorContext();
+                    FocusIterator iter = c2.trackFocus(select.iterate(context));
+                    TailCall tc = null;
+                    if (iter.next() != null) {
+                        dispatchTailCall(tc);
+                        tc = action.processLeavingTail(out, c2);
+                    }
+                    while (iter.next() != null) {
+                        out.append(separator);
+                        dispatchTailCall(tc);
+                        tc = action.processLeavingTail(out, c2);
+                    }
+                    return tc;
+                };
+            }
+
+        }
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            ForEach forEach = (ForEach) getExpression();
+            PullEvaluator select = forEach.getSelectExpression().makeElaborator().elaborateForPull();
+            UpdateEvaluator action = forEach.getActionExpression().makeElaborator().elaborateForUpdate();
+            return (context, pul) -> {
+                XPathContextMinor c2 = context.newMinorContext();
+                c2.trackFocus(select.iterate(context));
+                SequenceIterator iter = c2.getCurrentIterator();
+                while (iter.next() != null) {
+                    action.registerUpdates(c2, pul);
+                }
+            };
+        }
     }
 }
 

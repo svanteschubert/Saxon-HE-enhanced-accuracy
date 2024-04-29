@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.ma.arrays.ArrayItem;
@@ -17,21 +16,27 @@ import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringConstants;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UniStringConsumer;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.CharSequenceConsumer;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.ExternalObject;
 
 import javax.xml.transform.Result;
 import java.util.*;
+import java.util.function.Consumer;
 
-import static net.sf.saxon.event.RegularSequenceChecker.State.*;
+import static net.sf.saxon.event.RegularSequenceChecker.State.CONTENT;
+import static net.sf.saxon.event.RegularSequenceChecker.State.FINAL;
+import static net.sf.saxon.event.RegularSequenceChecker.State.INITIAL;
+import static net.sf.saxon.event.RegularSequenceChecker.State.OPEN;
+import static net.sf.saxon.event.RegularSequenceChecker.State.START_TAG;
 
 /**
  * This class is used for generating complex content, that is, the content of an
@@ -94,7 +99,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     private Location startElementLocationId = Loc.NONE;
     private HostLanguage hostLanguage = HostLanguage.XSLT;
 
-    private RegularSequenceChecker.State state = Initial;
+    private RegularSequenceChecker.State state = INITIAL;
     private boolean previousAtomic = false;
     /**
      * Create a ComplexContentOutputter
@@ -102,6 +107,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      */
 
     public ComplexContentOutputter(Receiver next) {
+        //Instrumentation.count("CCO");
         PipelineConfiguration pipe = next.getPipelineConfiguration();
         setPipelineConfiguration(pipe);
         setReceiver(next);
@@ -191,7 +197,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     public void open() throws XPathException {
         nextReceiver.open();
         previousAtomic = false;
-        state = Open;
+        state = OPEN;
     }
 
     /**
@@ -204,7 +210,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         level++;
         if (level == 0) {
             nextReceiver.startDocument(properties);
-        } else if (state == StartTag) {
+        } else if (state == START_TAG) {
             startContent();
         }
         previousAtomic = false;
@@ -212,7 +218,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
             currentLevelIsDocument = Arrays.copyOf(currentLevelIsDocument, level * 2);
         }
         currentLevelIsDocument[level] = true;
-        state = Content;
+        state = CONTENT;
     }
 
     /**
@@ -226,7 +232,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         }
         previousAtomic = false;
         level--;
-        state = level < 0 ? Open : Content;
+        state = level < 0 ? OPEN : CONTENT;
     }
 
     /**
@@ -253,17 +259,16 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      */
 
     @Override
-    public void characters(CharSequence s, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString s, Location locationId, int properties) throws XPathException {
         if (level >= 0) {
             previousAtomic = false;
             if (s == null) {
                 return;
             }
-            int len = s.length();
-            if (len == 0) {
+            if (s.isEmpty()) {
                 return;
             }
-            if (state == StartTag) {
+            if (state == START_TAG) {
                 startContent();
             }
         }
@@ -283,7 +288,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     public void startElement(NodeName elemName, SchemaType typeCode, Location location, int properties) throws XPathException {
         //System.err.println("Start element " + elemName);
         level++;
-        if (state == StartTag) {
+        if (state == START_TAG) {
             startContent();
         }
         startElementProperties = properties;
@@ -298,7 +303,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         }
 
         currentLevelIsDocument[level] = false;
-        state = StartTag;
+        state = START_TAG;
     }
 
 
@@ -307,14 +312,14 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      */
 
     @Override
-    public void namespace(String prefix, String namespaceUri, int properties)
+    public void namespace(String prefix, NamespaceUri namespaceUri, int properties)
             throws XPathException {
         Objects.requireNonNull(prefix);
         Objects.requireNonNull(namespaceUri);
         if (ReceiverOption.contains(properties, ReceiverOption.NAMESPACE_OK)) {
             pendingNSMap = pendingNSMap.put(prefix, namespaceUri);
         } else if (level >= 0) {
-            if (state != StartTag) {
+            if (state != START_TAG) {
                 throw NoOpenStartTagException.makeNoOpenStartTagException(
                         Type.NAMESPACE,
                         prefix,
@@ -326,13 +331,11 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
             // It is an error to output a namespace node for the default namespace if the element
             // itself is in the null namespace, as the resulting element could not be serialized
 
-            boolean elementIsInNullNamespace = pendingStartTag.hasURI("");
             if (prefix.isEmpty() && !namespaceUri.isEmpty()) {
-                if (elementIsInNullNamespace) {
-                    XPathException err = new XPathException("Cannot output a namespace node for the default namespace ("
-                                                                    + namespaceUri + ") when the element is in no namespace");
-                    err.setErrorCode(hostLanguage == HostLanguage.XSLT ? "XTDE0440" : "XQDY0102");
-                    throw err;
+                if (pendingStartTag.hasURI(NamespaceUri.NULL)) {
+                    throw new XPathException("Cannot output a namespace node for the default namespace ("
+                                                                    + namespaceUri + ") when the element is in no namespace")
+                            .withErrorCode(hostLanguage == HostLanguage.XSLT ? "XTDE0440" : "XQDY0102");
                 }
             }
 
@@ -340,14 +343,13 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
             if (rejectDuplicates) {
 
                 // Handle declarations whose prefix is duplicated for this element.
-                String uri = pendingNSMap.getURI(prefix);
+                NamespaceUri uri = pendingNSMap.getNamespaceUri(prefix);
                 if (uri != null && !uri.equals(namespaceUri)) {
-                    XPathException err = new XPathException(
+                    throw new XPathException(
                             "Cannot create two namespace nodes with the same prefix "
-                                    + "mapped to different URIs (prefix=\"" + prefix + "\", URIs=(\"" +
-                                    uri + "\", \"" + namespaceUri + "\"))");
-                    err.setErrorCode(hostLanguage == HostLanguage.XSLT ? "XTDE0430" : "XQDY0102");
-                    throw err;
+                                    + "mapped to different URIs (prefix=\"" + prefix + "\", URIs=(" +
+                                    uri + "\", \"" + namespaceUri + "\")")
+                            .withErrorCode(hostLanguage == HostLanguage.XSLT ? "XTDE0430" : "XQDY0102");
                 }
             }
             pendingNSMap = pendingNSMap.put(prefix, namespaceUri);
@@ -357,7 +359,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
             Orphan orphan = new Orphan(getConfiguration());
             orphan.setNodeKind(Type.NAMESPACE);
             orphan.setNodeName(new NoNamespaceName(prefix));
-            orphan.setStringValue(namespaceUri);
+            orphan.setStringValue(namespaceUri.toUnicodeString());
             nextReceiver.append(orphan, Loc.NONE, properties);
         }
         previousAtomic = false;
@@ -366,7 +368,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
 
     /**
      * Output a set of namespace bindings. This should have the same effect as outputting the
-     * namespace bindings individually using {@link #namespace(String, String, int)}, but it
+     * namespace bindings individually using {@link Outputter#namespace(String, NamespaceUri, int)}, but it
      * may be more efficient. It is used only when copying an element node together with
      * all its namespaces, so less checking is needed that the namespaces form a consistent
      * and complete set
@@ -400,9 +402,9 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      */
 
     @Override
-    public void attribute(NodeName attName, SimpleType typeCode, CharSequence value, Location locationId, int properties) throws XPathException {
+    public void attribute(NodeName attName, SimpleType typeCode, String value, Location locationId, int properties) throws XPathException {
         //System.err.println("Write attribute " + attName + "=" + value + " to Outputter " + this);
-        if (level >= 0 && state != StartTag) {
+        if (level >= 0 && state != START_TAG) {
             // The complexity here is in identifying the right error message and error code
 
             XPathException err = NoOpenStartTagException.makeNoOpenStartTagException(
@@ -418,7 +420,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         // if this is a duplicate attribute, overwrite the original in XSLT; throw an error in XQuery.
         // No check needed if the NOT_A_DUPLICATE property is set (typically, during a deep copy operation)
 
-        AttributeInfo attInfo = new AttributeInfo(attName, typeCode, value.toString(), locationId, properties);
+        AttributeInfo attInfo = new AttributeInfo(attName, typeCode, value, locationId, properties);
         if (level >= 0 && !ReceiverOption.contains(properties, ReceiverOption.NOT_A_DUPLICATE)) {
             for (int a = 0; a < pendingAttributes.size(); a++) {
                 if (pendingAttributes.get(a).getNodeName().equals(attName)) {
@@ -426,10 +428,9 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
                         pendingAttributes.set(a, attInfo);
                         return;
                     } else {
-                        XPathException err = new XPathException("Cannot create an element having two attributes with the same name: " +
-                                Err.wrap(attName.getDisplayName(), Err.ATTRIBUTE));
-                        err.setErrorCode("XQDY0025");
-                        throw err;
+                        throw new XPathException("Cannot create an element having two attributes with the same name: " +
+                                Err.wrap(attName.getDisplayName(), Err.ATTRIBUTE))
+                                .withErrorCode("XQDY0025");
                     }
                 }
             }
@@ -443,20 +444,20 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
             // commenting-out in line above done MHK 22 Jul 2011 to pass test Constr-cont-nsmode-8
             // reverted 2011-07-27 to pass tests in qischema family
             if (typeCode.isNamespaceSensitive()) {
-                XPathException err = new XPathException("Cannot copy attributes whose type is namespace-sensitive (QName or NOTATION): " +
-                        Err.wrap(attName.getDisplayName(), Err.ATTRIBUTE));
-                err.setErrorCode(hostLanguage == HostLanguage.XSLT ? "XTTE0950" : "XQTY0086");
-                throw err;
+                throw new XPathException("Cannot copy attributes whose type is namespace-sensitive (QName or NOTATION): " +
+                        Err.wrap(attName.getDisplayName(), Err.ATTRIBUTE))
+                        .withErrorCode(hostLanguage == HostLanguage.XSLT ? "XTTE0950" : "XQTY0086");
             }
         }
 
         // push top-level attribute nodes down the pipeline
         if (level < 0) {
             Orphan orphan = new Orphan(getConfiguration());
+            ((GenericTreeInfo)orphan.getTreeInfo()).setDurability(Durability.MUTABLE);
             orphan.setNodeKind(Type.ATTRIBUTE);
             orphan.setNodeName(attName);
             orphan.setTypeAnnotation(typeCode);
-            orphan.setStringValue(value);
+            orphan.setStringValue(StringView.tidy(value));
             nextReceiver.append(orphan, locationId, properties);
         }
 
@@ -469,8 +470,8 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     /**
      * Notify the start of an element. This version of the method supplies all attributes and
      * namespaces and implicitly invokes {@link #startContent()}, which means it cannot be followed
-     * by further calls on {@link #attribute(NodeName, SimpleType, CharSequence, Location, int)} or
-     * {@link #namespace} to define further attributes and namespaces.
+     * by further calls on {@link Outputter#attribute(NodeName, SimpleType, String, Location, int)} or
+     * {@link Outputter#namespace} to define further attributes and namespaces.
      *
      * <p>This version of the method does not perform namespace fixup for prefixes used in the element
      * name or attribute names; it is assumed that these prefixes are declared within the namespace map,
@@ -491,7 +492,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     @Override
     public void startElement(NodeName elemName, SchemaType type, AttributeMap attributes, NamespaceMap namespaces, Location location, int properties) throws XPathException {
         //System.err.println("Start element " + elemName + " with " + attributes.getLength() + " attributes");
-        if (state == StartTag) {
+        if (state == START_TAG) {
             startContent();
         }
 
@@ -502,7 +503,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         }
         currentLevelIsDocument[level] = false;
 
-        if (elemName.hasURI("") && !namespaces.getDefaultNamespace().isEmpty()) {
+        if (elemName.hasURI(NamespaceUri.NULL) && !namespaces.getDefaultNamespace().isEmpty()) {
             namespaces = namespaces.remove("");
         }
 
@@ -510,7 +511,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         NamespaceMap ns2;
         if (inherit) {
             NamespaceMap inherited = inheritedNamespaces.peek();
-            if (!inherited.getDefaultNamespace().isEmpty() && elemName.getURI().isEmpty()) {
+            if (!inherited.getDefaultNamespace().isEmpty() && elemName.getNamespaceUri().isEmpty()) {
                 inherited = inherited.remove("");
             }
             ns2 = inherited.putAll(namespaces);
@@ -528,7 +529,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         NamespaceMap ns3 = refuseInheritedNamespaces ? namespaces : ns2;
 
         nextReceiver.startElement(elemName, type, attributes, ns3, location, properties);
-        state = Content;
+        state = CONTENT;
     }
 
     /**
@@ -548,11 +549,11 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
 
     private NodeName checkProposedPrefix(NodeName nodeName, int seq) {
         String nodePrefix = nodeName.getPrefix();
-        String nodeURI = nodeName.getURI();
+        NamespaceUri nodeURI = nodeName.getNamespaceUri();
         if (nodeURI.isEmpty()) {
             return nodeName;
         } else {
-            String uri = pendingNSMap.getURI(nodePrefix);
+            NamespaceUri uri = pendingNSMap.getNamespaceUri(nodePrefix);
             if (uri == null) {
                 pendingNSMap = pendingNSMap.put(nodePrefix, nodeURI);
                 return nodeName;
@@ -579,8 +580,8 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      * @return a prefix to use in place of the one originally proposed
      */
 
-    private String getSubstitutePrefix(String prefix, String uri, int seq) {
-        if (uri.equals(NamespaceConstant.XML)) {
+    private String getSubstitutePrefix(String prefix, NamespaceUri uri, int seq) {
+        if (uri.equals(NamespaceUri.XML)) {
             return "xml";
         }
         return prefix + '_' + seq;
@@ -593,7 +594,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     @Override
     public void endElement() throws XPathException {
         //System.err.println("Write end tag ");
-        if (state == StartTag) {
+        if (state == START_TAG) {
             startContent();
         } else {
             //pendingStartTagDepth = -2;
@@ -605,7 +606,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         nextReceiver.endElement();
         level--;
         previousAtomic = false;
-        state = level < 0 ? Open : Content;
+        state = level < 0 ? OPEN : CONTENT;
         inheritedNamespaces.pop();
     }
 
@@ -614,9 +615,9 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      */
 
     @Override
-    public void comment(CharSequence comment, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString comment, Location locationId, int properties) throws XPathException {
         if (level >= 0) {
-            if (state == StartTag) {
+            if (state == START_TAG) {
                 startContent();
             }
             previousAtomic = false;
@@ -629,9 +630,9 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (level >= 0) {
-            if (state == StartTag) {
+            if (state == START_TAG) {
                 startContent();
             }
             previousAtomic = false;
@@ -666,36 +667,60 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      * of the method, if called at an inner level, outputs the string as a sequence
      * of characters() events, with logic to include space separation where appropriate
      *
-     * @param asTextNode set to true if the concatenated string values are to be treated as a text node
-     * @param loc the location of the instruction that generates the content
      * @return an object that accepts xs:string values via a sequence of append() calls
+     * @param asTextNode set to true if the concatenated string values are to be treated
+     *      *                   as a text node item rather than a string
      */
 
     @Override
-    public CharSequenceConsumer getStringReceiver(boolean asTextNode, Location loc) {
+    public UniStringConsumer getStringReceiver(boolean asTextNode, Location loc) {
         if (level >= 0) {
-            return new CharSequenceConsumer() {
-
-                @Override
-                public void open() throws XPathException {
-                    if (previousAtomic && !asTextNode) {
-                        ComplexContentOutputter.this.characters(" ", loc, ReceiverOption.NONE);
-                    }
-                }
-
-                @Override
-                public CharSequenceConsumer cat(CharSequence chars) throws XPathException {
-                    ComplexContentOutputter.this.characters(chars, loc, ReceiverOption.NONE);
-                    return this;
-                }
-
-                @Override
-                public void close() {
-                    previousAtomic = !asTextNode;
-                }
-            };
+            return new UnicodeStringReceiver(this, previousAtomic, asTextNode, loc,
+                                             prev -> {previousAtomic = prev;});
         } else {
             return super.getStringReceiver(asTextNode, loc);
+        }
+    }
+
+    private static class UnicodeStringReceiver implements UniStringConsumer {
+        // Implemented as a static inner class for ease of C# conversion
+        // (This class is tricky to convert because the close() method makes a state change to the outer class)
+        private final ComplexContentOutputter cco;
+        private final boolean previousAtomic;
+        private final boolean asTextNode;
+        private final Location location;
+        private final Consumer<Boolean> resetPreviousAtomic;
+
+        public UnicodeStringReceiver(ComplexContentOutputter cco,
+                                     boolean previousAtomic,
+                                     boolean asTextNode,
+                                     Location loc,
+                                     Consumer<Boolean> resetPreviousAtomic
+        ) {
+            this.cco = cco;
+            this.previousAtomic = previousAtomic;
+            this.asTextNode = asTextNode;
+            this.location = loc;
+            this.resetPreviousAtomic = resetPreviousAtomic;
+        }
+
+        @Override
+        public void open () throws XPathException {
+            if (previousAtomic && !asTextNode) {
+                cco.characters(StringConstants.SINGLE_SPACE, location, ReceiverOption.NONE);
+            }
+        }
+
+        @Override
+        public UniStringConsumer accept (UnicodeString chars) throws XPathException {
+            cco.characters(chars, location, ReceiverOption.NONE);
+            return this;
+        }
+
+        @Override
+        public void close () {
+            //previousAtomic = !asTextNode;
+            resetPreviousAtomic.accept(!asTextNode);
         }
 
     }
@@ -709,7 +734,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         // System.err.println("Close " + this + " using emitter " + emitter.getClass());
         nextReceiver.close();
         previousAtomic = false;
-        state = Final;
+        state = FINAL;
     }
 
     /**
@@ -719,7 +744,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     @Override
     public void startContent() throws XPathException {
 
-        if (state != StartTag) {
+        if (state != START_TAG) {
             // this can happen if the method is called from outside,
             // e.g. from a SequenceOutputter earlier in the pipeline
             return;
@@ -730,7 +755,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
 
         for (int a = 0; a < pendingAttributes.size(); a++) {
             NodeName oldName = pendingAttributes.get(a).getNodeName();
-            if (!oldName.hasURI("")) {    // non-null prefix
+            if (!oldName.hasURI(NamespaceUri.NULL)) {    // non-null prefix
                 NodeName newName = checkProposedPrefix(oldName, a + 1);
                 if (newName != oldName) {
                     AttributeInfo newInfo = pendingAttributes.get(a).withNodeName(newName);
@@ -744,21 +769,26 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
             pendingNSMap = inherited.putAll(pendingNSMap);
         }
 
-        if (pendingStartTag.hasURI("") && !pendingNSMap.getDefaultNamespace().isEmpty()) {
+        if (pendingStartTag.hasURI(NamespaceUri.NULL) && !pendingNSMap.getDefaultNamespace().isEmpty()) {
             pendingNSMap = pendingNSMap.remove("");
         }
 
-        AttributeMap attributes = AttributeMap.fromList(pendingAttributes);
+        AttributeMap attributes = SequenceTool.attributeMapFromList(pendingAttributes);
 
         nextReceiver.startElement(elcode, currentSimpleType, attributes, pendingNSMap, startElementLocationId, props);
 
+        finishStartContent(inherited);
+    }
+
+    private void finishStartContent(NamespaceMap inherited)
+    {
         boolean inherit = !ReceiverOption.contains(startElementProperties, ReceiverOption.DISINHERIT_NAMESPACES);
         inheritedNamespaces.push(inherit ? pendingNSMap : inherited);
 
         pendingAttributes.clear();
         pendingNSMap = NamespaceMap.emptyMap();
         previousAtomic = false;
-        state = Content;
+        state = CONTENT;
     }
 
     /**
@@ -785,9 +815,9 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      * @throws XPathException if anything goes wrong
      */
 
-    protected void flatten(ArrayItem array, Location locationId, int copyNamespaces) throws XPathException {
+    private void flatten(ArrayItem array, Location locationId, int copyNamespaces) throws XPathException {
         for (Sequence member : array.members()) {
-            member.iterate().forEachOrFail(it -> append(it, locationId, copyNamespaces));
+            SequenceTool.supply(member.iterate(), (ItemConsumer<? super Item>) it -> append(it, locationId, copyNamespaces));
         }
     }
 
@@ -800,74 +830,89 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      * @param copyNamespaces options for copying namespace nodes
      */
 
-    protected void decompose(Item item, Location locationId, int copyNamespaces) throws XPathException {
+    private void decompose(Item item, Location locationId, int copyNamespaces) throws XPathException {
         if (item != null) {
-            if (item instanceof AtomicValue || item instanceof ExternalObject) {
-                if (previousAtomic) {
-                    characters(" ", locationId, ReceiverOption.NONE);
-                }
-                characters(item.getStringValueCS(), locationId, ReceiverOption.NONE);
-                previousAtomic = true;
-            } else if (item instanceof ArrayItem) {
-                flatten((ArrayItem) item, locationId, copyNamespaces);
-            } else if (item instanceof Function) {
-                String thing = item instanceof MapItem ? "map" : "function item";
-                String errorCode = getErrorCodeForDecomposingFunctionItems();
-                if (errorCode.startsWith("SENR")) {
-                    throw new XPathException("Cannot serialize a " + thing + " using this output method", errorCode, locationId);
-                } else {
-                    throw new XPathException("Cannot add a " + thing + " to an XDM node tree", errorCode, locationId);
-                }
-            } else {
-                NodeInfo node = (NodeInfo) item;
-                switch (node.getNodeKind()) {
-
-                    case Type.TEXT:
-                        int options = ReceiverOption.NONE;
-                        if (node instanceof Orphan && ((Orphan) node).isDisableOutputEscaping()) {
-                            options = ReceiverOption.DISABLE_ESCAPING;
+            Genre genre = item.getGenre();
+            switch (genre) {
+                case ATOMIC:
+                case EXTERNAL:
+                    if (previousAtomic) {
+                        characters(StringConstants.SINGLE_SPACE, locationId, ReceiverOption.NONE);
+                    }
+                    characters(item.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
+                    previousAtomic = true;
+                    break;
+                case ARRAY:
+                    flatten((ArrayItem) item, locationId, copyNamespaces);
+                    break;
+                case FUNCTION:
+                case MAP:
+                    String thing = item instanceof MapItem ? "map" : "function item";
+                    String errorCode = getErrorCodeForDecomposingFunctionItems();
+                    if (errorCode.startsWith("SENR")) {
+                        throw new XPathException("Cannot serialize a " + thing + " using this output method", errorCode, locationId);
+                    } else {
+                        String msg = "Cannot add a " + thing + " (" + Err.depict(item) + ") to an XDM node tree";
+                        if (pendingStartTag != null) {
+                            msg += " (currently writing element " + pendingStartTag.getDisplayName() + ")";
                         }
-                        characters(item.getStringValueCS(), locationId, options);
-                        break;
-
-                    case Type.ATTRIBUTE:
-                        if (((SimpleType) node.getSchemaType()).isNamespaceSensitive()) {
-                            XPathException err = new XPathException("Cannot copy attributes whose type is namespace-sensitive (QName or NOTATION): " +
-                                                                            Err.wrap(node.getDisplayName(), Err.ATTRIBUTE));
-                            err.setErrorCode(getPipelineConfiguration().isXSLT() ? "XTTE0950" : "XQTY0086");
-                            throw err;
-                        }
-                        attribute(NameOfNode.makeName(node), (SimpleType) node.getSchemaType(), node.getStringValue(), locationId, ReceiverOption.NONE);
-                        break;
-
-                    case Type.NAMESPACE:
-                        namespace(node.getLocalPart(), node.getStringValue(), ReceiverOption.NONE);
-                        break;
-
-                    case Type.DOCUMENT:
-                        startDocument(ReceiverOption.NONE); // needed to ensure that illegal namespaces or attributes in the content are caught
-                        for (NodeInfo child : node.children()) {
-                            append(child, locationId, copyNamespaces);
-                        }
-                        endDocument();
-                        break;
-
-                    default:
-                        int copyOptions = CopyOptions.TYPE_ANNOTATIONS;
-                        if (ReceiverOption.contains(copyNamespaces, ReceiverOption.ALL_NAMESPACES)) {
-                            copyOptions |= CopyOptions.ALL_NAMESPACES;
-                        }
-                        ((NodeInfo) item).copy(this, copyOptions, locationId);
-                        break;
-                }
-                previousAtomic = false;
-
-
+                        throw new XPathException(msg, errorCode, locationId);
+                    }
+                case NODE:
+                default:
+                    decomposeNodeOrDefault(item, locationId, copyNamespaces);
+                    break;
             }
         }
     }
 
-    protected String getErrorCodeForDecomposingFunctionItems() {
+    private void decomposeNodeOrDefault(Item item, Location locationId, int copyNamespaces) throws XPathException
+    {
+        NodeInfo node = (NodeInfo) item;
+        switch (node.getNodeKind()) {
+
+        case Type.TEXT:
+            int options = ReceiverOption.NONE;
+            if (node instanceof Orphan && ((Orphan) node).isDisableOutputEscaping()) {
+                options = ReceiverOption.DISABLE_ESCAPING;
+            }
+            characters(item.getUnicodeStringValue(), locationId, options);
+            break;
+
+        case Type.ATTRIBUTE:
+            if (((SimpleType) node.getSchemaType()).isNamespaceSensitive()) {
+                throw new XPathException("Cannot copy attributes whose type is namespace-sensitive (QName or NOTATION): " +
+                        Err.wrap(node.getDisplayName(), Err.ATTRIBUTE))
+                        .withErrorCode(getPipelineConfiguration().isXSLT() ? "XTTE0950" : "XQTY0086");
+            }
+            attribute(NameOfNode.makeName(node), (SimpleType) node.getSchemaType(), node.getStringValue(), locationId, ReceiverOption.NONE);
+            break;
+
+        case Type.NAMESPACE:
+            namespace(node.getLocalPart(), NamespaceUri.of(node.getStringValue()), ReceiverOption.NONE);
+            break;
+
+        case Type.DOCUMENT:
+            startDocument(ReceiverOption.NONE); // needed to ensure that illegal namespaces or attributes in the content are caught
+            for (NodeInfo child : node.children()) {
+                append(child, locationId, copyNamespaces);
+            }
+            endDocument();
+            break;
+
+        default:
+            int copyOptions = CopyOptions.TYPE_ANNOTATIONS;
+            if (ReceiverOption.contains(copyNamespaces, ReceiverOption.ALL_NAMESPACES)) {
+                copyOptions |= CopyOptions.ALL_NAMESPACES;
+            }
+            ((NodeInfo) item).copy(this, copyOptions, locationId);
+            break;
+        }
+        previousAtomic = false;
+    }
+
+
+    private String getErrorCodeForDecomposingFunctionItems() {
         return getPipelineConfiguration().isXSLT() ? "XTDE0450" : "XQTY0105";
     }
 

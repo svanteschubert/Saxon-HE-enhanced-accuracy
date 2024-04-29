@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.query.XQueryExpression;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
  * An XQueryExecutable represents the compiled form of a query.
@@ -24,6 +25,7 @@ import net.sf.saxon.trans.XPathException;
  *
  * @since 9.0
  */
+@CSharpModifiers(code = {"internal"})
 public class XQueryExecutable {
 
     Processor processor;
@@ -56,9 +58,8 @@ public class XQueryExecutable {
      */
 
     public ItemType getResultItemType() {
-        net.sf.saxon.type.ItemType it =
-                exp.getExpression().getItemType();
-        return new ConstructedItemType(it, processor);
+        net.sf.saxon.type.ItemType it = exp.getExpression().getItemType();
+        return new ConstructedItemType(it, processor.getUnderlyingConfiguration());
     }
 
     /**
@@ -94,6 +95,7 @@ public class XQueryExecutable {
      *
      * @param destination the destination for the XML document containing the diagnostic representation
      *                    of the compiled stylesheet
+     * @throws SaxonApiException if an error is detected
      * @since 9.6
      */
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -18,6 +22,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
 
@@ -38,15 +43,15 @@ public final class SimpleStepExpression extends SlashExpression {
         }
     }
 
-    private static OperandRole STEP_ROLE = new OperandRole(OperandRole.USES_NEW_FOCUS | OperandRole.HIGHER_ORDER, OperandUsage.TRANSMISSION, SequenceType.ANY_SEQUENCE);
+    public AxisExpression getAxisExpression() {
+        return (AxisExpression)getStep();
+    }
+
+    private static final OperandRole STEP_ROLE = new OperandRole(OperandRole.USES_NEW_FOCUS | OperandRole.HIGHER_ORDER, OperandUsage.TRANSMISSION, SequenceType.ANY_SEQUENCE);
 
     @Override
     protected OperandRole getOperandRole(int arg) {
         return arg == 0 ? OperandRole.FOCUS_CONTROLLING_SELECT : STEP_ROLE;
-    }
-
-    public AxisExpression getAxisExpression() {
-        return (AxisExpression) getStep();
     }
 
     /*@NotNull*/
@@ -89,7 +94,7 @@ public final class SimpleStepExpression extends SlashExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that need to be re-bound
      */
     /*@NotNull*/
     @Override
@@ -120,11 +125,11 @@ public final class SimpleStepExpression extends SlashExpression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        NodeInfo origin = null;
+        NodeInfo origin;
         try {
             origin = (NodeInfo) getStart().evaluateItem(context);
         } catch (XPathException e) {
-            if ("XPDY0002".equals(e.getErrorCodeLocalPart()) && !e.hasBeenReported()) {
+            if (e.hasErrorCode("XPDY0002") && !e.hasBeenReported()) {
                 throw new XPathException("The context item for axis step "
                     + toShortString() + " is absent", "XPDY0002", getLocation());
             } else {
@@ -142,6 +147,48 @@ public final class SimpleStepExpression extends SlashExpression {
         return "simpleStep";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new SimpleStepExprElaborator();
+    }
+
+    /**
+     * Elaborator for a simple step expression, that is X/axis::Y where X evaluates to a singleton
+     */
+
+    public static class SimpleStepExprElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            // TODO: do we need to catch exceptions as in the iterate() method?
+            final SimpleStepExpression expr = (SimpleStepExpression) getExpression();
+            final ItemEvaluator select = expr.getSelectExpression().makeElaborator().elaborateForItem();
+            final AxisExpression step = (AxisExpression) expr.getStep();
+            final boolean nullable = Cardinality.allowsZero(expr.getSelectExpression().getCardinality());
+
+            if (nullable) {
+                return context -> {
+                    NodeInfo origin = (NodeInfo) select.eval(context);
+                    if (origin == null) {
+                        return EmptyIterator.getInstance();
+                    }
+                    return step.iterate(origin);
+                };
+            } else {
+                return context -> {
+                    NodeInfo start = (NodeInfo) select.eval(context);
+                    assert start != null;
+                    return step.iterate(start);
+                };
+            }
+        }
+
+    }
 }
 

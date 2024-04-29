@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,11 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 
@@ -21,9 +22,9 @@ import java.util.Arrays;
  * A value of type xs:hexBinary
  */
 
-public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Comparable {
+public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, XPathComparable, ContextFreeAtomicValue {
 
-    private byte[] binaryValue;
+    private final byte[] binaryValue;
 
 
     /**
@@ -34,48 +35,18 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
      * @throws XPathException if the input is invalid
      */
 
-    public HexBinaryValue(CharSequence in) throws XPathException {
-        CharSequence s = Whitespace.trimWhitespace(in);
-        if ((s.length() & 1) != 0) {
-            XPathException err = new XPathException("A hexBinary value must contain an even number of characters");
-            err.setErrorCode("FORG0001");
-            throw err;
+    public HexBinaryValue(UnicodeString in) throws XPathException {
+        super(BuiltInAtomicType.HEX_BINARY);
+        UnicodeString s = Whitespace.trim(in);
+        int len32 = s.length32();
+        if ((len32 & 1) != 0) {
+            throw new XPathException("A hexBinary value must contain an even number of characters", "FORG0001");
         }
-        binaryValue = new byte[s.length() / 2];
+        binaryValue = new byte[len32 / 2];
         for (int i = 0; i < binaryValue.length; i++) {
-            binaryValue[i] = (byte) ((fromHex(s.charAt(2 * i)) << 4) +
-                    fromHex(s.charAt(2 * i + 1)));
+            binaryValue[i] = (byte) ((fromHex(s.codePointAt(2 * i)) << 4) +
+                    fromHex(s.codePointAt(2 * i + 1)));
         }
-        typeLabel = BuiltInAtomicType.HEX_BINARY;
-    }
-
-    /**
-     * Constructor: create a HexBinary value from a supplied string in hexBinary encoding,
-     * with a specified type. This method throws no checked exceptions; the caller is expected
-     * to ensure that the string is a valid Base64 lexical representation, that it conforms
-     * to the specified type, and that the type is indeed a subtype of xs:base64Binary.
-     * An unchecked exception such as an IllegalArgumentException may be thrown if these
-     * conditions are not satisfied, but this is not guaranteed.
-     *
-     * @param s    the value in hexBinary encoding, with no leading or trailing whitespace
-     * @param type the atomic type. This must be xs:base64binary or a subtype.
-     */
-
-    public HexBinaryValue(/*@NotNull*/ CharSequence s, AtomicType type) {
-        if ((s.length() & 1) != 0) {
-            throw new IllegalArgumentException(
-                    "A hexBinary value must contain an even number of characters");
-        }
-        binaryValue = new byte[s.length() / 2];
-        try {
-            for (int i = 0; i < binaryValue.length; i++) {
-                binaryValue[i] = (byte) ((fromHex(s.charAt(2 * i)) << 4) +
-                        fromHex(s.charAt(2 * i + 1)));
-            }
-        } catch (XPathException e) {
-            throw new IllegalArgumentException(e.getMessage());
-        }
-        typeLabel = type;
     }
 
     /**
@@ -85,8 +56,20 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
      */
 
     public HexBinaryValue(byte[] value) {
+        super(BuiltInAtomicType.HEX_BINARY);
         binaryValue = value;
-        typeLabel = BuiltInAtomicType.HEX_BINARY;
+    }
+
+    /**
+     * Constructor: create a hexBinary value from a given array of bytes and a specified type label
+     *
+     * @param value the value as an array of bytes
+     * @param typeLabel the type label, which must be a subtype of HEX_BINARY
+     */
+
+    public HexBinaryValue(byte[] value, AtomicType typeLabel) {
+        super(typeLabel);
+        binaryValue = value;
     }
 
     /**
@@ -98,9 +81,7 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
     /*@NotNull*/
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        HexBinaryValue v = new HexBinaryValue(binaryValue);
-        v.typeLabel = typeLabel;
-        return v;
+        return new HexBinaryValue(binaryValue, typeLabel);
     }
 
     /**
@@ -134,15 +115,13 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
      * @throws XPathException if it isn't a hex digit
      */
 
-    private int fromHex(char c) throws XPathException {
-        int d = "0123456789ABCDEFabcdef".indexOf(c);
+    private int fromHex(int c) throws XPathException {
+        int d = c < 255 ? "0123456789ABCDEFabcdef".indexOf((char)c) : -1;
         if (d > 15) {
             d = d - 6;
         }
         if (d < 0) {
-            XPathException err = new XPathException("Invalid hexadecimal digit '" + c + "'");
-            err.setErrorCode("FORG0001");
-            throw err;
+            throw new XPathException("Invalid hexadecimal digit '" + c + "'", "FORG0001");
         }
         return d;
     }
@@ -155,14 +134,14 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
 
     /*@NotNull*/
     @Override
-    public CharSequence getPrimitiveStringValue() {
+    public UnicodeString getPrimitiveStringValue() {
         String digits = "0123456789ABCDEF";
-        FastStringBuffer sb = new FastStringBuffer(binaryValue.length * 2);
+        UnicodeBuilder sb = new UnicodeBuilder(binaryValue.length*2);
         for (byte aBinaryValue : binaryValue) {
-            sb.cat(digits.charAt((aBinaryValue >> 4) & 0xf));
-            sb.cat(digits.charAt(aBinaryValue & 0xf));
+            sb.append(digits.charAt((aBinaryValue >> 4) & 0xf));
+            sb.append(digits.charAt(aBinaryValue & 0xf));
         }
-        return sb;
+        return sb.toUnicodeString();
     }
 
 
@@ -176,42 +155,11 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
         return binaryValue.length;
     }
 
-    /**
-     * Support XML Schema comparison semantics
-     */
-
-    /*@NotNull*/
+    /*@Nullable*/
     @Override
-    public Comparable<HexBinaryComparable> getSchemaComparable() {
-        return new HexBinaryComparable();
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
+        return this;
     }
-
-    private class HexBinaryComparable implements Comparable<HexBinaryComparable> {
-
-        /*@NotNull*/
-        public HexBinaryValue getHexBinaryValue() {
-            return HexBinaryValue.this;
-        }
-
-        @Override
-        public int compareTo(/*@NotNull*/ HexBinaryComparable o) {
-            if (Arrays.equals(getHexBinaryValue().binaryValue,
-                            o.getHexBinaryValue().binaryValue)) {
-                return 0;
-            } else {
-                return SequenceTool.INDETERMINATE_ORDERING;
-            }
-        }
-
-        public boolean equals(/*@NotNull*/ Object o) {
-            return o instanceof HexBinaryComparable && compareTo((HexBinaryComparable)o) == 0;
-        }
-
-        public int hashCode() {
-            return HexBinaryValue.this.hashCode();
-        }
-    }
-
 
     /**
      * Get an object value that implements the XPath equality and ordering comparison semantics for this value.
@@ -223,16 +171,18 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
      * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
      * collation.
      *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
      * @param collator collation to be used for comparing strings
      * @param implicitTimezone to be used for comparing dates/times with no timezone
      * @return a key used for performing the comparison
      */
 
-    /*@Nullable*/
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone) {
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) {
+        return this;
+    }
+
+    @Override
+    public XPathComparable getXPathComparable() {
         return this;
     }
 
@@ -249,19 +199,26 @@ public class HexBinaryValue extends AtomicValue implements AtomicMatchKey, Compa
     }
 
     @Override
-    public int compareTo(Object o) {
-        byte[] other = ((HexBinaryValue)o).binaryValue;
-        int len0 = binaryValue.length;
-        int len1 = other.length;
-        int shorter = java.lang.Math.min(len0, len1);
-        for (int i=0; i<shorter; i++) {
-            int a = (int)binaryValue[i] & 0xff;
-            int b = (int)other[i] & 0xff;
-            if (a != b) {
-                return a < b ? -1 : +1;
-            }
+    public int compareTo(XPathComparable o) {
+        if (o instanceof Base64BinaryValue) {
+            o = new HexBinaryValue(((Base64BinaryValue) o).getBinaryValue());
         }
-        return Integer.signum(len0 - len1);
+        if (o instanceof HexBinaryValue) {
+            byte[] other = ((HexBinaryValue)o).binaryValue;
+            int len0 = binaryValue.length;
+            int len1 = other.length;
+            int shorter = java.lang.Math.min(len0, len1);
+            for (int i = 0; i < shorter; i++) {
+                int a = (int) binaryValue[i] & 0xff;
+                int b = (int) other[i] & 0xff;
+                if (a != b) {
+                    return a < b ? -1 : +1;
+                }
+            }
+            return Integer.signum(len0 - len1);
+        } else {
+            throw new ClassCastException("Cannot compare xs:hexBinary to " + o.getClass());
+        }
     }
 }
 

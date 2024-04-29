@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -42,7 +42,7 @@ public class XSLSequence extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -52,7 +52,7 @@ public class XSLSequence extends StyleElement {
      */
 
     @Override
-    public boolean mayContainFallback() {
+    protected boolean mayContainFallback() {
         return true;
     }
 
@@ -66,17 +66,14 @@ public class XSLSequence extends StyleElement {
 
 
     @Override
-    public void prepareAttributes() {
-
-        String selectAtt = null;
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String value = att.getValue();
             String f = attName.getDisplayName();
             if (f.equals("select")) {
-                selectAtt = value;
-                select = makeExpression(selectAtt, att);
+                select = makeExpression(value, att);
             } else {
                 checkUnknownAttribute(attName);
             }

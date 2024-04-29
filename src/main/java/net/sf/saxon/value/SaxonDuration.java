@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,10 @@
 
 package net.sf.saxon.value;
 
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 
 import javax.xml.datatype.DatatypeConstants;
@@ -28,7 +30,7 @@ import java.util.Calendar;
  */
 public class SaxonDuration extends Duration {
 
-    private DurationValue duration;
+    private final DurationValue duration;
 
     /**
      * Create a SaxonDuration that wraps a supplied DurationValue
@@ -116,7 +118,7 @@ public class SaxonDuration extends Duration {
         } else if (field == DatatypeConstants.MINUTES) {
             return BigInteger.valueOf(((Int64Value) duration.getComponent(AccessorFn.Component.MINUTES)).longValue());
         } else if (field == DatatypeConstants.SECONDS) {
-            return ((BigDecimalValue) duration.getComponent(AccessorFn.Component.SECONDS)).getDecimalValue();
+            return ((DecimalValue) duration.getComponent(AccessorFn.Component.SECONDS)).getDecimalValue();
         } else {
             throw new IllegalArgumentException("Invalid field");
         }
@@ -192,8 +194,8 @@ public class SaxonDuration extends Duration {
      * this duration is "P1.23456S", then 1 is added to SECONDS,
      * 234 is added to MILLISECONDS, and the rest will be unused.</p>
      * <p>Note that because {@link java.util.Calendar#add(int, int)} is using
-     * <tt>int</tt>, <code>Duration</code> with values beyond the
-     * range of <tt>int</tt> in its fields
+     * <code>int</code>, <code>Duration</code> with values beyond the
+     * range of <code>int</code> in its fields
      * will cause overflow/underflow to the given {@link java.util.Calendar}.
      * {@link javax.xml.datatype.XMLGregorianCalendar#add(javax.xml.datatype.Duration)} provides the same
      * basic operation as this method while avoiding
@@ -304,9 +306,13 @@ public class SaxonDuration extends Duration {
         if (!(rhs instanceof SaxonDuration)) {
             throw new IllegalArgumentException("Supplied duration is not a SaxonDuration");
         }
-        Comparable c0 = duration.getSchemaComparable();
-        Comparable c1 = ((SaxonDuration) rhs).duration.getSchemaComparable();
-        return c0.compareTo(c1);
+        try {
+            XPathComparable c0 = duration.getXPathComparable(null, 0);
+            XPathComparable c1 = ((SaxonDuration) rhs).duration.getXPathComparable(null, 0);
+            return c0.compareTo(c1);
+        } catch (NoDynamicContextException e) {
+            throw new AssertionError(e);
+        }
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,9 @@
 
 package net.sf.saxon.trans;
 
+import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.Instruction;
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
@@ -22,8 +24,8 @@ import net.sf.saxon.tree.AttributeLocation;
  */
 public class XmlProcessingException implements XmlProcessingError {
 
-    private XPathException exception;
-    private boolean isWarning;
+    private final XPathException exception;
+    private boolean _isWarning;
     private String fatalErrorMessage;
 
     /**
@@ -76,12 +78,12 @@ public class XmlProcessingException implements XmlProcessingError {
 
     @Override
     public Location getLocation() {
-        return exception.getLocator();
+        return exception.getLocator() == null ? Loc.NONE : exception.getLocator();
     }
 
     @Override
     public boolean isWarning() {
-        return isWarning;
+        return _isWarning;
     }
 
     @Override
@@ -94,8 +96,13 @@ public class XmlProcessingException implements XmlProcessingError {
         return exception.getCause();
     }
 
+    @Override
+    public Expression getFailingExpression() {
+        return exception.getFailingExpression();
+    }
+
     public void setWarning(boolean warning) {
-        isWarning = warning;
+        _isWarning = warning;
     }
 
     @Override
@@ -117,7 +124,7 @@ public class XmlProcessingException implements XmlProcessingError {
      */
 
     @Override
-    public void setFatal(String message) {
+    public void setTerminationMessage(String message) {
         this.fatalErrorMessage = message;
     }
 
@@ -127,7 +134,7 @@ public class XmlProcessingException implements XmlProcessingError {
      * @return a non-null message if the error has been marked as a fatal error.
      */
     @Override
-    public String getFatalErrorMessage() {
+    public String getTerminationMessage() {
         return this.fatalErrorMessage;
     }
 

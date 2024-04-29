@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,25 +9,28 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.Controller;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.java.CleanerProxy;
 import net.sf.saxon.lib.CollectionFinder;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.Resource;
 import net.sf.saxon.lib.ResourceCollection;
 import net.sf.saxon.om.*;
 import net.sf.saxon.resource.AbstractResourceCollection;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.wrapper.SpaceStrippedDocument;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.value.ExternalObject;
 import net.sf.saxon.value.ObjectValue;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 
 /**
@@ -54,7 +57,7 @@ public class CollectionFn extends SystemFunction implements Callable {
      */
 
     private static class EmptyCollection implements ResourceCollection {
-        private String collectionUri;
+        private final String collectionUri;
 
         EmptyCollection(String cUri) {
             collectionUri = cUri;
@@ -67,12 +70,12 @@ public class CollectionFn extends SystemFunction implements Callable {
 
         @Override
         public Iterator<String> getResourceURIs(XPathContext context) {
-            return new ArrayList<String>().iterator();
+            return Collections.emptyIterator();
         }
 
         @Override
-        public Iterator<Resource> getResources(XPathContext context) {
-            return new ArrayList<Resource>().iterator();
+        public Iterator<? extends Resource> getResources(XPathContext context) {
+            return Collections.emptyIterator();
         }
 
         @Override
@@ -80,10 +83,6 @@ public class CollectionFn extends SystemFunction implements Callable {
             return true;
         }
 
-        @Override
-        public boolean stripWhitespace(SpaceStrippingRule rules) {
-            return false;
-        }
     }
 
     @Override
@@ -102,7 +101,7 @@ public class CollectionFn extends SystemFunction implements Callable {
             try {
                 uri = new URI(href);
             } catch (URISyntaxException e) {
-                href = IriToUri.iriToUri(href).toString();
+                href = IriToUri.iriToUri(StringView.tidy(href)).toString();
                 try {
                     uri = new URI(href);
                 } catch (URISyntaxException e2) {
@@ -130,8 +129,9 @@ public class CollectionFn extends SystemFunction implements Callable {
     /**
      * Get an iterator of the Resources in a ResourceCollection, returned in the form of external objects wrapping
      * a Resource object
+     *
      * @param collection the resource collection
-     * @param context the XPath dynamic context
+     * @param context    the XPath dynamic context
      * @return a SequenceIterator delivering ObjectValue&lt;Resource> items
      * @throws XPathException if a dynamic error occurs
      */
@@ -140,35 +140,54 @@ public class CollectionFn extends SystemFunction implements Callable {
             final ResourceCollection collection, final XPathContext context) throws XPathException {
 
         final Iterator<? extends Resource> sources = collection.getResources(context);
+        return new CollectionIterator(sources, context);
+    }
 
-        return new SequenceIterator() {
+    @CSharpInjectMembers(code={"~CollectionIterator(){sources?.Dispose();} // finalizer"})
+    private static class CollectionIterator implements SequenceIterator {
 
-            @Override
-            public Item next() throws XPathException {
+        private final Iterator<? extends Resource> sources;
+        private CleanerProxy.CleanableProxy cleanable;
+
+        public CollectionIterator(Iterator<? extends Resource> sources, XPathContext context) {
+            this.sources = sources;
+            if (sources instanceof Closeable) {
+                cleanable = context.getConfiguration().registerCleanupAction(this, getCleaningAction((Closeable)sources));
+            }
+        }
+
+        private static Runnable getCleaningAction(final Closeable sources) {
+            return () -> {
                 try {
-                    if (sources.hasNext()) {
-                        return new ObjectValue<Resource>(sources.next());
-                    } else {
-                        return null;
-                    }
-                } catch (Exception e) {
-                    throw XPathException.makeXPathException(e);
+                    sources.close();
+                } catch (IOException err) {
+                    // ignore the exception
+                }
+            };
+        }
+
+        @Override
+        public Item next() {
+            if (sources.hasNext()) {
+                return new ObjectValue<Resource>(sources.next());
+            } else {
+                return null;
+            }
+        }
+
+        @Override
+        @CSharpReplaceBody(code="sources?.Dispose();")
+        public void close() {
+            if (cleanable != null) {
+                cleanable.clean();
+            } else if (sources instanceof Closeable) {
+                try {
+                    ((Closeable) sources).close();
+                } catch (IOException e) {
+                    throw new UncheckedXPathException(new XPathException(e));
                 }
             }
-
-            @Override
-            public void close() {
-                if (sources instanceof Closeable) {
-                    try {
-                        ((Closeable)sources).close();
-                    } catch (IOException e) {
-                        throw new UncheckedXPathException(new XPathException(e));
-                    }
-                }
-            }
-
-
-        };
+        }
     }
 
     /**
@@ -181,6 +200,7 @@ public class CollectionFn extends SystemFunction implements Callable {
      */
 
     @Override
+    //@CSharpReplaceBody(code="throw new NotImplementedException();")
     public Sequence call(final XPathContext context, Sequence[] arguments) throws XPathException {
         String href;
         if (getArity() == 0) {
@@ -216,15 +236,24 @@ public class CollectionFn extends SystemFunction implements Callable {
             }
         }
 
-        GroundedValue cachedCollection = (GroundedValue)context.getController().getUserData("saxon:collections", collectionKey);
+        GroundedValue cachedCollection = (GroundedValue) context.getController().getUserData("saxon:collections", collectionKey);
         if (cachedCollection != null) {
             return cachedCollection;
         }
 
+        // Use a collection registered with the configuration if there is one
+
+        ResourceCollection collection = context.getConfiguration().getRegisteredCollection(absoluteURI);
+
         // Call the user-supplied CollectionFinder to get the ResourceCollection
 
-        CollectionFinder collectionFinder = context.getController().getCollectionFinder();
-        ResourceCollection collection = collectionFinder.findCollection(context, absoluteURI);
+        if (collection == null) {
+            CollectionFinder collectionFinder = context.getController().getCollectionFinder();
+            if (collectionFinder != null) {
+                collection = collectionFinder.findCollection(context, absoluteURI);
+            }
+        }
+
         if (collection == null) {
             collection = new EmptyCollection(EMPTY_COLLECTION_URI);
         }
@@ -233,7 +262,7 @@ public class CollectionFn extends SystemFunction implements Callable {
 
         if (packageData instanceof StylesheetPackage && whitespaceRule != NoElementsSpaceStrippingRule.getInstance()) {
             if (collection instanceof AbstractResourceCollection) {
-                boolean alreadyStripped = collection.stripWhitespace(whitespaceRule);
+                boolean alreadyStripped = ((AbstractResourceCollection)collection).stripWhitespace(whitespaceRule);
                 if (alreadyStripped) {
                     whitespaceRule = null;
                 }
@@ -246,12 +275,12 @@ public class CollectionFn extends SystemFunction implements Callable {
         // Get an iterator over the items representing the resources
         SequenceIterator result = context.getConfiguration()
                 .getMultithreadedItemMappingIterator(sourceSeq,
-                                                     item1 -> ((ExternalObject<Resource>)item1).getObject().getItem(context));
+                                                     ItemMapper.of(it -> ((ObjectValue<Resource>) it).getObject().getItem()));
 
         // In XSLT, apply space-stripping to document nodes in the collection
         if (whitespaceRule != null) {
             final SpaceStrippingRule rule = whitespaceRule;
-            ItemMappingFunction stripper = item -> {
+            result = ItemMappingIterator.map(result, item -> {
                 if (item instanceof NodeInfo && ((NodeInfo) item).getNodeKind() == Type.DOCUMENT) {
                     TreeInfo treeInfo = ((NodeInfo) item).getTreeInfo();
                     if (treeInfo.getSpaceStrippingRule() != rule) {
@@ -259,22 +288,30 @@ public class CollectionFn extends SystemFunction implements Callable {
                     }
                 }
                 return item;
-            };
-            result = new ItemMappingIterator(result, stripper);
+            });
         }
 
         // If the collection is stable, cache the result
         if (collection.isStable(context) || context.getConfiguration().getBooleanProperty(Feature.STABLE_COLLECTION_URI)) {
             Controller controller = context.getController();
             DocumentPool docPool = controller.getDocumentPool();
-            cachedCollection = result.materialize();
+            try {
+                cachedCollection = SequenceTool.toGroundedValue(result);
+            } catch (UncheckedXPathException e) {
+                throw e.getXPathException();
+            }
             SequenceIterator iter = cachedCollection.iterate();
-            Item item;
-            while ((item = iter.next()) != null) {
-                if (item instanceof NodeInfo && ((NodeInfo)item).getNodeKind() == Type.DOCUMENT) {
-                    String docUri = ((NodeInfo)item).getSystemId();
-                    DocumentKey docKey = new DocumentKey(docUri);
-                    TreeInfo info = item instanceof TreeInfo ? (TreeInfo)item : new GenericTreeInfo(controller.getConfiguration(), (NodeInfo)item);
+            for (Item item; (item = iter.next()) != null; ) {
+                if (item instanceof NodeInfo && ((NodeInfo) item).getNodeKind() == Type.DOCUMENT) {
+                    String docUri = ((NodeInfo) item).getSystemId();
+                    DocumentKey docKey;
+                    if (packageData instanceof StylesheetPackage) {
+                        StylesheetPackage pack = (StylesheetPackage) packageData;
+                        docKey = new DocumentKey(docUri, pack.getPackageName(), pack.getPackageVersion());
+                    } else {
+                        docKey = new DocumentKey(docUri);
+                    }
+                    TreeInfo info = item instanceof TreeInfo ? (TreeInfo) item : new GenericTreeInfo(controller.getConfiguration(), (NodeInfo) item);
                     docPool.add(info, docKey);
                 }
             }

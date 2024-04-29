@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,17 +10,17 @@ package net.sf.saxon.pattern;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.tree.tiny.NodeVectorTree;
 import net.sf.saxon.type.*;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import java.util.Optional;
-import java.util.function.IntPredicate;
 
 /**
  * NodeTest is an interface that enables a test of whether a node has a particular
  * name and kind. A NodeKindTest matches the node kind only.
- *
- * @author Michael H. Kay
  */
 
 public class NodeKindTest extends NodeTest {
@@ -34,8 +34,8 @@ public class NodeKindTest extends NodeTest {
     public static final NodeKindTest NAMESPACE = new NodeKindTest(Type.NAMESPACE);
 
 
-    private int kind;
-    private UType uType;
+    private final int kind;
+    private final UType uType;
 
     private NodeKindTest(int nodeKind) {
         kind = nodeKind;
@@ -116,15 +116,15 @@ public class NodeKindTest extends NodeTest {
     }
 
     @Override
-    public IntPredicate getMatcher(final NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
         final byte[] nodeKindArray = tree.getNodeKindArray();
         if (kind == Type.TEXT) {
-            return nodeNr -> {
+            return IntPredicateLambda.of(nodeNr -> {
                 int k = nodeKindArray[nodeNr];
                 return k == Type.TEXT || k == Type.WHITESPACE_TEXT;
-            };
+            });
         } else {
-            return nodeNr -> (nodeKindArray[nodeNr] & 0x0f) == kind;
+            return IntPredicateLambda.of(nodeNr -> (nodeKindArray[nodeNr] & 0x0f) == kind);
         }
     }
 
@@ -219,10 +219,10 @@ public class NodeKindTest extends NodeTest {
 
     /*@NotNull*/
     public String toString() {
-        return toString(kind);
+        return describe(kind);
     }
 
-    public static String toString(int kind) {
+    public static String describe(int kind) {
         switch (kind) {
             case Type.DOCUMENT:
                 return "document-node()";
@@ -311,7 +311,7 @@ public class NodeKindTest extends NodeTest {
                 return Optional.empty();
             }
         } else {
-            return Optional.of("The supplied value is " + item.getGenre().getDescription());
+            return Optional.of("The supplied value is " + Err.describeGenre(item.getGenre()));
         }
     }
 

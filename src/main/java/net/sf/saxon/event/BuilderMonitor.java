@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,9 @@ import net.sf.saxon.om.NodeInfo;
 
 /**
  * A BuilderMonitor can be inserted into a pipeline immediately in front of a Builder. During tree construction,
- * the method markNextNode() can be called to request that the next node to be created is treated specially by
+ * the method marknext() can be called to request that the next node to be created is treated specially by
  * remembering the current position on the tree; on completion of the tree construction, the method getMarkedNode()
- * can be called to return the NodeInfo that was created immediately after calling markNextNode().
+ * can be called to return the NodeInfo that was created immediately after calling marknext().
  */
 public abstract class BuilderMonitor extends ProxyReceiver {
 
@@ -32,7 +32,7 @@ public abstract class BuilderMonitor extends ProxyReceiver {
     public abstract void markNextNode(int nodeKind);
 
     /**
-     * On completion of tree building, get the node that was marked using markNextNode().
+     * On completion of tree building, get the node that was marked using marknext().
      *
      * @return the marked node, or null if none was marked
      */

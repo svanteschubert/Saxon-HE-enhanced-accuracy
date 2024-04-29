@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,11 +21,11 @@ import java.util.regex.Pattern;
  * a regular expression, in this case a regular expression evaluated using the JDK regex engine
  */
 
-public class JTokenIterator implements AtomicIterator<StringValue> {
+public class JTokenIterator implements AtomicIterator {
 
-    private CharSequence input;
-    private Pattern pattern;
-    private Matcher matcher;
+    private final String input;
+    private final Pattern pattern;
+    private final Matcher matcher;
     /*@Nullable*/ private CharSequence current;
     private int prevEnd = 0;
 
@@ -34,7 +34,7 @@ public class JTokenIterator implements AtomicIterator<StringValue> {
      * Construct a JTokenIterator.
      */
 
-    public JTokenIterator(CharSequence input, Pattern pattern) {
+    public JTokenIterator(String input, Pattern pattern) {
         this.input = input;
         this.pattern = pattern;
         matcher = pattern.matcher(input);
@@ -49,10 +49,10 @@ public class JTokenIterator implements AtomicIterator<StringValue> {
         }
 
         if (matcher.find()) {
-            current = input.subSequence(prevEnd, matcher.start());
+            current = input.substring(prevEnd, matcher.start());
             prevEnd = matcher.end();
         } else {
-            current = input.subSequence(prevEnd, input.length());
+            current = input.substring(prevEnd, input.length());
             prevEnd = -1;
         }
         return StringValue.makeStringValue(current);

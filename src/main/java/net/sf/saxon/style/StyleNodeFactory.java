@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,13 +10,13 @@ package net.sf.saxon.style;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.accum.AccumulatorRegistry;
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
-import net.sf.saxon.trans.XmlProcessingIncident;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.tree.linked.ElementImpl;
 import net.sf.saxon.tree.linked.NodeFactory;
 import net.sf.saxon.tree.linked.NodeImpl;
@@ -24,14 +24,12 @@ import net.sf.saxon.tree.linked.TextImpl;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
-import javax.xml.transform.TransformerFactoryConfigurationError;
+import java.util.StringTokenizer;
 
 /**
  * Class StyleNodeFactory. <br>
  * A Factory for nodes in the stylesheet tree. <br>
  * Currently only allows Element nodes to be user-constructed.
- *
- * @author Michael H. Kay
  */
 
 public class StyleNodeFactory implements NodeFactory {
@@ -39,7 +37,7 @@ public class StyleNodeFactory implements NodeFactory {
 
     protected Configuration config;
     protected NamePool namePool;
-    private Compilation compilation;
+    private final Compilation compilation;
     private boolean topLevelModule;
 
     /**
@@ -104,12 +102,10 @@ public class StyleNodeFactory implements NodeFactory {
             int sequence) {
         int f = elemName.obtainFingerprint(pipe.getConfiguration().getNamePool());
         boolean toplevel = parent instanceof XSLModuleRoot;
-        String baseURI = null;
-        int lineNumber = -1;
-        int columnNumber = -1;
-        baseURI = location.getSystemId();
-        lineNumber = location.getLineNumber();
-        columnNumber = location.getColumnNumber();
+        String baseURI = location.getSystemId();
+        int lineNumber = location.getLineNumber();
+        int columnNumber = location.getColumnNumber();
+        int processorVersion = compilation.getCompilerInfo().getXsltVersion();
 
         if (parent instanceof DataElement) {
             DataElement d = new DataElement();
@@ -125,7 +121,7 @@ public class StyleNodeFactory implements NodeFactory {
         if ((e instanceof XSLStylesheet || e instanceof XSLPackage) && parent.getNodeKind() != Type.DOCUMENT) {
             e = new AbsentExtensionElement();
             final XmlProcessingIncident reason =
-                    new XmlProcessingIncident(elemName.getDisplayName() + " can only appear at the outermost level", "XTSE0010", e);
+                    new XmlProcessingIncident(elemName.getDisplayName() + " can only appear at the outermost level", "XTSE0010");
             e.setValidationError(reason, StyleElement.OnFailure.REPORT_ALWAYS);
         }
 
@@ -135,20 +131,12 @@ public class StyleNodeFactory implements NodeFactory {
             e.setNamespaceMap(namespaces);
             e.initialise(elemName, elemType, attlist, parent, sequence);
             e.setLocation(baseURI, lineNumber, columnNumber);
-                e.processExtensionElementAttribute("");
-                e.processExcludedNamespaces("");
-                e.processVersionAttribute("");
-            e.processDefaultXPathNamespaceAttribute("");
-                e.processExpandTextAttribute("");
-                e.processDefaultValidationAttribute("");
-
-//            if (e.isInstruction() && e.getEffectiveVersion() == 10 &&
-//                    !config.isLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION)) {
-//                e.setValidationError(
-//                        new XPathException("XSLT 1.0 compatibility mode is not available in this configuration", "XTDE0160"),
-//                        StyleElement.REPORT_IF_INSTANTIATED
-//                );
-//            }
+            e.processExtensionElementAttribute(NamespaceUri.NULL);
+            e.processExcludedNamespaces(NamespaceUri.NULL);
+            e.processVersionAttribute(NamespaceUri.NULL);
+            e.processDefaultXPathNamespaceAttribute(NamespaceUri.NULL);
+            e.processExpandTextAttribute(NamespaceUri.NULL);
+            e.processDefaultValidationAttribute(NamespaceUri.NULL);
 
             if (toplevel && !e.isDeclaration() && !(e instanceof XSLExpose) && e.forwardsCompatibleModeIsEnabled()) {
                 DataElement d = new DataElement();
@@ -160,7 +148,7 @@ public class StyleNodeFactory implements NodeFactory {
 
             if (parent instanceof AbsentExtensionElement &&
                     ((AbsentExtensionElement)parent).forwardsCompatibleModeIsEnabled() &&
-                    parent.getURI().equals(NamespaceConstant.XSLT) &&
+                    ((AbsentExtensionElement)parent).isInXsltNamespace() &&
                     !(e instanceof XSLFallback)) {
                 // Parent is an unknown XSLT element in forwards-compatibility mode; siblings of xsl:fallback are ignored
                 AbsentExtensionElement temp = new AbsentExtensionElement();
@@ -174,9 +162,9 @@ public class StyleNodeFactory implements NodeFactory {
 
         }
 
-        String uri = elemName.getURI();
+        NamespaceUri uri = elemName.getNamespaceUri();
 
-        if (toplevel && !uri.equals(NamespaceConstant.XSLT)) {
+        if (toplevel && !uri.equals(NamespaceUri.XSLT)) {
             DataElement d = new DataElement();
             d.setNamespaceMap(namespaces);
             d.initialise(elemName, elemType, attlist, parent, sequence);
@@ -187,15 +175,16 @@ public class StyleNodeFactory implements NodeFactory {
 
             String localname = elemName.getLocalPart();
             StyleElement temp = null;
-            int processorVersion = compilation.getCompilerInfo().getXsltVersion();
-            // Detect a misspelt XSLT element, or a 3.0 element used in a 2.0 stylesheet
 
-            if (uri.equals(NamespaceConstant.XSLT)) {
+            // Detect a mis-spelt XSLT element, or a 3.0 element used in a 2.0 stylesheet
+
+            if (uri.equals(NamespaceUri.XSLT)) {
                 if (parent instanceof XSLStylesheet) {
                     if (((XSLStylesheet) parent).getEffectiveVersion() <= processorVersion) {
                         temp = new AbsentExtensionElement();
                         temp.setCompilation(compilation);
-                        temp.setValidationError(new XmlProcessingIncident("Unknown top-level XSLT declaration"),
+                        temp.setValidationError(new XmlProcessingIncident(
+                                "Unknown top-level XSLT declaration " + elemName.getDisplayName(), "XTSE0010", location),
                                 StyleElement.OnFailure.REPORT_UNLESS_FORWARDS_COMPATIBLE);
                     }
                 } else {
@@ -203,19 +192,18 @@ public class StyleNodeFactory implements NodeFactory {
                     temp.initialise(elemName, elemType, attlist, parent, sequence);
                     temp.setLocation(baseURI, lineNumber, columnNumber);
                     temp.setCompilation(compilation);
-                    temp.processStandardAttributes("");
-                    final XmlProcessingIncident incident =
-                            new XmlProcessingIncident("Unknown XSLT instruction " + elemName.getDisplayName(), "XTSE0010");
-                    temp.setValidationError(incident,
-                                            temp.getEffectiveVersion() > processorVersion
-                                                ? StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE
-                                                : StyleElement.OnFailure.REPORT_ALWAYS);
+                    temp.processStandardAttributes(NamespaceUri.NULL);
+                    temp.setValidationError(
+                            new XmlProcessingIncident("Unknown XSLT instruction " + elemName.getDisplayName(), "XTSE0010", location),
+                            temp.getEffectiveVersion() > processorVersion
+                                    ? StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE
+                                    : StyleElement.OnFailure.REPORT_ALWAYS);
                 }
             }
 
             // Detect an unrecognized element in the Saxon namespace
 
-            if (uri.equals(NamespaceConstant.SAXON)) {
+            if (uri.equals(NamespaceUri.SAXON)) {
                 String message = elemName.getDisplayName() + " is not recognized as a Saxon instruction";
                 if (config.getEditionCode().equals("HE")) {
                     message += ". Saxon extensions require Saxon-PE or higher";
@@ -226,42 +214,38 @@ public class StyleNodeFactory implements NodeFactory {
                 pipe.getErrorReporter().report(err);
             }
 
-            Class assumedClass = LiteralResultElement.class;
-
             // We can't work out the final class of the node until we've examined its attributes
-            // such as version and extension-element-prefixes; but we can have a good guess, and
-            // change it later if need be.
+            // such as extension-element-prefixes.
 
+            boolean extensionElement = isExtensionNamespace(uri, parent, namespaces, attlist);
             if (temp == null) {
-                temp = new LiteralResultElement();
+                if (extensionElement) {
+                    temp = new AbsentExtensionElement();
+                } else {
+                    temp = new LiteralResultElement();
+                }
             }
 
             temp.setNamespaceMap(namespaces);
             temp.setCompilation(compilation);
             temp.initialise(elemName, elemType, attlist, parent, sequence);
             temp.setLocation(baseURI, lineNumber, columnNumber);
-            temp.processStandardAttributes(NamespaceConstant.XSLT);
-
-            // Now we work out what class of element we really wanted, and change it if necessary
+            temp.processStandardAttributes(NamespaceUri.XSLT);
 
             XmlProcessingIncident reason;
-            Class actualClass;
 
-//            if (uri.equals(NamespaceConstant.XSLT)) {
-//                reason = new XmlProcessingIncident("Unknown XSLT element: " + Err.wrap(localname, Err.ELEMENT), "XTSE0010");
-//                actualClass = AbsentExtensionElement.class;
-//                temp.setValidationError(reason, StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE);
-//
-//            } else
-            if (temp.isExtensionNamespace(uri) && !toplevel) {
+            if (uri.equals(NamespaceUri.XSLT)) {
+                //reason = new XmlProcessingIncident("Unknown XSLT element: " + Err.wrap(localname, Err.ELEMENT), "XTSE0010");
+                //temp.setValidationError(reason, StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE);
+
+            } else if (extensionElement) {
 
                 // if we can't instantiate an extension element, we don't give up
                 // immediately, because there might be an xsl:fallback defined. We
                 // create a surrogate element called AbsentExtensionElement, and
                 // save the reason for failure just in case there is no xsl:fallback
 
-                actualClass = AbsentExtensionElement.class;
-                if (NamespaceConstant.isReserved(uri)) {
+                if (NamespaceUri.isReserved(uri)) {
                     reason = new XmlProcessingIncident("Cannot use a reserved namespace for extension instructions", "XTSE0800");
                     temp.setValidationError(reason, StyleElement.OnFailure.REPORT_ALWAYS);
                 } else {
@@ -269,25 +253,28 @@ public class StyleNodeFactory implements NodeFactory {
                     temp.setValidationError(reason, StyleElement.OnFailure.REPORT_DYNAMICALLY_UNLESS_FALLBACK_AVAILABLE);
                 }
 
-            } else {
-                actualClass = LiteralResultElement.class;
             }
 
-            StyleElement node;
-            if (actualClass.equals(assumedClass)) {
-                node = temp;    // the original element will do the job
-            } else {
-                try {
-                    node = (StyleElement) actualClass.newInstance();
-                } catch (InstantiationException err1) {
-                    throw new TransformerFactoryConfigurationError(err1, "Failed to create instance of " + actualClass.getName());
-                } catch (IllegalAccessException err2) {
-                    throw new TransformerFactoryConfigurationError(err2, "Failed to access class " + actualClass.getName());
-                }
-                node.substituteFor(temp);   // replace temporary node with the new one
-            }
-            return node;
+            return temp;
         }
+    }
+
+    private static boolean isExtensionNamespace(NamespaceUri uri, NodeInfo parent, NamespaceMap namespaces, AttributeMap attlist) {
+        String attValue = attlist.getValue(NamespaceUri.XSLT, "extension-element-prefixes");
+        if (attValue != null) {
+            StringTokenizer st2 = new StringTokenizer(attValue, " \t\n\r", false);
+            while (st2.hasMoreTokens()) {
+                String s = st2.nextToken();
+                if ("#default".equals(s)) {
+                    s = "";
+                }
+                NamespaceUri ns = namespaces.getURIForPrefix(s, false);
+                if (uri.equals(ns)) {
+                    return true;
+                }
+            }
+        }
+        return parent instanceof StyleElement && ((StyleElement)parent).isExtensionNamespace(uri);
     }
 
     /**
@@ -367,6 +354,8 @@ public class StyleNodeFactory implements NodeFactory {
                 return new XSLImportSchema();
             case StandardNames.XSL_INCLUDE:
                 return new XSLInclude();
+            case StandardNames.XSL_ITEM_TYPE:
+                return new XSLItemType();
             case StandardNames.XSL_ITERATE:
                 return new XSLIterate();
             case StandardNames.XSL_KEY:
@@ -418,7 +407,8 @@ public class StyleNodeFactory implements NodeFactory {
             case StandardNames.XSL_PACKAGE:
                 return new XSLPackage();
             case StandardNames.XSL_PARAM:
-                return parent instanceof XSLModuleRoot || parent instanceof XSLOverride ? new XSLGlobalParam() : new XSLLocalParam();
+                //noinspection RedundantCast
+                return parent instanceof XSLModuleRoot || parent instanceof XSLOverride ? (StyleElement)new XSLGlobalParam() : (StyleElement)new XSLLocalParam();
             case StandardNames.XSL_PERFORM_SORT:
                 return new XSLPerformSort();
             case StandardNames.XSL_PRESERVE_SPACE:
@@ -437,13 +427,13 @@ public class StyleNodeFactory implements NodeFactory {
             case StandardNames.XSL_STRIP_SPACE:
                 return new XSLPreserveSpace();
             case StandardNames.XSL_STYLESHEET:
-                return topLevelModule ? new XSLPackage() : new XSLStylesheet();
+            case StandardNames.XSL_TRANSFORM:
+                //noinspection RedundantCast
+                return topLevelModule ? (StyleElement)new XSLPackage() : (StyleElement)new XSLStylesheet();
             case StandardNames.XSL_TEMPLATE:
                 return new XSLTemplate();
             case StandardNames.XSL_TEXT:
                 return new XSLText();
-            case StandardNames.XSL_TRANSFORM:
-                return topLevelModule ? new XSLPackage() : new XSLStylesheet();
             case StandardNames.XSL_TRY:
                 return new XSLTry();
             case StandardNames.XSL_USE_PACKAGE:
@@ -451,7 +441,9 @@ public class StyleNodeFactory implements NodeFactory {
             case StandardNames.XSL_VALUE_OF:
                 return new XSLValueOf();
             case StandardNames.XSL_VARIABLE:
-                return parent instanceof XSLModuleRoot || parent instanceof XSLOverride ? new XSLGlobalVariable() : new XSLLocalVariable();
+                //noinspection RedundantCast
+                return parent instanceof XSLModuleRoot || parent instanceof XSLOverride
+                        ? (StyleElement)new XSLGlobalVariable() : (StyleElement)new XSLLocalVariable();
             case StandardNames.XSL_WITH_PARAM:
                 return new XSLWithParam();
             case StandardNames.XSL_WHEN:
@@ -471,11 +463,11 @@ public class StyleNodeFactory implements NodeFactory {
      * @return the constructed text node
      */
     @Override
-    public TextImpl makeTextNode(NodeInfo parent, CharSequence content) {
+    public TextImpl makeTextNode(NodeInfo parent, UnicodeString content) {
         if (parent instanceof StyleElement && ((StyleElement) parent).isExpandingText()) {
-            return new TextValueTemplateNode(content.toString());
+            return new TextValueTemplateNode(content);
         } else {
-            return new TextImpl(content.toString());
+            return new TextImpl(content);
         }
     }
 
@@ -489,9 +481,9 @@ public class StyleNodeFactory implements NodeFactory {
      * @return true if an extension element of this name is recognized
      */
 
-    public boolean isElementAvailable(String uri, String localName, boolean instructionsOnly) {
+    public boolean isElementAvailable(NamespaceUri uri, String localName, boolean instructionsOnly) {
         int fingerprint = namePool.getFingerprint(uri, localName);
-        if (uri.equals(NamespaceConstant.XSLT)) {
+        if (uri.equals(NamespaceUri.XSLT)) {
             if (fingerprint == -1) {
                 return false;     // all names are pre-registered
             }
@@ -511,6 +503,7 @@ public class StyleNodeFactory implements NodeFactory {
      * Create a stylesheet package
      * @param node the XSLPackage element
      * @return a new stylesheet package
+     * @throws XPathException if things go wrong
      */
 
     public PrincipalStylesheetModule newPrincipalModule(XSLPackage node) throws XPathException {

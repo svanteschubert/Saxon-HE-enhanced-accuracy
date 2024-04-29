@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,21 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.UnicodeStringEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.expr.sort.CodepointCollatingComparer;
 import net.sf.saxon.expr.sort.CodepointCollator;
+import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.value.Cardinality;
 
 /**
  * This class implements a comparison of a computed value to a string constant using one of the operators
@@ -24,7 +31,7 @@ import net.sf.saxon.trans.XPathException;
 
 public class CompareToStringConstant extends CompareToConstant {
 
-    private String comparand;
+    private final UnicodeString comparand;
 
     /**
      * Create the expression
@@ -37,20 +44,20 @@ public class CompareToStringConstant extends CompareToConstant {
      * @param comparand the integer constant
      */
 
-    public CompareToStringConstant(Expression operand, int operator, String comparand) {
+    public CompareToStringConstant(Expression operand, int operator, UnicodeString comparand) {
         super(operand);
         this.operator = operator;
         this.comparand = comparand;
     }
 
     /**
-     * Get the integer value on the rhs of the expression
+     * Get the string value on the rhs of the expression
      *
      * @return the integer constant
      */
 
 
-    public String getComparand() {
+    public UnicodeString getComparand() {
         return comparand;
     }
 
@@ -98,8 +105,8 @@ public class CompareToStringConstant extends CompareToConstant {
      */
 
     @Override
-    public int computeHashCode() {
-        int h = 0x884b12a0;
+    protected int computeHashCode() {
+        int h = 0x484b12a0;
         return h + getLhsExpression().hashCode() ^ comparand.hashCode();
     }
 
@@ -118,15 +125,15 @@ public class CompareToStringConstant extends CompareToConstant {
 
     @Override
     public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
-        CharSequence s = getLhsExpression().evaluateAsString(context);
-        int c = CodepointCollator.compareCS(s, comparand);
-        return interpretComparisonResult(c);
+        UnicodeString s = getLhsExpression().evaluateItem(context).getUnicodeStringValue();
+        int c = CodepointCollator.getInstance().compareStrings(s, comparand);
+        return interpretComparisonResult(operator, c);
     }
 
 
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -152,7 +159,7 @@ public class CompareToStringConstant extends CompareToConstant {
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("compareToString", this);
         destination.emitAttribute("op", Token.tokens[operator]);
-        destination.emitAttribute("val", comparand);
+        destination.emitAttribute("val", getComparand().toString());
         getLhsExpression().export(destination);
         destination.endElement();
     }
@@ -168,7 +175,7 @@ public class CompareToStringConstant extends CompareToConstant {
     @Override
     public String toString() {
         return ExpressionTool.parenthesize(getLhsExpression()) + " " +
-                Token.tokens[operator] + " \"" + comparand + "\"";
+                Token.tokens[operator] + " " + comparand.toString();
     }
 
     /**
@@ -188,8 +195,54 @@ public class CompareToStringConstant extends CompareToConstant {
     @Override
     public AtomicComparer getAtomicComparer() {
         return CodepointCollatingComparer.getInstance();
-        // Note: this treats NaN=NaN as true, but it doesn't matter, because the rhs will never be NaN.
     }
 
+    /**
+     * Get the StringCollator used to compare string values.
+     * @return the collator.
+     */
+    @Override
+    public StringCollator getStringCollator() {
+        return CodepointCollator.getInstance();
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new CompareToStringConstantElaborator();
+    }
+
+    /**
+     * Elaborator for a "compare to string constant" expression
+     */
+
+    public static class CompareToStringConstantElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            final CompareToStringConstant expression = (CompareToStringConstant) getExpression();
+            final Expression arg = expression.getBaseExpression();
+            final UnicodeStringEvaluator argEval = arg.makeElaborator().elaborateForUnicodeString(false);
+            final boolean nullable = Cardinality.allowsZero(expression.getCardinality());
+            final int operator = expression.getComparisonOperator();
+            final UnicodeString comparand = expression.getComparand();
+
+            return context -> {
+                UnicodeString value = argEval.eval(context);
+                if (nullable && value == null) {
+                    return false;
+                }
+                int c = value.compareTo(comparand);
+                return interpretComparisonResult(operator, c);
+            };
+
+        }
+
+
+    }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,19 +10,20 @@ package net.sf.saxon.style;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.GlobalVariable;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
-import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.functions.registry.VendorFunctionSetHE;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NameTest;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
-import net.sf.saxon.trans.*;
+import net.sf.saxon.trans.DecimalFormatManager;
+import net.sf.saxon.trans.KeyManager;
+import net.sf.saxon.trans.SymbolicName;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.AttributeLocation;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.AnyItemType;
@@ -38,8 +39,8 @@ import java.util.Set;
 
 public class ExpressionContext implements StaticContext {
 
-    private StyleElement element;
-    private StructuredQName attributeName;
+    private final StyleElement element;
+    private final StructuredQName attributeName;
     private Location containingLocation = null;
     private RetainedStaticContext retainedStaticContext = null;
 
@@ -84,6 +85,15 @@ public class ExpressionContext implements StaticContext {
      */
     public boolean isSchemaAware() {
         return element.isSchemaAware();
+    }
+
+    /**
+     * Get the name of the attribute containing the expression being parsed
+     * @return the attribute name
+     */
+
+    public StructuredQName getAttributeName() {
+        return attributeName;
     }
 
     /**
@@ -139,8 +149,8 @@ public class ExpressionContext implements StaticContext {
      */
 
     @Override
-    public void issueWarning(String s, Location locator) {
-        element.compileWarning(s, SaxonErrorCode.SXWN9000, locator);
+    public void issueWarning(String s, String errorCode, Location locator) {
+        element.issueWarning(s, errorCode, locator);
     }
 
     /**
@@ -224,9 +234,9 @@ public class ExpressionContext implements StaticContext {
 
     @Override
     public Expression bindVariable(StructuredQName qName) throws XPathException {
-        SourceBinding sourceBinding = element.bindVariable(qName);
+        SourceBinding sourceBinding = element.bindVariable(qName, attributeName);
         if (sourceBinding == null) {
-            if (qName.hasURI(NamespaceConstant.XSLT) && qName.getLocalPart().equals("original")) {
+            if (qName.hasURI(NamespaceUri.XSLT) && qName.getLocalPart().equals("original")) {
                 element.getXslOriginal(StandardNames.XSL_VARIABLE);
                 return new GlobalVariableReference(qName);
             }
@@ -235,22 +245,22 @@ public class ExpressionContext implements StaticContext {
             Component comp = element.getCompilation().getPrincipalStylesheetModule().getComponent(sn);
             if (comp != null) { // test variable-0118
                 // See tests variable-0118 and variable-0120
-                element.iterateAxis(AxisInfo.ANCESTOR_OR_SELF).forEachOrFail(parent -> {
+                SequenceTool.supply(element.iterateAxis(AxisInfo.ANCESTOR_OR_SELF), (ItemConsumer<? super Item>) parent -> {
                     if (parent instanceof XSLGlobalVariable && ((XSLGlobalVariable) parent).getVariableQName().equals(qName)) {
-                        XPathException err = new XPathException("Variable " + qName.getDisplayName() +
+                        XPathException err = new XPathException("Variable $" + qName.getDisplayName() +
                                                                         " cannot be used within its own declaration", "XPST0008");
                         err.setIsStaticError(true);
                         throw err;
                     }
                 });
 
-                GlobalVariable var = (GlobalVariable) comp.getActor();
-                GlobalVariableReference vref = new GlobalVariableReference(var);
-                vref.setStaticType(var.getRequiredType(), null, 0);
+                GlobalVariable globalVar = (GlobalVariable) comp.getActor();
+                GlobalVariableReference vref = new GlobalVariableReference(globalVar);
+                vref.setStaticType(globalVar.getRequiredType(), null, 0);
                 return vref;
             }
             // it might be an implicit error variable in try/catch
-            if (getXPathVersion() >= 30 && qName.hasURI(NamespaceConstant.ERR)) {
+            if (getXPathVersion() >= 30 && qName.hasURI(NamespaceUri.ERR)) {
                 AxisIterator catchers = element.iterateAxis(AxisInfo.ANCESTOR_OR_SELF,
                                                             new NameTest(Type.ELEMENT, StandardNames.XSL_CATCH, element.getNamePool()));
                 StyleElement catcher = (StyleElement) catchers.next();
@@ -264,10 +274,10 @@ public class ExpressionContext implements StaticContext {
                 }
             }
 
-            XPathException err = new XPathException("Variable " + qName.getDisplayName() +
+            XPathException error = new XPathException("Variable $" + qName.getDisplayName() +
                                                             " has not been declared (or its declaration is not in scope)", "XPST0008");
-            err.setIsStaticError(true);
-            throw err;
+            error.setIsStaticError(true);
+            throw error;
         }
 
         VariableReference var;
@@ -303,16 +313,8 @@ public class ExpressionContext implements StaticContext {
 
     @Override
     public FunctionLibrary getFunctionLibrary() {
-        FunctionLibrary lib = element.getContainingPackage().getFunctionLibrary();
-        StyleElement containingOverride = element.findAncestorElement(StandardNames.XSL_OVERRIDE);
-        if (containingOverride != null) {
-            // Within xsl:override, recognize the function name xsl:original
-            FunctionLibraryList libList = new FunctionLibraryList();
-            libList.addFunctionLibrary(lib);
-            ((XSLOverride)containingOverride).addXSLOverrideFunctionLibrary(libList);
-            return libList;
-        }
-        return lib;
+        // Note, the xsl:original library is now present in the package function library unconditionally
+        return element.getContainingPackage().getFunctionLibrary();
     }
 
     /**
@@ -330,7 +332,7 @@ public class ExpressionContext implements StaticContext {
      */
 
     @Override
-    public String getDefaultElementNamespace() {
+    public NamespaceUri getDefaultElementNamespace() {
         return element.getDefaultXPathNamespace();
     }
 
@@ -339,8 +341,8 @@ public class ExpressionContext implements StaticContext {
      */
 
     @Override
-    public String getDefaultFunctionNamespace() {
-        return NamespaceConstant.FN;
+    public NamespaceUri getDefaultFunctionNamespace() {
+        return NamespaceUri.FN;
     }
 
     /**
@@ -357,13 +359,25 @@ public class ExpressionContext implements StaticContext {
      * number times ten). In Saxon 9.9, for XSLT, the possible values are
      * 30 (XPath 3.0), 31 (XPath 3.1), and 305 (XPath 3.0 plus the extensions defined in XSLT 3.0).
      *
-     * @return the XPath language level; the return value will be either 30, 305, or 31
+     * @return the XPath language level; the return value will be either 31 or 40
      * @since 9.7
      */
 
     @Override
     public int getXPathVersion() {
-        return getConfiguration().getConfigurationProperty(Feature.XPATH_VERSION_FOR_XSLT);
+        if (element.getCompilation().getCompilerInfo().getXsltVersion() == 40 ||
+                getConfiguration().getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS)
+        ) {
+            return 40;
+        }
+//        if ((element.getEffectiveVersion() == 40
+//                || element.getCompilation().getCompilerInfo().getXsltVersion() == 40
+//                || (attributeName != null && attributeName.hasURI(NamespaceUri.SAXON)))
+//            && element.getCompilation().getCompilerInfo().getXsltVersion() == 40) {
+//            return 40;
+//        } else {
+            return getConfiguration().getConfigurationProperty(Feature.XPATH_VERSION_FOR_XSLT);
+//        }
     }
 
     /**
@@ -374,7 +388,7 @@ public class ExpressionContext implements StaticContext {
      */
 
     @Override
-    public boolean isImportedSchema(String namespace) {
+    public boolean isImportedSchema(NamespaceUri namespace) {
         //if (Configuration.USE_PACKAGE_BINDING) {
         return element.getPrincipalStylesheetModule().isImportedSchema(namespace);
         //} else {
@@ -389,7 +403,7 @@ public class ExpressionContext implements StaticContext {
      */
 
     @Override
-    public Set<String> getImportedSchemaNamespaces() {
+    public Set<NamespaceUri> getImportedSchemaNamespaces() {
         return element.getPrincipalStylesheetModule().getImportedSchemaTable();
     }
 

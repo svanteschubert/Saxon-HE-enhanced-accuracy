@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,8 +13,9 @@ import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.event.SequenceReceiver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.Whitespace;
 
@@ -27,10 +28,10 @@ import java.io.PrintStream;
 public class TracingFilter extends ProxyReceiver {
 
     private static int nextid = 0;
-    private int id;
+    private final int id;
     private String indent = "";
     private PrintStream out = System.err;
-    private boolean closed = false;
+    private final boolean closed = false;
 
     /**
      * Create a TracingFilter and allocate a unique Id.
@@ -90,12 +91,13 @@ public class TracingFilter extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        out.println("RCVR " + id + indent + " CHARACTERS " + (Whitespace.isWhite(chars) ? "(whitespace)" : ""));
-        FastStringBuffer sb = new FastStringBuffer(chars.length() * 4);
-        sb.cat(chars).append(":");
-        for (int i = 0; i < chars.length(); i++) {
-            sb.append((int) chars.charAt(i) + " ");
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        out.println("RCVR " + id + indent + " CHARACTERS " + (Whitespace.isAllWhite(chars) ? "(whitespace)" : ""));
+        StringBuilder sb = new StringBuilder();
+        String str = chars.toString();
+        sb.append(str).append(":");
+        for (int i = 0; i < str.length(); i++) {
+            sb.append(str.charAt(i));
         }
         out.println("    \"" + sb + '\"');
         nextReceiver.characters(chars, locationId, properties);
@@ -116,7 +118,7 @@ public class TracingFilter extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         out.println("RCVR " + id + indent + " COMMENT");
         nextReceiver.comment(chars, locationId, properties);
     }
@@ -160,14 +162,14 @@ public class TracingFilter extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         out.println("RCVR " + id + indent + " PROCESSING INSTRUCTION");
         nextReceiver.processingInstruction(target, data, locationId, properties);
     }
 
     /**
      * Start of a document node.
-     * @param properties
+     * @param properties properties of the document node
      */
 
     @Override

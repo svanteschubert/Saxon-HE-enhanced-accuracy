@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,10 +11,10 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
-import net.sf.saxon.value.UntypedAtomicValue;
+import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntHashSet;
 
-import static net.sf.saxon.type.SchemaComponent.ValidationStatus.VALIDATED;
+import static net.sf.saxon.type.SchemaValidationStatus.VALIDATED;
 
 /**
  * This class has a singleton instance which represents the complex type xdt:untyped,
@@ -44,7 +44,7 @@ public enum Untyped implements ComplexType {
      * Get the validation status - always valid
      */
     @Override
-    public ValidationStatus getValidationStatus() {
+    public SchemaValidationStatus getValidationStatus() {
         return VALIDATED;
     }
 
@@ -94,19 +94,20 @@ public enum Untyped implements ComplexType {
      */
 
     @Override
-    public String getTargetNamespace() {
-        return NamespaceConstant.SCHEMA;
+    public NamespaceUri getTargetNamespace() {
+        return NamespaceUri.SCHEMA;
     }
 
     /**
      * Get the variety of this complex type. This will be one of the values
-     * {@link #VARIETY_EMPTY}, {@link #VARIETY_MIXED}, {@link #VARIETY_SIMPLE}, or
-     * {@link #VARIETY_ELEMENT_ONLY}
+     * {@link ComplexVariety#EMPTY}, {@link ComplexVariety#MIXED}, {@link ComplexVariety#SIMPLE}, or
+     * {@link ComplexVariety#ELEMENT_ONLY}
+     * @return {@link ComplexVariety#MIXED}
      */
 
     @Override
-    public int getVariety() {
-        return VARIETY_MIXED;
+    public ComplexVariety getVariety() {
+        return ComplexVariety.MIXED;
     }
 
     /**
@@ -123,7 +124,7 @@ public enum Untyped implements ComplexType {
 
     /**
      * Returns the value of the 'block' attribute for this type, as a bit-signnificant
-     * integer with fields such as {@link SchemaType#DERIVATION_LIST} and {@link SchemaType#DERIVATION_EXTENSION}
+     * integer with fields such as {@link Derivation#DERIVATION_LIST} and {@link Derivation#DERIVATION_EXTENSION}
      *
      * @return the value of the 'block' attribute for this type
      */
@@ -137,7 +138,7 @@ public enum Untyped implements ComplexType {
      * Gets the integer code of the derivation method used to derive this type from its
      * parent. Returns zero for primitive types.
      *
-     * @return a numeric code representing the derivation method, for example {@link SchemaType#DERIVATION_RESTRICTION}
+     * @return a numeric code representing the derivation method, for example {@link Derivation#DERIVATION_RESTRICTION}
      */
 
     @Override
@@ -149,7 +150,7 @@ public enum Untyped implements ComplexType {
      * Determines whether derivation (of a particular kind)
      * from this type is allowed, based on the "final" property
      *
-     * @param derivation the kind of derivation, for example {@link SchemaType#DERIVATION_LIST}
+     * @param derivation the kind of derivation, for example {@link Derivation#DERIVATION_LIST}
      * @return true if this kind of derivation is allowed
      */
 
@@ -162,7 +163,7 @@ public enum Untyped implements ComplexType {
      * Get the types of derivation that are not permitted, by virtue of the "final" property.
      *
      * @return the types of derivation that are not permitted, as a bit-significant integer
-     *         containing bits such as {@link net.sf.saxon.type.SchemaType#DERIVATION_EXTENSION}
+     *         containing bits such as {@link net.sf.saxon.type.Derivation#DERIVATION_EXTENSION}
      */
     @Override
     public int getFinalProhibitions() {
@@ -216,7 +217,7 @@ public enum Untyped implements ComplexType {
     }
 
     public final static StructuredQName NAME =
-        new StructuredQName("xs", NamespaceConstant.SCHEMA, "untyped");
+        new StructuredQName("xs", NamespaceUri.SCHEMA, "untyped");
 
     /**
      * Test whether this SchemaType is a complex type
@@ -461,7 +462,7 @@ public enum Untyped implements ComplexType {
     /*@NotNull*/
     @Override
     public AtomicSequence atomize(/*@NotNull*/ NodeInfo node) {
-        return new UntypedAtomicValue(node.getStringValueCS());
+        return StringValue.makeUntypedAtomic(node.getUnicodeStringValue());
     }
 
     /**
@@ -624,6 +625,15 @@ public enum Untyped implements ComplexType {
     @Override
     public boolean hasAssertions() {
         return false;
+    }
+
+    /**
+     * Decide what kind of layout to use when formatting an element of this type using the
+     * xdm-to-json function. The result is a layout name, such as "record", "list", "mixed", "sequence"
+     */
+    @Override
+    public String getPreferredJsonLayout() {
+        return "mixed";
     }
 
 

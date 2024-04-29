@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,23 +19,14 @@ import net.sf.saxon.z.IntHashSet;
 
 public interface ComplexType extends SchemaType {
 
-    int VARIETY_EMPTY = 0;
-    int VARIETY_SIMPLE = 1;
-    int VARIETY_ELEMENT_ONLY = 2;
-    int VARIETY_MIXED = 3;
-
-    int OPEN_CONTENT_ABSENT = 0;
-    int OPEN_CONTENT_NONE = 1;
-    int OPEN_CONTENT_INTERLEAVE = 2;
-    int OPEN_CONTENT_SUFFIX = 3;
-
     /**
      * Get the variety of this complex type. This will be one of the values
-     * {@link #VARIETY_EMPTY}, {@link #VARIETY_MIXED}, {@link #VARIETY_SIMPLE}, or
-     * {@link #VARIETY_ELEMENT_ONLY}
+     * {@link ComplexVariety#EMPTY}, {@link ComplexVariety#MIXED}, {@link ComplexVariety#SIMPLE}, or
+     * {@link ComplexVariety#ELEMENT_ONLY}
+     * @return the variety of the type
      */
 
-    int getVariety();
+    ComplexVariety getVariety();
 
     /**
      * Test whether this complex type has been marked as abstract. This corresponds to
@@ -262,5 +253,11 @@ public interface ComplexType extends SchemaType {
      */
 
     boolean hasAssertions();
+
+    /**
+     * Decide what kind of layout to use when formatting an element of this type using the
+     * xdm-to-json function. The result is a layout name, such as "record", "list", "mixed", "sequence"
+     */
+    String getPreferredJsonLayout();
 }
 

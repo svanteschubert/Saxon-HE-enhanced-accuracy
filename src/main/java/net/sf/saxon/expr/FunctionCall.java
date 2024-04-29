@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,18 +7,26 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.SequenceEvaluator;
 import net.sf.saxon.expr.oper.OperandArray;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.functions.SystemFunction;
+import net.sf.saxon.functions.registry.BuiltInFunctionSet;
+import net.sf.saxon.functions.registry.FunctionDefinition;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.JavaExternalObjectType;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.Collections;
+import java.util.function.Supplier;
+
+
 
 /**
  * Abstract superclass for calls to system-defined and user-defined functions
@@ -52,7 +60,7 @@ public abstract class FunctionCall extends Expression {
     @Override
     public Iterable<Operand> operands() {
         if (operanda != null) {
-            return operanda.operands();
+            return operanda;
         } else {
             // happens during expression tree construction
             return Collections.emptyList();
@@ -67,7 +75,7 @@ public abstract class FunctionCall extends Expression {
      * @throws XPathException if the target function cannot be determined
      */
 
-    public abstract Function getTargetFunction(XPathContext context) throws XPathException;
+    public abstract FunctionItem getTargetFunction(XPathContext context) throws XPathException;
 
     /**
      * Get the qualified of the function being called
@@ -132,7 +140,7 @@ public abstract class FunctionCall extends Expression {
     /**
      * Set the expression to be used as the Nth argument
      *
-     * @param n the required argument, zero-based
+     * @param n     the required argument, zero-based
      * @param child the expression to be used in the relevant position
      * @throws java.lang.IllegalArgumentException if the value of n is out of range
      */
@@ -207,18 +215,81 @@ public abstract class FunctionCall extends Expression {
      * @throws XPathException if there is a type error
      */
 
-    public void checkFunctionCall(Function target,
+    public void checkFunctionCall(FunctionItem target,
                                   ExpressionVisitor visitor) throws XPathException {
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(visitor.getStaticContext().isInBackwardsCompatibleMode());
         SequenceType[] argTypes = target.getFunctionItemType().getArgumentTypes();
-        int n = target.getArity();
-        for (int i = 0; i < n; i++) {
+        FunctionDefinition fd = null;
+        if (target instanceof FunctionDefinition) {
+            fd = (FunctionDefinition)target;
+        }
+        if (target.isSequenceVariadic() && getArity() == 1) {
             String name = getFunctionName() == null ? "" : getFunctionName().getDisplayName();
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION, name, i);
-            setArg(i, tc.staticTypeCheck(
-                    getArg(i),
-                    argTypes[i],
+            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, name, 0);
+            setArg(0, tc.staticTypeCheck(
+                    getArg(0),
+                    new SequenceType(argTypes[0].getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE),
                     role, visitor));
+        } else {
+            int n = target.getArity();
+            for (int i = 0; i < n; i++) {
+                final int pos = i;
+                Supplier<RoleDiagnostic> role = () -> {
+                    String name = getFunctionName() == null ? "" : getFunctionName().getDisplayName();
+                    return new RoleDiagnostic(RoleDiagnostic.FUNCTION, name, pos);
+                };
+                Expression arg = getArg(i);
+                // Substitute default value expression for an argument marked for replacement. This is necessary
+                // because the default value expression was not necessarily available when the function call
+                // was first parsed, in the case where it is a forwards reference
+                if (arg instanceof DefaultedArgumentExpression) {
+                    if (fd != null) {
+                        // A user-defined function with default argument values
+                        if (i < fd.getMinimumArity()) {
+                            // This argument cannot be omitted
+                            throw new XPathException("No value supplied for " + RoleDiagnostic.ordinal(i + 1) +
+                                                             " parameter of function " +
+                                                             (getFunctionName() == null ? "" : getFunctionName().getDisplayName()),
+                                                     "XPST0141");
+                        }
+                        if (arg instanceof DefaultedArgumentExpression.DefaultCollationArgument) {
+                            arg = new StringLiteral(visitor.getStaticContext().getDefaultCollationName());
+                        } else {
+                            Expression defaultValue = fd.getDefaultValueExpression(i);
+                            if (defaultValue == null) {
+                                // This only happens if there's an error in the function definition
+                                throw new XPathException("No value or default available for " + RoleDiagnostic.ordinal(i + 1) +
+                                                                 " parameter of function " +
+                                                                 (getFunctionName() == null ? "" : getFunctionName().getDisplayName()),
+                                                         "XPST0141");
+                            }
+                            arg = defaultValue.copy(new RebindingMap());
+                            adoptChildExpression(arg);
+                        }
+                    } else if (target instanceof net.sf.saxon.functions.SystemFunction) {
+                        // A system function with default argument values
+                        BuiltInFunctionSet.Entry details = ((SystemFunction)target).getDetails();
+                        if (i < details.getMinimumArity()) {
+                            // This argument cannot be omitted
+                            throw new XPathException("No value supplied for " + RoleDiagnostic.ordinal(i + 1) +
+                                                             " parameter of function " +
+                                                             (getFunctionName() == null ? "" : getFunctionName().getDisplayName()),
+                                                     "XPST0141");
+                        }
+                        // For the moment, assume a default value of ()
+                        arg = new Literal(EmptySequence.getInstance());
+                        adoptChildExpression(arg);
+                    } else {
+                        throw new UnsupportedOperationException();
+                    }
+                }
+                if (arg != null && !(arg instanceof DefaultedArgumentExpression)) {
+                    setArg(i, tc.staticTypeCheck(
+                            arg,
+                            argTypes[i],
+                            role, visitor));
+                }
+            }
         }
     }
 
@@ -287,9 +358,14 @@ public abstract class FunctionCall extends Expression {
             return this;
         }
         try {
-            Literal lit = Literal.makeLiteral(iterate(visitor.getStaticContext().makeEarlyEvaluationContext()).materialize(), this);
-            Optimizer.trace(visitor.getConfiguration(), "Pre-evaluated function call " + toShortString(), lit);
-            return lit;
+            try {
+                Literal lit = Literal.makeLiteral(SequenceTool.toGroundedValue(
+                        iterate(visitor.getStaticContext().makeEarlyEvaluationContext())), this);
+                Optimizer.trace(visitor.getConfiguration(), "Pre-evaluated function call " + toShortString(), lit);
+                return lit;
+            } catch (UncheckedXPathException e) {
+                throw e.getXPathException();
+            }
         } catch (NoDynamicContextException e) {
             // early evaluation failed, usually because implicit timezone required
             return this;
@@ -321,27 +397,22 @@ public abstract class FunctionCall extends Expression {
      *
      * @param min the minimum number of arguments allowed
      * @param max the maximum number of arguments allowed
-     * @return the actual number of arguments
      * @throws net.sf.saxon.trans.XPathException if the number of arguments is out of range
      */
-
-    protected int checkArgumentCount(int min, int max) throws XPathException {
+    protected void checkArgumentCount(int min, int max) throws XPathException {
         int numArgs = getArity();
         String msg = null;
         if (min == max && numArgs != min) {
-            msg = "Function " + getDisplayName() + " must have " + pluralArguments(min);
+            msg = "Function call to " + getDisplayName() + " must supply " + plural(min, "argument");
         } else if (numArgs < min) {
-            msg = "Function " + getDisplayName() + " must have at least " + pluralArguments(min);
+            msg = "Function call to " + getDisplayName() + " must supply at least " + plural(min, "argument");
         } else if (numArgs > max) {
-            msg = "Function " + getDisplayName() + " must have no more than " + pluralArguments(max);
+            msg = "Function call to " + getDisplayName() + " must supply no more than " + plural(max, "argument");
         }
         if (msg != null) {
-            XPathException err = new XPathException(msg, "XPST0017");
-            err.setIsStaticError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException(msg, "XPST0017")
+                    .asStaticError().withLocation(getLocation());
         }
-        return numArgs;
     }
 
     /**
@@ -354,18 +425,26 @@ public abstract class FunctionCall extends Expression {
      */
     @Override
     public int getImplementationMethod() {
-        return ITERATE_METHOD;
+        return ITERATE_METHOD | EVALUATE_METHOD;
     }
 
     /**
      * Utility routine used in constructing error messages: get the word "argument" or "arguments"
      *
      * @param num the number of arguments
-     * @return the singular or plural word
+     * @param thing the string "argument" or "parameter"
+     * @return the singular or plural phrase for N arguments or parameters.
      */
 
-    public static String pluralArguments(int num) {
-        return num == 1 ? "one argument" : (num + " arguments");
+    public static String plural(int num, String thing) {
+        switch (num) {
+            case 0:
+                return "no " + thing + "s";
+            case 1:
+                return "one " + thing;
+            default:
+                return num + " " + thing + "s";
+        }
     }
 
 
@@ -433,12 +512,12 @@ public abstract class FunctionCall extends Expression {
      */
 
     public String toString() {
-        FastStringBuffer buff = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder buff = new StringBuilder(64);
         StructuredQName fName = getFunctionName();
         String f;
         if (fName == null) {
             f = "$anonymousFunction";
-        } else if (fName.hasURI(NamespaceConstant.FN)) {
+        } else if (fName.hasURI(NamespaceUri.FN)) {
             f = fName.getLocalPart();
         } else {
             f = fName.getEQName();
@@ -516,7 +595,7 @@ public abstract class FunctionCall extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         if (getFunctionName() == null) {
             return super.computeHashCode();
         }
@@ -542,28 +621,15 @@ public abstract class FunctionCall extends Expression {
      */
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        Function target = getTargetFunction(context);
-        Sequence[] actualArgs = evaluateArguments(context);
-        try {
-            return target.call(context, actualArgs).iterate();
-        } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            e.maybeSetContext(context);
-            e.maybeSetFailingExpression(this);
-            throw e;
-        }
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
-    public Sequence[] evaluateArguments(XPathContext context) throws XPathException {
-        int numArgs = getArity();
-        Sequence[] actualArgs = new Sequence[numArgs];
-        for (int i = 0; i < numArgs; i++) {
-            actualArgs[i] = ExpressionTool.lazyEvaluate(getArg(i), context, false);
-        }
-        return actualArgs;
+    @Override
+    public Item evaluateItem(XPathContext context) throws XPathException {
+        return makeElaborator().elaborateForItem().eval(context);
     }
 
-   /**
+    /**
      * When a call to a Java extension function appears in a context where there the required type
      * is a Java external object (typically an xsl:variable with a declared type, or as an argument
      * to another Java extension function), notify this required type so that the process of converting
@@ -578,6 +644,34 @@ public abstract class FunctionCall extends Expression {
 
     public boolean adjustRequiredType(JavaExternalObjectType requiredType) throws XPathException {
         return false;
+    }
+
+    public static abstract class FunctionCallElaborator extends PullElaborator {
+        protected SequenceEvaluator[] argumentEvaluators;
+
+        /**
+         * Allocate evaluation functions for each argument (in field {@code argumentEvaluators})
+         * @param expr the function call
+         * @param allowRepeatedUse true if the value of the argument must be supplied
+         *                         to the function in a way that allows repeated use. This
+         *                         will be true for user-written functions, false for system functions,
+         *                         where the implementation is arranged to only use the value once.
+         */
+        protected void allocateArgumentEvaluators(FunctionCall expr, boolean allowRepeatedUse) {
+            int arity = expr.getArity();
+            argumentEvaluators = new SequenceEvaluator[arity];
+            for (int i = 0; i < arity; i++) {
+                argumentEvaluators[i] = expr.getArg(i).makeElaborator().lazily(allowRepeatedUse, false);
+            }
+        }
+
+        protected Sequence[] evaluateArguments(XPathContext context) throws XPathException {
+            Sequence[] args = new Sequence[argumentEvaluators.length];
+            for (int i = 0; i < argumentEvaluators.length; i++) {
+                args[i] = argumentEvaluators[i].evaluate(context);
+            }
+            return args;
+        }
     }
 
 }

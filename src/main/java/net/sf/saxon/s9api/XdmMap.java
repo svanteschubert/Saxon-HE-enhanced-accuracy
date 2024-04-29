@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,6 +17,7 @@ import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.StringValue;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * A map in the XDM data model. A map is a list of zero or more entries, each of which
@@ -39,7 +40,7 @@ public class XdmMap extends XdmFunctionItem {
      */
 
     public XdmMap() {
-        setValue(new HashTrieMap());
+        this(new HashTrieMap());
     }
 
     /**
@@ -48,7 +49,7 @@ public class XdmMap extends XdmFunctionItem {
      */
 
     public XdmMap(MapItem map) {
-        setValue(map);
+        super(map);
     }
 
     /**
@@ -60,11 +61,15 @@ public class XdmMap extends XdmFunctionItem {
      */
 
     public XdmMap(Map<? extends XdmAtomicValue, ? extends XdmValue> map) {
+        this(fromJavaMap(map));
+    }
+
+    private static HashTrieMap fromJavaMap(Map<? extends XdmAtomicValue, ? extends XdmValue> map) {
         HashTrieMap val = new HashTrieMap();
         for (Map.Entry<? extends XdmAtomicValue, ? extends XdmValue> entry : map.entrySet()) {
             val.initialPut(entry.getKey().getUnderlyingValue(), entry.getValue().getUnderlyingValue());
         }
-        setValue(val);
+        return val;
     }
 
     /**
@@ -94,27 +99,25 @@ public class XdmMap extends XdmFunctionItem {
     /**
      * Create a new map containing an additional (key, value) pair.
      * If there is an existing entry with the same key, it is removed
+     * @param key   the key
+     * @param value the value
      * @return a new map containing the additional entry. The original map is unchanged.
      */
 
     public XdmMap put(XdmAtomicValue key, XdmValue value) {
-        XdmMap map2 = new XdmMap();
-        map2.setValue(getUnderlyingValue().addEntry(key.getUnderlyingValue(), value.getUnderlyingValue()));
-        return map2;
+        return new XdmMap(getUnderlyingValue().addEntry(key.getUnderlyingValue(), value.getUnderlyingValue()));
     }
 
     /**
      * Create a new map in which the entry for a given key has been removed.
      * If there is no entry with the same key, the new map has the same content as the old (it may or may not
      * be the same Java object)
-     *
+     * @param key the key
      * @return a map without the specified entry. The original map is unchanged.
      */
 
     public XdmMap remove(XdmAtomicValue key) {
-        XdmMap map2 = new XdmMap();
-        map2.setValue(getUnderlyingValue().remove(key.getUnderlyingValue()));
-        return map2;
+        return new XdmMap(getUnderlyingValue().remove(key.getUnderlyingValue()));
     }
 
     /**
@@ -125,9 +128,11 @@ public class XdmMap extends XdmFunctionItem {
         return new AbstractSet<XdmAtomicValue>() {
             @Override
             public Iterator<XdmAtomicValue> iterator() {
+                final Function<KeyValuePair, XdmAtomicValue> atomicValueFunction =
+                        kvp -> (XdmAtomicValue) XdmValue.wrap(kvp.key);
                 return new MappingJavaIterator<>(
                         getUnderlyingValue().keyValuePairs().iterator(),
-                        kvp -> (XdmAtomicValue) XdmValue.wrap(kvp.key));
+                        atomicValueFunction);
             }
 
             @Override
@@ -229,7 +234,7 @@ public class XdmMap extends XdmFunctionItem {
      * Removes all of the mappings from this map (optional operation).
      * The map will be empty after this call returns.
      *
-     * @throws UnsupportedOperationException if the <tt>clear</tt> operation
+     * @throws UnsupportedOperationException if the <code>clear</code> operation
      *                                       is not supported by this map
      */
     public void clear() {
@@ -237,9 +242,9 @@ public class XdmMap extends XdmFunctionItem {
     }
 
     /**
-     * Returns <tt>true</tt> if this map contains no key-value mappings.
+     * Returns <code>true</code> if this map contains no key-value mappings.
      *
-     * @return <tt>true</tt> if this map contains no key-value mappings
+     * @return <code>true</code> if this map contains no key-value mappings
      */
     @Override
     public boolean isEmpty() {
@@ -247,14 +252,14 @@ public class XdmMap extends XdmFunctionItem {
     }
 
     /**
-     * Returns <tt>true</tt> if this map contains a mapping for the specified
-     * key.  More formally, returns <tt>true</tt> if and only if
-     * this map contains a mapping for a key <tt>k</tt> such that
-     * <tt>(key==null ? k==null : key.equals(k))</tt>.  (There can be
+     * Returns <code>true</code> if this map contains a mapping for the specified
+     * key.  More formally, returns <code>true</code> if and only if
+     * this map contains a mapping for a key <code>k</code> such that
+     * <code>(key==null ? k==null : key.equals(k))</code>.  (There can be
      * at most one such mapping.)
      *
      * @param key key whose presence in this map is to be tested
-     * @return <tt>true</tt> if this map contains a mapping for the specified key
+     * @return <code>true</code> if this map contains a mapping for the specified key
      * @since 9.8. Changed the method signature in 9.9.1.1 to match the implementation: see bug 3969.
      */
     public boolean containsKey(XdmAtomicValue key) {
@@ -369,16 +374,18 @@ public class XdmMap extends XdmFunctionItem {
      * method. The associated values must be convertible to XDM sequences
      * using the {@link XdmValue#makeValue(Object)} method.
      * @param input the supplied map
+     * @param <K> the type of the keys
+     * @param <V> the type of the values
      * @return the resulting XdmMap
      * @throws IllegalArgumentException if any value in the input map cannot be converted
      * to a corresponding XDM value.
      */
 
-    public static XdmMap makeMap(Map input) throws IllegalArgumentException {
+    public static <K, V> XdmMap makeMap(Map<K, V> input) throws IllegalArgumentException {
         HashTrieMap result = new HashTrieMap();
-        for (Object entry : input.entrySet()) {
-            Object key = ((Map.Entry)entry).getKey();
-            Object value = ((Map.Entry)entry).getValue();
+        for (Map.Entry<K, V> entry : input.entrySet()) {
+            K key = entry.getKey();
+            V value = entry.getValue();
             XdmAtomicValue xKey = XdmAtomicValue.makeAtomicValue(key);
             XdmValue xValue = XdmValue.makeValue(value);
             result.initialPut(xKey.getUnderlyingValue(), xValue.getUnderlyingValue());
@@ -409,7 +416,7 @@ public class XdmMap extends XdmFunctionItem {
         /**
          * Returns the value corresponding to this entry.  If the mapping
          * has been removed from the backing map (by the iterator's
-         * <tt>remove</tt> operation), the results of this call are undefined.
+         * <code>remove</code> operation), the results of this call are undefined.
          *
          * @return the value corresponding to this entry
          * @throws IllegalStateException implementations may, but are not
@@ -425,11 +432,11 @@ public class XdmMap extends XdmFunctionItem {
          * Replaces the value corresponding to this entry with the specified
          * value (optional operation).  (Writes through to the map.)  The
          * behavior of this call is undefined if the mapping has already been
-         * removed from the map (by the iterator's <tt>remove</tt> operation).
+         * removed from the map (by the iterator's <code>remove</code> operation).
          *
          * @param value new value to be stored in this entry
          * @return old value corresponding to the entry
-         * @throws UnsupportedOperationException if the <tt>put</tt> operation
+         * @throws UnsupportedOperationException if the <code>put</code> operation
          *                                       is not supported by the backing map
          * @throws ClassCastException            if the class of the specified value
          *                                       prevents it from being stored in the backing map

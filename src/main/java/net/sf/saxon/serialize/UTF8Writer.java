@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,15 @@
 
 package net.sf.saxon.serialize;
 
+import net.sf.saxon.str.*;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.z.IntIterator;
+
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Writer;
+import java.util.Arrays;
 
 /**
  * Specialized buffering UTF-8 writer.
@@ -18,25 +24,29 @@ import java.io.Writer;
  * overhead for short content encoding (compared to JDK default
  * codecs).
  *
- * @author Tatu Saloranta
+ * @author Tatu Saloranta. Modified by Michael Kay to enable efficient output
+ * of Unicode strings.
  */
-public final class UTF8Writer
-        extends Writer {
+
+@CSharpInjectMembers(code="public override System.Text.Encoding Encoding { get { return System.Text.Encoding.UTF8; } }")
+
+public final class UTF8Writer extends Writer implements UnicodeWriter {
+
     private final static int MIN_BUF_LEN = 32;
-    private final static int DEFAULT_BUF_LEN = 4000;
+    private final static int DEFAULT_BUF_LEN = 4096;
 
     final static int SURR1_FIRST = 0xD800;
     final static int SURR1_LAST = 0xDBFF;
     final static int SURR2_FIRST = 0xDC00;
     final static int SURR2_LAST = 0xDFFF;
 
-    /*@Nullable*/ protected OutputStream _out;
+    private OutputStream _out;
 
-    protected byte[] _outBuffer;
+    private byte[] _outBuffer;
 
-    final protected int _outBufferLast;
+    final private int _outBufferLast;
 
-    protected int _outPtr;
+    private int _outPtr;
 
     /**
      * When outputting chars from BMP, surrogate pairs need to be coalesced.
@@ -53,7 +63,8 @@ public final class UTF8Writer
         if (bufferLength < MIN_BUF_LEN) {
             bufferLength = MIN_BUF_LEN;
         }
-        _out = out;
+        _out = new BufferedOutputStream(out);
+
         _outBuffer = new byte[bufferLength];
         /* Max. expansion for a single Unicode code point is 4 bytes when
          * recombining UCS-2 surrogate pairs, so:
@@ -115,6 +126,7 @@ public final class UTF8Writer
     @Override
     public void write(char[] cbuf, int off, int len)
             throws IOException {
+        assert off + len <= cbuf.length;
         if (len < 2) {
             if (len == 1) {
                 write(cbuf[off]);
@@ -137,8 +149,7 @@ public final class UTF8Writer
         // All right; can just loop it nice and easy now:
         len += off; // len will now be the end of input buffer
 
-        output_loop:
-        for (; off < len; ) {
+        while (off < len) {
             /* First, let's ensure we can output at least 4 bytes
              * (longest UTF-8 encoded codepoint):
              */
@@ -159,16 +170,20 @@ public final class UTF8Writer
                     maxInCount = maxOutCount;
                 }
                 maxInCount += off;
-                ascii_loop:
+                boolean continueOuter = false;
                 while (true) {
                     if (off >= maxInCount) { // done with max. ascii seq
-                        continue output_loop;
+                        continueOuter = true;
+                        break;
                     }
                     c = cbuf[off++];
                     if (c >= 0x80) {
-                        break ascii_loop;
+                        break;
                     }
                     outBuf[outPtr++] = (byte) c;
+                }
+                if (continueOuter) {
+                    continue;
                 }
             }
 
@@ -208,6 +223,148 @@ public final class UTF8Writer
         _outPtr = outPtr;
     }
 
+    public void writeLatin1(byte[] bytes, int off, int len) throws IOException {
+        assert off + len <= bytes.length;
+        int outPtr = _outPtr;
+        byte[] outBuf = _outBuffer;
+        int outBufLast = _outBufferLast; // has 4 'spare' bytes
+
+        // All right; can just loop it nice and easy now:
+        len += off; // len will now be the end of input buffer
+
+        while (off < len) {
+            /* First, let's ensure we can output at least 4 bytes
+             * (longest UTF-8 encoded codepoint):
+             */
+            if (outPtr >= outBufLast) {
+                _out.write(outBuf, 0, outPtr);
+                outPtr = 0;
+            }
+
+            int c = bytes[off++]&0xff;
+            // And then see if we have an Ascii char:
+            if (c < 0x80) { // If so, can do a tight inner loop:
+                outBuf[outPtr++] = (byte) c;
+                // Let's calc how many ascii chars we can copy at most:
+                int maxInCount = (len - off);
+                int maxOutCount = (outBufLast - outPtr);
+
+                if (maxInCount > maxOutCount) {
+                    maxInCount = maxOutCount;
+                }
+                maxInCount += off;
+                boolean continueOuter = false;
+                while (true) {
+                    if (off >= maxInCount) { // done with max. ascii seq
+                        continueOuter = true;
+                        break;
+                    }
+                    c = bytes[off++]&0xff;
+                    if (c >= 0x80) {
+                        break;
+                    }
+                    outBuf[outPtr++] = (byte) c;
+                }
+                if (continueOuter) {
+                    continue;
+                }
+            }
+
+            outBuf[outPtr++] = (byte) (0xc0 | (c >> 6));
+            outBuf[outPtr++] = (byte) (0x80 | (c & 0x3f));
+        }
+        _outPtr = outPtr;
+    }
+
+    /**
+     * Write a sequence of ASCII characters. The caller is responsible for ensuring
+     * that each byte represents a character in the range 1-127
+     * @param content the content to be written
+     */
+    @Override
+    public void writeAscii(byte[] content) throws IOException {
+        writeAscii(content, 0, content.length);
+    }
+
+    /**
+     * Write a sequence of ASCII characters. The caller is responsible for ensuring
+     * that each byte represents a character in the range 1-127
+     * @param chars the characters to be written
+     * @param off the offset of the first character to be included
+     * @param len the number of characters to be written
+     */
+    public void writeAscii(byte[] chars, int off, int len) throws IOException {
+
+        int outPtr = _outPtr;
+        byte[] outBuf = _outBuffer;
+        int outBufLast = _outBufferLast; // has 4 'spare' bytes
+
+        while (len > 0) {
+            if (outPtr >= outBufLast) {
+                _out.write(outBuf, 0, outPtr);
+                outPtr = 0;
+            }
+
+            int available = outBufLast - outPtr;
+            int count = Math.min(len, available);
+
+            System.arraycopy(chars, off, outBuf, outPtr, count);
+            outPtr += count;
+            off += count;
+            len -= count;
+        }
+        _outPtr = outPtr;
+    }
+
+    /**
+     * Write an ASCII character repeatedly. Used for serializing whitespace.
+     * @param ch the ASCII character to be serialized (must be less than 0x7f)
+     * @param repeat the number of occurrences to output
+     * @throws IOException if it fails
+     */
+    public void writeRepeatedAscii(byte ch, int repeat) throws IOException {
+
+        int outPtr = _outPtr;
+        byte[] outBuf = _outBuffer;
+        int outBufLast = _outBufferLast; // has 4 'spare' bytes
+
+        while (repeat > 0) {
+            if (outPtr >= outBufLast) {
+                _out.write(outBuf, 0, outPtr);
+                outPtr = 0;
+            }
+
+            int available = outBufLast - outPtr;
+            int count = Math.min(repeat, available);
+
+            Arrays.fill(outBuf, outPtr, outPtr+count, ch);
+            outPtr += count;
+            repeat -= count;
+        }
+        _outPtr = outPtr;
+    }
+
+    /**
+     * Process a single character. Default implementation wraps the codepoint
+     * into a single-character {@link UnicodeString}
+     *
+     * @param codepoint the character to be processed. Must not be a surrogate
+     * @throws IOException if processing fails for any reason
+     */
+    @Override
+    public void writeCodePoint(int codepoint) throws IOException {
+        // The implementation of write(int) in this class appears to handle astral characters, although
+        // the interface definition for Java.io.Writer suggests otherwise
+        write(codepoint);
+    }
+
+    /**
+     * Write a single char.
+     * <p>Note (MHK) Although the Writer interface says that the top half of the int is ignored, this
+     * implementation appears to accept a Unicode codepoint which is output as a 4-byte UTF-8 sequence.</p>
+     * @param c the char to be written
+     * @throws IOException If an I/O error occurs
+     */
     @Override
     public void write(int c)
             throws IOException {
@@ -253,6 +410,67 @@ public final class UTF8Writer
         }
     }
 
+    /**
+     * Process a supplied string
+     *
+     * @param chars the characters to be processed
+     * @throws IOException if processing fails for any reason
+     */
+    @Override
+    public void write(UnicodeString chars) throws IOException {
+        if (chars instanceof StringView || chars instanceof BMPString) {
+            write(chars.toString());
+        } else if (chars instanceof UnicodeChar) {
+            writeCodePoint(((UnicodeChar) chars).getCodepoint());
+        } else if (chars instanceof ZenoString) {
+            ((ZenoString)chars).writeSegments(this);
+        } else if (chars.getWidth() <= 8) {
+            writeWidth8OrLower(chars);
+
+        } else if (chars.getWidth() == 16) {
+            if (chars instanceof Twine16) {
+                write(((Twine16)chars).getCharArray());
+            } else if (chars instanceof Slice16) {
+                Slice16 s16 = (Slice16) chars;
+                write(s16.getCharArray(), s16.getStart(), s16.getEnd() - s16.getStart());
+            }
+        } else {
+            IntIterator iter = chars.codePoints();
+            while (iter.hasNext()) {
+                write(iter.next());
+            }
+        }
+    }
+
+    private void writeWidth8OrLower(UnicodeString chars) throws IOException
+    {
+        if (chars instanceof Twine8) {
+            int width = chars.getWidth();
+            if (width == 7) {
+                writeAscii(((Twine8) chars).getByteArray(), 0, chars.length32());
+            } else if (width == 8) {
+                writeLatin1(((Twine8) chars).getByteArray(), 0, chars.length32());
+            }
+        } else if (chars instanceof Slice8) {
+            Slice8 s8 = (Slice8) chars;
+            int width = chars.getWidth();
+            if (width == 7) {
+                writeAscii(s8.getByteArray(), s8.getStart(), s8.getEnd() - s8.getStart());
+            } else if (width == 8) {
+                writeLatin1(s8.getByteArray(), s8.getStart(), s8.getEnd() - s8.getStart());
+            }
+        } else if (chars instanceof WhitespaceString) {
+            ((WhitespaceString)chars).write(this);
+        } else {
+            // probably doesn't happen
+            IntIterator iter = chars.codePoints();
+            while (iter.hasNext()) {
+                write(iter.next());
+            }
+        }
+    }
+
+
     @Override
     public void write(String str)
             throws IOException {
@@ -284,8 +502,7 @@ public final class UTF8Writer
         // All right; can just loop it nice and easy now:
         len += off; // len will now be the end of input buffer
 
-        output_loop:
-        for (; off < len; ) {
+        while (off < len) {
             // First, let's ensure we can output at least 4 bytes
             // (longest UTF-8 encoded codepoint):
             if (outPtr >= outBufLast) {
@@ -295,7 +512,8 @@ public final class UTF8Writer
 
             int c = str.charAt(off++);
             // And then see if we have an Ascii char:
-            if (c < 0x80) { // If so, can do a tight inner loop:
+            if (c < 0x80)
+            { // If so, can do a tight inner loop:
                 outBuf[outPtr++] = (byte) c;
                 // Let's calc how many ascii chars we can copy at most:
                 int maxInCount = (len - off);
@@ -305,53 +523,90 @@ public final class UTF8Writer
                     maxInCount = maxOutCount;
                 }
                 maxInCount += off;
-                ascii_loop:
-                while (true) {
-                    if (off >= maxInCount) { // done with max. ascii seq
-                        continue output_loop;
+                boolean continueOuter = false;
+
+                while (true)
+                {
+                    if (off >= maxInCount)
+                    { // done with max. ascii seq
+                        continueOuter = true;
+                        break;
                     }
                     c = str.charAt(off++);
-                    if (c >= 0x80) {
-                        break ascii_loop;
+                    if (c >= 0x80)
+                    {
+                        break;
                     }
                     outBuf[outPtr++] = (byte) c;
                 }
-            }
-
-            // Nope, multi-byte:
-            if (c < 0x800) { // 2-byte
-                outBuf[outPtr++] = (byte) (0xc0 | (c >> 6));
-                outBuf[outPtr++] = (byte) (0x80 | (c & 0x3f));
-            } else { // 3 or 4 bytes
-                // Surrogates?
-                if (c < SURR1_FIRST || c > SURR2_LAST) {
-                    outBuf[outPtr++] = (byte) (0xe0 | (c >> 12));
-                    outBuf[outPtr++] = (byte) (0x80 | ((c >> 6) & 0x3f));
-                    outBuf[outPtr++] = (byte) (0x80 | (c & 0x3f));
+                if (continueOuter) {
                     continue;
                 }
-                // Yup, a surrogate:
-                if (c > SURR1_LAST) { // must be from first range
-                    _outPtr = outPtr;
-                    throwIllegal(c);
-                }
-                _surrogate = c;
-                // and if so, followed by another from next range
-                if (off >= len) { // unless we hit the end?
-                    break;
-                }
-                c = _convertSurrogate(str.charAt(off++));
-                if (c > 0x10FFFF) { // illegal, as per RFC 3629
-                    _outPtr = outPtr;
-                    throwIllegal(c);
-                }
-                outBuf[outPtr++] = (byte) (0xf0 | (c >> 18));
-                outBuf[outPtr++] = (byte) (0x80 | ((c >> 12) & 0x3f));
-                outBuf[outPtr++] = (byte) (0x80 | ((c >> 6) & 0x3f));
-                outBuf[outPtr++] = (byte) (0x80 | (c & 0x3f));
+            }
+
+            int[] result = writeMultiByte(c, outBuf, outPtr, str, off, len);
+
+            if (result == null)
+            {
+                break;
+            }
+            else
+            {
+                outPtr = result[0];
+                off = result[1];
             }
         }
         _outPtr = outPtr;
+    }
+
+    private int[] writeMultiByte(int c, byte[] outBuf, int outPtr, String str, int off, int len) throws IOException
+    {
+        // Nope, multi-byte:
+        if (c < 0x800)
+        { // 2-byte
+            outBuf[outPtr++] = (byte) (0xc0 | (c >> 6));
+            outBuf[outPtr++] = (byte) (0x80 | (c & 0x3f));
+        }
+        else
+        { // 3 or 4 bytes
+            // Surrogates?
+            if (c < SURR1_FIRST || c > SURR2_LAST)
+            {
+                outBuf[outPtr++] = (byte) (0xe0 | (c >> 12));
+                outBuf[outPtr++] = (byte) (0x80 | ((c >> 6) & 0x3f));
+                outBuf[outPtr++] = (byte) (0x80 | (c & 0x3f));
+                return new int[]{outPtr, off};
+            }
+            // Yup, a surrogate:
+            if (c > SURR1_LAST)
+            { // must be from first range
+                _outPtr = outPtr;
+                throwIllegal(c);
+            }
+
+            _surrogate = c;
+
+            // and if so, followed by another from next range
+            if (off >= len)
+            { // unless we hit the end?
+                return null;
+            }
+
+            c = _convertSurrogate(str.charAt(off++));
+
+            if (c > 0x10FFFF)
+            { // illegal, as per RFC 3629
+                _outPtr = outPtr;
+                throwIllegal(c);
+            }
+
+            outBuf[outPtr++] = (byte) (0xf0 | (c >> 18));
+            outBuf[outPtr++] = (byte) (0x80 | ((c >> 12) & 0x3f));
+            outBuf[outPtr++] = (byte) (0x80 | ((c >> 6) & 0x3f));
+            outBuf[outPtr++] = (byte) (0x80 | (c & 0x3f));
+        }
+
+        return new int[]{outPtr, off};
     }
 
     /*
@@ -370,7 +625,7 @@ public final class UTF8Writer
     /**
      * Method called to calculate UTF codepoint, from a surrogate pair.
      */
-    private final int _convertSurrogate(int secondPart)
+    private int _convertSurrogate(int secondPart)
             throws IOException {
         int firstPart = _surrogate;
         _surrogate = 0;

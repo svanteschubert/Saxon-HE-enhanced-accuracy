@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -46,7 +46,7 @@ import java.util.List;
 
 public class XOMObjectModel extends TreeModel implements ExternalObjectModel {
 
-    private final static XOMObjectModel THE_INSTANCE = new XOMObjectModel();
+    private static final XOMObjectModel THE_INSTANCE = new XOMObjectModel();
 
     public static XOMObjectModel getInstance() {
         return THE_INSTANCE;
@@ -107,7 +107,7 @@ public class XOMObjectModel extends TreeModel implements ExternalObjectModel {
         if (isRecognizedNodeClass(sourceClass)) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object object, XPathContext context)  {
+                public GroundedValue convert(Object object, XPathContext context)  {
                     return convertObjectToXPathValue(object, context.getConfiguration());
                 }
 
@@ -159,24 +159,13 @@ public class XOMObjectModel extends TreeModel implements ExternalObjectModel {
     /**
      * Test whether this object model recognizes a particular kind of JAXP Result object,
      * and if it does, return a Receiver that builds an instance of this data model from
-     * a sequence of events. If the Result is not recognised, return null.
-     * @return always null
+     * a sequence of events. If the Result is not recognized, return null.
+     * @return always null, because no XOM Result object is recognized
      */
 
     @Override
     public Receiver getDocumentBuilder(Result result) {
         return null;
-    }
-
-    /**
-     * Test whether this object model recognizes a particular kind of JAXP Source object,
-     * and if it does, send the contents of the document to a supplied Receiver, and return true.
-     * Otherwise, return false.
-     */
-
-    @Override
-    public boolean sendSource(Source source, Receiver receiver) {
-        return false;
     }
 
     /**
@@ -196,7 +185,7 @@ public class XOMObjectModel extends TreeModel implements ExternalObjectModel {
      * be converted, an exception should be thrown
      */
 
-    private Sequence convertObjectToXPathValue(Object object, Configuration config)  {
+    private GroundedValue convertObjectToXPathValue(Object object, Configuration config)  {
         if (object instanceof Node) {
             return wrapNode((Node) object, config);
         } else if (object instanceof Node[]) {
@@ -204,7 +193,7 @@ public class XOMObjectModel extends TreeModel implements ExternalObjectModel {
             for (int i = 0; i < nodes.length; i++) {
                 nodes[i] = wrapNode(((Node[]) object)[i], config);
             }
-            return new SequenceExtent(nodes);
+            return new SequenceExtent.Of<>(nodes);
         } else {
             return null;
         }
@@ -280,7 +269,7 @@ public class XOMObjectModel extends TreeModel implements ExternalObjectModel {
             return nodes.get(0);
         } else if (targetClass.isArray() && Node.class.isAssignableFrom(targetClass.getComponentType())) {
             Node[] array = (Node[]) Array.newInstance(targetClass.getComponentType(), nodes.size());
-            nodes.toArray(array);
+            array = nodes.toArray(array);
             return array;
         } else if (targetClass.isAssignableFrom(ArrayList.class)) {
             return nodes;

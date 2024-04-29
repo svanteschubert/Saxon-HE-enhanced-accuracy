@@ -1,6 +1,6 @@
 
 ////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can
@@ -110,7 +110,7 @@ public class FeatureData {
 
        featureList.add(new FeatureData("http://saxon.sf.net/feature/maxCompiledClasses", 40, "EE", Integer.class, null));
 
-       featureList.add(new FeatureData("http://saxon.sf.net/feature/messageEmitterClass", 41, "HE PE EE", String.class, null));
+       featureList.add(new FeatureData("http://saxon.sf.net/feature/messageEmitterClass", 41, "HE PE EE", Object.class, null));
 
        featureList.add(new FeatureData("http://saxon.sf.net/feature/moduleURIResolver", 42, "HE PE EE", net.sf.saxon.lib.ModuleURIResolver.class, null));
 

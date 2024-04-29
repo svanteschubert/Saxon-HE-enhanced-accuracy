@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,11 @@ package net.sf.saxon.expr;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.TypeCheckingFilter;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
@@ -17,13 +22,15 @@ import net.sf.saxon.pattern.DocumentNodeTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.ArrayIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.tree.iter.TwoItemIterator;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.IntegerValue;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -34,7 +41,7 @@ import net.sf.saxon.value.IntegerValue;
 public final class CardinalityChecker extends UnaryExpression {
 
     private int requiredCardinality = -1;
-    private RoleDiagnostic role;
+    private final Supplier<RoleDiagnostic> roleSupplier;
 
     /**
      * Private Constructor: use factory method
@@ -44,10 +51,10 @@ public final class CardinalityChecker extends UnaryExpression {
      * @param role        information to be used in error reporting
      */
 
-    private CardinalityChecker(Expression sequence, int cardinality, RoleDiagnostic role) {
+    private CardinalityChecker(Expression sequence, int cardinality, Supplier<RoleDiagnostic> role) {
         super(sequence);
         requiredCardinality = cardinality;
-        this.role = role;
+        this.roleSupplier = role;
         //computeStaticProperties();
         //adoptChildExpression(sequence);
     }
@@ -58,20 +65,20 @@ public final class CardinalityChecker extends UnaryExpression {
      *
      * @param sequence    the base sequence whose cardinality is to be checked
      * @param cardinality the required cardinality
-     * @param role        information to be used in error reporting
+     * @param roleSupplier        information to be used in error reporting
      * @return a new Expression that does the CardinalityChecking (not necessarily a CardinalityChecker)
      */
 
-    public static Expression makeCardinalityChecker(Expression sequence, int cardinality, RoleDiagnostic role) {
+    public static Expression makeCardinalityChecker(Expression sequence, int cardinality, Supplier<RoleDiagnostic> roleSupplier) {
         Expression result;
-        if (sequence instanceof Literal && Cardinality.subsumes(cardinality, SequenceTool.getCardinality(((Literal) sequence).getValue()))) {
+        if (sequence instanceof Literal && Cardinality.subsumes(cardinality, SequenceTool.getCardinality(((Literal) sequence).getGroundedValue()))) {
             return sequence;
         }
         if (sequence instanceof Atomizer && !Cardinality.allowsMany(cardinality)) {
             Expression base = ((Atomizer) sequence).getBaseExpression();
-            result = new SingletonAtomizer(base, role, Cardinality.allowsZero(cardinality));
+            result = new SingletonAtomizer(base, roleSupplier, Cardinality.allowsZero(cardinality));
         } else {
-            result = new CardinalityChecker(sequence, cardinality, role);
+            result = new CardinalityChecker(sequence, cardinality, roleSupplier);
         }
         ExpressionTool.copyLocationInfo(sequence, result);
         return result;
@@ -133,11 +140,11 @@ public final class CardinalityChecker extends UnaryExpression {
             return base;
         }
         if ((base.getCardinality() & requiredCardinality) == 0) {
-            XPathException err = new XPathException("The " + role.getMessage() +
-                    " does not satisfy the cardinality constraints", role.getErrorCode());
-            err.setLocation(getLocation());
-            err.setIsTypeError(role.isTypeError());
-            throw err;
+            RoleDiagnostic role = roleSupplier.get();
+            throw new XPathException("The " + role.getMessage() +
+                    " does not satisfy the cardinality constraints", role.getErrorCode())
+                    .withLocation(getLocation())
+                    .asTypeErrorIf(role.isTypeError());
         }
         // do cardinality checking before item checking (may avoid the need for a mapping iterator)
         if (base instanceof ItemChecker) {
@@ -153,16 +160,16 @@ public final class CardinalityChecker extends UnaryExpression {
     }
 
 
-    /**
-     * Set the error code to be returned (this is used when evaluating the functions such
-     * as exactly-one() which have their own error codes)
-     *
-     * @param code the error code to be used
-     */
-
-    public void setErrorCode(String code) {
-        role.setErrorCode(code);
-    }
+//    /**
+//     * Set the error code to be returned (this is used when evaluating the functions such
+//     * as exactly-one() which have their own error codes)
+//     *
+//     * @param code the error code to be used
+//     */
+//
+//    public void setErrorCode(String code) {
+//        roleSupplier.setErrorCode(code);
+//    }
 
     /**
      * Get the RoleLocator, which contains diagnostic information for use if the cardinality check fails
@@ -171,7 +178,11 @@ public final class CardinalityChecker extends UnaryExpression {
      */
 
     public RoleDiagnostic getRoleLocator() {
-        return role;
+        return roleSupplier.get();
+    }
+
+    public Supplier<RoleDiagnostic> getRoleSupplier() {
+        return roleSupplier;
     }
 
     /**
@@ -215,28 +226,39 @@ public final class CardinalityChecker extends UnaryExpression {
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
         SequenceIterator base = getBaseExpression().iterate(context);
+        return checkCardinality(base, context);
+    }
+
+    public SequenceIterator checkCardinality(SequenceIterator base, XPathContext context) throws XPathException {
 
         // If the base iterator knows how many items there are, then check it now rather than wasting time
 
-        if (base.getProperties().contains(SequenceIterator.Property.LAST_POSITION_FINDER)) {
-            int count = ((LastPositionFinder) base).getLength();
+        if (SequenceTool.supportsGetLength(base)) {
+            int count = SequenceTool.getLength(base);
             if (count == 0 && !Cardinality.allowsZero(requiredCardinality)) {
+                RoleDiagnostic role = roleSupplier.get();
                 typeError("An empty sequence is not allowed as the " +
                         role.getMessage(), role.getErrorCode(), context);
             } else if (count == 1 && requiredCardinality == StaticProperty.EMPTY) {
+                RoleDiagnostic role = roleSupplier.get();
                 typeError("The only value allowed for the " +
                         role.getMessage() + " is an empty sequence", role.getErrorCode(), context);
             } else if (count > 1 && !Cardinality.allowsMany(requiredCardinality)) {
+                RoleDiagnostic role = roleSupplier.get();
                 typeError("A sequence of more than one item is not allowed as the " +
                         role.getMessage() + depictSequenceStart(base, 2),
-                        role.getErrorCode(), context);
+                          role.getErrorCode(), context);
             }
             return base;
         }
 
         // Otherwise return an iterator that does the checking on the fly
 
-        return new CardinalityCheckingIterator(base, requiredCardinality, role, getLocation());
+        try {
+            return new CardinalityCheckingIterator(base, requiredCardinality, roleSupplier, getLocation());
+        } catch (XPathException e) {
+            throw e.maybeWithContext(context);
+        }
 
     }
 
@@ -249,27 +271,23 @@ public final class CardinalityChecker extends UnaryExpression {
      */
 
     public static String depictSequenceStart(SequenceIterator seq, int max) {
-        try {
-            FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
-            int count = 0;
-            sb.append(" (");
-            Item next;
-            while ((next = seq.next()) != null) {
-                if (count++ > 0) {
-                    sb.append(", ");
-                }
-                if (count > max) {
-                    sb.append("...) ");
-                    return sb.toString();
-                }
-
-                sb.cat(Err.depict(next));
+        StringBuilder sb = new StringBuilder(64);
+        int count = 0;
+        sb.append(" (");
+        Item next;
+        while ((next = seq.next()) != null) {
+            if (count++ > 0) {
+                sb.append(", ");
             }
-            sb.append(") ");
-            return sb.toString();
-        } catch (XPathException e) {
-            return "";
+            if (count > max) {
+                sb.append("...) ");
+                return sb.toString();
+            }
+
+            sb.append(Err.depict(next));
         }
+        sb.append(") ");
+        return sb.toString();
     }
 
     /**
@@ -280,29 +298,36 @@ public final class CardinalityChecker extends UnaryExpression {
     /*@Nullable*/
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        SequenceIterator iter = getBaseExpression().iterate(context);
-        Item first = iter.next();
-        if (first == null) {
-            if (!Cardinality.allowsZero(requiredCardinality)) {
-                typeError("An empty sequence is not allowed as the " +
+        try {
+            SequenceIterator iter = getBaseExpression().iterate(context);
+            Item first = iter.next();
+            if (first == null) {
+                if (!Cardinality.allowsZero(requiredCardinality)) {
+                    RoleDiagnostic role = roleSupplier.get();
+                    typeError("An empty sequence is not allowed as the " +
+                            role.getMessage(), role.getErrorCode(), context);
+                }
+                return null;
+            } else {
+                if (requiredCardinality == StaticProperty.EMPTY) {
+                    RoleDiagnostic role = roleSupplier.get();
+                    typeError("An empty sequence is required as the " +
                         role.getMessage(), role.getErrorCode(), context);
+                    return null;
+                }
+                Item second = iter.next();
+                if (second != null) {
+                    RoleDiagnostic role = roleSupplier.get();
+                    typeError("A sequence of more than one item is not allowed as the " +
+                        role.getMessage() + depictSequenceStart(
+                                new TwoItemIterator(first, second), 2), role.getErrorCode(), context);
+                    return null;
+                }
             }
-            return null;
-        } else {
-            if (requiredCardinality == StaticProperty.EMPTY) {
-                typeError("An empty sequence is required as the " +
-                    role.getMessage(), role.getErrorCode(), context);
-                return null;
-            }
-            Item second = iter.next();
-            if (second != null) {
-                Item[] leaders = new Item[]{first, second};
-                typeError("A sequence of more than one item is not allowed as the " +
-                    role.getMessage() + depictSequenceStart(new ArrayIterator<Item>(leaders), 2), role.getErrorCode(), context);
-                return null;
-            }
+            return first;
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
-        return first;
     }
 
     /**
@@ -314,26 +339,9 @@ public final class CardinalityChecker extends UnaryExpression {
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        Expression next = getBaseExpression();
-        ItemType type = Type.ITEM_TYPE;
-        if (next instanceof ItemChecker) {
-            type = ((ItemChecker) next).getRequiredType();
-            next = ((ItemChecker) next).getBaseExpression();
-        }
-        if ((next.getImplementationMethod() & PROCESS_METHOD) != 0 && !(type instanceof DocumentNodeTest)) {
-            TypeCheckingFilter filter = new TypeCheckingFilter(output);
-            filter.setRequiredType(type, requiredCardinality, role, getLocation());
-            next.process(filter, context);
-            try {
-                filter.finalCheck();
-            } catch (XPathException e) {
-                e.maybeSetLocation(getLocation());
-                throw e;
-            }
-        } else {
-            // Force pull-mode evaluation
-            super.process(output, context);
-        }
+        PushEvaluator pusher = makeElaborator().elaborateForPush();
+        TailCall tc = pusher.processLeavingTail(output, context);
+        Expression.dispatchTailCall(tc);
     }
 
     /**
@@ -354,7 +362,7 @@ public final class CardinalityChecker extends UnaryExpression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return requiredCardinality;
     }
 
@@ -365,7 +373,7 @@ public final class CardinalityChecker extends UnaryExpression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return getBaseExpression().getSpecialProperties();
     }
 
@@ -379,7 +387,7 @@ public final class CardinalityChecker extends UnaryExpression {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        CardinalityChecker c2 = new CardinalityChecker(getBaseExpression().copy(rebindings), requiredCardinality, role);
+        CardinalityChecker c2 = new CardinalityChecker(getBaseExpression().copy(rebindings), requiredCardinality, roleSupplier);
         ExpressionTool.copyLocationInfo(this, c2);
         return c2;
     }
@@ -399,7 +407,7 @@ public final class CardinalityChecker extends UnaryExpression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode() ^ requiredCardinality;
     }
 
@@ -416,7 +424,7 @@ public final class CardinalityChecker extends UnaryExpression {
             occ = "1";
         }
         out.emitAttribute("card", occ);
-        out.emitAttribute("diag", role.save());
+        out.emitAttribute("diag", roleSupplier.get().save());
         getBaseExpression().export(out);
         out.endElement();
     }
@@ -470,6 +478,74 @@ public final class CardinalityChecker extends UnaryExpression {
     @Override
     public void setLocation(Location id) {
         super.setLocation(id);
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new CardinalityCheckerElaborator();
+    }
+
+    /**
+     * Elaborator for a {@code treat as} expression, which is usually system-generated by
+     * the type checking phase of the compiler
+     */
+
+    public static class CardinalityCheckerElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            CardinalityChecker expr = (CardinalityChecker) getExpression();
+            Expression arg = expr.getBaseExpression();
+            PullEvaluator argEval = arg.makeElaborator().elaborateForPull();
+            return context -> expr.checkCardinality(argEval.iterate(context), context);
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            CardinalityChecker expr = (CardinalityChecker) getExpression();
+            Expression next = expr.getBaseExpression();
+
+            ItemType type = Type.ITEM_TYPE;
+            if (next instanceof ItemChecker) {
+                type = ((ItemChecker) next).getRequiredType();
+                next = ((ItemChecker) next).getBaseExpression();
+            }
+            if ((next.getImplementationMethod() & PROCESS_METHOD) != 0 && !(type instanceof DocumentNodeTest)) {
+                ItemType finalType = type;
+                PushEvaluator pushEval = next.makeElaborator().elaborateForPush();
+                return (output, context) -> {
+                    TypeCheckingFilter filter = new TypeCheckingFilter(output);
+                    filter.setRequiredType(finalType, expr.requiredCardinality, expr.roleSupplier.get(), expr.getLocation());
+                    TailCall tc = pushEval.processLeavingTail(filter, context);
+                    Expression.dispatchTailCall(tc);
+                    try {
+                        filter.finalCheck();
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(expr.getLocation());
+                    }
+                    return null;
+                };
+
+            } else {
+                // Force pull-mode evaluation
+
+                PullEvaluator argEval = next.makeElaborator().elaborateForPull();
+                return (output, context) -> {
+                    SequenceIterator iter = expr.checkCardinality(argEval.iterate(context), context);
+                    for (Item item; (item = iter.next()) != null;) {
+                        output.append(item);
+                    }
+                    return null;
+                };
+            }
+
+        }
     }
 }
 

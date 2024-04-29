@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,12 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.Operand;
+import net.sf.saxon.expr.OperandRole;
+import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.LearningEvaluator;
+import net.sf.saxon.expr.elab.SequenceEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StandardNames;
@@ -32,7 +37,7 @@ public class WithParam  {
     private int slotNumber = -1;
     private SequenceType requiredType;
     private StructuredQName variableQName;
-    private Evaluator evaluator = null;
+    private SequenceEvaluator evaluator = null;
 
     public WithParam() {
     }
@@ -49,6 +54,8 @@ public class WithParam  {
 
     /**
      * Get the select operand
+     *
+     * @return the select operand
      */
 
     public Operand getSelectOperand() {
@@ -188,7 +195,7 @@ public class WithParam  {
         if (params != null) {
             for (WithParam param : params) {
                 param.selectOp.optimize(visitor, contextItemType);
-                param.computeEvaluator();
+                //param.computeEvaluator();
             }
         }
     }
@@ -196,27 +203,30 @@ public class WithParam  {
     /**
      * Get the evaluation mode of the variable
      *
-     * @return the evaluation mode (a constant in {@link EvaluationMode}
+     * @return the evaluator object
      */
 
-    public EvaluationMode getEvaluationMode() {
+    public SequenceEvaluator getEvaluator() {
         if (evaluator == null) {
-            computeEvaluator();
+            makeEvaluator();
         }
-        return evaluator.getEvaluationMode();
+        return evaluator;
     }
 
 
 
-    private void computeEvaluator() {
-        evaluator = ExpressionTool.lazyEvaluator(selectOp.getChildExpression(), true);
+    private void makeEvaluator() {
+        Expression select = selectOp.getChildExpression();
+        evaluator = new LearningEvaluator(
+                select, select.makeElaborator().lazily(true, false));
     }
 
 
     /**
      * Static method to copy a set of parameters
-     * @param parent the new parent expression
-     * @param params the parameters to be copied
+     * @param parent     the new parent expression
+     * @param params     the parameters to be copied
+     * @param rebindings the rebinding map
      * @return the resulting copy
      */
 
@@ -227,7 +237,6 @@ public class WithParam  {
         WithParam[] result = new WithParam[params.length];
         for (int i = 0; i < params.length; i++) {
             result[i] = new WithParam();
-            //result[i].parameterId = params[i].parameterId;
             result[i].slotNumber = params[i].slotNumber;
             result[i].typeChecked = params[i].typeChecked;
             result[i].selectOp = new Operand(parent, params[i].selectOp.getChildExpression().copy(rebindings), OperandRole.NAVIGATE);
@@ -260,6 +269,7 @@ public class WithParam  {
      * @param params the set of parameters to be exported
      * @param out    the destination for the output
      * @param tunnel true if these are tunnel parameters
+     * @throws XPathException if any error occurs
      */
 
     public static void exportParameters(WithParam[] params, ExpressionPresenter out, boolean tunnel) throws XPathException{
@@ -277,7 +287,6 @@ public class WithParam  {
                 if (!flags.isEmpty()) {
                     out.emitAttribute("flags", flags);
                 }
-                ExpressionPresenter.ExportOptions options = (ExpressionPresenter.ExportOptions) out.getOptions();
                 if (param.getRequiredType() != SequenceType.ANY_SEQUENCE) {
                     out.emitAttribute("as", param.getRequiredType().toAlphaCode());
                 }
@@ -306,11 +315,11 @@ public class WithParam  {
         // There is a select attribute: do a lazy evaluation of the expression,
         // which will already contain any code to force conversion to the required type.
         if (evaluator == null) {
-            computeEvaluator();
+            makeEvaluator();
         }
         int savedOutputState = context.getTemporaryOutputState();
         context.setTemporaryOutputState(StandardNames.XSL_WITH_PARAM);
-        Sequence result = evaluator.evaluate(selectOp.getChildExpression(), context);
+        Sequence result = evaluator.evaluate(context);
         context.setTemporaryOutputState(savedOutputState);
         return result;
     }

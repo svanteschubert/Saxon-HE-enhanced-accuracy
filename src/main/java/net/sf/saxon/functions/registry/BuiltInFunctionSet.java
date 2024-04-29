@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,12 +11,15 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.OperandUsage;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.StaticProperty;
+import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
+import net.sf.saxon.functions.Concat31;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.OptionsParameter;
 import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.ma.map.RecordTest;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
@@ -26,9 +29,13 @@ import net.sf.saxon.type.PlainType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.z.IntHashMap;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * This class is used to contain information about a set of built-in functions.
@@ -66,6 +73,8 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
     public static final int CDOC = 1024*16;       // Depends on context document
     public static final int CARD0 = 1024*32;      // Result is empty only if first arg is empty
     public static final int NEW = 1024*64;        // All nodes in the result are newly created
+    public static final int CTRL = 1024*128;      // Controls the optimization of its arguments
+    public static final int SEQV = 1024 * 256;    // Sequence-variadic, like concat() in 4.0
 
     public static final int DEPENDS_ON_STATIC_CONTEXT = BASE | NS | DCOLL;
     public static final int FOCUS = CITEM | POSN | LAST | CDOC;
@@ -81,20 +90,36 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
     protected static final int TRA = 1 << 26;   // = usage TRANSMISSION (node is included in function result)
     protected static final int NAV = 1 << 27;   // = usage NAVIGATION (function navigates from this node)
 
+    /**
+     * Convenience method for defining fields of a record type
+     * @param name the field name
+     * @param type the field type
+     * @param optional true if the field is optional
+     * @return the field definition
+     */
 
-    private HashMap<String, Entry> functionTable = new HashMap<>(200);
+    protected static RecordTest.Field field(String name, SequenceType type, boolean optional) {
+        return new RecordTest.Field(name, type, optional);
+    }
+
+    private final HashMap<String, net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry> functionTable = new HashMap<>(200);
     //private List<BuiltInFunctionSet> importedFunctions = new ArrayList<BuiltInFunctionSet>();
+
+    // Sequence-variadic functions (XPath 4.0+) are registered in a table indexed by the local
+    // name of the function; the corresponding value is the minimum arity.
+    private final HashMap<String, Integer> sequenceVariadicFunctions = new HashMap<>(10);
 
     /**
      * Import another function set (which must be in the same namespace)
      * @param importee the function set to be imported. (No cycles allowed!)
      */
 
-    public final void importFunctionSet(BuiltInFunctionSet importee) {
+    public final void importFunctionSet(net.sf.saxon.functions.registry.BuiltInFunctionSet importee) {
         if (!importee.getNamespace().equals(getNamespace())) {
-            throw new IllegalArgumentException(importee.getNamespace());
+            throw new IllegalArgumentException(importee.getNamespace().toString());
         }
         functionTable.putAll(importee.functionTable);
+        sequenceVariadicFunctions.putAll(importee.sequenceVariadicFunctions);
         //importedFunctions.add(importee);
     }
 
@@ -106,10 +131,10 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
      * @return the entry for the required function, or null if not found
      */
 
-    public Entry getFunctionDetails(String name, int arity) {
+    public net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry getFunctionDetails(String name, int arity) {
         if (arity == -1) {
             for (int i=0; i<20; i++) {
-                Entry found = getFunctionDetails(name, i);
+                net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry found = getFunctionDetails(name, i);
                 if (found != null) {
                     return found;
                 }
@@ -117,16 +142,22 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
             return null;
         }
         String key = name + "#" + arity;
-        Entry entry = functionTable.get(key);
+        net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry entry = functionTable.get(key);
         if (entry != null) {
             return entry;
         }
-        // Try for a variable-arity function (concat only)
-        if (name.equals("concat") && arity >= 2 && getNamespace().equals(NamespaceConstant.FN)) {
-            key = "concat#-1";
-            entry = functionTable.get(key);
-            return entry;
+        // Try for a generalised (XP40) sequence-variadic function
+        int minArity = sequenceVariadicFunctions.getOrDefault(name, -1);
+        if (minArity != -1 && arity >= minArity) {
+            key = name + "#" + (minArity + 1);
+            return functionTable.get(key);
         }
+//        // Try for a variable-arity function (concat only up to 3.1)
+//        if (name.equals("concat") && arity >= 2 && getNamespace().equals(NamespaceConstant.FN)) {
+//            key = "concat#-1";
+//            entry = functionTable.get(key);
+//            return entry;
+//        }
         return null;
     }
 
@@ -147,6 +178,8 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
      *                     example, the result of f(4) is expected to be the same as f(2+2). The actual expression is supplied
      *                     here to enable the binding mechanism to select the most efficient possible implementation (including
      *                     compile-time pre-evaluation where appropriate).</p>
+     * @param keywords     Keywords used in keyword parameters, with the 0-based integer position of the argument they are used
+     *                     on.
      * @param env          The static context of the function call
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
@@ -155,14 +188,60 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
      * null if no function was found matching the required name and arity.
      */
     @Override
-    public Expression bind(SymbolicName.F symbolicName, Expression[] staticArgs, StaticContext env, List<String> reasons) {
+    public Expression bind(SymbolicName.F symbolicName, Expression[] staticArgs,
+                           Map<StructuredQName, Integer> keywords,
+                           StaticContext env, List<String> reasons)
+    throws XPathException {
         StructuredQName functionName = symbolicName.getComponentName();
         int arity = symbolicName.getArity();
         String localName = functionName.getLocalPart();
-        if (functionName.hasURI(getNamespace()) && getFunctionDetails(localName, arity) != null) {
+        net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry entry = getFunctionDetails(localName, arity);
+        if (functionName.hasURI(getNamespace()) && entry != null) {
+            entry.ensurePopulated();
+            if ((entry.properties & SEQV) != 0) {
+                // sequence-variadic functions in 4.0 (e.g..concat, codepoints-to-string)
+                // combine the "variable" arguments into a single argument
+                if (env.getXPathVersion() < 40) {
+                    // Need to special-case the fn:concat() function prior to XPath 4.0
+                    if (localName.equals("concat")) {
+                        if (staticArgs.length < 2) {
+                            reasons.add("concat() prior to XPath 4.0 requires at least two arguments");
+                            return null;
+                        }
+//                        // Require each argument to be a singleton
+//                        Expression[] a2 = new Expression[staticArgs.length];
+//                        for (int i=0; i<staticArgs.length; i++) {
+//                            if (staticArgs[i] instanceof StringLiteral) {
+//                                a2[i] = staticArgs[i];
+//                            } else {
+//                                final int pos = i;
+//                                Supplier<RoleDiagnostic> role =
+//                                        () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, "concat", pos);
+//                                a2[i] = CardinalityChecker.makeCardinalityChecker(
+//                                        staticArgs[i], StaticProperty.ALLOWS_ZERO_OR_ONE, role);
+//                                a2[i].setRetainedStaticContext(env.makeRetainedStaticContext());
+//                            }
+//                        }
+//                        staticArgs = a2;
+                    }
+                }
+//                int declaredArity = entry.maxArity;
+//                Expression[] newArgs = Arrays.copyOf(staticArgs, declaredArity);
+//                if (declaredArity > staticArgs.length) {
+//                    newArgs[declaredArity - 1] = Literal.makeEmptySequence();
+//                } else if (declaredArity < staticArgs.length) {
+//                    Expression block = new Block(Arrays.copyOfRange(staticArgs, declaredArity - 1, staticArgs.length));
+//                    ExpressionTool.copyLocationInfo(staticArgs[0], block);
+//                    newArgs[declaredArity - 1] = block;
+//                }
+//                staticArgs = newArgs;
+
+            } else if ((keywords != null && !keywords.isEmpty()) || staticArgs.length < entry.maxArity) {
+                staticArgs = UserFunction.makeExpandedArgumentArray(staticArgs, keywords, entry);
+            }
             RetainedStaticContext rsc = new RetainedStaticContext(env);
             try {
-                SystemFunction fn = makeFunction(localName, arity);
+                SystemFunction fn = makeFunction(localName, staticArgs.length);
                 fn.setRetainedStaticContext(rsc);
                 Expression f = fn.makeFunctionCall(staticArgs);
                 f.setRetainedStaticContext(rsc);
@@ -177,33 +256,22 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
     }
 
     public SystemFunction makeFunction(String name, int arity) throws XPathException {
-        Entry entry = getFunctionDetails(name, arity);
+        net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry entry = getFunctionDetails(name, arity);
         if (entry == null) {
-            String diagName = getNamespace().equals(NamespaceConstant.FN) ?
+            String diagName = getNamespace().equals(NamespaceUri.FN) ?
                     "System function " + name :
                     "Function Q{" + getNamespace() + "}" + name;
             if (getFunctionDetails(name, -1) == null) {
-                XPathException err = new XPathException(diagName + "() does not exist or is not available in this environment");
-                err.setErrorCode("XPST0017");
-                err.setIsStaticError(true);
-                throw err;
+                throw new XPathException(diagName + "() does not exist or is not available in this environment")
+                        .withErrorCode("XPST0017").asStaticError();
             } else {
-                XPathException err = new XPathException(diagName + "() cannot be called with "
-                                                                + pluralArguments(arity));
-                err.setErrorCode("XPST0017");
-                err.setIsStaticError(true);
-                throw err;
+                throw new XPathException(diagName + "() cannot be called with "
+                                                                + pluralArguments(arity))
+                        .withErrorCode("XPST0017").asStaticError();
             }
         }
-
-        Class functionClass = entry.implementationClass;
-        SystemFunction f;
-        try {
-            f = (SystemFunction) functionClass.newInstance();
-        } catch (Exception err) {
-            err.printStackTrace();
-            throw new AssertionError("Failed to instantiate system function " + name + " - " + err.getMessage());
-        }
+        entry.ensurePopulated();
+        SystemFunction f = entry.implementationFactory.get();
         f.setDetails(entry);
         f.setArity(arity);
         return f;
@@ -232,12 +300,30 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
      *
      * @param symbolicName the qualified name of the function being called, together with its arity.
      *                     For legacy reasons, the arity may be set to -1 to mean any arity will do
+     * @param languageLevel the XPath language level (times 10, e.g. 31 for XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F symbolicName) {
+    public boolean isAvailable(SymbolicName.F symbolicName, int languageLevel) {
         StructuredQName qn = symbolicName.getComponentName();
-        return qn.hasURI(getNamespace()) && getFunctionDetails(qn.getLocalPart(), symbolicName.getArity()) != null;
+        if (!qn.hasURI(getNamespace())) {
+            return false;
+        }
+        net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry entry = getFunctionDetails(qn.getLocalPart(), symbolicName.getArity());
+        if (entry == null) {
+            return false;
+        }
+        //if ((entry.properties & SEQV) != 0) {
+            // sequence-variadic functions in 4.0 (e.g..concat, codepoints-to-string)
+            // combine the "variable" arguments into a single argument
+            if (languageLevel < 40 &&
+                    symbolicName.getComponentName().getLocalPart().equals("concat") &&
+                    symbolicName.getArity() < 2) {
+                return false;
+            }
+        //}
+        return true;
+
     }
 
     /**
@@ -266,12 +352,16 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
      *                        that is private
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F symbolicName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F symbolicName, StaticContext staticContext) throws XPathException {
         StructuredQName functionName = symbolicName.getComponentName();
         int arity = symbolicName.getArity();
         if (functionName.hasURI(getNamespace()) && getFunctionDetails(functionName.getLocalPart(), arity) != null) {
             RetainedStaticContext rsc = staticContext.makeRetainedStaticContext();
             SystemFunction fn = makeFunction(functionName.getLocalPart(), arity);
+            if (staticContext.getXPathVersion() < 40 && fn instanceof Concat31 && arity < 2) {
+                // Treat concat() specially prior to 4.0
+                return null;
+            }
             fn.setRetainedStaticContext(rsc);
             return fn;
         } else {
@@ -279,71 +369,91 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
         }
     }
 
+
+
     /**
      * Register a system function in the table of function details.
      *
      * @param name                the function name
-     * @param implementationClass the class used to implement the function
-     * @param itemType            the item type of the result of the function
-     * @param cardinality         the cardinality of the result of the function
-     * @param properties          bitwise properties of the function
+     * @param arity               the function arity (-1 is treated specially)
+
      * @return the entry describing the function. The entry is incomplete, it does not yet contain information
      * about the function arguments.
      */
 
-    /*@NotNull*/
+//    /*@NotNull*/
+//    protected Entry register(String name,
+//                             int arity,
+//                             Supplier<SystemFunction> functionFactory,
+//                             ItemType itemType,
+//                             int cardinality,
+//                             int properties) {
+//        Instrumentation.count("Register function");
+//        Instrumentation.count(getNamespace().toString());
+//        Entry e = new Entry();
+//        e.name = new StructuredQName(getConventionalPrefix(), getNamespace(), name);
+//        e.arity = arity;
+//        e.implementationFactory = functionFactory;
+//        e.functionSet = this;
+//        e.itemType = itemType;
+//        e.cardinality = cardinality;
+//        e.properties = properties;
+//        if (e.arity == -1) {
+//            // special case for concat()
+//            e.argumentTypes = new SequenceType[1];
+//            e.resultIfEmpty = new AtomicValue[1];
+//            e.usage = new OperandUsage[1];
+//        } else {
+//            e.argumentTypes = new SequenceType[arity];
+//            e.resultIfEmpty = new Sequence[arity];
+//            e.usage = new OperandUsage[arity];
+//        }
+//        if (functionTable.containsKey(name + "#" + arity)) {
+//            Instrumentation.count("Duplicate function " + name + "#" + arity);
+//        }
+//        functionTable.put(name + "#" + arity, e);
+//        if ((properties & SEQV) != 0) {
+//            sequenceVariadicFunctions.put(name, arity - 1);
+//        }
+//        return e;
+//    }
+
     protected Entry register(String name,
                              int arity,
-                             Class<? extends SystemFunction> implementationClass,
-                             ItemType itemType,
-                             int cardinality,
-                             int properties) {
+                             java.util.function.Function<Entry, Entry> populator) {
         Entry e = new Entry();
         e.name = new StructuredQName(getConventionalPrefix(), getNamespace(), name);
-        e.arity = arity;
-        e.implementationClass = implementationClass;
-        e.itemType = itemType;
-        e.cardinality = cardinality;
-        e.properties = properties;
-        if (e.arity == -1) {
-            // special case for concat()
-            e.argumentTypes = new SequenceType[1];
-            e.resultIfEmpty = new AtomicValue[1];
-            e.usage = new OperandUsage[1];
-        } else {
-            e.argumentTypes = new SequenceType[arity];
-            e.resultIfEmpty = (Sequence[])new Sequence[arity];
-            e.usage = new OperandUsage[arity];
-        }
+        e.minArity = arity;
+        e.maxArity = arity;
+        e.populator = populator;
+        e.functionSet = this;
         functionTable.put(name + "#" + arity, e);
         return e;
     }
 
-    /**
-     * Register reduced-arity versions of a function, with arities in a specified range,
-     * using common argument and return types
-     */
 
-    protected void registerReducedArityVariants(String key, int min, int max) {
-        Entry master = functionTable.get(key);
-        for (int arity = min; arity <= max; arity++) {
-            Entry e = new Entry();
-            e.name = master.name;
-            e.arity = arity;
-            e.implementationClass = master.implementationClass;
-            e.itemType = master.itemType;
-            e.cardinality = master.cardinality;
-            e.properties = master.properties;
-            e.argumentTypes = new SequenceType[arity];
-            e.resultIfEmpty = (Sequence[])new Sequence[arity];
-            e.usage = new OperandUsage[arity];
-            for (int i=0; i<arity; i++) {
-                e.argumentTypes[i] = master.argumentTypes[i];
-                e.resultIfEmpty[i] = master.resultIfEmpty[i];
-                e.usage[i] = master.usage[i];
-            }
-            functionTable.put(e.name.getLocalPart() + "#" + arity, e);
+    protected Entry register(String name,
+                             int minArity,
+                             int maxArity,
+                             java.util.function.Function<Entry, Entry> populator) {
+        Entry e = new Entry();
+        e.name = new StructuredQName(getConventionalPrefix(), getNamespace(), name);
+        e.minArity = minArity;
+        e.maxArity = maxArity;
+        e.populator = populator;
+        e.functionSet = this;
+        for (int a = minArity; a <= maxArity; a++) {
+            functionTable.put(name + "#" + a, e);
         }
+        return e;
+    }
+
+    protected Entry registerVariadic(String name,
+                             int arity,
+                             java.util.function.Function<Entry, Entry> populator) {
+        Entry e = register(name, arity, populator);
+        sequenceVariadicFunctions.put(name, arity - 1);
+        return e;
     }
 
     /**
@@ -353,13 +463,14 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
      * namespace URI.
      */
 
-    public String getNamespace() {
-        return NamespaceConstant.FN;
+    public NamespaceUri getNamespace() {
+        return NamespaceUri.FN;
     }
 
     /**
      * Return a conventional prefix for use with this namespace, typically
      * the prefix used in the documentation of these functions.
+     * @return the string "fn"
      */
 
     public String getConventionalPrefix() {
@@ -369,7 +480,7 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
     /**
      * An entry in the table describing the properties of a function
      */
-    public static class Entry {
+    public static class Entry implements FunctionDefinition {
         /**
          * The name of the function as a QName
          */
@@ -377,11 +488,21 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
         /**
          * The class containing the implementation of this function (always a subclass of SystemFunction)
          */
-        public Class implementationClass;
+        public Supplier<SystemFunction> implementationFactory;
+
+        public java.util.function.Function<Entry, Entry> populator;
         /**
-         * The arity of the function
+         * The function set in which this function is defined
          */
-        public int arity;
+        public net.sf.saxon.functions.registry.BuiltInFunctionSet functionSet;
+        /**
+         * The upper bound of the arity range
+         */
+        public int maxArity;
+        /**
+         * The lower bound of the arity range
+         */
+        public int minArity;
         /**
          * The item type of the result of the function
          */
@@ -395,15 +516,24 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
          */
         public OperandUsage[] usage;
         /**
-         * An array holding the types of the arguments to the function
+         * An array holding the names of the parameters to the function
          */
-        public SequenceType[] argumentTypes;
+        public String[] paramNames;
+        /**
+         * An array holding the types of the parameters to the function
+         */
+        public SequenceType[] paramTypes;
         /**
          * An array holding, for each declared argument, the value that is to be returned if an empty sequence
          * as the value of this argument allows the result to be determined irrespective of the values of the
          * other arguments; null if there is no such calculation possible
          */
         public Sequence[] resultIfEmpty;
+        /**
+         * An array holding functions to evaluate default arguments. The array is
+         * allocated only if there are parameters with default values defined
+         */
+        public IntHashMap<Expression> defaultValueExpressions;
         /**
          * Any additional properties. Various bit settings are defined: for example SAME_AS_FIRST_ARGUMENT indicates that
          * the result type is the same as the type of the first argument
@@ -413,6 +543,58 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
          * For options parameters, details of the accepted options, their defaults, and required type
          */
         public OptionsParameter optionDetails;
+
+        public synchronized void ensurePopulated() {
+            if (implementationFactory == null) {
+                populator.apply(this);
+            }
+        }
+
+        public Entry populate(Supplier<SystemFunction> functionFactory,
+                              ItemType itemType,
+                              int cardinality,
+                              int properties) {
+
+            this.implementationFactory = functionFactory;
+            this.itemType = itemType;
+            this.cardinality = cardinality;
+            this.properties = properties;
+            if (this.maxArity == -1) {
+                // special case for concat()
+                this.paramTypes = new SequenceType[1];
+                this.resultIfEmpty = new AtomicValue[1];
+                this.usage = new OperandUsage[1];
+            } else {
+                this.paramTypes = new SequenceType[maxArity];
+                this.resultIfEmpty = new Sequence[maxArity];
+                this.usage = new OperandUsage[maxArity];
+            }
+            if ((properties & SEQV) != 0) {
+                this.functionSet.sequenceVariadicFunctions.put(name.getLocalPart(), this.maxArity - 1);
+            }
+            NamespaceUri ns = name.getNamespaceUri();
+            Map<String, String> paramNameMap;
+            if (ns == NamespaceUri.FN) {
+                paramNameMap = ParamKeywords.fnParamNames;
+            } else if (ns == NamespaceUri.MAP_FUNCTIONS) {
+                paramNameMap = ParamKeywords.mapParamNames;
+            } else if (ns == NamespaceUri.ARRAY_FUNCTIONS) {
+                paramNameMap = ParamKeywords.arrayParamNames;
+            } else if (ns == NamespaceUri.MATH) {
+                paramNameMap = ParamKeywords.mathParamNames;
+            } else {
+                paramNameMap = Collections.emptyMap();
+            }
+            String keywords = paramNameMap.get(name.getLocalPart());
+            if (keywords == null) {
+                keywords = paramNameMap.get(name.getLocalPart() + "#" + maxArity);
+            }
+            if (keywords == null) {
+                keywords = "a|b|c|d|e|f";
+            }
+            this.paramNames = keywords.split("\\|");
+            return this;
+        }
 
         /**
          * Add information to a function entry about the argument types of the function
@@ -426,7 +608,12 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
          * @return this entry (to allow chaining)
          */
 
-        public Entry arg(int a, ItemType type, int options, Sequence resultIfEmpty) {
+        public net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry arg(int a, ItemType type, int options, Sequence resultIfEmpty) {
+//            return arg(a, type, options, resultIfEmpty, null);
+//        }
+//
+//        public net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry arg(
+//                int a, ItemType type, int options, Sequence resultIfEmpty, Expression defaultValue) {
             int cardinality = options & StaticProperty.CARDINALITY_MASK;
             OperandUsage usage = OperandUsage.NAVIGATION;
             if ((options & ABS) != 0) {
@@ -439,26 +626,103 @@ public abstract class BuiltInFunctionSet implements FunctionLibrary {
                 usage = OperandUsage.ABSORPTION;
             }
             try {
-                this.argumentTypes[a] = SequenceType.makeSequenceType(type, cardinality);
+                this.paramTypes[a] = SequenceType.makeSequenceType(type, cardinality);
                 this.resultIfEmpty[a] = resultIfEmpty;
                 this.usage[a] = usage;
+//                if (defaultValue != null) {
+//                    withDefault(a, defaultValue);
+//                }
             } catch (ArrayIndexOutOfBoundsException err) {
                 System.err.println("Internal Saxon error: Can't set argument " + a + " of " + name);
             }
             return this;
         }
 
+//        public net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry withDefault(int arg, Expression defaultValue) {
+//            if (this.defaultValueExpressions == null) {
+//                this.defaultValueExpressions = new IntHashMap<>(getNumberOfParameters());
+//            }
+//            this.defaultValueExpressions.put(arg, defaultValue);
+//            // if argument N can be defaulted, then register a variant of the function with arity N-1
+//            return this;
+//        }
+
         /**
          * Add details for options parameters (only applies to one argument, the function is expected to know which)
          */
 
-        public Entry optionDetails(OptionsParameter details) {
+        public net.sf.saxon.functions.registry.BuiltInFunctionSet.Entry setOptionDetails(OptionsParameter details) {
             this.optionDetails = details;
             return this;
         }
 
-    }
+        /**
+         * Get the name of the function
+         *
+         * @return the function name
+         */
+        @Override
+        public StructuredQName getFunctionName() {
+            return name;
+        }
 
+        @Override
+        public int getNumberOfParameters() {
+            return maxArity;
+        }
+
+        /**
+         * Get the number of mandatory arguments (the lower bound of the arity range)
+         *
+         * @return the number of mandatory arguments
+         */
+        @Override
+        public int getMinimumArity() {
+            return minArity;
+        }
+
+        /**
+         * Get the name (keyword) of the Nth parameter
+         *
+         * @param i the position of the required parameter
+         * @return the expression for computing the value of the Nth parameter
+         */
+        @Override
+        public StructuredQName getParameterName(int i) {
+            return new StructuredQName("", "", paramNames[i]);
+        }
+
+        /**
+         * Get the default value expression of the Nth parameter, if any
+         *
+         * @param i the position of the required parameter
+         * @return the expression for computing the value of the Nth parameter, or null if there is none
+         */
+        @Override
+        public Expression getDefaultValueExpression(int i) {
+            if (defaultValueExpressions != null) {
+                return defaultValueExpressions.get(i);
+            } else {
+                return null;
+            }
+        }
+
+        /**
+         * Get the position in the parameter list of a given parameter name
+         *
+         * @param name the name of the required parameter
+         * @return the position of the parameter in the parameter list, or -1 if absent
+         */
+        @Override
+        public int getPositionOfParameter(StructuredQName name) {
+            for (int i = 0; i< maxArity; i++) {
+                if (paramNames[i].equals(name.getLocalPart())) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+    }
 
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,8 +10,9 @@ package net.sf.saxon.value;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.AtomicSortComparer;
 import net.sf.saxon.expr.sort.DoubleSortComparer;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ValidationException;
@@ -30,7 +31,7 @@ public final class DoubleValue extends NumericValue {
     public static final DoubleValue ONE = new DoubleValue(1.0);
     public static final DoubleValue NaN = new DoubleValue(Double.NaN);
 
-    private double value;
+    private final double value;
 
     /**
      * Constructor supplying a double
@@ -39,8 +40,8 @@ public final class DoubleValue extends NumericValue {
      */
 
     public DoubleValue(double value) {
+        super(BuiltInAtomicType.DOUBLE);
         this.value = value;
-        typeLabel = BuiltInAtomicType.DOUBLE;
     }
 
     /**
@@ -50,13 +51,13 @@ public final class DoubleValue extends NumericValue {
      * to the supplied type.
      *
      * @param value the value of the NumericValue
-     * @param type  the type of the value. This must be a subtype of xs:double, and the
-     *              value must conform to this type. The methosd does not check these conditions.
+     * @param typeLabel  the type of the value. This must be a subtype of xs:double, and the
+     *              value must conform to this type. The method does not check these conditions.
      */
 
-    public DoubleValue(double value, AtomicType type) {
+    public DoubleValue(double value, AtomicType typeLabel) {
+        super(typeLabel);
         this.value = value;
-        typeLabel = type;
     }
 
     /**
@@ -80,9 +81,7 @@ public final class DoubleValue extends NumericValue {
     /*@NotNull*/
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        DoubleValue v = new DoubleValue(value);
-        v.typeLabel = typeLabel;
-        return v;
+        return new DoubleValue(value, typeLabel);
     }
 
     /**
@@ -128,7 +127,7 @@ public final class DoubleValue extends NumericValue {
     @Override
     public BigDecimal getDecimalValue() throws ValidationException {
         try {
-            return new BigDecimal(value);
+            return BigDecimal.valueOf(value);
         } catch (NumberFormatException e) {
             throw new ValidationException(e);
         }
@@ -194,7 +193,7 @@ public final class DoubleValue extends NumericValue {
      * @return the string value
      */
     @Override
-    public CharSequence getPrimitiveStringValue() {
+    public UnicodeString getPrimitiveStringValue() {
         return doubleToString(value);
     }
 
@@ -202,12 +201,12 @@ public final class DoubleValue extends NumericValue {
      * Get the canonical lexical representation as defined in XML Schema. This is not always the same
      * as the result of casting to a string according to the XPath rules. For xs:double, the canonical
      * representation always uses exponential notation.
+     * @return the value, represented as a string using exponential notation
      */
 
     @Override
-    public CharSequence getCanonicalLexicalRepresentation() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C16);
-        return FloatingPointConverter.appendDouble(fsb, value, true);
+    public UnicodeString getCanonicalLexicalRepresentation() {
+        return FloatingPointConverter.convertDouble(value, true);
     }
 
     /**
@@ -217,8 +216,9 @@ public final class DoubleValue extends NumericValue {
      * @return the value converted to a string, according to the XPath casting rules.
      */
 
-    public static CharSequence doubleToString(double value) {
-        return FloatingPointConverter.appendDouble(new FastStringBuffer(FastStringBuffer.C16), value, false);
+    public static UnicodeString doubleToString(double value) {
+        double d = Math.abs(value);
+        return FloatingPointConverter.convertDouble(value, d != 0 && (d >= 1000000 || d < 0.000001));
     }
 
 
@@ -254,6 +254,7 @@ public final class DoubleValue extends NumericValue {
      */
 
     @Override
+    @CSharpReplaceBody(code="return new Saxon.Hej.value.DoubleValue(Saxon.Impl.Helpers.Utils.roundDouble(value, scale));")
     public NumericValue round(int scale) {
         if (Double.isNaN(value)) {
             return this;
@@ -279,7 +280,7 @@ public final class DoubleValue extends NumericValue {
 
         if (Double.isInfinite(d)) {
             // double arithmetic has overflowed - do it in decimal
-            BigDecimal dec = new BigDecimal(value);
+            BigDecimal dec = BigDecimal.valueOf(value);
             dec = dec.setScale(scale, RoundingMode.HALF_UP);
             return new DoubleValue(dec.doubleValue());
         }
@@ -319,7 +320,7 @@ public final class DoubleValue extends NumericValue {
 
         if (Double.isInfinite(d)) {
             // double arithmetic has overflowed - do it in decimal
-            BigDecimal dec = new BigDecimal(value);
+            BigDecimal dec = BigDecimal.valueOf(value);
             dec = dec.setScale(scale, RoundingMode.HALF_EVEN);
             return new DoubleValue(dec.doubleValue());
         }
@@ -370,6 +371,7 @@ public final class DoubleValue extends NumericValue {
      * @return true if this value is float or double negative zero
      */
     @Override
+    @CSharpReplaceBody(code = "return value == 0.0 && double.IsNegativeInfinity(1.0 / value);") // Better solutions exist but have dependencies
     public boolean isNegativeZero() {
         return value == 0.0 && (Double.doubleToLongBits(value) & FloatingPointConverter.DOUBLE_SIGN_MASK) != 0;
     }
@@ -433,15 +435,8 @@ public final class DoubleValue extends NumericValue {
 
     /**
      * Get an object that implements XML Schema comparison semantics
+     * @return a comparable that follows XSD rules
      */
-
-    @Override
-    public Comparable getSchemaComparable() {
-        // Convert negative to positive zero because Double.compareTo() does the wrong thing
-        // Note that for NaN, we return NaN, and rely on the user of the Comparable to use it in a way
-        // that ensures NaN != NaN.
-        return value == 0.0 ? 0.0 : value;
-    }
 
     /**
      * Get a value whose equals() method follows the "same key" rules for comparing the keys of a map.
@@ -474,6 +469,9 @@ public final class DoubleValue extends NumericValue {
      * are considered identical, even though they are not fully interchangeable. "Identical" means the
      * same point in the value space, regardless of type annotation.</p>
      * <p>NaN is identical to itself.</p>
+     * <p>This method treats positive and negative zero as identical, even though they are not defined
+     * as such in XSD 1.1. This is justified on the basis that in all cases where values are required
+     * to be identical (for example, enumeration facets and keyref constraints), being equal is good enough.</p>
      *
      * @param v the other value to be compared with this one
      * @return true if the two values are identical, false otherwise.

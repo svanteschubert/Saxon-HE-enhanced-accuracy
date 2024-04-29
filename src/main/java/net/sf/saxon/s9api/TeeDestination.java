@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,8 +22,8 @@ import net.sf.saxon.serialize.SerializationProperties;
 
 public class TeeDestination extends AbstractDestination {
 
-    private Destination dest0;
-    private Destination dest1;
+    private final Destination dest0;
+    private final Destination dest1;
 
     /**
      * Create a TeeDestination: a destination which copies everything that is sent to it to two
@@ -45,7 +45,7 @@ public class TeeDestination extends AbstractDestination {
      * @param pipe The Saxon configuration. This is supplied so that the destination can
      *               use information from the configuration (for example, a reference to the name pool)
      *               to construct or configure the returned Receiver.
-     * @param params
+     * @param params the serialization properties
      * @return the Receiver to which events are to be sent. It is the caller's responsibility to
      *         initialize this Receiver with a {@link net.sf.saxon.event.PipelineConfiguration} before calling
      *         its <code>open()</code> method.

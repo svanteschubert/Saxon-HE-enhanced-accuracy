@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.trans.KeyManager;
+import net.sf.saxon.trans.XPathException;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,24 +32,25 @@ public final class DocumentPool {
     // each time. For this purpose we use a hashtable from
     // URI to DocumentInfo object.
 
-    private Map<DocumentKey, TreeInfo> documentNameMap = new HashMap<DocumentKey, TreeInfo>(10);
+    private final Map<DocumentKey, TreeInfo> documentNameMap = new HashMap<>(10);
 
 
     // The set of documents known to be unavailable. These documents must remain
     // unavailable for the duration of a transformation or query!
 
-    private Set<DocumentKey> unavailableDocuments = new HashSet<DocumentKey>(10);
+    private final Set<DocumentKey> unavailableDocuments = new HashSet<>(10);
 
     /**
      * Add a document to the pool
      *
      * @param doc The DocumentInfo for the document in question
      * @param uri The document-uri property of the document.
+     * @throws XPathException if an error is detected
      */
 
-    public synchronized void add(TreeInfo doc, /*@Nullable*/ String uri) {
+    public synchronized void add(TreeInfo doc, /*@Nullable*/ String uri) throws XPathException {
         if (uri != null) {
-            documentNameMap.put(new DocumentKey(uri), doc);
+            add(doc, new DocumentKey(uri));
         }
     }
 
@@ -57,10 +59,15 @@ public final class DocumentPool {
      *
      * @param doc The DocumentInfo for the document in question
      * @param uri The document-uri property of the document.
+     * @throws XPathException if an error is detected
      */
 
-    public synchronized void add(TreeInfo doc, /*@Nullable*/ DocumentKey uri) {
+    public synchronized void add(TreeInfo doc, /*@Nullable*/ DocumentKey uri) throws XPathException {
         if (uri != null) {
+            TreeInfo existing = documentNameMap.get(uri);
+            if (existing != null && existing != doc) {
+                throw new XPathException("Cannot have two different documents with the same document-uri " + uri.getAbsoluteURI());
+            }
             documentNameMap.put(uri, doc);
         }
     }
@@ -170,6 +177,9 @@ public final class DocumentPool {
     /**
      * Ask whether a document URI is in the set of URIs known to be unavailable, because doc-available()
      * has been previously called and has returned false
+     *
+     * @param uri the document-uri property of the document
+     * @return true if the document is known to be unavailable, false otherwise
      */
 
     public boolean isMarkedUnavailable(DocumentKey uri) {

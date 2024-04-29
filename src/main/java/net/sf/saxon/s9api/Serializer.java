@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,16 +8,18 @@
 package net.sf.saxon.s9api;
 
 import net.sf.saxon.event.*;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.OutputURIResolver;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.lib.SerializerFactory;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.QueryResult;
 import net.sf.saxon.serialize.CharacterMap;
 import net.sf.saxon.serialize.CharacterMapIndex;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Result;
@@ -49,35 +51,37 @@ import java.util.Properties;
  * <p>A <code>Serializer</code> may also be created from an {@link Xslt30Transformer} using the method
  * {@link Xslt30Transformer#newSerializer()} or one of its variants. In this case the serializer
  * is initialized with properties taken from the default output declaration in the stylesheet.</p>
- * <p>Serialization parameters defined via this interface take precedence over any serialization parameters
- * supplied when {@link #getReceiver} is called. The {@link #getReceiver} method is supplied with
- * parameters derived from the query or stylesheet, which are merged with the parameters set on this
- * {@code Serializer}.</p>
+ * <p>Serialization parameters set explicitly on the {@code Serializer} take precedence over any
+ * serialization parameters supplied when {@link #getReceiver} is called. The {@link #getReceiver} method
+ * is supplied with parameters derived from the query or stylesheet, which are merged with the parameters
+ * set on this {@code Serializer}.</p>
+ * <p>Any serialization parameters that are not given an explicit value using one of these mechanisms
+ * are defaulted using the rules for the XSLT 3.0 <code>xsl:output</code> declaration. In particular,
+ * this means that the default serialization method (when serializing an XDM document) depends on the
+ * name of the first element encountered in the document.</p>
  * <p><i>Changed in 9.9 so the {@code Serializer} now only holds one set of output properties. Additional
  * serialization properties can be supplied
  * when {@link #getReceiver(PipelineConfiguration, SerializationProperties)}
  * is called, but these are not stored within the {@code Serializer} itself.</i></p>
  */
 @SuppressWarnings({"ForeachStatement"})
+@CSharpModifiers(code = {"internal"})
 public class Serializer extends AbstractDestination {
 
     private Processor processor; // never null
-    private Map<StructuredQName, String> properties = new HashMap<>(10);
-    private StreamResult result = new StreamResult();
-    private CharacterMapIndex characterMap = null;
+    private final Map<StructuredQName, String> properties = new HashMap<>(10);
+    private final StreamResult result = new StreamResult();
+    private CharacterMapIndex characterMapIndex = null;
     private boolean mustClose = false;
 
     // Index of permitted property names
 
-    private static Map<String, Property> standardProperties = new HashMap<>();
-
-//    private static void z(Property prop) {
-//        standardProperties.put(prop.name, prop);
-//    }
+    private static final Map<String, Property> standardProperties = new HashMap<>();
 
     static {
-        for (Property p : Property.values()) {
-            standardProperties.put(p.name, p);
+        final Property[] propertyValues = Property.values();
+        for (Property p : propertyValues) {
+            standardProperties.put(p.toString(), p);
         }
     }
 
@@ -175,6 +179,14 @@ public class Serializer extends AbstractDestination {
          */
         SAXON_INDENT_SPACES(SaxonOutputKeys.INDENT_SPACES),
         /**
+         * Saxon extension: set to a string containing the internal DTD subset, which is output "as is",
+         * without any checking. The content should correspond to the rules for the <code>intSubset</code>
+         * production in the XML 1.1 grammar (note that this excludes the square-bracket delimiters).
+         * See also the <code>saxon:doctype</code> instruction, which allows the internal subset to be
+         * constructed programmatically.
+         */
+        SAXON_INTERNAL_DTD_SUBSET(SaxonOutputKeys.INTERNAL_DTD_SUBSET),
+        /**
          * Saxon extension: set to an integer (represented as a string) giving the desired maximum
          * length of lines when indenting. Default is 80.
          */
@@ -248,10 +260,11 @@ public class Serializer extends AbstractDestination {
          */
         SAXON_SUPPLY_SOURCE_LOCATOR(SaxonOutputKeys.SUPPLY_SOURCE_LOCATOR);
 
-        private String name;
 
-        Property(String name) {
-            this.name = name;
+        private final String name;
+
+        Property(String propertyName) {
+            this.name = propertyName;
         }
 
         /**
@@ -262,6 +275,7 @@ public class Serializer extends AbstractDestination {
          * @return the name of the serialization property as a QName in Clark notation, {uri}local
          */
 
+        @CSharpModifiers(code={"public", "override"})
         public String toString() {
             return name;
         }
@@ -340,7 +354,7 @@ public class Serializer extends AbstractDestination {
      * {@code Properties} object are QNames in Clark format, that is "{uri}local"; any QNames
      * within the values must also be in this format.
      * <p>The values supplied are typically those specified in the stylesheet or query. In the case of XSLT,
-     * they are typically the properties associated with unnamed xsl:output declarations.</p>
+     * they are typically the properties associated with unnamed <code>xsl:output</code> declarations.</p>
      *
      * @param suppliedProperties the output properties to be used. These overwrite any properties
      *                           that have been individually specified using
@@ -357,7 +371,7 @@ public class Serializer extends AbstractDestination {
     /**
      * Say if the output stream should be closed on completion
      * By default the close method closes the output stream only when the serializer created the output stream itself
-     * that is when the destination has been suppplied as a file rather than a stream.
+     * that is when the destination has been supplied as a file rather than a stream.
      * @param value - if true the output file will be closed when the close method is called
      *              if false the close method has no effect.
      */
@@ -379,7 +393,7 @@ public class Serializer extends AbstractDestination {
      */
 
     public void setCharacterMap(CharacterMapIndex characterMap) {
-        CharacterMapIndex existingIndex = this.characterMap;
+        CharacterMapIndex existingIndex = this.characterMapIndex;
         if (existingIndex == null || existingIndex.isEmpty()) {
             existingIndex = characterMap;
         } else if (characterMap != null && !characterMap.isEmpty() && existingIndex != characterMap) {
@@ -389,7 +403,19 @@ public class Serializer extends AbstractDestination {
                 existingIndex.putCharacterMap(map.getName(), map);
             }
         }
-        this.characterMap = existingIndex;
+        this.characterMapIndex = existingIndex;
+    }
+
+    /**
+     * Get the character map index in use
+     * @return a set of named character maps.
+     */
+
+    public CharacterMapIndex getCharacterMapIndex() {
+        if (characterMapIndex == null) {
+            characterMapIndex = new CharacterMapIndex();
+        }
+        return characterMapIndex;
     }
 
     /**
@@ -399,7 +425,7 @@ public class Serializer extends AbstractDestination {
      * <p><code>serializer.setOutputProperty(Serializer.Property.METHOD, "xml");</code></p>
      * <p>Any serialization properties supplied via this interface take precedence over serialization
      * properties defined in the source stylesheet or query, including properties set dynamically
-     * using xsl:result-document. However, they only affect the principal output of a transformation;
+     * using <code>xsl:result-document</code>. However, they only affect the principal output of a transformation;
      * the serialization of secondary result documents is controlled using an {@link OutputURIResolver}.</p>
      *
      * @param property The name of the property to be set
@@ -469,14 +495,14 @@ public class Serializer extends AbstractDestination {
 
     public void setOutputProperty(QName property, String value) {
         SerializerFactory sf = processor.getUnderlyingConfiguration().getSerializerFactory();
-        String uri = property.getNamespaceURI();
-        if (uri.isEmpty() || uri.equals(NamespaceConstant.SAXON)) {
+        NamespaceUri uri = property.getNamespaceUri();
+        if (uri.isEmpty() || uri.equals(NamespaceUri.SAXON)) {
             try {
                 value = sf.checkOutputProperty(property.getClarkName(), value);
             } catch (XPathException e) {
                 throw new IllegalArgumentException(e.getMessage());
             }
-            if (uri.equals(NamespaceConstant.SAXON) && property.getLocalName().equals("next-in-chain")) {
+            if (uri.equals(NamespaceUri.SAXON) && property.getLocalName().equals("next-in-chain")) {
                 // reject the next-in-chain property: it's not relevant to a Serializer
                 throw new IllegalArgumentException("saxon:next-in-chain is not a valid serialization property");
             }
@@ -575,10 +601,12 @@ public class Serializer extends AbstractDestination {
     }
 
     /**
-     * Serialize an arbitrary XdmValue to the selected output destination using this serializer. The supplied
-     * sequence is first wrapped in a document node according to the rules given in section 2 (Sequence Normalization) of the
-     * <a href="http://www.w3.org/TR/xslt-xquery-serialization/">XSLT/XQuery serialization specification</a>; the resulting
-     * document nodes is then serialized using the serialization parameters defined in this serializer.
+     * Serialize an arbitrary XdmValue to the selected output destination using this serializer.
+     *
+     * <p>If the supplied <code>XdmValue</code> is an <code>XdmNode</code>, then it is serialized
+     * using the {@link #serializeNode(XdmNode)} method. In other cases, it behaves in a way
+     * equivalent to XSLT serialization with <code>build-tree="no"</code>; this is the recommended
+     * way to output non-node values using the JSON or Adaptive serialization methods.</p>
      *
      * @param value The value to be serialized
      * @throws IllegalStateException if no outputStream, Writer, or File has been supplied as the
@@ -594,7 +622,7 @@ public class Serializer extends AbstractDestination {
         } else {
             try {
                 SerializationProperties properties =
-                        new SerializationProperties(getLocallyDefinedProperties(), characterMap);
+                        new SerializationProperties(getLocallyDefinedProperties(), characterMapIndex);
                 QueryResult.serializeSequence(value.getUnderlyingValue().iterate(),
                                               processor.getUnderlyingConfiguration(), result, properties);
             } catch (XPathException e) {
@@ -610,6 +638,11 @@ public class Serializer extends AbstractDestination {
      * sequence is first wrapped in a document node according to the rules given in section 2 (Sequence Normalization) of the
      * <a href="http://www.w3.org/TR/xslt-xquery-serialization/">XSLT/XQuery serialization specification</a>; the resulting
      * document nodes is then serialized using the serialization parameters defined in this serializer.
+     *
+     * <p>The default serialization properties used by this method correspond to the properties used
+     * by an XSLT 3.0 stylesheet with no <code>xsl:output</code> declaration. In particular, the default output
+     * method (always one of XML, XHTML, or HTML) depends on the name of the first element node
+     * encountered.</p>
      *
      * @param source The value to be serialized
      * @throws IllegalStateException if no outputStream, Writer, or File has been supplied as the
@@ -635,6 +668,11 @@ public class Serializer extends AbstractDestination {
      * <a href="http://www.w3.org/TR/xslt-xquery-serialization/">XSLT/XQuery serialization specification</a>; the resulting
      * document nodes is then serialized using the serialization parameters defined in this serializer.
      *
+     * <p>The default serialization properties used by this method correspond to the properties used
+     * by an XSLT 3.0 stylesheet with no <code>xsl:output</code> declaration. In particular, the default output
+     * method (always one of XML, XHTML, or HTML) depends on the name of the first element node
+     * encountered.</p>
+     *
      * @param source The value to be serialized
      * @return the serialized result, as a string
      * @throws SaxonApiException     if a serialization error or I/O error occurs
@@ -657,6 +695,11 @@ public class Serializer extends AbstractDestination {
 
     /**
      * Serialize an XdmNode to a string using this serializer
+     *
+     * <p>The default serialization properties used by this method correspond to the properties used
+     * by an XSLT 3.0 stylesheet with no <code>xsl:output</code> declaration. In particular, the default output
+     * method (always one of XML, XHTML, or HTML) depends on the name of the first element node
+     * encountered.</p>
      *
      * @param node The node to be serialized
      * @return the serialized representation of the node as lexical XML
@@ -683,6 +726,11 @@ public class Serializer extends AbstractDestination {
      * Get an XMLStreamWriter that can be used for writing application-generated XML
      * to be output via this serializer.
      *
+     * <p>The default serialization properties used by this method correspond to the properties used
+     * by an XSLT 3.0 stylesheet with no <code>xsl:output</code> declaration. In particular, the default output
+     * method (always one of XML, XHTML, or HTML) depends on the name of the first element node
+     * encountered.</p>
+     *
      * @return a newly constructed XMLStreamWriter that pipes events into this Serializer
      * @throws SaxonApiException     if any other failure occurs
      * @since 9.3
@@ -698,6 +746,11 @@ public class Serializer extends AbstractDestination {
     /**
      * Get a ContentHandler that can be used to direct the output of a SAX parser (or other
      * source of SAX events) to this serializer.
+     *
+     * <p>The default serialization properties used by this method correspond to the properties used
+     * by an XSLT 3.0 stylesheet with no <code>xsl:output</code> declaration. In particular, the default output
+     * method (always one of XML, XHTML, or HTML) depends on the name of the first element node
+     * encountered.</p>
      *
      * @return a newly constructed ContentHandler that pipes events into this Serializer
      * @throws SaxonApiException     if any other failure occurs
@@ -750,9 +803,11 @@ public class Serializer extends AbstractDestination {
      * @param pipe The Saxon configuration. This is an internal implementation object
      *               held within the {@link Processor}
      * @param params Serialization parameters originating from the query or stylesheet
-     *               (for example, xsl:output declarations or xsl:result-document attributes).
+     *               (for example, <code>xsl:output</code> declarations or <code>xsl:result-document</code> attributes).
      *               These parameters are combined with those held by this {@code Serializer} itself,
-     *               with properties set of the {@code Serializer} taking precedence.
+     *               with properties set on the {@code Serializer} taking precedence. If a particular
+     *               property has not been set either on the {@code Serializer} object itself
+     *               or in the supplied {@code params}, the defaults follow the XSLT 3.0 rules.
      * @return a receiver to which XML events will be sent
      */
 
@@ -783,9 +838,10 @@ public class Serializer extends AbstractDestination {
      * will be in the same format as JAXP interfaces such as
      * {@link javax.xml.transform.Transformer#getOutputProperties()}
      *
+     * @param defaultOutputProperties the default properties
      * @return a newly-constructed Properties object holding the declared serialization properties. Specifically,
      * it holds the properties defined explicitly on this Serializer object, backed by the properties defined
-     * in unnamed xsl:output declarations in the stylesheet, or output declarations in XQuery.
+     * in {@code defaultOutputProperties}.
      */
 
     public Properties getCombinedOutputProperties(Properties defaultOutputProperties) {
@@ -800,10 +856,10 @@ public class Serializer extends AbstractDestination {
 
     /**
      * Create a Properties object holding the serialization properties explicitly declared
-     * within this Serializer object, and not including any defaults taken from the stylesheet or query.
+     * within this {@code Serializer} object, and not including any defaults taken from the stylesheet or query.
      * @return a newly-constructed Properties object holding the declared serialization properties. Specifically,
      * it holds the properties defined explicitly on this Serializer object, and excludes any properties defined
-     * in named or unnamed xsl:output declarations in the stylesheet, or the equivalent in XQuery.
+     * in named or unnamed <code>xsl:output</code> declarations in the stylesheet, or the equivalent in XQuery.
      */
 
     protected Properties getLocallyDefinedProperties() {
@@ -823,16 +879,17 @@ public class Serializer extends AbstractDestination {
      * @return a newly-constructed {@code SerializationProperties} object holding the declared
      * serialization properties. Specifically, it holds the properties defined explicitly on this
      * {@code Serializer} object, and excludes any properties defined in named or unnamed
-     * {@code xsl:output} declarations in the stylesheet, or the equivalent in XQuery.
+     * <code>xsl:output</code> declarations in the stylesheet, or the equivalent in XQuery.
      */
 
     public SerializationProperties getSerializationProperties() {
-        return new SerializationProperties(getLocallyDefinedProperties(), characterMap);
+        return new SerializationProperties(getLocallyDefinedProperties(), characterMapIndex);
     }
 
     /**
      * Get the JAXP StreamResult object representing the output destination
      * of this serializer
+     * @return the JAXP StreamResult object
      */
 
     protected Result getResult() {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -59,6 +59,18 @@ public interface RelativeURIResolver extends URIResolver {
             throws TransformerException;
 
     /**
+     * Extended method that accepts flags
+     * @param uri the URI to be dereferenced
+     * @param flags recognized flags are S=streamable, M=stylesheet module, D=document, K=schema
+     * @return A Source object, or null if the href cannot be dereferenced,
+     *         and the processor should try to resolve the URI itself.
+     * @throws TransformerException if the source cannot be dereferenced
+     */
+    default Source dereference(String uri, String flags) throws TransformerException {
+        return dereference(uri);
+    }
+
+    /**
      * Called by the processor when it encounters
      * an xsl:include, xsl:import, or document() function.
      * <p>Despite the name, the main purpose of this method is to dereference the URI, not merely
@@ -80,6 +92,18 @@ public interface RelativeURIResolver extends URIResolver {
     Source resolve(String href, String base)
             throws TransformerException;
 
+    /**
+     * Extended method that accepts flags
+     *
+     * @param href   the relative URI to be dereferenced
+     * @param base the base URI
+     * @param flags recognized flags are S=streamable, M=stylesheet module, D=document, K=schema
+     * @return the resolved source
+     * @throws TransformerException in the event of failure
+     */
+    default Source resolve(String href, String base, String flags) throws TransformerException {
+        return resolve(href, base);
+    }
 
 }
 

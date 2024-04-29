@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,31 +9,46 @@ package net.sf.saxon.ma.map;
 
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.SequenceTool;
-import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.iter.SingleAtomicIterator;
-import net.sf.saxon.tree.jiter.MonoIterator;
-import net.sf.saxon.type.AtomicType;
-import net.sf.saxon.type.ItemType;
-import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.type.UType;
+import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
 
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A key and a corresponding value to be held in a Map. A key-value pair also acts as a singleton
  * map in its own right.
  */
 
-public class SingleEntryMap implements MapItem {
+public class SingleEntryMap extends MapItem {
     public AtomicValue key;
     public GroundedValue value;
 
     public SingleEntryMap(AtomicValue key, GroundedValue value) {
         this.key = key;
         this.value = value;
+    }
+
+    /**
+     * Get the key
+     * @return the key (of the single entry in this map)
+     */
+
+    public AtomicValue getKey() {
+        return key;
+    }
+
+    /**
+     * Get the value
+     *
+     * @return the value (of the single entry in this map)
+     */
+
+    public GroundedValue getValue() {
+        return value;
     }
 
     /**
@@ -74,7 +89,7 @@ public class SingleEntryMap implements MapItem {
      */
     @Override
     public AtomicIterator keys() {
-        return new SingleAtomicIterator(key);
+        return SingleAtomicIterator.makeIterator(key);
     }
 
     /**
@@ -84,13 +99,9 @@ public class SingleEntryMap implements MapItem {
      */
     @Override
     public Iterable<KeyValuePair> keyValuePairs() {
-        // For .NEU - don't use a lambda expression here
-        return new Iterable<KeyValuePair>() {
-            @Override
-            public Iterator<KeyValuePair> iterator() {
-                return new MonoIterator<>(new KeyValuePair(key, value));
-            }
-        };
+        List<KeyValuePair> list = new ArrayList<>(1);
+        list.add(new KeyValuePair(key, value));
+        return list;
     }
 
     /**
@@ -116,7 +127,11 @@ public class SingleEntryMap implements MapItem {
      */
     @Override
     public MapItem remove(AtomicValue key) {
-        return (get(key) == null) ? this : new HashTrieMap();
+        if (get(key) == null) {
+            return this;
+        } else {
+            return new HashTrieMap();
+        }
     }
 
     /**
@@ -128,13 +143,8 @@ public class SingleEntryMap implements MapItem {
      * @return true if the map conforms to the required type
      */
     @Override
-    public boolean conforms(AtomicType keyType, SequenceType valueType, TypeHierarchy th) {
-        try {
-            return keyType.matches(key, th) && valueType.matches(value, th);
-        } catch (XPathException e) {
-            throw new AssertionError(e);
-        }
-
+    public boolean conforms(PlainType keyType, SequenceType valueType, TypeHierarchy th) {
+        return keyType.matches(key, th) && valueType.matches(value, th);
     }
 
     /**
@@ -173,4 +183,4 @@ public class SingleEntryMap implements MapItem {
     }
 }
 
-// Copyright (c) 2010-2020 Saxonica Limited
+// Copyright (c) 2010-2023 Saxonica Limited

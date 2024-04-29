@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import java.util.Map;
 
 /**
  * A prefix pool maintains a two-way mapping from namespace prefixes (as strings) to
- * integer prefix codes. Prefix codes always fit in 10 bits, but are handled as ints.
+ * integer prefix codes. Prefix codes always fit in 11 bits, but are handled as ints.
  *
  * Until 9.8, prefixes were managed by the NamePool. The NamePool now only handles
  * fingerprints, which are integer representations of the URI and local name parts of
@@ -22,6 +22,8 @@ import java.util.Map;
  * is local to a document. For this reason, access is not synchronised.
  */
 public class PrefixPool {
+
+    private final static int LIMIT = 2047;
 
     String[] prefixes = new String[8];
     int used = 0;
@@ -48,8 +50,8 @@ public class PrefixPool {
         }
         // See if the prefix is already known
         if (index != null) {
-            Integer existing = index.get(prefix);
-            if (existing != null) {
+            int existing = index.getOrDefault(prefix, -1);
+            if (existing != -1) {
                 return existing;
             }
         } else {
@@ -61,8 +63,8 @@ public class PrefixPool {
         }
         // Allocate a new code
         int code = used++;
-        if (used > 2047) {
-            throw new IllegalStateException("Too many namespace prefixes - limit is " + 2047 + " per document");
+        if (used > LIMIT) {
+            throw new IllegalStateException("Too many namespace prefixes - limit is " + LIMIT + " per document");
         }
         if (used >= prefixes.length) {
             prefixes = Arrays.copyOf(prefixes, used * 2);

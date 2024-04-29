@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,12 @@
 
 package net.sf.saxon.om;
 
-import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
 import net.sf.saxon.serialize.charcode.XMLCharacterData;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.z.IntIterator;
 
 /**
  * The NameChecker performs validation and analysis of XML names.
@@ -29,19 +31,36 @@ public abstract class NameChecker {
      * Validate whether a given string constitutes a valid QName, as defined in XML Namespaces.
      * Note that this does not test whether the prefix is actually declared.
      *
-     * @param name the name to be tested
+     * @param codePoints the name to be tested, supplied as a codepoint iterator
      * @return true if the name is a lexically-valid QName
      */
 
-    public static boolean isQName(String name) {
-        int colon = name.indexOf(':');
-        if (colon < 0) {
-            return isValidNCName(name);
+    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
+    public static boolean isQName(IntIterator codePoints) {
+        boolean atStart = true;
+        boolean foundColon = false;
+        while (codePoints.hasNext()) {
+            int ch = codePoints.next();
+            if (ch == ':') {
+                if (atStart || foundColon) {
+                    return false;
+                }
+                atStart = true;
+                foundColon = true;
+            } else {
+                if (atStart) {
+                    if (!isNCNameStartChar(ch)) {
+                        return false;
+                    }
+                    atStart = false;
+                } else {
+                    if (!isNCNameChar(ch)) {
+                        return false;
+                    }
+                }
+            }
         }
-        return colon != 0 &&
-                colon != name.length() - 1 &&
-                isValidNCName(name.substring(0, colon)) &&
-                isValidNCName(name.substring(colon + 1));
+        return !atStart;
     }
 
     /**
@@ -60,33 +79,14 @@ public abstract class NameChecker {
         return qname.substring(0, colon);
     }
 
-    /**
-     * Validate a QName, and return the prefix and local name. The local name is checked
-     * to ensure it is a valid NCName. The prefix is not checked, on the theory that the caller
-     * will look up the prefix to find a URI, and if the prefix is invalid, then no URI will
-     * be found.
-     *
-     * @param qname the lexical QName whose parts are required. Note that leading and trailing
-     *              whitespace is not permitted
-     * @return an array of two strings, the prefix and the local name. The first
-     *         item is a zero-length string if there is no prefix.
-     * @throws QNameException if not a valid QName.
-     */
-
-    public static String[] getQNameParts(CharSequence qname) throws QNameException {
+    public static String[] getQNameParts(String qname) throws QNameException {
         String[] parts = new String[2];
-        int colon = -1;
         int len = qname.length();
-        for (int i = 0; i < len; i++) {
-            if (qname.charAt(i) == ':') {
-                colon = i;
-                break;
-            }
-        }
+        int colon = qname.indexOf(':', 0);
         if (colon < 0) {
             parts[0] = "";
-            parts[1] = qname.toString();
-            if (!isValidNCName(parts[1])) {
+            parts[1] = qname;
+            if (!isValidNCName(StringTool.codePoints(qname))) {
                 throw new QNameException("Invalid QName " + Err.wrap(qname));
             }
         } else {
@@ -96,19 +96,20 @@ public abstract class NameChecker {
             if (colon == len - 1) {
                 throw new QNameException("QName cannot end with colon: " + Err.wrap(qname));
             }
-            parts[0] = qname.subSequence(0, colon).toString();
-            parts[1] = qname.subSequence(colon + 1, len).toString();
+            parts[0] = qname.substring(0, colon);
+            parts[1] = qname.substring(colon + 1);
 
             if (!isValidNCName(parts[1])) {
                 if (!isValidNCName(parts[0])) {
                     throw new QNameException("Both the prefix " + Err.wrap(parts[0]) +
-                            " and the local part " + Err.wrap(parts[1]) + " are invalid");
+                                                     " and the local part " + Err.wrap(parts[1]) + " are invalid");
                 }
                 throw new QNameException("Invalid QName local part " + Err.wrap(parts[1]));
             }
         }
         return parts;
     }
+
 
     /**
      * Validate a QName, and return the prefix and local name. Both parts are checked
@@ -123,7 +124,7 @@ public abstract class NameChecker {
      */
 
     /*@NotNull*/
-    public static String[] checkQNameParts(CharSequence qname) throws XPathException {
+    public static String[] checkQNameParts(String qname) throws XPathException {
         try {
             String[] parts = getQNameParts(qname);
             if (parts[0].length() > 0 && !isValidNCName(parts[0])) {
@@ -131,75 +132,60 @@ public abstract class NameChecker {
             }
             return parts;
         } catch (QNameException e) {
-            XPathException err = new XPathException(e.getMessage());
-            err.setErrorCode("FORG0001");
-            throw err;
+            throw new XPathException(e.getMessage(), "FORG0001");
         }
     }
 
     /**
      * Validate whether a given string constitutes a valid NCName, as defined in XML Namespaces.
      *
-     * @param ncName the name to be tested. Any whitespace trimming must have already been applied.
+     * @param codePoints the name to be tested, as a codepoint iterator.
+     *                   Any whitespace trimming must have already been applied.
      * @return true if the name is a lexically-valid QName
      */
 
-    public static boolean isValidNCName(CharSequence ncName) {
-        if (ncName.length() == 0) {
-            return false;
-        }
-        int s = 1;
-        char ch = ncName.charAt(0);
-        if (UTF16CharacterSet.isHighSurrogate(ch)) {
-            if (!isNCNameStartChar(UTF16CharacterSet.combinePair(ch, ncName.charAt(1)))) {
-                return false;
-            }
-            s = 2;
-        } else {
-            if (!isNCNameStartChar(ch)) {
-                return false;
-            }
-        }
-        for (int i = s; i < ncName.length(); i++) {
-            ch = ncName.charAt(i);
-            if (UTF16CharacterSet.isHighSurrogate(ch)) {
-                if (!isNCNameChar(UTF16CharacterSet.combinePair(ch, ncName.charAt(++i)))) {
+    public static boolean isValidNCName(IntIterator codePoints) {
+        boolean first = true;
+        while (codePoints.hasNext()) {
+            int ch = codePoints.next();
+            if (first) {
+                if (!isNCNameStartChar(ch)) {
                     return false;
                 }
+                first = false;
             } else {
                 if (!isNCNameChar(ch)) {
                     return false;
                 }
             }
         }
-        return true;
+        return !first;
+    }
+
+    public static boolean isValidNCName(String str) {
+        return isValidNCName(StringTool.codePoints(str));
     }
 
     /**
      * Check to see if a string is a valid Nmtoken according to [7]
      * in the XML 1.0 Recommendation
      *
-     * @param nmtoken the string to be tested. Any whitespace trimming must have already been applied.
+     * @param in the string to be tested.
+     *                Any whitespace trimming must have already been applied.
      * @return true if nmtoken is a valid Nmtoken
      */
 
-    public static boolean isValidNmtoken(CharSequence nmtoken) {
-        if (nmtoken.length() == 0) {
-            return false;
-        }
-        for (int i = 0; i < nmtoken.length(); i++) {
-            char ch = nmtoken.charAt(i);
-            if (UTF16CharacterSet.isHighSurrogate(ch)) {
-                if (!isNCNameChar(UTF16CharacterSet.combinePair(ch, nmtoken.charAt(++i)))) {
-                    return false;
-                }
-            } else {
-                if (ch != ':' && !isNCNameChar(ch)) {
-                    return false;
-                }
+    public static boolean isValidNmtoken(UnicodeString in) {
+        IntIterator codePoints = in.codePoints();
+        boolean empty = true;
+        while (codePoints.hasNext()) {
+            int ch = codePoints.next();
+            empty = false;
+            if (ch != ':' && !isNCNameChar(ch)) {
+                return false;
             }
         }
-        return true;
+        return !empty;
     }
 
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.s9api;
 
 import net.sf.saxon.expr.StaticProperty;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.Cardinality;
 
 /**
@@ -20,7 +21,8 @@ public enum OccurrenceIndicator {
     ZERO, ZERO_OR_ONE, ZERO_OR_MORE, ONE, ONE_OR_MORE;
 
     protected int getCardinality() {
-        switch (this) {
+        OccurrenceIndicator indicator = this;
+        switch (indicator) {
             case ZERO:
                 return StaticProperty.EMPTY;
             case ZERO_OR_ONE:
@@ -77,6 +79,31 @@ public enum OccurrenceIndicator {
     }
 
     /**
+     * Ask whether this occurrence indicator permits a sequence of a given size
+     * @param size the number of items in the sequence
+     * @return true if this number of items is permitted by the occurrence indicator
+     * @since 12.0
+     */
+
+    public boolean allows(int size) {
+        OccurrenceIndicator indicator = this;
+        switch (indicator) {
+            case ZERO:
+                return size == 0;
+            case ZERO_OR_ONE:
+                return size <= 1;
+            case ZERO_OR_MORE:
+                return true;
+            case ONE:
+                return size == 1;
+            case ONE_OR_MORE:
+                return size > 0;
+            default:
+                return false;
+        }
+    }
+
+    /**
      * Ask whether one occurrence indicator subsumes another. Specifically,
      * <code>A.subsumes(B)</code> is true if every sequence that satisfies the occurrence
      * indicator B also satisfies the occurrence indicator A.
@@ -97,8 +124,10 @@ public enum OccurrenceIndicator {
      * @since 9.5
      */
 
+    @CSharpModifiers(code={"public", "override"})
     public String toString() {
-        switch (this) {
+        OccurrenceIndicator indicator = this;
+        switch (indicator) {
             case ZERO:
                 return "0";
             case ZERO_OR_ONE:

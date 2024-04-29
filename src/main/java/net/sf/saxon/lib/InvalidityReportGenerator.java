@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,9 +9,9 @@ package net.sf.saxon.lib;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
-import javax.xml.stream.XMLStreamWriter;
 
 /**
  * This class <code>InvalidityReportGenerator</code> extends the standard error handler for errors found during validation
@@ -21,7 +21,7 @@ import javax.xml.stream.XMLStreamWriter;
 
 public class InvalidityReportGenerator extends StandardInvalidityHandler {
 
-    public static final String REPORT_NS = "http://saxon.sf.net/ns/validation";
+    public static final NamespaceUri REPORT_NS = NamespaceUri.of("http://saxon.sf.net/ns/validation");
 
 
     public InvalidityReportGenerator(Configuration config) {
@@ -79,9 +79,9 @@ public class InvalidityReportGenerator extends StandardInvalidityHandler {
 
     }
 
-    public XMLStreamWriter getWriter() {
-        return null;
-    }
+    //public XMLStreamWriter getWriter() {
+    //    return null;
+    //}
 
     /**
      * Receive notification of a validity error.
@@ -114,7 +114,7 @@ public class InvalidityReportGenerator extends StandardInvalidityHandler {
     /**
      * Create metedata element which contains summary information in the output XML document
      *
-     * @throws XPathException
+     * @throws XPathException if creating the element fails for any reason
      */
 
     public void createMetaData() throws XPathException {

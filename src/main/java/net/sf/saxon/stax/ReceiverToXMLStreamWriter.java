@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -27,7 +28,7 @@ public class ReceiverToXMLStreamWriter implements Receiver {
     protected Configuration config;
     protected String systemId;
     protected String baseURI;
-    private XMLStreamWriter writer;
+    private final XMLStreamWriter writer;
 
     public ReceiverToXMLStreamWriter(XMLStreamWriter writer) {
         this.writer = writer;
@@ -96,31 +97,31 @@ public class ReceiverToXMLStreamWriter implements Receiver {
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties) throws XPathException {
         String local = elemName.getLocalPart();
-        String uri = elemName.getURI();
+        NamespaceUri uri = elemName.getNamespaceUri();
         String prefix = elemName.getPrefix();
         try {
-            if (prefix.equals("") && uri.equals("")) {
+            if (prefix.equals("") && uri.equals(NamespaceUri.NULL)) {
                 writer.writeStartElement(local);
             } else if (prefix.equals("")) {
-                writer.writeStartElement(prefix, local, uri);
+                writer.writeStartElement(prefix, local, uri.toString());
             } else {
-                writer.writeStartElement(prefix, local, uri);
+                writer.writeStartElement(prefix, local, uri.toString());
             }
             for (NamespaceBinding ns : namespaces) {
-                writer.writeNamespace(ns.getPrefix(), ns.getURI());
+                writer.writeNamespace(ns.getPrefix(), ns.getNamespaceUri().toString());
             }
             for (AttributeInfo att : attributes) {
                 NodeName attName = att.getNodeName();
                 String attLocal = attName.getLocalPart();
-                String attUri = attName.getURI();
+                NamespaceUri attUri = attName.getNamespaceUri();
                 String attPrefix = attName.getPrefix();
                 String value = att.getValue();
-                if (attPrefix.equals("") && attUri.equals("")) {
+                if (attPrefix.equals("") && attUri.equals(NamespaceUri.NULL)) {
                     writer.writeAttribute(attLocal, value);
-                } else if (attPrefix.equals("") & !attUri.equals("")) {
-                    writer.writeAttribute(attUri, attLocal, value);
+                } else if (attPrefix.equals("") & !attUri.equals(NamespaceUri.NULL)) {
+                    writer.writeAttribute(attUri.toString(), attLocal, value);
                 } else {
-                    writer.writeAttribute(attPrefix, attUri, attLocal, value);
+                    writer.writeAttribute(attPrefix, attUri.toString(), attLocal, value);
                 }
             }
         } catch (XMLStreamException e) {
@@ -139,7 +140,7 @@ public class ReceiverToXMLStreamWriter implements Receiver {
     }
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         try {
             writer.writeCharacters(chars.toString());
         } catch (XMLStreamException e) {
@@ -148,7 +149,7 @@ public class ReceiverToXMLStreamWriter implements Receiver {
     }
 
     @Override
-    public void processingInstruction(String name, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String name, UnicodeString data, Location locationId, int properties) throws XPathException {
         try {
             writer.writeProcessingInstruction(name, data.toString());
         } catch (XMLStreamException e) {
@@ -157,7 +158,7 @@ public class ReceiverToXMLStreamWriter implements Receiver {
     }
 
     @Override
-    public void comment(CharSequence content, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString content, Location locationId, int properties) throws XPathException {
         try {
             writer.writeComment(content.toString());
         } catch (XMLStreamException e) {

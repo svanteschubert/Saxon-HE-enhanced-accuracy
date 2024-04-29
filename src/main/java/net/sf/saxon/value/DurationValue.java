@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,15 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
@@ -28,24 +32,18 @@ import java.util.StringTokenizer;
 
 public class DurationValue extends AtomicValue implements AtomicMatchKey {
 
-    protected boolean negative = false;
-    protected int months = 0;
-    protected long seconds = 0;
-    protected int nanoseconds = 0;
+    protected final boolean _negative;
+    protected final int _months;
+    protected final long _seconds;
+    protected final int _nanoseconds;
 
-    /**
-     * Private constructor for internal use
-     */
-
-    protected DurationValue() {
-    }
 
     /**
      * Constructor for xs:duration taking the components of the duration. There is no requirement
      * that the values are normalized, for example it is acceptable to specify months=18. The values of
      * the individual components must all be non-negative.
      * <p>Note: For historic reasons this constructor only supports microsecond precision. To get nanosecond
-     * precision, use the constructor {@link #DurationValue(int, int, int, int, int, long, int, AtomicType)}.</p>
+     * precision, use the constructor {@link DurationValue#DurationValue(int, int, int, int, int, long, int, AtomicType)}.</p>
      *
      * @param positive     true if the duration is positive, false if negative. For a negative duration
      *                     the components are all supplied as positive integers (or zero).
@@ -74,7 +72,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      * the individual components must all be non-negative.
      * <p>Note: for historic reasons this constructor was written to expect microseconds rather than nanoseconds.
      * To supply nanoseconds, use the alternative constructor
-     * {@link #DurationValue(int, int, int, int, int, long, int, AtomicType)}.</p>
+     * {@link DurationValue#DurationValue(int, int, int, int, int, long, int, AtomicType)}.</p>
      *
      * @param positive     true if the duration is positive, false if negative. For a negative duration
      *                     the components are all supplied as positive integers (or zero).
@@ -85,7 +83,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      * @param minutes      the number of minutes
      * @param seconds      the number of seconds (long to allow copying)
      * @param microseconds the number of microseconds
-     * @param type         the user-defined subtype of xs:duration. Note that this constructor cannot
+     * @param typeLabel    the user-defined subtype of xs:duration. Note that this constructor cannot
      *                     be used to create an instance of xs:dayTimeDuration or xs:yearMonthDuration.
      * @throws IllegalArgumentException if the size of the duration exceeds implementation-defined
      *                                  limits: specifically, if the total number of months exceeds 2^31, or if the total number
@@ -93,8 +91,8 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public DurationValue(boolean positive, int years, int months, int days,
-                         int hours, int minutes, long seconds, int microseconds, AtomicType type) {
-        negative = !positive;
+                         int hours, int minutes, long seconds, int microseconds, AtomicType typeLabel) {
+        super(typeLabel);
         if (years < 0 || months < 0 || days < 0 || hours < 0 || minutes < 0 || seconds < 0 || microseconds < 0) {
             throw new IllegalArgumentException("Negative component value");
         }
@@ -105,13 +103,12 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
                 (double) minutes * 60 + (double) seconds > Long.MAX_VALUE) {
             throw new IllegalArgumentException("Duration seconds limit exceeded");
         }
-        this.months = years * 12 + months;
+        this._months = years * 12 + months;
         long h = days * 24L + hours;
         long m = h * 60L + minutes;
-        this.seconds = m * 60L + seconds;
-        this.nanoseconds = microseconds * 1000;
-        normalizeZeroDuration();
-        typeLabel = type;
+        this._seconds = m * 60L + seconds;
+        this._nanoseconds = microseconds * 1000;
+        this._negative = isNegativeDuration(!positive);
     }
 
     /**
@@ -129,7 +126,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      * @param minutes      the number of minutes
      * @param seconds      the number of seconds (long to allow copying)
      * @param nanoseconds  the number of nanoseconds
-     * @param type         the user-defined subtype of xs:duration. Note that this constructor cannot
+     * @param typeLabel    the user-defined subtype of xs:duration. Note that this constructor cannot
      *                     be used to create an instance of xs:dayTimeDuration or xs:yearMonthDuration.
      * @throws IllegalArgumentException if the size of the duration exceeds implementation-defined
      *                                  limits: specifically, if the total number of months exceeds 2^31, or if the total number
@@ -137,7 +134,8 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public DurationValue(int years, int months, int days,
-                         int hours, int minutes, long seconds, int nanoseconds, AtomicType type) {
+                         int hours, int minutes, long seconds, int nanoseconds, AtomicType typeLabel) {
+        super(typeLabel);
         boolean somePositive = years > 0 || months > 0 || days > 0 || hours > 0 || minutes > 0 || seconds > 0 || nanoseconds > 0;
         boolean someNegative = years < 0 || months < 0 || days < 0 || hours < 0 || minutes < 0 || seconds < 0 || nanoseconds < 0;
         if (somePositive && someNegative) {
@@ -159,30 +157,28 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
                 (double) minutes * 60 + (double) seconds > Long.MAX_VALUE) {
             throw new IllegalArgumentException("Duration seconds limit exceeded");
         }
-        this.months = years * 12 + months;
+        this._months = years * 12 + months;
         long h = days * 24L + hours;
         long m = h * 60L + minutes;
-        this.seconds = m * 60L + seconds;
-        this.nanoseconds = nanoseconds;
-        negative = someNegative;
-        normalizeZeroDuration();
-        typeLabel = type;
+        this._seconds = m * 60L + seconds;
+        this._nanoseconds = nanoseconds;
+        this._negative = someNegative;
     }
 
-    protected static void formatFractionalSeconds(FastStringBuffer sb, int seconds, long nanosecs) {
+    protected static void formatFractionalSeconds(UnicodeBuilder sb, int seconds, long nanosecs) {
         String mss = nanosecs + "";
         if (seconds == 0) {
             mss = "0000000000" + mss;
             mss = mss.substring(mss.length() - 10);
         }
         sb.append(mss.substring(0, mss.length() - 9));
-        sb.cat('.');
+        sb.append('.');
         int lastSigDigit = mss.length() - 1;
         while (mss.charAt(lastSigDigit) == '0') {
             lastSigDigit--;
         }
         sb.append(mss.substring(mss.length() - 9, lastSigDigit + 1));
-        sb.cat('S');
+        sb.append('S');
     }
 
 
@@ -190,9 +186,11 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      * Ensure that a zero duration is considered positive
      */
 
-    protected void normalizeZeroDuration() {
-        if (months == 0 && seconds == 0L && nanoseconds == 0) {
-            negative = false;
+    protected boolean isNegativeDuration(boolean nonPositive) {
+        if (_months == 0 && _seconds == 0L && _nanoseconds == 0) {
+            return false;
+        } else {
+            return nonPositive;
         }
     }
 
@@ -206,38 +204,42 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     /*@NotNull*/
-    public static ConversionResult makeDuration(CharSequence s) {
+    public static ConversionResult makeDuration(UnicodeString s) {
         return makeDuration(s, true, true);
     }
 
     /*@NotNull*/
-    protected static ConversionResult makeDuration(CharSequence s, boolean allowYM, boolean allowDT) {
+    protected static ConversionResult makeDuration(UnicodeString s, boolean allowYM, boolean allowDT) {
         int years = 0, months = 0, days = 0, hours = 0, minutes = 0, seconds = 0, nanoseconds = 0;
         boolean negative = false;
-        StringTokenizer tok = new StringTokenizer(Whitespace.trimWhitespace(s).toString(), "-+.PYMDTHS", true);
+        StringTokenizer tok = new StringTokenizer(Whitespace.trim(s).toString(), "-+.PYMDTHS", true);
         int components = 0;
-        if (!tok.hasMoreElements()) {
+        if (!tok.hasMoreTokens()) {
             return badDuration("empty string", s);
         }
-        String part = (String) tok.nextElement();
+        String part = tok.nextToken();
         if ("+".equals(part)) {
             return badDuration("+ sign not allowed in a duration", s);
         } else if ("-".equals(part)) {
             negative = true;
-            part = (String) tok.nextElement();
+            if (tok.hasMoreTokens()) {
+                part = tok.nextToken();
+            } else {
+                return badDuration("'-' on its own is not a valid duration", s);
+            }
         }
         if (!"P".equals(part)) {
             return badDuration("missing 'P'", s);
         }
         int state = 0;
-        while (tok.hasMoreElements()) {
-            part = (String) tok.nextElement();
+        while (tok.hasMoreTokens()) {
+            part = tok.nextToken();
             if ("T".equals(part)) {
                 state = 4;
-                if (!tok.hasMoreElements()) {
+                if (!tok.hasMoreTokens()) {
                     return badDuration("T must be followed by time components", s);
                 }
-                part = (String) tok.nextElement();
+                part = tok.nextToken();
             }
             int value = simpleInteger(part);
             if (value < 0) {
@@ -247,10 +249,10 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
                     return badDuration("invalid or non-numeric component", s);
                 }
             }
-            if (!tok.hasMoreElements()) {
+            if (!tok.hasMoreTokens()) {
                 return badDuration("missing unit letter at end", s);
             }
-            char delim = ((String) tok.nextElement()).charAt(0);
+            char delim = tok.nextToken().charAt(0);
             switch (delim) {
                 case 'Y':
                     if (state > 0) {
@@ -367,13 +369,13 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
         }
     }
 
-    protected static ValidationFailure badDuration(String msg, CharSequence s) {
+    protected static ValidationFailure badDuration(String msg, UnicodeString s) {
         ValidationFailure err = new ValidationFailure("Invalid duration value '" + s + "' (" + msg + ')');
         err.setErrorCode("FORG0001");
         return err;
     }
 
-    protected static ValidationFailure badDuration(String msg, CharSequence s, String errorCode) {
+    protected static ValidationFailure badDuration(String msg, UnicodeString s, String errorCode) {
         ValidationFailure err = new ValidationFailure("Invalid duration value '" + s + "' (" + msg + ')');
         err.setErrorCode(errorCode);
         return err;
@@ -415,10 +417,10 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
 
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        if (negative) {
-            return new DurationValue(0, -months, 0, 0, 0, -seconds, -nanoseconds, typeLabel);
+        if (_negative) {
+            return new DurationValue(0, -_months, 0, 0, 0, -_seconds, -_nanoseconds, typeLabel);
         } else {
-            return new DurationValue(0, months, 0, 0, 0, seconds, nanoseconds, typeLabel);
+            return new DurationValue(0, _months, 0, 0, 0, _seconds, _nanoseconds, typeLabel);
         }
     }
 
@@ -441,10 +443,10 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int signum() {
-        if (negative) {
+        if (_negative) {
             return -1;
         }
-        if (months == 0 && seconds == 0L && nanoseconds == 0) {
+        if (_months == 0 && _seconds == 0L && _nanoseconds == 0) {
             return 0;
         }
         return +1;
@@ -457,7 +459,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getYears() {
-        return months / 12;
+        return _months / 12;
     }
 
     /**
@@ -467,7 +469,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getMonths() {
-        return months % 12;
+        return _months % 12;
     }
 
     /**
@@ -482,7 +484,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
 //        System.err.println("hours = " + seconds / (60L*60L));
 //        System.err.println("days = " + seconds / (24L*60L*60L));
 //        System.err.println("days (int) = " + (int)(seconds / (24L*60L*60L)));
-        return (int) (seconds / (24L * 60L * 60L));
+        return (int) (_seconds / (24L * 60L * 60L));
     }
 
     /**
@@ -492,7 +494,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getHours() {
-        return (int) (seconds % (24L * 60L * 60L) / (60L * 60L));
+        return (int) (_seconds % (24L * 60L * 60L) / (60L * 60L));
     }
 
     /**
@@ -502,7 +504,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getMinutes() {
-        return (int) (seconds % (60L * 60L) / 60L);
+        return (int) (_seconds % (60L * 60L) / 60L);
     }
 
     /**
@@ -512,7 +514,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getSeconds() {
-        return (int) (seconds % 60L);
+        return (int) (_seconds % 60L);
     }
 
     /**
@@ -523,7 +525,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getMicroseconds() {
-        return nanoseconds / 1000;
+        return _nanoseconds / 1000;
     }
 
     /**
@@ -533,7 +535,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getNanoseconds() {
-        return nanoseconds;
+        return _nanoseconds;
     }
 
     /**
@@ -544,7 +546,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public int getTotalMonths() {
-        return negative ? -months : months;
+        return _negative ? -_months : _months;
     }
 
     /**
@@ -556,9 +558,9 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public BigDecimal getTotalSeconds() {
-        BigDecimal dec = new BigDecimal(negative ? -seconds : seconds);
-        if (nanoseconds != 0) {
-            dec = dec.add(new BigDecimal(BigInteger.valueOf(negative ? -nanoseconds : nanoseconds), 9));
+        BigDecimal dec = BigDecimal.valueOf(_negative ? -_seconds : _seconds);
+        if (_nanoseconds != 0) {
+            dec = dec.add(new BigDecimal(BigInteger.valueOf(_negative ? -_nanoseconds : _nanoseconds), 9));
         }
         return dec;
     }
@@ -570,18 +572,18 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     @Override
-    public CharSequence getPrimitiveStringValue() {
+    public UnicodeString getPrimitiveStringValue() {
 
         // Note, Schema does not define a canonical representation. We omit all zero components, unless
         // the duration is zero-length, in which case we output PT0S.
 
-        if (months == 0 && seconds == 0L && nanoseconds == 0) {
-            return "PT0S";
+        if (_months == 0 && _seconds == 0L && _nanoseconds == 0) {
+            return BMPString.of("PT0S");
         }
 
-        FastStringBuffer sb = new FastStringBuffer(32);
-        if (negative) {
-            sb.cat('-');
+        UnicodeBuilder sb = new UnicodeBuilder(16);
+        if (_negative) {
+            sb.append('-');
         }
         int years = getYears();
         int months = getMonths();
@@ -600,7 +602,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
         if (days != 0) {
             sb.append(days + "D");
         }
-        if (hours != 0 || minutes != 0 || seconds != 0 || nanoseconds != 0) {
+        if (hours != 0 || minutes != 0 || seconds != 0 || _nanoseconds != 0) {
             sb.append("T");
         }
         if (hours != 0) {
@@ -609,15 +611,15 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
         if (minutes != 0) {
             sb.append(minutes + "M");
         }
-        if (seconds != 0 || nanoseconds != 0) {
-            if (seconds != 0 && nanoseconds == 0) {
+        if (seconds != 0 || _nanoseconds != 0) {
+            if (seconds != 0 && _nanoseconds == 0) {
                 sb.append(seconds + "S");
             } else {
-                formatFractionalSeconds(sb, seconds, (seconds * 1_000_000_000L) + nanoseconds);
+                formatFractionalSeconds(sb, seconds, (seconds * 1_000_000_000L) + _nanoseconds);
             }
         }
 
-        return sb;
+        return sb.toUnicodeString();
 
     }
 
@@ -631,8 +633,8 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public double getLengthInSeconds() {
-        double a = months * (365.242199 / 12.0) * 24 * 60 * 60 + seconds + ((double) nanoseconds / 1_000_000_000);
-        return negative ? -a : a;
+        double a = _months * (365.242199 / 12.0) * 24 * 60 * 60 + _seconds + ((double) _nanoseconds / 1_000_000_000);
+        return _negative ? -a : a;
     }
 
     /**
@@ -644,27 +646,27 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
     public AtomicValue getComponent(AccessorFn.Component component) {
         switch (component) {
             case YEAR:
-                return Int64Value.makeIntegerValue(negative ? -getYears() : getYears());
+                return Int64Value.makeIntegerValue(_negative ? -getYears() : getYears());
             case MONTH:
-                return Int64Value.makeIntegerValue(negative ? -getMonths() : getMonths());
+                return Int64Value.makeIntegerValue(_negative ? -getMonths() : getMonths());
             case DAY:
-                return Int64Value.makeIntegerValue(negative ? -getDays() : getDays());
+                return Int64Value.makeIntegerValue(_negative ? -getDays() : getDays());
             case HOURS:
-                return Int64Value.makeIntegerValue(negative ? -getHours() : getHours());
+                return Int64Value.makeIntegerValue(_negative ? -getHours() : getHours());
             case MINUTES:
-                return Int64Value.makeIntegerValue(negative ? -getMinutes() : getMinutes());
+                return Int64Value.makeIntegerValue(_negative ? -getMinutes() : getMinutes());
             case SECONDS:
-                FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C16);
-                String ms = "000000000" + nanoseconds;
+                StringBuilder sb = new StringBuilder(16);
+                String ms = "000000000" + _nanoseconds;
                 ms = ms.substring(ms.length() - 9);
-                sb.append((negative ? "-" : "") + getSeconds() + '.' + ms);
-                return BigDecimalValue.parse(sb);
+                sb.append(_negative ? "-" : "").append(getSeconds()).append('.').append(ms);
+                return BigDecimalValue.parse(sb.toString());
             case WHOLE_SECONDS:
-                return Int64Value.makeIntegerValue(negative ? -seconds : seconds);
+                return Int64Value.makeIntegerValue(_negative ? -_seconds : _seconds);
             case MICROSECONDS:
-                return new Int64Value((negative ? -nanoseconds : nanoseconds) / 1000);
+                return new Int64Value((_negative ? -_nanoseconds : _nanoseconds) / 1000);
             case NANOSECONDS:
-                return new Int64Value(negative ? -nanoseconds : nanoseconds);
+                return new Int64Value(_negative ? -_nanoseconds : _nanoseconds);
             default:
                 throw new IllegalArgumentException("Unknown component for duration: " + component);
         }
@@ -680,17 +682,19 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      * using the getXPathComparable() method. A context argument is supplied for use in cases where the comparison
      * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
      * collation.
-     *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
-     * @param collator collation used for comparing string values
+     *  @param collator collation used for comparing string values
      * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
      */
 
     /*@Nullable*/
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone) {
-        return ordered ? null : this;
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
+        return this;
+    }
+
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return null;
     }
 
     /**
@@ -704,10 +708,10 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
             DurationValue d1 = this;
             DurationValue d2 = (DurationValue) other;
 
-            return d1.negative == d2.negative &&
-                    d1.months == d2.months &&
-                    d1.seconds == d2.seconds &&
-                    d1.nanoseconds == d2.nanoseconds;
+            return d1._negative == d2._negative &&
+                    d1._months == d2._months &&
+                    d1._seconds == d2._seconds &&
+                    d1._nanoseconds == d2._nanoseconds;
         } else {
             return false;
         }
@@ -722,13 +726,11 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      *
      * @param other the duration to be added to this one
      * @return the sum of the two durations
+     * @throws XPathException if an error is detected
      */
 
     public DurationValue add(DurationValue other) throws XPathException {
-        XPathException err = new XPathException("Only subtypes of xs:duration can be added");
-        err.setErrorCode("XPTY0004");
-        err.setIsTypeError(true);
-        throw err;
+        throw new XPathException("Only subtypes of xs:duration can be added", "XPTY0004").asTypeError();
     }
 
     /**
@@ -736,13 +738,13 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      *
      * @param other the duration to be subtracted from this one
      * @return the difference of the two durations
+     * @throws XPathException if an error is detected
      */
 
     public DurationValue subtract(DurationValue other) throws XPathException {
-        XPathException err = new XPathException("Only subtypes of xs:duration can be subtracted");
-        err.setErrorCode("XPTY0004");
-        err.setIsTypeError(true);
-        throw err;
+        throw new XPathException("Only subtypes of xs:duration can be subtracted")
+                .withErrorCode("XPTY0004")
+                .asTypeError();
     }
 
     /**
@@ -752,10 +754,10 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     public DurationValue negate() {
-        if (negative) {
-            return new DurationValue(0, months, 0, 0, 0, seconds, nanoseconds, typeLabel);
+        if (_negative) {
+            return new DurationValue(0, _months, 0, 0, 0, _seconds, _nanoseconds, typeLabel);
         } else {
-            return new DurationValue(0, -months, 0, 0, 0, -seconds, -nanoseconds, typeLabel);
+            return new DurationValue(0, -_months, 0, 0, 0, -_seconds, -_nanoseconds, typeLabel);
         }
     }
 
@@ -764,6 +766,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      *
      * @param factor the number to multiply by
      * @return the result of the multiplication
+     * @throws XPathException if an error is detected
      */
 
     public DurationValue multiply(long factor) throws XPathException {
@@ -772,17 +775,27 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
 
 
     /**
-     * Multiply a duration by a number
+     * Multiply a duration by a double
      *
      * @param factor the number to multiply by
      * @return the result of the multiplication
+     * @throws XPathException if an error is detected
      */
 
     public DurationValue multiply(double factor) throws XPathException {
-        XPathException err = new XPathException("Only subtypes of xs:duration can be multiplied by a number");
-        err.setErrorCode("XPTY0004");
-        err.setIsTypeError(true);
-        throw err;
+        throw new XPathException("Only subtypes of xs:duration can be multiplied by a number", "XPTY0004").asTypeError();
+    }
+
+    /**
+     * Multiply a duration by a decimal
+     *
+     * @param factor the number to multiply by
+     * @return the result of the multiplication
+     * @throws XPathException if an error is detected
+     */
+
+    public DurationValue multiply(BigDecimal factor) throws XPathException {
+        throw new XPathException("Only subtypes of xs:duration can be multiplied by a number", "XPTY0004").asTypeError();
     }
 
     /**
@@ -790,13 +803,11 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      *
      * @param factor the number to divide by
      * @return the result of the division
+     * @throws XPathException if an error is detected
      */
 
     public DurationValue divide(double factor) throws XPathException {
-        XPathException err = new XPathException("Only subtypes of xs:duration can be divided by a number");
-        err.setErrorCode("XPTY0004");
-        err.setIsTypeError(true);
-        throw err;
+        throw new XPathException("Only subtypes of xs:duration can be divided by a number", "XPTY0004").asTypeError();
     }
 
     /**
@@ -804,13 +815,11 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      *
      * @param other the duration to divide by
      * @return the result of the division
+     * @throws XPathException if an error is detected
      */
 
     public BigDecimalValue divide(DurationValue other) throws XPathException {
-        XPathException err = new XPathException("Only subtypes of xs:duration can be divided by another duration");
-        err.setErrorCode("XPTY0004");
-        err.setIsTypeError(true);
-        throw err;
+        throw new XPathException("Only subtypes of xs:duration can be divided by another duration", "XPTY0004").asTypeError();
     }
 
     /**
@@ -822,25 +831,11 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
      */
 
     /*@NotNull*/
-    @Override
-    public Comparable getSchemaComparable() {
-        return getSchemaComparable(this);
-    }
-
-    /**
-     * Get a Comparable value that implements the XML Schema ordering comparison semantics for this value.
-     * This implementation handles the ordering rules for durations in XML Schema.
-     *
-     * @param value the duration for which a comparison key is required
-     * @return a suitable Comparable
-     */
-
-    /*@NotNull*/
-    public static Comparable getSchemaComparable(/*@NotNull*/ DurationValue value) {
-        int m = value.months;
-        long s = value.seconds;
-        int n = value.nanoseconds;
-        if (value.negative) {
+    public DurationComparable getSchemaComparable() {
+        int m = this._months;
+        long s = this._seconds;
+        int n = this._nanoseconds;
+        if (this._negative) {
             s = -s;
             m = -m;
             n = -n;
@@ -849,15 +844,15 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
     }
 
     /**
-     * DurationValueOrderingKey is a Comparable value that acts as a surrogate for a Duration,
+     * DurationValueComparable is a Comparable value that acts as a surrogate for a Duration,
      * having ordering rules that implement the XML Schema specification.
      */
 
-    private static class DurationComparable implements Comparable<DurationComparable> {
+    public static class DurationComparable implements Comparable<DurationComparable> {
 
-        private int months;
-        private long seconds;
-        private int nanoseconds;
+        private final int months;
+        private final long seconds;
+        private final int nanoseconds;
 
         public DurationComparable(int m, long s, int nanos) {
             months = m;
@@ -875,16 +870,6 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
 
         @Override
         public int compareTo(DurationComparable other) {
-            //DurationComparable other = ;
-//            if (o instanceof DurationComparable) {
-//                other = (DurationComparable) o;
-//            } else if (o instanceof YearMonthDurationValue) {
-//                other = (DurationComparable) getSchemaComparable((YearMonthDurationValue) o);
-//            } else if (o instanceof DayTimeDurationValue) {
-//                other = (DurationComparable) getSchemaComparable((DayTimeDurationValue) o);
-//            } else {
-//                return SequenceTool.INDETERMINATE_ORDERING;
-//            }
             if (months == other.months) {
                 if (seconds == other.seconds) {
                     return Integer.compare(nanoseconds, other.nanoseconds);
@@ -904,6 +889,7 @@ public class DurationValue extends AtomicValue implements AtomicMatchKey {
                 } else if (min0 > max1) {
                     return +1;
                 } else {
+                    //noinspection ComparatorMethodParameterNotUsed
                     return SequenceTool.INDETERMINATE_ORDERING;
                 }
             }

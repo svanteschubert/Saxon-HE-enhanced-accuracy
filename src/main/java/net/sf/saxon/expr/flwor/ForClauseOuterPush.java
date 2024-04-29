@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -35,7 +35,7 @@ public class ForClauseOuterPush extends TuplePush {
      */
     @Override
     public void processTuple(XPathContext context) throws XPathException {
-        SequenceIterator iter = forClause.getSequence().iterate(context);
+        SequenceIterator iter = forClause.getSequence().makeElaborator().elaborateForPull().iterate(context);
         int pos = 0;
         Item next = iter.next();
         if (next == null) {
@@ -45,7 +45,7 @@ public class ForClauseOuterPush extends TuplePush {
             }
             destination.processTuple(context);
         } else {
-            while (true) {
+            do {
                 context.setLocalVariable(forClause.getRangeVariable().getLocalSlotNumber(), next);
                 if (forClause.getPositionVariable() != null) {
                     context.setLocalVariable(
@@ -54,10 +54,7 @@ public class ForClauseOuterPush extends TuplePush {
                 }
                 destination.processTuple(context);
                 next = iter.next();
-                if (next == null) {
-                    break;
-                }
-            }
+            } while (next != null);
         }
     }
 

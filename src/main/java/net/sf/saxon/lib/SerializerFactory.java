@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,28 +9,34 @@ package net.sf.saxon.lib;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.*;
+import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.om.NameChecker;
-import net.sf.saxon.om.NamespaceResolver;
-import net.sf.saxon.om.QNameException;
 import net.sf.saxon.om.TreeInfo;
 import net.sf.saxon.query.SequenceWrapper;
 import net.sf.saxon.serialize.*;
 import net.sf.saxon.stax.StAXResultHandlerImpl;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeWriter;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BigDecimalValue;
+import net.sf.saxon.value.StringValue;
+import net.sf.saxon.value.Whitespace;
 
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Result;
 import javax.xml.transform.Source;
-import javax.xml.transform.TransformerException;
 import javax.xml.transform.sax.SAXResult;
 import javax.xml.transform.stax.StAXResult;
 import javax.xml.transform.stream.StreamResult;
-import java.io.Writer;
-import java.util.*;
+import java.net.URISyntaxException;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Properties;
 import java.util.regex.Pattern;
 
 /**
@@ -67,24 +73,6 @@ public class SerializerFactory {
     public Configuration getConfiguration() {
         return config;
     }
-    /**
-     * Create a serializer with given output properties, and return
-     * an XMLStreamWriter that can be used to feed events to the serializer.
-     *
-     * @param result     the destination of the serialized output (wraps a Writer, an OutputStream, or a File)
-     * @param properties the serialization properties to be used
-     * @return a serializer in the form of an XMLStreamWriter
-     * @throws net.sf.saxon.trans.XPathException
-     *          if any error occurs
-     */
-
-    public StreamWriterToReceiver getXMLStreamWriter(
-            StreamResult result,
-            Properties properties) throws XPathException {
-        Receiver r = getReceiver(result, new SerializationProperties(properties));
-        r = new NamespaceReducer(r);
-        return new StreamWriterToReceiver(r);
-    }
 
     /**
      * Get a Receiver that wraps a given Result object. Saxon calls this method to construct
@@ -114,7 +102,7 @@ public class SerializerFactory {
      *          if any failure occurs
      * @deprecated since Saxon 9.9: use one of the other {@code getReceiver} methods
      */
-
+    @Deprecated
     public Receiver getReceiver(Result result,
                                 PipelineConfiguration pipe,
                                 Properties props)
@@ -181,6 +169,7 @@ public class SerializerFactory {
      * @throws XPathException if a serializer cannot be created
      */
 
+    @CSharpModifiers(code = {"public", "virtual"})
     public Receiver getReceiver(Result result,
                                 SerializationProperties params,
                                 PipelineConfiguration pipe)
@@ -214,22 +203,28 @@ public class SerializerFactory {
             }
             Properties props2 = new Properties(props);
             props2.setProperty(SaxonOutputKeys.PARAMETER_DOCUMENT, "");
-            Source source;
+
+            ResourceRequest rr = new ResourceRequest();
+            rr.relativeUri = paramDoc;
+            rr.baseUri = base;
             try {
-                source = config.getURIResolver().resolve(paramDoc, base);
-            } catch (TransformerException e) {
-                throw XPathException.makeXPathException(e);
+                rr.uri = ResolveURI.makeAbsolute(paramDoc, base).toString();
+            } catch (URISyntaxException err) {
+                throw XPathException.makeXPathException(err);
             }
-            ParseOptions options = new ParseOptions();
-            options.setSchemaValidationMode(Validation.LAX);
-            options.setDTDValidationMode(Validation.SKIP);
+            rr.nature = NamespaceConstant.OUTPUT;
+            rr.purpose = ResourceRequest.ANY_PURPOSE;
+
+            Source source = rr.resolve(config.getResourceResolver(), new DirectResourceResolver(config));
+
+            ParseOptions options = new ParseOptions()
+                    .withSchemaValidationMode(Validation.LAX)
+                    .withDTDValidationMode(Validation.SKIP);
             TreeInfo doc = config.buildDocumentTree(source);
             SerializationParamsHandler ph = new SerializationParamsHandler();
             ph.setSerializationParams(doc.getRootNode());
             Properties paramDocProps = ph.getSerializationProperties().getProperties();
-            Enumeration<?> names = paramDocProps.propertyNames();
-            while (names.hasMoreElements()) {
-                String name = (String)names.nextElement();
+            for (String name : paramDocProps.stringPropertyNames()){
                 String value = paramDocProps.getProperty(name);
                 props2.setProperty(name, value);
             }
@@ -241,7 +236,14 @@ public class SerializerFactory {
             props = props2;
             params = new SerializationProperties(props2, charMapIndex);
         }
-        if (result instanceof StreamResult) {
+        UnicodeWriter uWriter = null;
+        ExpandedStreamResult expandedResult = null;
+        if (result instanceof UnicodeWriterResult) {
+            uWriter = ((UnicodeWriterResult) result).getUnicodeWriter();
+        } else if (result instanceof StreamResult) {
+            expandedResult = new ExpandedStreamResult(getConfiguration(), (StreamResult)result, props);
+        }
+        if (result instanceof StreamResult || result instanceof UnicodeWriterResult) {
 
             // The "target" is the start of the output pipeline, the Receiver that
             // instructions will actually write to (except that other things like a
@@ -261,31 +263,60 @@ public class SerializerFactory {
                 case "html": {
                     emitter = newHTMLEmitter(props);
                     emitter.setPipelineConfiguration(pipe);
+                    if (uWriter == null) {
+                        uWriter = expandedResult.obtainUnicodeWriter();
+                        emitter.setMustClose(expandedResult.isMustCloseAfterUse());
+                    }
+                    emitter.setUnicodeWriter(uWriter);
                     target = createHTMLSerializer(emitter, params, pipe);
+
                     break;
                 }
                 case "xml": {
                     emitter = newXMLEmitter(props);
                     emitter.setPipelineConfiguration(pipe);
+                    if (uWriter == null) {
+                        assert expandedResult != null;
+                        uWriter = expandedResult.obtainUnicodeWriter();
+                        emitter.setMustClose(expandedResult.isMustCloseAfterUse());
+                    }
+                    emitter.setUnicodeWriter(uWriter);
                     target = createXMLSerializer((XMLEmitter) emitter, params);
                     break;
                 }
                 case "xhtml": {
                     emitter = newXHTMLEmitter(props);
                     emitter.setPipelineConfiguration(pipe);
+                    if (uWriter == null) {
+                        assert expandedResult != null;
+                        uWriter = expandedResult.obtainUnicodeWriter();
+                        emitter.setMustClose(expandedResult.isMustCloseAfterUse());
+                    }
+                    emitter.setUnicodeWriter(uWriter);
                     target = createXHTMLSerializer(emitter, params, pipe);
                     break;
                 }
                 case "text": {
                     emitter = newTEXTEmitter();
                     emitter.setPipelineConfiguration(pipe);
+                    if (uWriter == null) {
+                        assert expandedResult != null;
+                        uWriter = expandedResult.obtainUnicodeWriter();
+                        emitter.setMustClose(expandedResult.isMustCloseAfterUse());
+                    }
+                    emitter.setUnicodeWriter(uWriter);
                     target = createTextSerializer(emitter, params);
                     break;
                 }
                 case "json": {
-                    StreamResult sr = (StreamResult) result;
                     props.setProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
-                    JSONEmitter je = new JSONEmitter(pipe, sr, props);
+                    if (uWriter == null) {
+                        uWriter = expandedResult.obtainUnicodeWriter();
+                    }
+                    JSONEmitter je = new JSONEmitter(pipe, uWriter, props);
+                    if (expandedResult != null) {
+                        je.setMustClose(expandedResult.isMustCloseAfterUse());
+                    }
                     JSONSerializer js = new JSONSerializer(pipe, je, props);
                     String sortOrder = props.getProperty(SaxonOutputKeys.PROPERTY_ORDER);
                     if (sortOrder != null) {
@@ -297,10 +328,15 @@ public class SerializerFactory {
 
                 }
                 case "adaptive": {
-                    ExpandedStreamResult esr = new ExpandedStreamResult(pipe.getConfiguration(), (StreamResult)result, props);
-                    Writer writer = esr.obtainWriter();
-                    AdaptiveEmitter je = new AdaptiveEmitter(pipe, writer);
+                    if (uWriter == null) {
+                        assert expandedResult != null;
+                        uWriter = expandedResult.obtainUnicodeWriter();
+                    }
+                    AdaptiveEmitter je = new AdaptiveEmitter(pipe, uWriter);
                     je.setOutputProperties(props);
+                    if (expandedResult != null) {
+                        je.setMustClose(expandedResult.isMustCloseAfterUse());
+                    }
                     CharacterMapExpander characterMapExpander = makeCharacterMapExpander(pipe, props, charMapIndex);
                     ProxyReceiver normalizer = makeUnicodeNormalizer(pipe, props);
                     return customizeAdaptiveSerializer(je, props, characterMapExpander, normalizer);
@@ -314,7 +350,7 @@ public class SerializerFactory {
                         CharacterMapExpander characterMapExpander = makeCharacterMapExpander(pipe, props, charMapIndex);
                         ProxyReceiver normalizer = makeUnicodeNormalizer(pipe, props);
                         target = createSaxonSerializationMethod(
-                                method, params, pipe, characterMapExpander, normalizer, (StreamResult)result);
+                                method, params, pipe, characterMapExpander, normalizer, expandedResult, result);
                         if (target instanceof Emitter) {
                             emitter = (Emitter) target;
                         }
@@ -323,17 +359,21 @@ public class SerializerFactory {
                         userReceiver = createUserDefinedOutputMethod(method, props, pipe);
                         if (userReceiver instanceof Emitter) {
                             emitter = (Emitter) userReceiver;
+                            if (uWriter == null) {
+                                assert expandedResult != null;
+                                uWriter = expandedResult.obtainUnicodeWriter();
+                            }
+                            emitter.setUnicodeWriter(uWriter);
                             target = params.makeSequenceNormalizer(emitter);
                         } else {
                             return params.makeSequenceNormalizer(userReceiver);
                         }
                     }
                 }
+                break;
             }
             if (emitter != null) {
                 emitter.setOutputProperties(props);
-                StreamResult sr = (StreamResult) result;
-                emitter.setStreamResult(sr);
             }
             //target = new RegularSequenceChecker(target); // add this back in for diagnostics only
             target.setSystemId(result.getSystemId());
@@ -398,10 +438,9 @@ public class SerializerFactory {
                 return new TreeReceiver(receiver);
             }
         } else if (result instanceof SAXResult) {
-            ContentHandlerProxy proxy = newContentHandlerProxy();
-            proxy.setUnderlyingContentHandler(((SAXResult) result).getHandler());
-            proxy.setPipelineConfiguration(pipe);
+            ContentHandlerProxy proxy = new ContentHandlerProxy(((SAXResult) result).getHandler());
             proxy.setOutputProperties(props);
+            proxy.setPipelineConfiguration(pipe);
             if ("yes".equals(props.getProperty(SaxonOutputKeys.SUPPLY_SOURCE_LOCATOR))) {
                 if (config.isCompileWithTracing() && pipe.getController() != null) {
                     pipe.getController().addTraceListener(proxy.getTraceListener());
@@ -410,8 +449,8 @@ public class SerializerFactory {
                             "Cannot use saxon:supply-source-locator unless tracing was enabled at compile time", SaxonErrorCode.SXSE0002);
                 }
             }
-            //proxy.open();
-            return makeSequenceNormalizer(proxy, props);
+            NamespaceDifferencer delta = new NamespaceDifferencer(proxy, props);
+            return makeSequenceNormalizer(delta, props);
         } else if (result instanceof StAXResult) {
             StAXResultHandler handler = new StAXResultHandlerImpl();
             Receiver r = handler.getReceiver(result, props);
@@ -420,9 +459,8 @@ public class SerializerFactory {
         } else {
             if (pipe != null) {
                 // try to find an external object model that knows this kind of Result
-                List externalObjectModels = pipe.getConfiguration().getExternalObjectModels();
-                for (Object externalObjectModel : externalObjectModels) {
-                    ExternalObjectModel model = (ExternalObjectModel) externalObjectModel;
+                List<ExternalObjectModel> externalObjectModels = pipe.getConfiguration().getExternalObjectModels();
+                for (ExternalObjectModel model : externalObjectModels) {
                     Receiver builder = model.getDocumentBuilder(result);
                     if (builder != null) {
                         builder.setSystemId(result.getSystemId());
@@ -447,7 +485,7 @@ public class SerializerFactory {
             if (separator == null || "#absent".equals(separator)) {
                 result = new SequenceNormalizerWithSpaceSeparator(receiver);
             } else {
-                result = new SequenceNormalizerWithItemSeparator(receiver, separator);
+                result = new SequenceNormalizerWithItemSeparator(receiver, StringView.of(separator));
             }
             result.setPipelineConfiguration(pipe);
             return result;
@@ -495,8 +533,9 @@ public class SerializerFactory {
         if (attributeOrder != null && !attributeOrder.isEmpty()) {
             target = newAttributeSorter(target, props);
         }
-        if (params.getValidationFactory() != null) {
-            target = params.getValidationFactory().makeFilter(target);
+        FilterFactory validationFactory = params.getValidationFactory();
+        if (validationFactory != null) {
+            target = validationFactory.makeFilter(target);
         }
         return makeSequenceNormalizer(target, props);
     }
@@ -518,8 +557,9 @@ public class SerializerFactory {
         target = injectUnicodeNormalizer(params, emitter);
         target = injectCharacterMapExpander(params, target, false);
         target = addTextOutputFilter(target, props);
-        if (params.getValidationFactory() != null) {
-            target = params.getValidationFactory().makeFilter(target);
+        FilterFactory validationFactory = params.getValidationFactory();
+        if (validationFactory != null) {
+            target = validationFactory.makeFilter(target);
         }
         return makeSequenceNormalizer(target, props);
     }
@@ -539,7 +579,7 @@ public class SerializerFactory {
             JSONSerializer emitter, Properties props,
             CharacterMapExpander characterMapExpander, ProxyReceiver normalizer) throws XPathException {
         if (normalizer instanceof UnicodeNormalizer) {
-            emitter.setNormalizer(((UnicodeNormalizer)normalizer).getNormalizer());
+            emitter.setNormalizationForm(((UnicodeNormalizer)normalizer).getNormalizationForm());
         }
         if (characterMapExpander != null) {
             emitter.setCharacterMap(characterMapExpander.getCharacterMap());
@@ -562,7 +602,7 @@ public class SerializerFactory {
             AdaptiveEmitter emitter, Properties props,
             CharacterMapExpander characterMapExpander, ProxyReceiver normalizer) {
         if (normalizer instanceof UnicodeNormalizer) {
-            emitter.setNormalizer(((UnicodeNormalizer) normalizer).getNormalizer());
+            emitter.setNormalizationForm(((UnicodeNormalizer) normalizer).getNormalizationForm());
         }
         if (characterMapExpander != null) {
             emitter.setCharacterMap(characterMapExpander.getCharacterMap());
@@ -685,7 +725,7 @@ public class SerializerFactory {
     protected SequenceReceiver createSaxonSerializationMethod(
             String method, SerializationProperties params,
             PipelineConfiguration pipe, CharacterMapExpander characterMapExpander,
-            ProxyReceiver normalizer, StreamResult result) throws XPathException {
+            ProxyReceiver normalizer, ExpandedStreamResult expandedResult, Result result) throws XPathException {
         throw new XPathException("Saxon serialization methods require Saxon-PE to be enabled");
     }
 
@@ -693,8 +733,8 @@ public class SerializerFactory {
      * Create a serialization pipeline to implement a user-defined output method. This method is protected
      * so that it can be customized in a user-written SerializerFactory
      *
-     * @param method the name of the user-defined output method, as a QName in Clark format
-     *               (that is "{uri}local").
+     * @param method the name of the user-defined output method, as a QName in EQName format
+     *               (that is "Q{uri}local").
      * @param props  the serialization properties
      * @param pipe   the pipeline configuration information
      * @return a Receiver acting as the entry point to the serialization pipeline
@@ -702,7 +742,8 @@ public class SerializerFactory {
      */
 
     protected SequenceReceiver createUserDefinedOutputMethod(String method, Properties props, PipelineConfiguration pipe) throws XPathException {
-        Receiver userReceiver;// See if this output method is recognized by the Configuration
+        Receiver userReceiver;
+        // See if this output method is recognized by the Configuration
         userReceiver = pipe.getConfiguration().makeEmitter(method, props);
         userReceiver.setPipelineConfiguration(pipe);
         if (userReceiver instanceof ContentHandlerProxy &&
@@ -738,16 +779,6 @@ public class SerializerFactory {
             return newUnicodeNormalizer(out, props);
         }
         return out;
-    }
-
-    /**
-     * Create a ContentHandlerProxy. This method exists so that it can be overridden in a subclass.
-     *
-     * @return the newly created ContentHandlerProxy.
-     */
-
-    protected ContentHandlerProxy newContentHandlerProxy() {
-        return new ContentHandlerProxy();
     }
 
     /**
@@ -801,7 +832,11 @@ public class SerializerFactory {
 
     protected Emitter newXHTMLEmitter(Properties properties) {
         boolean is5 = SaxonOutputKeys.isXhtmlHtmlVersion5(properties);
-        return is5 ? new XHTML5Emitter() : new XHTML1Emitter();
+        if (is5) {
+            return new XHTML5Emitter();
+        } else {
+            return new XHTML1Emitter();
+        }
     }
 
     /**
@@ -1106,6 +1141,11 @@ public class SerializerFactory {
                 case OutputKeys.ENCODING:
                     // no constraints
                     break;
+                case SaxonOutputKeys.ESCAPE_SOLIDUS:
+                    if (value != null) {
+                        value = checkYesOrNo(key, value);
+                    }
+                    break;
                 case SaxonOutputKeys.HTML_VERSION:
                     if (value != null) {
                         checkDecimal(key, value);
@@ -1202,7 +1242,7 @@ public class SerializerFactory {
     }
 
     private static void checkNormalizationForm(String value) throws XPathException {
-        if (!NameChecker.isValidNmtoken(value)) {
+        if (!NameChecker.isValidNmtoken(StringView.of(value))) {
             throw new XPathException("Invalid value for normalization-form: " +
                                              "must be NFC, NFD, NFKC, NFKD, fully-normalized, or none", "SEPM0016");
         }
@@ -1246,11 +1286,12 @@ public class SerializerFactory {
     }
 
     protected static String checkListOfEQNames(String key, String value) throws XPathException {
-        StringTokenizer tok = new StringTokenizer(value, " \t\n\r", false);
+        Whitespace.Tokenizer tokenizer = new Whitespace.Tokenizer(StringView.of(value).tidy());
         StringBuilder builder = new StringBuilder();
-        while (tok.hasMoreTokens()) {
-            String s = tok.nextToken();
-            if (isValidEQName(s) || NameChecker.isValidNCName(s)) {
+        StringValue tok;
+        while ((tok = tokenizer.next()) != null) {
+            String s = tok.getStringValue();
+            if (isValidEQName(s) || NameChecker.isValidNCName(tok.codePoints())) {
                 builder.append(s);
             } else if (isValidClarkName(s)) {
                 if (s.startsWith("{")) {
@@ -1268,10 +1309,11 @@ public class SerializerFactory {
     }
 
     protected static String checkListOfEQNamesAllowingStar(String key, String value) throws XPathException {
+        Whitespace.Tokenizer tokenizer = new Whitespace.Tokenizer(StringView.of(value).tidy());
         StringBuilder builder = new StringBuilder();
-        StringTokenizer tok = new StringTokenizer(value, " \t\n\r", false);
-        while (tok.hasMoreTokens()) {
-            String s = tok.nextToken();
+        StringValue tok;
+        while ((tok = tokenizer.next()) != null) {
+            String s = tok.getStringValue();
             if ("*".equals(s) || isValidEQName(s) || NameChecker.isValidNCName(s)) {
                 builder.append(s);
             } else if (isValidClarkName(s)) {
@@ -1289,7 +1331,7 @@ public class SerializerFactory {
         return builder.toString().trim();
     }
 
-    private static Pattern publicIdPattern = Pattern.compile("^[\\s\\r\\na-zA-Z0-9\\-'()+,./:=?;!*#@$_%]*$");
+    private static final Pattern publicIdPattern = Pattern.compile("^[\\s\\r\\na-zA-Z0-9\\-'()+,./:=?;!*#@$_%]*$");
 
     private static void checkPublicIdentifier(String value) throws XPathException {
         if (!publicIdPattern.matcher(value).matches()) {
@@ -1303,54 +1345,31 @@ public class SerializerFactory {
         }
     }
 
-    /**
-     * Process a serialization property whose value is a list of element names, for example cdata-section-elements
-     *
-     * @param value        The value of the property as written
-     * @param nsResolver   The namespace resolver to use; may be null if prevalidated is set or if names are supplied
-     *                     in Clark format
-     * @param useDefaultNS True if the namespace resolver should be used for unprefixed names; false if
-     *                     unprefixed names should be considered to be in no namespace
-     * @param prevalidated true if the property has already been validated
-     * @param errorCode    The error code to return in the event of problems
-     * @return The list of element names with lexical QNames replaced by Clark names, starting with a single space
-     * @throws XPathException if any error is found in the list of element names, for example, an undeclared namespace prefix
-     */
-
-    /*@NotNull*/
-    public static String parseListOfNodeNames(
-            String value, NamespaceResolver nsResolver, boolean useDefaultNS, boolean prevalidated, /*@NotNull*/  String errorCode)
-            throws XPathException {
-        StringBuilder s = new StringBuilder();
-        StringTokenizer st = new StringTokenizer(value, " \t\n\r", false);
-        while (st.hasMoreTokens()) {
-            String displayname = st.nextToken();
-            if (prevalidated || (nsResolver == null)) {
-                s.append(' ').append(displayname);
-            } else if (displayname.startsWith("Q{")) {
-                s.append(' ').append(displayname.substring(1));
-            } else {
-                try {
-                    String[] parts = NameChecker.getQNameParts(displayname);
-                    String muri = nsResolver.getURIForPrefix(parts[0], useDefaultNS);
-                    if (muri == null) {
-                        throw new XPathException("Namespace prefix '" + parts[0] + "' has not been declared", errorCode);
-                    }
-                    s.append(" {").append(muri).append('}').append(parts[1]);
-                } catch (QNameException err) {
-                    throw new XPathException("Invalid element name. " + err.getMessage(), errorCode);
-                }
-            }
-        }
-        return s.toString();
-    }
-
     protected void checkExtensions(String key /*@Nullable*/) throws XPathException {
         throw new XPathException("Serialization property " + Err.wrap(key, Err.EQNAME) + " is not available in Saxon-HE");
     }
 
     protected Comparator<AtomicValue> getPropertySorter(String sortSpecification) throws XPathException {
         throw new XPathException("Serialization property saxon:property-order is not available in Saxon-HE");
+    }
+
+
+    /**
+     * Create a serializer with given output properties, and return
+     * an XMLStreamWriter that can be used to feed events to the serializer.
+     *
+     * @param result     the destination of the serialized output (wraps a Writer, an OutputStream, or a File)
+     * @param properties the serialization properties to be used
+     * @return a serializer in the form of an XMLStreamWriter
+     * @throws net.sf.saxon.trans.XPathException if any error occurs
+     */
+
+    public StreamWriterToReceiver getXMLStreamWriter(
+            StreamResult result,
+            Properties properties) throws XPathException {
+        Receiver r = getReceiver(result, new SerializationProperties(properties));
+        r = new NamespaceReducer(r);
+        return new StreamWriterToReceiver(r);
     }
 
 

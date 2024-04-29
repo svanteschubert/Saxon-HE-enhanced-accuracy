@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,16 +11,20 @@ import net.sf.saxon.event.EventSource;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.jaxp.ReceivingDestination;
+import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.InvalidityHandler;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.type.ValidationParams;
 
 import javax.xml.transform.ErrorListener;
 import javax.xml.transform.Source;
 
 /**
- * A <tt>SchemaValidator</tt> is an object that is used for validating instance documents against a schema.
+ * A <code>SchemaValidator</code> is an object that is used for validating instance documents against a schema.
  * The schema consists of the collection of schema components that are available within the schema
  * cache maintained by the SchemaManager, together with any additional schema components located
  * during the course of validation by means of an xsl:schemaLocation or xsi:noNamespaceSchemaLocation
@@ -30,15 +34,16 @@ import javax.xml.transform.Source;
  * augmented with default values for absent elements and attributes, and carrying type annotations
  * derived from the schema processing. Expansion of defaults can be suppressed by means of the method
  * {@link #setExpandAttributeDefaults(boolean)}.</p>
- * <p>A <tt>SchemaValidator</tt> is serially reusable but not thread-safe. That is, it should normally
+ * <p>A <code>SchemaValidator</code> is serially reusable but not thread-safe. That is, it should normally
  * be used in the thread where it is created, but it can be used more than once, to validate multiple
  * input documents.</p>
- * <p>A <tt>SchemaValidator</tt> is a <tt>Destination</tt>, which allows it to receive the output of a
+ * <p>A <code>SchemaValidator</code> is a <code>Destination</code>, which allows it to receive the output of a
  * query or transformation to be validated.</p>
  * <p>Saxon does not deliver the full PSVI as described in the XML schema specifications,
  * only the subset of the PSVI properties featured in the XDM data model.</p>
  */
 
+@CSharpModifiers(code = {"abstract", "internal"})
 public abstract class SchemaValidator extends AbstractDestination {
 
     /**
@@ -64,7 +69,7 @@ public abstract class SchemaValidator extends AbstractDestination {
      * Set the ErrorListener to be used while validating instance documents.
      * The setErrorReporter, setInvalidityHandler, and setValidityReporting
      * are mutually exclusive - setting any one of them will cancel the others. Please note
-     * that setErrorReporter has the drawback of creating an exception for every
+     * that this method has the drawback of creating an exception for every
      * validation error, which is expensive.
      *
      * @param listener The error listener to be used. This is notified of all errors detected during the
@@ -72,6 +77,7 @@ public abstract class SchemaValidator extends AbstractDestination {
      * @deprecated since 10.0. Use {@link #setInvalidityHandler(InvalidityHandler)}
      */
 
+    @Deprecated
     public abstract void setErrorListener(ErrorListener listener);
 
     /**
@@ -81,11 +87,11 @@ public abstract class SchemaValidator extends AbstractDestination {
      *         validation episode. Returns null if no user-supplied ErrorListener has been set.
      * @deprecated since 10.0. Use {@link #getInvalidityHandler()}
      */
-
+    @Deprecated
     public abstract ErrorListener getErrorListener();
 
     /**
-     * Set the InvalidityHandler to be used when validating instance documents.
+     * Set the {@link InvalidityHandler} to be used when validating instance documents.
      * The setErrorReporter, setInvalidityHandler, and setValidityReporting
      * are mutually exclusive - setting any one of them will cancel the others.
      * @param handler the InvalidityHandler to be used.
@@ -94,7 +100,7 @@ public abstract class SchemaValidator extends AbstractDestination {
     public abstract void setInvalidityHandler(InvalidityHandler handler);
 
     /**
-     * Get the InvalidityHandler used when validating instance documents
+     * Get the {@link InvalidityHandler} used when validating instance documents
      * @return the InvalidityHandler being used
      */
 
@@ -133,27 +139,25 @@ public abstract class SchemaValidator extends AbstractDestination {
 
     /**
      * This method can be called before running a validation to define a destination to which validation
-     * reports should be written. The validation report is in XML format, and the Destination may therefore
-     * be (for example) a Serializer, an XdmDestination, or an XsltTransformer. (An XsltTransformer might be
-     * used to render the report as HTML, for example). The format of the validation report is defined in a
-     * schema which is available in the saxon-resources download file.
+     * reports should be written. The validation report is in XML format, and the {@link Destination} may therefore
+     * be (for example) a {@link Serializer}, an {@link XdmDestination}, or an {@link XsltTransformer}.
+     * (An {@link XsltTransformer} might be used to render the report as HTML, for example). The format
+     * of the validation report is defined in a schema which is available in the saxon-resources download file.
      *
-     * Calling this method has the effect of setting an InvalidityHandler internally, which cancels any
-     * user-defined InvalidityHandler or ErrorListener that has been set.
+     * <p>Calling this method has the effect of setting an {@link InvalidityHandler} internally, which cancels any
+     * user-defined {@link InvalidityHandler} that has been set.</p>
      *
-     * This option applies only to the next call of {@link #validate} or {@link #validateMultiple}.
-     * After such a call, the registered {@code InvalidityHandler} is reset to its initial default state (which causes
-     * validation errors to be output to {@code System.err}), and {@link #setValidityReporting} must be called again if reports
-     * are required for subsequent validations.
+     * <p>This option applies only to the next call of {@link #validate} or {@link #validateMultiple}.
+     * After such a call, the registered {@link InvalidityHandler} is reset to its initial default state (which causes
+     * validation errors to be output to {@code System.err}), and {@code setValidityReporting} must be called again
+     * if reports are required for subsequent validations.</p>
      *
-     * If multiple documents are validated using the {@link #validateMultiple} method, the reports for each validation will
-     * be combined into a single report. Using this mechanism when validating multiple documents simultaneously is
-     * recommended, because with other mechanisms, validation failures for different source documents will be
-     * interleaved, and it becomes an application responsibility to organize which failures relate to which
-     * source document.
+     * <p>If multiple documents are validated using the {@link #validateMultiple} method, the reports for each
+     * validation will be combined into a single report. Using this mechanism when validating multiple documents
+     * simultaneously is recommended, because with other mechanisms, validation failures for different source
+     * documents will be interleaved, and it becomes an application responsibility to organize which failures
+     * relate to which source document.</p>
      *
-     * The {@link #setErrorListener}, {@link #setInvalidityHandler}, and {@link #setValidityReporting}
-     * are mutually exclusive - setting any one of them will cancel the others.
      * @param destination where XML will be sent
      * @throws SaxonApiException if the destination is unsuitable
      */
@@ -290,6 +294,16 @@ public abstract class SchemaValidator extends AbstractDestination {
 
 
     /**
+     * Get all the supplied validation parameters
+     *
+     * @return a collection of all the parameters supplied using {@link #setParameter(QName, XdmValue)}
+     * @throws SaxonApiException if any supplied parameter cannot be converted to its required type
+     */
+
+    public abstract ValidationParams getValidationParameters() throws SaxonApiException;
+
+
+    /**
      * Validate an instance document supplied as a Source object
      *
      * @param source the instance document to be validated. The call getSystemId() applied to
@@ -303,39 +317,38 @@ public abstract class SchemaValidator extends AbstractDestination {
 
     public abstract void validate(Source source) throws SaxonApiException;
 
-
-
     /**
      *  This method can be called to validate multiple source documents simultaneously (in parallel threads).
      *  The method returns when all the threads are complete. The number of threads used is set to the number
      *  of processors available on the machine.
      *
-     *  When this method is used, any destination set using the setDestination() method is ignored. The
+     *  <p>When this method is used, any destination set using the {@link #setDestination} method is ignored. The
      *  post-validation documents (with type annotations and expanded default values, for example) are not
-     *  made available.
+     *  made available.</p>
      *
-     *  It is recommended to use this method in conjunction with setValidityReport; the resulting report will
-     *  detail the outcome of validation for each supplied Source, each in a separate section.
+     *  <p>It is recommended to use this method in conjunction with {@link #setValidityReporting}; the resulting report will
+     *  detail the outcome of validation for each supplied {@code Source}, each in a separate section.</p>
      *
-     *  It is important that the systemId property of each Source object should be set; otherwise, it will not
-     *  be possible in the resulting report to associate validation failures with individual source documents.
+     *  <p>It is important that the systemId property of each Source object should be set; otherwise, it will not
+     *  be possible in the resulting report to associate validation failures with individual source documents.</p>
      *
-     *  Note that the method does not throw an exception if any of the documents are found to be invalid, or if
+     *  <p>Note that the method does not throw an exception if any of the documents are found to be invalid, or if
      *  any of the documents cannot be validated (for example, because they are not well-formed XML, or because
      *  they cannot be retrieved from a web server). All such errors are reported in the validation report, or are
      *  notified to the registered ErrorListener or InvalidityHandler. By default, messages detailing the failures
-     *  are simply written to System.err output.
+     *  are simply written to System.err output.</p>
      *
-     *  If the Configuration option FeatureKeys.ALLOW_MULTITHREADING is set to false, the source documents are
-     *  validated synchronously in a single thread.
+     *  <p>If the Configuration option {@link Feature#ALLOW_MULTITHREADING} is set to false, the source documents are
+     *  validated synchronously in a single thread.</p>
+     *
+     *  <p>The method returns when all the source documents have been validated.</p>
      *
      * @param sources the Iterable of instance documents to be validated. The call getSystemId() applied to
      *               the source objects must return the base URI used for dereferencing any xsi:schemaLocation
      *               or xsi:noNamespaceSchemaLocation attributes
-     * @throws SaxonApiException if the source document is found to be invalid, or if error conditions
-     *                           occur that prevented validation from taking place (such as failure to read or parse the input
-     *                           document). The wrapped exception acting as the cause of the SaxonApiException can be used to
-     *                           distinguish these failure conditions.
+     * @throws SaxonApiException if error conditions occur that prevented validation from taking place (such
+     * as failure to read or parse an input document). No exception occurs if validation of all source documents
+     * ran to completion, whether or not they were found to be valid.
      */
     public abstract void validateMultiple(Iterable<Source> sources) throws SaxonApiException;
 
@@ -360,7 +373,7 @@ public abstract class SchemaValidator extends AbstractDestination {
                 setSystemId(input.getSystemId());
             }
             @Override
-            public void send(Receiver out) throws XPathException {
+            public void deliver(Receiver out, ParseOptions options) throws XPathException {
                 setDestination(new ReceivingDestination(out));
                 try {
                     validate(input);

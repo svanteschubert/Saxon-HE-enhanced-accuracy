@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,12 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.om.SequenceTool;
-import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 
@@ -20,13 +21,11 @@ import java.util.Arrays;
 
 /**
  * A value of type xs:base64Binary
- * <p><i>Rewritten for Saxon 9.5 to avoid dependency on the open-source Netscape code, whose
- * license many users were unhappy with.</i></p>
  */
 
-public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Comparable {
+public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XPathComparable, ContextFreeAtomicValue {
 
-    private byte[] binaryValue;
+    private final byte[] binaryValue;
 
 
     /**
@@ -39,9 +38,9 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
      *          space of the xs:base64Binary data type
      */
 
-    public Base64BinaryValue(/*@NotNull*/ CharSequence s) throws XPathException {
+    public Base64BinaryValue(UnicodeString s) throws XPathException {
+        super(BuiltInAtomicType.BASE64_BINARY);
         binaryValue = decode(s);
-        typeLabel = BuiltInAtomicType.BASE64_BINARY;
     }
 
     /**
@@ -51,8 +50,20 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
      */
 
     public Base64BinaryValue(byte[] value) {
+        super(BuiltInAtomicType.BASE64_BINARY);
         binaryValue = value;
-        typeLabel = BuiltInAtomicType.BASE64_BINARY;
+    }
+
+    /**
+     * Constructor: create a base64Binary value from a given array of bytes
+     *
+     * @param value array of bytes holding the octet sequence
+     * @param typeLabel the specific type (must be a subtype of BASE64_BINARY)
+     */
+
+    public Base64BinaryValue(byte[] value, AtomicType typeLabel) {
+        super(typeLabel);
+        binaryValue = value;
     }
 
     /**
@@ -66,9 +77,7 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
     /*@NotNull*/
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        Base64BinaryValue v = new Base64BinaryValue(binaryValue);
-        v.typeLabel = typeLabel;
-        return v;
+        return new Base64BinaryValue(binaryValue, typeLabel);
     }
 
     /**
@@ -95,8 +104,8 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
 
     /*@NotNull*/
     @Override
-    public String getPrimitiveStringValue() {
-        return encode(binaryValue).toString();
+    public UnicodeString getPrimitiveStringValue() {
+        return encode(binaryValue);
     }
 
     /**
@@ -109,48 +118,15 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
         return binaryValue.length;
     }
 
-    /**
-     * Support XML Schema comparison semantics
-     */
-
-    /*@NotNull*/
     @Override
-    public Comparable getSchemaComparable() {
-        return new Base64BinaryComparable();
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return this;
     }
 
-    /**
-     * Private inner class to support XML Schema comparison semantics
-     */
-
-    private class Base64BinaryComparable implements Comparable {
-
-        /*@NotNull*/
-        public Base64BinaryValue getBase64BinaryValue() {
-            return Base64BinaryValue.this;
-        }
-
-        @Override
-        public int compareTo(/*@NotNull*/ Object o) {
-            if (o instanceof Base64BinaryComparable &&
-                    Arrays.equals(getBase64BinaryValue().binaryValue,
-                            ((Base64BinaryComparable) o).getBase64BinaryValue().binaryValue)) {
-                return 0;
-            } else {
-                return SequenceTool.INDETERMINATE_ORDERING;
-            }
-        }
-
-        @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
-        public boolean equals(/*@NotNull*/ Object o) {
-            return compareTo(o) == 0;
-        }
-
-        public int hashCode() {
-            return Base64BinaryValue.this.hashCode();
-        }
+    @Override
+    public XPathComparable getXPathComparable() {
+        return this;
     }
-
 
     /**
      * Get an object value that implements the XPath equality and ordering comparison semantics for this value.
@@ -161,16 +137,13 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
      * using the getXPathComparable() method. A context argument is supplied for use in cases where the comparison
      * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
      * collation.
-     *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
-     * @param collator the collation (not used in this version of the method)
+     *  @param collator the collation (not used in this version of the method)
      * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
      */
 
     /*@Nullable*/
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone) {
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
         return this;
     }
 
@@ -201,8 +174,8 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
 
     private final static String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    private static int[] encoding = new int[64];
-    private static int[] decoding = new int[128];
+    private static final int[] encoding = new int[64];
+    private static final int[] decoding = new int[128];
 
     static {
         Arrays.fill(decoding, -1);
@@ -220,17 +193,17 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
      * @return the base64 representation
      */
 
-    public static CharSequence encode(byte[] value) {
-        FastStringBuffer buff = new FastStringBuffer(value.length);
+    public static UnicodeString encode(byte[] value) {
+        UnicodeBuilder buff = new UnicodeBuilder(value.length*2);
         int whole = value.length - value.length % 3;
         // process bytes 3 at a time: 3 bytes => 4 characters
         for (int i = 0; i < whole; i += 3) {
             // 3 bytes = 24 bits = 4 characters
             int val = ((((int) value[i]) & 0xff) << 16) + ((((int) value[i + 1]) & 0xff) << 8) + ((((int) value[i + 2]) & 0xff));
-            buff.cat((char) encoding[(val >> 18) & 0x3f]);
-            buff.cat((char) encoding[(val >> 12) & 0x3f]);
-            buff.cat((char) encoding[(val >> 6) & 0x3f]);
-            buff.cat((char) encoding[val & 0x3f]);
+            buff.append((char) encoding[(val >> 18) & 0x3f]);
+            buff.append((char) encoding[(val >> 12) & 0x3f]);
+            buff.append((char) encoding[(val >> 6) & 0x3f]);
+            buff.append((char) encoding[val & 0x3f]);
         }
         int remainder = (value.length % 3);
         switch (remainder) {
@@ -241,22 +214,22 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
             case 1: {
                 // pad the final 8 bits to 12 (2 groups of 6)
                 int val = ((((int) value[whole]) & 0xff) << 4);
-                buff.cat((char) encoding[(val >> 6) & 0x3f]);
-                buff.cat((char) encoding[val & 0x3f]);
-                buff.append("==");
+                buff.append((char) encoding[(val >> 6) & 0x3f]);
+                buff.append((char) encoding[val & 0x3f]);
+                buff.appendLatin("==");
                 break;
             }
             case 2: {
                 // pad the final 16 bits to 18 (3 groups of 6)
                 int val = ((((int) value[whole]) & 0xff) << 10) + ((((int) value[whole + 1]) & 0xff) << 2);
-                buff.cat((char) encoding[(val >> 12) & 0x3f]);
-                buff.cat((char) encoding[(val >> 6) & 0x3f]);
-                buff.cat((char) encoding[val & 0x3f]);
+                buff.append((char) encoding[(val >> 12) & 0x3f]);
+                buff.append((char) encoding[(val >> 6) & 0x3f]);
+                buff.append((char) encoding[val & 0x3f]);
                 buff.append("=");
                 break;
             }
         }
-        return buff.condense();
+        return buff.toUnicodeString();
     }
 
     /**
@@ -269,26 +242,27 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
      *                        in what they accept)
      */
 
-    public static byte[] decode(CharSequence in) throws XPathException {
-        char[] unit = new char[4];
-        byte[] result = new byte[in.length()];
+    public static byte[] decode(UnicodeString in) throws XPathException {
+        in = in.tidy();
+        int[] unit = new int[4];
+        byte[] result = new byte[in.length32()];
         int bytesUsed = 0;
         int i = 0;
         int u = 0;
         int pad = 0;
         int chars = 0;
-        char last = 0;
+        char last = (char)0;
 
         // process characters 4 at a time: 4 characters => 3 bytes
         while (i < in.length()) {
-            char c = in.charAt(i++);
+            int c = in.codePointAt(i++);
             if (!Whitespace.isWhite(c)) {
                 chars++;
                 if (c == '=') {
                     // all following chars must be '=' or whitespace
                     pad = 1;
                     for (int k = i; k < in.length(); k++) {
-                        char ch = in.charAt(k);
+                        int ch = in.codePointAt(k);
                         if (ch == '=') {
                             pad++;
                             chars++;
@@ -316,9 +290,9 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
                     for (int p = 0; p < pad; p++) {
                         unit[u++] = 'A';
                     }
-                    i = in.length();
+                    i = in.length32();
                 } else {
-                    last = c;
+                    last = (char)c;
                     unit[u++] = c;
                 }
                 if (u == 4) {
@@ -351,32 +325,35 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, Co
 
     }
 
-    private static int decodeChar(char c) throws XPathException {
+    private static int decodeChar(int c) throws XPathException {
         int d = c < 128 ? decoding[c] : -1;
         if (d == -1) {
-            if (UTF16CharacterSet.isSurrogate(c)) {
-                throw new XPathException("Invalid character (surrogate pair) in base64 value", "FORG0001");
-            } else {
-                throw new XPathException("Invalid character '" + c + "' in base64 value", "FORG0001");
-            }
+            throw new XPathException("Invalid character '" + c + "' in base64 value", "FORG0001");
         }
         return d;
     }
 
     @Override
-    public int compareTo(Object o) {
-        byte[] other = ((Base64BinaryValue)o).binaryValue;
-        int len0 = binaryValue.length;
-        int len1 = other.length;
-        int shorter = java.lang.Math.min(len0, len1);
-        for (int i=0; i<shorter; i++) {
-            int a = (int)binaryValue[i] & 0xff;
-            int b = (int)other[i] & 0xff;
-            if (a != b) {
-                return a < b ? -1 : +1;
-            }
+    public int compareTo(XPathComparable o) {
+        if (o instanceof HexBinaryValue) {
+            o = new Base64BinaryValue(((HexBinaryValue)o).getBinaryValue());
         }
-        return Integer.signum(len0 - len1);
+        if (o instanceof Base64BinaryValue) {
+            byte[] other = ((Base64BinaryValue) o).binaryValue;
+            int len0 = binaryValue.length;
+            int len1 = other.length;
+            int shorter = java.lang.Math.min(len0, len1);
+            for (int i = 0; i < shorter; i++) {
+                int a = (int) binaryValue[i] & 0xff;
+                int b = (int) other[i] & 0xff;
+                if (a != b) {
+                    return a < b ? -1 : +1;
+                }
+            }
+            return Integer.signum(len0 - len1);
+        } else {
+            throw new ClassCastException("Cannot compare xs:base64Binary to " + o.getClass());
+        }
     }
 }
 

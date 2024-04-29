@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.query;
 
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.NumericValue;
@@ -21,10 +21,10 @@ import java.util.List;
  */
 public class Annotation {
 
-    public static final StructuredQName UPDATING = new StructuredQName("", NamespaceConstant.XQUERY, "updating");
-    public static final StructuredQName SIMPLE = new StructuredQName("", NamespaceConstant.XQUERY, "simple");
-    public static final StructuredQName PRIVATE = new StructuredQName("", NamespaceConstant.XQUERY, "private");
-    public static final StructuredQName PUBLIC = new StructuredQName("", NamespaceConstant.XQUERY, "public");
+    public static final StructuredQName UPDATING = NamespaceUri.XQUERY.qName("updating");
+    public static final StructuredQName SIMPLE = NamespaceUri.XQUERY.qName("simple");
+    public static final StructuredQName PRIVATE = NamespaceUri.XQUERY.qName("private");
+    public static final StructuredQName PUBLIC = NamespaceUri.XQUERY.qName("public");
 
 
     // The name of the annotation
@@ -96,7 +96,7 @@ public class Annotation {
 
     private static boolean annotationParamEqual(AtomicValue a, AtomicValue b) {
         if (a instanceof StringValue && b instanceof StringValue) {
-            return a.getStringValue().equals(b.getStringValue());
+            return a.getUnicodeStringValue().equals(b.getUnicodeStringValue());
         } else if (a instanceof NumericValue && b instanceof NumericValue) {
             return ((NumericValue) a).getDoubleValue() == ((NumericValue) b).getDoubleValue();
         } else {

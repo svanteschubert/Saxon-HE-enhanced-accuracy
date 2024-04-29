@@ -1,11 +1,14 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.lib;
+
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 import javax.xml.transform.stream.StreamResult;
 import java.io.Writer;
@@ -71,6 +74,7 @@ public abstract class Logger {
      * itself rather than by the user.
      */
 
+    @CSharpModifiers(code={"public", "virtual"})
     public void close() {}
 
     /**
@@ -103,39 +107,48 @@ public abstract class Logger {
     /**
      * Get a {@link Writer} whose effect is to send each line of written output as
      * a separate INFO message to this Logger
+     *
      * @return a suitable {@code Writer}
      */
 
+    @CSharpReplaceBody(code="return new Saxon.Impl.Overrides.LoggingWriter(this);")
     public Writer asWriter() {
-        return new Writer() {
-            StringBuilder builder = new StringBuilder();
+        return new LoggingWriter(this);
+    }
 
-            @Override
-            public void write(char[] cbuf, int off, int len) {
-                for (int i = 0; i < len; i++) {
-                    char ch = cbuf[off + i];
-                    if (ch == '\n') {
-                        println(builder.toString(), INFO);
-                        builder.setLength(0);
-                    } else {
-                        builder.append(ch);
-                    }
-                }
-            }
+    private static class LoggingWriter extends Writer {
+        private final StringBuilder builder = new StringBuilder();
+        private final Logger logger;
 
-            @Override
-            public void flush() {
-                if (builder.length() > 0) {
-                    println(builder.toString(), INFO);
+        public LoggingWriter(Logger logger) {
+            this.logger = logger;
+        }
+
+        @Override
+        public void write(char[] cbuf, int off, int len) {
+            for (int i = 0; i < len; i++) {
+                char ch = cbuf[off + i];
+                if (ch == '\n') {
+                    logger.println(builder.toString(), INFO);
                     builder.setLength(0);
+                } else {
+                    builder.append(ch);
                 }
             }
+        }
 
-            @Override
-            public void close() {
-                flush();
+        @Override
+        public void flush() {
+            if (builder.length() > 0) {
+                logger.println(builder.toString(), INFO);
+                builder.setLength(0);
             }
-        };
+        }
+
+        @Override
+        public void close() {
+            flush();
+        }
     }
 
     /**
@@ -147,6 +160,7 @@ public abstract class Logger {
      * @return a StreamResult that serializes XML to this Logger
      */
 
+    @CSharpModifiers(code = {"public", "virtual"})
     public StreamResult asStreamResult() {
         return new StreamResult(asWriter());
     }

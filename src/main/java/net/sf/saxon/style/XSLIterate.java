@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,17 @@
 
 package net.sf.saxon.style;
 
-import net.sf.saxon.expr.instruct.IterateInstr;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
+import net.sf.saxon.expr.instruct.IterateInstr;
 import net.sf.saxon.expr.instruct.LocalParam;
 import net.sf.saxon.expr.instruct.LocalParamBlock;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.NodeName;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.ListIterator;
+import net.sf.saxon.tree.iter.NodeListIterator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,7 +58,7 @@ public class XSLIterate extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -72,23 +74,32 @@ public class XSLIterate extends StyleElement {
     }
 
     @Override
-    public void prepareAttributes() {
-
-        String selectAtt = null;
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String value = att.getValue();
             String f = attName.getDisplayName();
-            if (f.equals("select")) {
-                selectAtt = value;
-                select = makeExpression(selectAtt, att);
-            } else {
-                checkUnknownAttribute(attName);
+            switch (f) {
+                case "select":
+                    select = makeExpression(value, att);
+                    break;
+//                case "array":
+//                    requireXslt40("array");
+//                    select = arrayToSequence(makeExpression(value, att));
+//                    break;
+//                case "map":
+//                    requireXslt40("map");
+//                    select = mapToSequence(makeExpression(value, att));
+//                    break;
+                default:
+                    checkUnknownAttribute(attName);
+                    break;
             }
         }
 
-        if (selectAtt == null) {
+        if (select == null) {
+            select = Literal.makeEmptySequence();
             reportAbsence("select");
         }
 
@@ -107,7 +118,7 @@ public class XSLIterate extends StyleElement {
         //checkParamComesFirst(false);
         select = typeCheck("select", select);
         if (!hasChildNodes()) {
-            compileWarning("An empty xsl:iterate instruction has no effect", SaxonErrorCode.SXWN9009);
+            issueWarning("An empty xsl:iterate instruction has no effect", SaxonErrorCode.SXWN9009);
         }
     }
 
@@ -135,14 +146,15 @@ public class XSLIterate extends StyleElement {
             }
         }
         LocalParamBlock paramBlock = new LocalParamBlock(compiledParams);
-        Expression action = compileSequenceConstructor(exec, decl, new ListIterator<>(nonFinallyChildren), false);
+        Expression action = compileSequenceConstructor(exec, decl, new NodeListIterator(nonFinallyChildren), false);
         if (action == null) {
             // body of xsl:iterate is empty: it's a no-op.
             return Literal.makeEmptySequence();
         }
         try {
             action = action.simplify();
-            return new IterateInstr(select, paramBlock, action, finallyExp);
+            return new IterateInstr(select, paramBlock, action, finallyExp)
+                    .withLocation(saveLocation());
         } catch (XPathException err) {
             compileError(err);
             return null;

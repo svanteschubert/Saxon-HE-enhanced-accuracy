@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,9 +13,9 @@ package net.sf.saxon.om;
  */
 public class CodedName implements NodeName {
 
-    private int fingerprint;
-    private String prefix;
-    private NamePool pool;
+    private final int fingerprint;
+    private final String prefix;
+    private final NamePool pool;
 
     public CodedName(int fingerprint, String prefix, NamePool pool) {
 //        if (fingerprint >> 20 != 0) {
@@ -42,7 +42,7 @@ public class CodedName implements NodeName {
      * @return the URI. Returns the empty string to represent the no-namespace
      */
     @Override
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         return pool.getURI(fingerprint);
     }
 
@@ -77,7 +77,7 @@ public class CodedName implements NodeName {
         if (prefix.isEmpty()) {
             return qn;
         } else {
-            return new StructuredQName(prefix, qn.getURI(), qn.getLocalPart());
+            return new StructuredQName(prefix, qn.getNamespaceUri(), qn.getLocalPart());
         }
     }
 
@@ -88,8 +88,8 @@ public class CodedName implements NodeName {
      * @return true if the name is in the specified namespace
      */
     @Override
-    public boolean hasURI(String ns) {
-        return getURI().equals(ns);
+    public boolean hasURI(NamespaceUri ns) {
+        return pool.getStructuredQName(fingerprint).hasURI(ns);
     }
 
     /**
@@ -143,7 +143,7 @@ public class CodedName implements NodeName {
      */
     @Override
     public int hashCode() {
-        return StructuredQName.computeHashCode(getURI(), getLocalPart());
+        return StructuredQName.computeHashCode(getNamespaceUri(), getLocalPart());
     }
 
     /**
@@ -156,7 +156,7 @@ public class CodedName implements NodeName {
             if (n.hasFingerprint()) {
                 return getFingerprint() == n.getFingerprint();
             } else {
-                return n.getLocalPart().equals(getLocalPart()) && n.hasURI(getURI());
+                return n.getLocalPart().equals(getLocalPart()) && n.hasURI(getNamespaceUri());
             }
         } else {
             return false;

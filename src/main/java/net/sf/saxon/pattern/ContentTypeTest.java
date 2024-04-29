@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,23 +15,22 @@ import net.sf.saxon.om.NodeName;
 import net.sf.saxon.tree.tiny.NodeVectorTree;
 import net.sf.saxon.tree.tiny.TinyTree;
 import net.sf.saxon.type.*;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import java.util.Optional;
-import java.util.function.IntPredicate;
 
 /**
  * NodeTest is an interface that enables a test of whether a node matches particular
  * conditions. ContentTypeTest tests for an element or attribute node with a particular
- * type annotation.
- *
- * @author Michael H. Kay
+ * type annotation, regardless of the node name.
  */
 
 public class ContentTypeTest extends NodeTest {
 
-    private int kind;          // element or attribute
-    private SchemaType schemaType;
-    private Configuration config;
+    private final int kind;          // element or attribute
+    private final SchemaType schemaType;
+    private final Configuration config;
     private boolean nillable = false;
 
     /**
@@ -110,11 +109,11 @@ public class ContentTypeTest extends NodeTest {
     }
 
     @Override
-    public IntPredicate getMatcher(final NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
         final byte[] nodeKindArray = tree.getNodeKindArray();
-        return nodeNr -> (nodeKindArray[nodeNr]&0x0f) == kind &&
+        return IntPredicateLambda.of(nodeNr -> (nodeKindArray[nodeNr]&0x0f) == kind &&
                 matchesAnnotation(((TinyTree) tree).getSchemaType(nodeNr)) &&
-                (nillable || !((TinyTree) tree).isNilled(nodeNr));
+                (nillable || !((TinyTree) tree).isNilled(nodeNr)));
     }
 
     /**
@@ -225,7 +224,7 @@ public class ContentTypeTest extends NodeTest {
     @Override
     public boolean isAtomizable(TypeHierarchy th) {
         return !(schemaType.isComplexType() &&
-                ((ComplexType) schemaType).getVariety() == ComplexType.VARIETY_ELEMENT_ONLY);
+                ((ComplexType) schemaType).getVariety() == ComplexVariety.ELEMENT_ONLY);
     }
 
     public String toString() {
@@ -245,7 +244,7 @@ public class ContentTypeTest extends NodeTest {
     @Override
     public String toExportString() {
         return (kind == Type.ELEMENT ? "element(*, " : "attribute(*, ") +
-                schemaType.getNearestNamedType().getEQName() + ')';
+                TypeHierarchy.getNearestNamedType(schemaType).getEQName() + ')';
     }
 
     /**

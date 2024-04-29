@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,8 @@
 
 package net.sf.saxon.trans;
 
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NameChecker;
@@ -16,6 +18,7 @@ import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.QName;
 import net.sf.saxon.s9api.XmlProcessingError;
+import net.sf.saxon.str.StringTool;
 import net.sf.saxon.tree.util.Navigator;
 
 import javax.xml.transform.TransformerException;
@@ -28,16 +31,17 @@ import java.util.Objects;
  */
 public class XmlProcessingIncident implements XmlProcessingError {
 
-    private String message;
+    private final String message;
     private String errorCode;
     private Throwable cause;
     private Location locator = null;
-    private boolean isWarning;
-    private boolean isTypeError;
+    private boolean _isWarning;
+    private boolean _isTypeError;
     private String fatalErrorMessage;
-    private boolean hasBeenReported = false;
-    private HostLanguage hostLanguage;
-    private boolean isStaticError;
+    private boolean _hasBeenReported = false;
+    private HostLanguage hostLanguage = HostLanguage.UNKNOWN;
+    private boolean _isStaticError;
+    private Expression failingExpression;
 
     /**
      * Create an XmlProcessingIncident
@@ -54,7 +58,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
         this.message = message;
         setErrorCodeAsEQName(errorCode);
         this.locator = location;
-        this.isWarning = false;
+        this._isWarning = false;
     }
 
     /**
@@ -85,16 +89,16 @@ public class XmlProcessingIncident implements XmlProcessingError {
         message = exception.getMessage();
         errorCode = exception.getErrorCodeQName().getEQName();
         locator = exception.getLocator();
-        this.isWarning = isWarning;
+        this._isWarning = isWarning;
     }
 
     public void setWarning(boolean warning) {
-        isWarning = warning;
+        _isWarning = warning;
     }
 
     @Override
     public XmlProcessingIncident asWarning() {
-        isWarning = true;
+        _isWarning = true;
         return this;
     }
 
@@ -106,10 +110,11 @@ public class XmlProcessingIncident implements XmlProcessingError {
      * too many errors have been signalled. There is no absolute guarantee that setting this
      * property will cause execution to be abandoned. If a dynamic error is marked as fatal, it
      * will generally not be caught by any try/catch mechanism within the stylesheet or query.
+     * @param message an error message giving the reason for the fatal error
      */
 
     @Override
-    public void setFatal(String message) {
+    public void setTerminationMessage(String message) {
         fatalErrorMessage = message;
     }
 
@@ -120,7 +125,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
      */
 
     @Override
-    public String getFatalErrorMessage() {
+    public String getTerminationMessage() {
         return fatalErrorMessage;
     }
 
@@ -131,7 +136,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
 
     @Override
     public boolean isAlreadyReported() {
-        return hasBeenReported;
+        return _hasBeenReported;
     }
 
     /**
@@ -141,7 +146,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
 
     @Override
     public void setAlreadyReported(boolean reported) {
-        this.hasBeenReported = reported;
+        this._hasBeenReported = reported;
     }
 
     @Override
@@ -155,20 +160,20 @@ public class XmlProcessingIncident implements XmlProcessingError {
 
     @Override
     public boolean isTypeError() {
-        return isTypeError;
+        return _isTypeError;
     }
 
     public void setTypeError(boolean isTypeError) {
-        this.isTypeError = isTypeError;
+        this._isTypeError = isTypeError;
     }
 
     @Override
     public boolean isStaticError() {
-        return isStaticError;
+        return _isStaticError;
     }
 
     public void setStaticError(boolean isStaticError) {
-        this.isStaticError = isStaticError;
+        this._isStaticError = isStaticError;
     }
 
 
@@ -182,13 +187,13 @@ public class XmlProcessingIncident implements XmlProcessingError {
         if (errorCode == null) {
             return null;
         }
-        return new QName(StructuredQName.fromEQName(errorCode));
+        return new QName(StructuredQName.fromEQName((errorCode)));
     }
 
     public void setErrorCodeAsEQName(String code) {
         if (code.startsWith("Q{")) {
             this.errorCode = code;
-        } else if (NameChecker.isValidNCName(code)) {
+        } else if (NameChecker.isValidNCName(StringTool.codePoints(code))) {
             this.errorCode = "Q{" + NamespaceConstant.ERR + "}" + code;
         } else {
             this.errorCode = "Q{" + NamespaceConstant.SAXON + "}invalid-error-code";
@@ -219,9 +224,17 @@ public class XmlProcessingIncident implements XmlProcessingError {
         return getLocation().getSystemId();
     }
 
+    public Expression getFailingExpression() {
+        return failingExpression;
+    }
+
+    public void setFailingExpression(Expression expr) {
+        this.failingExpression = expr;
+    }
+
     @Override
     public Location getLocation() {
-        return locator;
+        return locator == null ? Loc.NONE : locator;
     }
 
     public void setLocation(Location loc) {
@@ -229,11 +242,11 @@ public class XmlProcessingIncident implements XmlProcessingError {
     }
 
     /**
-     * The coloumn number locating the error within a query or stylesheet module
+     * The column number locating the error within a query or stylesheet module
      *
      * @return int
      */
-    @Override
+
     public int getColumnNumber() {
         Location locator = getLocation();
         if (locator != null) {
@@ -247,7 +260,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
      *
      * @return int
      */
-    @Override
+
     public int getLineNumber() {
         Location locator = getLocation();
         if (locator != null) {
@@ -265,7 +278,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
      * The name will always be in the form of a lexical XML QName, and should match the name used
      * in explain() output displaying the instruction.
      */
-    @Override
+
     public String getInstructionName() {
         return ((NodeInfo) locator).getDisplayName();
     }
@@ -279,7 +292,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
      */
     @Override
     public boolean isWarning() {
-        return isWarning;
+        return _isWarning;
     }
 
     /**
@@ -313,7 +326,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
 
 
     public static void maybeSetHostLanguage(XmlProcessingError error, HostLanguage lang) {
-        if (error.getHostLanguage() == null) {
+        if (error.getHostLanguage() == HostLanguage.UNKNOWN) {
             if (error instanceof XmlProcessingIncident) {
                 ((XmlProcessingIncident) error).setHostLanguage(lang);
             } else if (error instanceof XmlProcessingException) {

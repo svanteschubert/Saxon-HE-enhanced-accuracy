@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,9 @@
 
 package net.sf.saxon.tree.wrapper;
 
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.tiny.TinyTree;
 import net.sf.saxon.type.ComplexType;
@@ -24,10 +24,10 @@ import java.util.Iterator;
 
 public class SpaceStrippedDocument extends GenericTreeInfo {
 
-    private SpaceStrippingRule strippingRule;
-    private boolean preservesSpace;
-    private boolean containsAssertions;
-    private TreeInfo underlyingTree;
+    private final SpaceStrippingRule strippingRule;
+    private final boolean preservesSpace;
+    private final boolean _containsAssertions;
+    private final TreeInfo underlyingTree;
 
     /**
      * Create a space-stripped view of a document
@@ -43,11 +43,13 @@ public class SpaceStrippedDocument extends GenericTreeInfo {
         this.strippingRule = strippingRule;
         this.underlyingTree = doc;
         preservesSpace = findPreserveSpace(doc);
-        containsAssertions = findAssertions(doc);
+        _containsAssertions = findAssertions(doc);
     }
 
     /**
      * Create a wrapped node within this document
+     * @param node the node to be wrapped
+     * @return the wrapped node
      */
 
     public SpaceStrippedNode wrap(NodeInfo node) {
@@ -61,12 +63,14 @@ public class SpaceStrippedDocument extends GenericTreeInfo {
      * @return true if the document contains elements whose type is other than UNTYPED
      */
     @Override
+    @CSharpModifiers(code={"public", "override"})
     public boolean isTyped() {
         return underlyingTree.isTyped();
     }
 
     /**
      * Get the document's strippingRule
+     * @return the strippingRule
      */
 
     public SpaceStrippingRule getStrippingRule() {
@@ -90,6 +94,11 @@ public class SpaceStrippedDocument extends GenericTreeInfo {
         } else {
             return wrap(n);
         }
+    }
+
+    @Override
+    public Durability getDurability() {
+        return underlyingTree.getDurability();
     }
 
     /**
@@ -134,7 +143,7 @@ public class SpaceStrippedDocument extends GenericTreeInfo {
             AxisIterator iter = doc.getRootNode().iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
             NodeInfo node;
             while ((node = iter.next()) != null) {
-                String val = node.getAttributeValue(NamespaceConstant.XML, "space");
+                String val = node.getAttributeValue(NamespaceUri.XML, "space");
                 if ("preserve".equals(val)) {
                     return true;
                 }
@@ -186,7 +195,7 @@ public class SpaceStrippedDocument extends GenericTreeInfo {
      */
 
     public boolean containsAssertions() {
-        return containsAssertions;
+        return _containsAssertions;
     }
 
 }

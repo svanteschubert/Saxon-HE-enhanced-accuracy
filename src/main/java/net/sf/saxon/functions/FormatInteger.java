@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ package net.sf.saxon.functions;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
+import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.number.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
@@ -19,38 +20,34 @@ import net.sf.saxon.lib.Numberer;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.regex.ARegularExpression;
 import net.sf.saxon.regex.RegularExpression;
-import net.sf.saxon.regex.UnicodeString;
 import net.sf.saxon.regex.charclass.Categories;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntHashSet;
+import net.sf.saxon.z.IntIterator;
 import net.sf.saxon.z.IntSet;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
-import java.util.function.IntPredicate;
 
 public class FormatInteger extends SystemFunction implements StatefulSystemFunction {
 
-    private static final RegularExpression badHashPattern;
-    private static final RegularExpression modifierPattern;
-    private static final RegularExpression decimalDigitPattern;
+    private static final RegularExpression badDecimalHashPattern
+            = ARegularExpression.compile("(([\\dXx]+|\\w+)#+.*)|(#+[^\\dXx]+)", "");
+    private static final RegularExpression modifierPattern
+            = ARegularExpression.compile("([co](\\(.*\\))?)?[at]?", "");
+    private static final RegularExpression decimalDigitPattern
+            = ARegularExpression.compile("^((\\p{Nd}|#|[^\\p{N}\\p{L}])+?)$", "");
+    private static final RegularExpression nonDecimalDigitPattern
+            = ARegularExpression.compile("^(([Xx#]|[^\\p{N}\\p{L}])+?)$", "");
 
     public static final String preface = "In the picture string for format-integer, ";
-
-    static {
-        try {
-            badHashPattern = new ARegularExpression("((\\d+|\\w+)#+.*)|(#+[^\\d]+)", "", "XP20", null, null);
-            modifierPattern = new ARegularExpression("([co](\\(.*\\))?)?[at]?", "", "XP20", null, null);
-            decimalDigitPattern = new ARegularExpression("^((\\p{Nd}|#|[^\\p{N}\\p{L}])+?)$", "", "XP20", null, null);
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
-    }
 
     private Function<IntegerValue, String> formatter = null;
 
@@ -68,10 +65,13 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
         }
         Configuration config = visitor.getConfiguration();
 
-        String language = arguments.length == 3 ? ((Literal)arguments[2]).getValue().getStringValue() : config.getDefaultLanguage();
+        String language = arguments.length == 3
+                ? ((StringLiteral)arguments[2]).getGroundedValue().getStringValue()
+                : config.getDefaultLanguage();
         Numberer numb = config.makeNumberer(language, null);
 
-        formatter = makeFormatter(numb, ((Literal)arguments[1]).getValue().getStringValue());
+        boolean allow40 = visitor.getStaticContext().getPackageData().getHostLanguageVersion() >= 40;
+        formatter = makeFormatter(numb, ((StringLiteral)arguments[1]).getGroundedValue().getStringValue(), allow40);
         return super.makeOptimizedFunctionCall(visitor, contextInfo, arguments);
     }
 
@@ -95,6 +95,7 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
 
     private StringValue formatInteger(IntegerValue num, StringValue picture, /*@Nullable*/ StringValue language, XPathContext context) throws XPathException {
         Configuration config = context.getConfiguration();
+        boolean allow40 = getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40;
 
         if (num == null) {
             return StringValue.EMPTY_STRING;
@@ -111,7 +112,7 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
                 languageVal = config.getDefaultLanguage();
             }
             Numberer numb = config.makeNumberer(languageVal, null);
-            localFormatter = makeFormatter(numb, picture.getStringValue());
+            localFormatter = makeFormatter(numb, picture.getStringValue(), allow40);
         }
 
 
@@ -123,9 +124,18 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
 
     }
 
-    private Function<IntegerValue, String> makeFormatter(Numberer numb, String pic) throws XPathException {
+    private Function<IntegerValue, String> makeFormatter(Numberer numb, String pic, boolean allow40) throws XPathException {
         if (pic.isEmpty()) {
             throw new XPathException(preface + "the picture cannot be empty", "FODF1310");
+        }
+
+        boolean hasExplicitRadix = false;
+        int radix = 10;
+        if (allow40 && pic.matches("^([2-9]|[12][0-9]|3[0-6])\\^.*[xX].*$")) {
+            int hat = pic.indexOf('^');
+            radix = Integer.parseInt(pic.substring(0, hat));
+            hasExplicitRadix = true;
+            pic = pic.substring(hat + 1);
         }
 
         String primaryToken;
@@ -139,7 +149,7 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
                 throw new XPathException(preface + "the primary format token cannot be empty", "FODF1310");
             }
             modifier = lastSemicolon < pic.length() - 1 ? pic.substring(lastSemicolon + 1) : "";
-            if (!modifierPattern.matches(modifier)) {
+            if (!modifierPattern.matches(StringView.tidy(modifier))) {
                 throw new XPathException(preface + "the modifier is invalid", "FODF1310");
             }
         } else {
@@ -147,7 +157,7 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
             modifier = "";
         }
 
-        //boolean cardinal = modifier.startsWith("c");
+        boolean cardinal = modifier.startsWith("c");
         boolean ordinal = modifier.startsWith("o");
         //boolean traditional = modifier.endsWith("t");
         boolean alphabetic = modifier.endsWith("a");
@@ -159,38 +169,52 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
 
         String letterValue = alphabetic ? "alphabetic" : "traditional";
         String ordinalValue = ordinal ? "".equals(parenthetical) ? "yes" : parenthetical : "";
+        String cardinalValue = cardinal ? "".equals(parenthetical) ? "yes" : parenthetical : "";
 
-
-        UnicodeString primary = UnicodeString.makeUnicodeString(primaryToken);
-        IntPredicate isDecimalDigit = Categories.getCategory("Nd");
+        UnicodeString primary = StringView.tidy(primaryToken);
+        Categories.Category isDecimalDigit = Categories.getCategory("Nd");
         boolean isDecimalDigitPattern = false;
-        for (int i = 0; i < primary.uLength(); i++) {
-            if (isDecimalDigit.test(primary.uCharAt(i))) {
-                isDecimalDigitPattern = true;
-                break;
+        if (hasExplicitRadix) {
+            if (!nonDecimalDigitPattern.matches(primary)) {
+                throw new XPathException(
+                        preface + "the primary format token with radix " + radix + " does not " +
+                                "meet the rules for a non-decimal digit pattern", "FODF1310");
             }
-        }
-        if (isDecimalDigitPattern) {
-            if (!decimalDigitPattern.matches(primaryToken)) {
+            letterValue = (primary.indexOf('X') >= 0 ? "X" : "x") + radix;
+        } else {
+            IntIterator iter = primary.codePoints();
+            while (iter.hasNext()) {
+                if (isDecimalDigit.test(iter.next())) {
+                    isDecimalDigitPattern = true;
+                    break;
+                }
+            }
+            if (isDecimalDigitPattern && !decimalDigitPattern.matches(primary)) {
                 throw new XPathException(
                         preface + "the primary format token contains a decimal digit but does not " +
                                 "meet the rules for a decimal digit pattern", "FODF1310");
             }
-            NumericGroupFormatter picGroupFormat = getPicSeparators(primaryToken);
+        }
+        if (isDecimalDigitPattern || hasExplicitRadix) {
+            NumericGroupFormatter picGroupFormat = getPicSeparators(primary, hasExplicitRadix);
             UnicodeString adjustedPicture = picGroupFormat.getAdjustedPicture();
+            String finalLetterValue = letterValue;
             return num -> {
                 try {
-                    String s = numb.format(num.abs().longValue(), adjustedPicture, picGroupFormat, letterValue, ordinalValue);
+                    String s = numb.format(num.abs().longValue(),
+                                           adjustedPicture, picGroupFormat, finalLetterValue, "", ordinalValue);
                     return num.signum() < 0 ? ("-" + s) : s;
                 } catch (XPathException e) {
                     throw new UncheckedXPathException(e);
                 }
             };
         } else {
-            UnicodeString token = UnicodeString.makeUnicodeString(primaryToken);
+            UnicodeString token = StringView.tidy(primaryToken);
+            String finalLetterValue = letterValue;
             return num -> {
                 try {
-                    String s = numb.format(num.abs().longValue(), token, null, letterValue, ordinalValue);
+                    String s = numb.format(num.abs().longValue(),
+                                           token, null, finalLetterValue, cardinalValue, ordinalValue);
                     return num.signum() < 0 ? ("-" + s) : s;
                 } catch (XPathException e) {
                     throw new UncheckedXPathException(e);
@@ -204,14 +228,14 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
      * them out of the picture. Has side effect of creating a simplified picture, which
      * it makes available as the getAdjustedPicture() property of the returned NumericGroupFormatter.
      *
-     * @param pic the formatting picture, after stripping off any modifiers
+     * @param picExpanded the formatting picture, after stripping off any modifiers
+     * @param hasExplicitRadix true if digits are indicated by X or x rather than a decimal digit
      * @return a NumericGroupFormatter that implements the formatting defined in the picture
      * @throws net.sf.saxon.trans.XPathException
      *          if the picture is invalid
      */
-    public static NumericGroupFormatter getPicSeparators(String pic) throws XPathException {
+    public static NumericGroupFormatter getPicSeparators(UnicodeString picExpanded, boolean hasExplicitRadix) throws XPathException {
 
-        UnicodeString picExpanded = UnicodeString.makeUnicodeString(pic);
         IntSet groupingPositions = new IntHashSet(5);
         List<Integer> separatorList = new ArrayList<>();
         int groupingPosition = 0; // number of digits to the right of a grouping separator
@@ -220,13 +244,13 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
         boolean regularCheck = true;
         int zeroDigit = -1;
 
-        if (badHashPattern.matches(pic)) {
+        if (badDecimalHashPattern.matches(picExpanded)) {
             throw new XPathException(preface + "the picture is not valid (it uses '#' where disallowed)", "FODF1310");
         }
 
-        for (int i = picExpanded.uLength() - 1; i >= 0; i--) {
+        for (long i = picExpanded.length() - 1; i >= 0; i--) {
 
-            final int codePoint = picExpanded.uCharAt(i);
+            final int codePoint = picExpanded.codePointAt(i);
             switch (Character.getType(codePoint)) {
 
                 case Character.DECIMAL_DIGIT_NUMBER:
@@ -242,22 +266,40 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
                     groupingPosition++;
                     break;
 
-                case Character.LETTER_NUMBER:
-                case Character.OTHER_NUMBER:
                 case Character.UPPERCASE_LETTER:
                 case Character.LOWERCASE_LETTER:
+                    if (!hasExplicitRadix) {
+                        break;
+                    }
+                    if (codePoint == 'x' || codePoint == 'X') {
+                        if (zeroDigit == -1) {
+                            zeroDigit = codePoint;
+                        } else if (zeroDigit != codePoint) {
+                            throw new XPathException(
+                                    preface + "the picture mixes upper-case and lower-case non-decimal digits", "FODF1310");
+
+                        }
+                    } else {
+                        throw new XPathException(
+                                preface + "non-decimal digits must be indicated by 'x' or 'X'", "FODF1310");
+
+                    }
+                    groupingPosition++;
+                    break;
+                case Character.LETTER_NUMBER:
+                case Character.OTHER_NUMBER:
                 case Character.MODIFIER_LETTER:
                 case Character.OTHER_LETTER:
                     break;
 
                 default:
-                    if (i == picExpanded.uLength() - 1) {
+                    if (i == picExpanded.length() - 1) {
                         throw new XPathException(preface + "the picture cannot end with a separator", "FODF1310");
                     }
                     if (codePoint == '#') {
                         groupingPosition++;
                         if (i != 0) {
-                            switch (Character.getType(picExpanded.uCharAt(i - 1))) {
+                            switch (Character.getType(picExpanded.codePointAt(i - 1))) {
                                 case Character.DECIMAL_DIGIT_NUMBER:
                                 case Character.LETTER_NUMBER:
                                 case Character.OTHER_NUMBER:
@@ -296,10 +338,11 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
                         }
                         lastGroupingPos = groupingPosition;
                     }
+                    break;
             }
         }
         if (regularCheck && groupingPositions.size() >= 1) {
-            if (picExpanded.uLength() - lastGroupingPos - groupingPositions.size() > firstGroupingPos) {
+            if (picExpanded.length() - lastGroupingPos - groupingPositions.size() > firstGroupingPos) {
                 regularCheck = false;
             }
         }
@@ -313,8 +356,8 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
             if (separatorList.isEmpty()) {
                 return new RegularGroupFormatter(0, "", adjustedPic);
             } else {
-                FastStringBuffer sb = new FastStringBuffer(4);
-                sb.appendWideChar(separatorList.get(0));
+                StringBuilder sb = new StringBuilder(4);
+                sb.appendCodePoint(separatorList.get(0));
                 return new RegularGroupFormatter(firstGroupingPos, sb.toString(), adjustedPic);
             }
         } else {
@@ -330,14 +373,16 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
      * @return the items from the original array that are not filtered out
      */
     private static UnicodeString extractSeparators(UnicodeString arr, IntSet excludePositions) {
-
-        FastStringBuffer fsb = new FastStringBuffer(arr.uLength());
-        for (int i = 0; i < arr.uLength(); i++) {
-            if (NumberFormatter.isLetterOrDigit(arr.uCharAt(i))) {
-                fsb.appendWideChar(arr.uCharAt(i));
+        // TODO: this doesn't do what the documentation says: it ignores the supplied positions entirely
+        UnicodeBuilder ub = new UnicodeBuilder(arr.length32());
+        IntIterator iter = arr.codePoints();
+        while (iter.hasNext()) {
+            int c = iter.next();
+            if (NumberFormatter.isLetterOrDigit(c)) {
+                ub.append(c);
             }
         }
-        return UnicodeString.makeUnicodeString(fsb);
+        return ub.toUnicodeString();
     }
 
     @Override
@@ -348,4 +393,4 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
     }
 }
 
-// Copyright (c) 2010-2020 Saxonica Limited
+// Copyright (c) 2010-2023 Saxonica Limited

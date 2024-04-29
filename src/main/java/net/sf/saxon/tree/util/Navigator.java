@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,12 +13,16 @@ import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.functions.Reverse;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.*;
+import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.SingleNodeIterator;
+import net.sf.saxon.tree.jiter.WrappingJavaIterator;
 import net.sf.saxon.tree.tiny.TinyElementImpl;
 import net.sf.saxon.tree.tiny.TinyNodeImpl;
 import net.sf.saxon.tree.tiny.TinyTextualElement;
@@ -29,6 +33,7 @@ import net.sf.saxon.type.*;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Predicate;
@@ -38,7 +43,6 @@ import java.util.function.Predicate;
  * The Navigator class provides helper classes for navigating a tree, irrespective
  * of its implementation
  *
- * @author Michael H. Kay
  */
 
 
@@ -60,7 +64,7 @@ public final class Navigator {
      * @since 9.0
      */
 
-    public static String getAttributeValue(/*@NotNull*/ NodeInfo element, /*@NotNull*/ String uri, /*@NotNull*/ String localName) {
+    public static String getAttributeValue(NodeInfo element, NamespaceUri uri, String localName) {
         return element.getAttributeValue(uri, localName);
     }
 
@@ -77,7 +81,7 @@ public final class Navigator {
      * @since 9.9
      */
 
-    public static String getInheritedAttributeValue(NodeInfo element, String uri, String localName) {
+    public static String getInheritedAttributeValue(NodeInfo element, NamespaceUri uri, String localName) {
         NodeInfo node = element;
         while (node != null) {
             String value = node.getAttributeValue(uri, localName);
@@ -98,7 +102,7 @@ public final class Navigator {
 
     public static StructuredQName getNodeName(NodeInfo node) {
         if (node.getLocalPart() != null) {
-            return new StructuredQName(node.getPrefix(), node.getURI(), node.getLocalPart());
+            return new StructuredQName(node.getPrefix(), node.getNamespaceUri(), node.getLocalPart());
         } else {
             return null;
         }
@@ -153,32 +157,34 @@ public final class Navigator {
     public static String getBaseURI(/*@NotNull*/ NodeInfo node, Predicate<NodeInfo> isTopElementWithinEntity) {
         String xmlBase = node instanceof TinyElementImpl ?
                 ((TinyElementImpl)node).getAttributeValue(StandardNames.XML_BASE) :
-                node.getAttributeValue(NamespaceConstant.XML, "base");
+                node.getAttributeValue(NamespaceUri.XML, "base");
         if (xmlBase != null) {
             URI baseURI;
             try {
                 baseURI = new URI(xmlBase);
-                if (!baseURI.isAbsolute()) {
-                    NodeInfo parent = node.getParent();
-                    if (parent == null) {
+                if (baseURI.isAbsolute()) {
+                    return xmlBase;
+                } else {
+                    NodeInfo parentNode = node.getParent();
+                    if (parentNode == null) {
                         // We have a parentless element with a relative xml:base attribute.
                         // See for example test XQTS fn-base-uri-10 and base-uri-27
-                        URI base = new URI(node.getSystemId());
-                        URI resolved = xmlBase.isEmpty() ? base : base.resolve(baseURI);
+                        URI base2 = new URI(node.getSystemId());
+                        URI resolved = xmlBase.isEmpty() ? base2 : base2.resolve(baseURI);
                         return resolved.toString();
                     }
-                    String startSystemId = node.getSystemId();
-                    if (startSystemId == null) {
+                    String startSysId = node.getSystemId();
+                    if (startSysId == null) {
                         return null;
                     }
-                    String parentSystemId = parent.getSystemId();
+                    String parentSysId = parentNode.getSystemId();
                     boolean isTopWithinEntity = false; // TODO: variable is unused. What's going on here? - MHK 2020-07-04
                     if (node instanceof TinyElementImpl) {
                         isTopWithinEntity = ((TinyElementImpl)node).getTree().isTopWithinEntity(((TinyElementImpl) node).getNodeNumber());
                     } else {
-                        isTopWithinEntity = !startSystemId.equals(parentSystemId);
+                        isTopWithinEntity = !startSysId.equals(parentSysId);
                     }
-                    URI base = new URI(isTopElementWithinEntity.test(node) ? startSystemId : parent.getBaseURI());
+                    URI base = new URI(isTopElementWithinEntity.test(node) ? startSysId : parentNode.getBaseURI());
                     //URI base = new URI(parent.getBaseURI());  //bug 3530
                     baseURI = xmlBase.isEmpty() ? base : base.resolve(baseURI);
                 }
@@ -293,10 +299,10 @@ public final class Navigator {
 
     public static AbsolutePath getAbsolutePath(NodeInfo node) {
         boolean streamed = node.getConfiguration().isStreamedNode(node);
-        List<AbsolutePath.PathElement> path = new LinkedList<>();
+        LinkedList<AbsolutePath.PathElement> path = new LinkedList<>();
         String sysId = node.getSystemId();
         while (node != null && node.getNodeKind() != Type.DOCUMENT) {
-            path.add(0, new AbsolutePath.PathElement(node.getNodeKind(),
+            path.addFirst(new AbsolutePath.PathElement(node.getNodeKind(),
                                                      NameOfNode.makeName(node),
                                                      streamed ? -1 : getNumberSimple(node, null)));
             node = node.getParent();
@@ -318,7 +324,7 @@ public final class Navigator {
             return n1.getFingerprint() == n2.getFingerprint();
         } else {
             return n1.getLocalPart().equals(n2.getLocalPart()) &&
-                n1.getURI().equals(n2.getURI());
+                n1.getNamespaceUri().equals(n2.getNamespaceUri());
         }
     }
 
@@ -416,13 +422,13 @@ public final class Navigator {
         // code changed in 9.5 to fix issue described in spec bug 9840
         if (!knownToMatch) {
             while (true) {
-                if (count.matches(target, context)) {
+                if (count.matchesItem(target, context)) {
                     if (from == null) {
                         break;
                     } else {
                         // see whether there is an ancestor node that matches the from pattern
                         NodeInfo anc = target;
-                        while (!from.matches(anc, context)) {
+                        while (!from.matchesItem(anc, context)) {
                             anc = anc.getParent();
                             if (anc == null) {
                                 // there's no ancestor that matches the "from" pattern
@@ -432,7 +438,7 @@ public final class Navigator {
                         // we've found the node to be counted
                         break;
                     }
-                } else if (from != null && from.matches(target, context)) {
+                } else if (from != null && from.matchesItem(target, context)) {
                     // if we find something that matches "from" before we find something that matches "count", exit
                     return 0;
                 } else {
@@ -457,7 +463,7 @@ public final class Navigator {
             if (p == null) {
                 return i;
             }
-            if (alreadyChecked || count.matches(p, context)) {
+            if (alreadyChecked || count.matchesItem(p, context)) {
                 i++;
             }
         }
@@ -513,7 +519,7 @@ public final class Navigator {
                 count = new NodeTestPattern(new SameNameTest(node));
             }
             num = 1;
-        } else if (count.matches(node, context)) {
+        } else if (count.matchesItem(node, context)) {
             num = 1;
         }
 
@@ -530,7 +536,7 @@ public final class Navigator {
             filter = AnyNodeTest.getInstance();
         }
 
-        if (from != null && from.matches(node, context)) {
+        if (from != null && from.matchesItem(node, context)) {
             return num;
         }
 
@@ -543,7 +549,7 @@ public final class Navigator {
                 break;
             }
 
-            if (count.matches(prev, context)) {
+            if (count.matchesItem(prev, context)) {
                 if (num == 1 && prev.equals(memoNode)) {
                     num = memoNumber + 1;
                     break;
@@ -551,7 +557,7 @@ public final class Navigator {
                 num++;
             }
 
-            if (from != null && from.matches(prev, context)) {
+            if (from != null && from.matchesItem(prev, context)) {
                 break;
             }
         }
@@ -604,11 +610,11 @@ public final class Navigator {
         NodeInfo curr = node;
 
         while (true) {
-            if (count.matches(curr, context)) {
+            if (count.matchesItem(curr, context)) {
                 int num = getNumberSingle(curr, count, null, context);
                 v.add(0, (long) num);
             }
-            if (from != null && from.matches(curr, context)) {
+            if (from != null && from.matchesItem(curr, context)) {
                 break;
             }
             curr = curr.getParent();
@@ -673,11 +679,11 @@ public final class Navigator {
                     nsMap = node.getAllNamespaces();
                 } else {
                     // Bug #5861 - we need to ensure the namespaces used in element and attribute names are declared
-                    nsMap = NamespaceMap.of(elementName.getPrefix(), elementName.getURI());
+                    nsMap = NamespaceMap.of(elementName.getPrefix(), elementName.getNamespaceUri());
                     for (AttributeInfo att : node.attributes()) {
                         NodeName attName = att.getNodeName();
                         if (!attName.getPrefix().isEmpty()) {
-                            nsMap = nsMap.put(attName.getPrefix(), attName.getURI());
+                            nsMap = nsMap.put(attName.getPrefix(), attName.getNamespaceUri());
                         }
                     }
                 }
@@ -706,7 +712,7 @@ public final class Navigator {
 //                return;
             }
             case Type.TEXT: {
-                CharSequence value = node.getStringValueCS();
+                UnicodeString value = node.getUnicodeStringValue();
                 if (value.length() != 0) {
                     // zero-length text nodes can arise from external model wrappers
                     out.characters(value, locationId, ReceiverOption.NONE);
@@ -714,11 +720,11 @@ public final class Navigator {
                 return;
             }
             case Type.COMMENT: {
-                out.comment(node.getStringValueCS(), locationId, ReceiverOption.NONE);
+                out.comment(node.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                 return;
             }
             case Type.PROCESSING_INSTRUCTION: {
-                out.processingInstruction(node.getLocalPart(), node.getStringValueCS(), locationId, ReceiverOption.NONE);
+                out.processingInstruction(node.getLocalPart(), node.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                 return;
             }
             case Type.NAMESPACE: {
@@ -764,7 +770,7 @@ public final class Navigator {
 
                 if ((copyOptions & CopyOptions.ALL_NAMESPACES) != 0) {
                     for (NamespaceBinding ns : node.getAllNamespaces()) {
-                        out.namespace(ns.getPrefix(), ns.getURI(), ReceiverOption.NONE);
+                        out.namespace(ns.getPrefix(), ns.getNamespaceUri(), ReceiverOption.NONE);
                     }
                 }
 
@@ -786,11 +792,11 @@ public final class Navigator {
             }
             case Type.ATTRIBUTE: {
                 SimpleType attType = keepTypes ? (SimpleType)node.getSchemaType() : BuiltInAtomicType.UNTYPED_ATOMIC;
-                out.attribute(NameOfNode.makeName(node), attType, node.getStringValueCS(), locationId, ReceiverOption.NONE);
+                out.attribute(NameOfNode.makeName(node), attType, node.getStringValue(), locationId, ReceiverOption.NONE);
                 return;
             }
             case Type.TEXT: {
-                CharSequence value = node.getStringValueCS();
+                UnicodeString value = node.getUnicodeStringValue();
                 if (value.length() != 0) {
                     // zero-length text nodes can arise from external model wrappers
                     out.characters(value, locationId, ReceiverOption.NONE);
@@ -798,15 +804,15 @@ public final class Navigator {
                 return;
             }
             case Type.COMMENT: {
-                out.comment(node.getStringValueCS(), locationId, ReceiverOption.NONE);
+                out.comment(node.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                 return;
             }
             case Type.PROCESSING_INSTRUCTION: {
-                out.processingInstruction(node.getLocalPart(), node.getStringValueCS(), locationId, ReceiverOption.NONE);
+                out.processingInstruction(node.getLocalPart(), node.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                 return;
             }
             case Type.NAMESPACE: {
-                out.namespace(node.getLocalPart(), node.getStringValue(), ReceiverOption.NONE);
+                out.namespace(node.getLocalPart(), NamespaceUri.of(node.getStringValue()), ReceiverOption.NONE);
                 return;
             }
             default:
@@ -1008,7 +1014,7 @@ public final class Navigator {
      * 0 = document, 1 = namespace, 2 = attribute, 3 = (element, text, comment, pi)
      */
 
-    /*@NotNull*/ private static int[] nodeCategories = {
+    /*@NotNull*/ private static final int[] nodeCategories = {
             -1, //0 = not used
             3, //1 = element
             2, //2 = attribute
@@ -1030,10 +1036,10 @@ public final class Navigator {
      * @param addDocNr true if a unique document number is to be included in the information
      */
 
-    public static void appendSequentialKey(/*@NotNull*/ SiblingCountingNode node, /*@NotNull*/ FastStringBuffer sb, boolean addDocNr) {
+    public static void appendSequentialKey(/*@NotNull*/ SiblingCountingNode node, /*@NotNull*/ StringBuilder sb, boolean addDocNr) {
         if (addDocNr) {
-            sb.cat('w');
-            sb.append(Long.toString(node.getTreeInfo().getDocumentNumber()));
+            sb.append('w');
+            sb.append(node.getTreeInfo().getDocumentNumber());
         }
         if (node.getNodeKind() != Type.DOCUMENT) {
             NodeInfo parent = node.getParent();
@@ -1041,7 +1047,7 @@ public final class Navigator {
                 appendSequentialKey((SiblingCountingNode) parent, sb, false);
             }
             if (node.getNodeKind() == Type.ATTRIBUTE) {
-                sb.cat('A');
+                sb.append('A');
             }
         }
         sb.append(alphaKey(node.getSiblingPosition()));
@@ -1135,6 +1141,21 @@ public final class Navigator {
     ///////////////////////////////////////////////////////////////////////////////
 
     /**
+     * Convert a {@code Predicate<NodeInfo>} (if necessary) to a NodeTest
+     *
+     * @param predicate a Node predicate
+     * @return a NodeTest
+     */
+
+    public static NodeTest nodeTestFromPredicate(NodePredicate predicate) {
+        if (predicate instanceof NodeTest) {
+            return (NodeTest)predicate;
+        } else {
+            return NodeSelector.of(predicate::test);
+        }
+    }
+
+    /**
      * Create an iterator over a singleton node, if it exists and matches a nodetest;
      * otherwise return an empty iterator
      *
@@ -1144,7 +1165,8 @@ public final class Navigator {
      */
 
     /*@NotNull*/
-    public static AxisIterator filteredSingleton(NodeInfo node, Predicate<? super NodeInfo> nodeTest) {
+    public static AxisIterator filteredSingleton(NodeInfo node,
+                                                 NodePredicate nodeTest) {
         if (node != null && nodeTest.test(node)) {
             return SingleNodeIterator.makeIterator(node);
         } else {
@@ -1178,13 +1200,42 @@ public final class Navigator {
     }
 
     /**
+     * A class that delivers the children of a node as a Java Iterable
+     */
+
+    public static class ChildrenAsIterable implements Iterable<NodeInfo> {
+        private final NodeInfo parent;
+        private NodePredicate filter = null;
+
+        public ChildrenAsIterable(NodeInfo parent) {
+            this.parent = parent;
+        }
+
+        public ChildrenAsIterable(NodeInfo parent, NodePredicate filter) {
+            this.parent = parent;
+            this.filter = filter;
+        }
+
+        @Override
+        public Iterator<NodeInfo> iterator() {
+            AxisIterator basis;
+            if (filter == null) {
+                basis = parent.iterateAxis(AxisInfo.CHILD);
+            } else {
+                basis = parent.iterateAxis(AxisInfo.CHILD, filter);
+            }
+            return new WrappingJavaIterator<NodeInfo>(basis);
+        }
+    }
+
+    /**
      * AxisFilter is an iterator that applies a NodeTest filter to
      * the nodes returned by an underlying AxisIterator.
      */
 
     public static class AxisFilter implements AxisIterator {
-        private AxisIterator base;
-        private Predicate<? super NodeInfo> nodeTest;
+        private final AxisIterator base;
+        private final NodePredicate nodeTest;
 
         /**
          * Construct a AxisFilter
@@ -1196,7 +1247,7 @@ public final class Navigator {
          *             returned by the AxisFilter
          */
 
-        public AxisFilter(AxisIterator base, Predicate<? super NodeInfo> test) {
+        public AxisFilter(AxisIterator base, NodePredicate test) {
             this.base = base;
             nodeTest = test;
         }
@@ -1223,7 +1274,7 @@ public final class Navigator {
      */
 
     public static class EmptyTextFilter implements AxisIterator {
-        private AxisIterator base;
+        private final AxisIterator base;
 
         /**
          * Construct an EmptyTextFilter
@@ -1244,7 +1295,7 @@ public final class Navigator {
                 if (next == null) {
                     return null;
                 }
-                if (!(next.getNodeKind() == Type.TEXT && next.getStringValueCS().length() == 0)) {
+                if (!(next.getNodeKind() == Type.TEXT && next.getUnicodeStringValue().isEmpty())) {
                     return next;
                 }
             }
@@ -1252,14 +1303,13 @@ public final class Navigator {
 
     }
 
-
     /**
      * General-purpose implementation of the ancestor and ancestor-or-self axes
      */
 
     public static final class AncestorEnumeration implements AxisIterator {
 
-        private boolean includeSelf;
+        private final boolean includeSelf;
         private boolean atStart;
         private NodeInfo current;
 
@@ -1300,11 +1350,11 @@ public final class Navigator {
 
     public static final class DescendantEnumeration implements AxisIterator {
 
-        /*@Nullable*/ private AxisIterator children = null;
-        /*@Nullable*/ private AxisIterator descendants = null;
-        private NodeInfo start;
-        private boolean includeSelf;
-        private boolean forwards;
+        private SequenceIterator children = null;
+        private AxisIterator descendants = null;
+        private final NodeInfo start;
+        private final boolean includeSelf;
+        private final boolean forwards;
         private boolean atEnd = false;
 
         /**
@@ -1333,7 +1383,7 @@ public final class Navigator {
                 }
             }
             if (children != null) {
-                NodeInfo n = children.next();
+                NodeInfo n = (NodeInfo)children.next();
                 if (n != null) {
                     if (n.hasChildNodes()) {
                         if (forwards) {
@@ -1361,20 +1411,9 @@ public final class Navigator {
             } else {
                 // we're just starting...
                 if (start.hasChildNodes()) {
-                    //children = new NodeWrapper.ChildEnumeration(start, true, forwards);
                     children = start.iterateAxis(AxisInfo.CHILD);
                     if (!forwards) {
-                        if (children instanceof ReversibleIterator) {
-                            children = (AxisIterator) ((ReversibleIterator) children).getReverseIterator();
-                        } else {
-                            LinkedList<NodeInfo> list = new LinkedList<>();
-                            AxisIterator forwards = start.iterateAxis(AxisInfo.CHILD);
-                            NodeInfo n;
-                            while ((n = forwards.next()) != null) {
-                                list.addFirst(n);
-                            }
-                            children = new ListIterator.OfNodes(list);
-                        }
+                        children = Reverse.getReverseIterator(children);
                     }
                 } else {
                     children = EmptyIterator.ofNodes();
@@ -1399,7 +1438,7 @@ public final class Navigator {
      */
 
     public static final class FollowingEnumeration implements AxisIterator {
-        /*@NotNull*/ private AxisIterator ancestorEnum;
+        /*@NotNull*/ private final AxisIterator ancestorEnum;
         /*@Nullable*/ private AxisIterator siblingEnum;
         /*@Nullable*/ private AxisIterator descendEnum = null;
 
@@ -1433,6 +1472,7 @@ public final class Navigator {
                     break;
                 default:
                     siblingEnum = EmptyIterator.ofNodes();
+                    break;
             }
         }
 
@@ -1484,10 +1524,10 @@ public final class Navigator {
 
     public static final class PrecedingEnumeration implements AxisIterator {
 
-        /*@NotNull*/ private AxisIterator ancestorEnum;
+        /*@NotNull*/ private final AxisIterator ancestorEnum;
         /*@Nullable*/ private AxisIterator siblingEnum;
         /*@Nullable*/ private AxisIterator descendEnum = null;
-        private boolean includeAncestors;
+        private final boolean includeAncestors;
 
         /**
          * Create an iterator for the preceding or "preceding-or-ancestor" axis (the latter being
@@ -1511,6 +1551,7 @@ public final class Navigator {
                     break;
                 default:
                     siblingEnum = EmptyIterator.ofNodes();
+                    break;
             }
         }
 

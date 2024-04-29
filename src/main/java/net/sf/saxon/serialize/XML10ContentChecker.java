@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,14 @@ package net.sf.saxon.serialize;
 import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.AttributeMap;
+import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NodeName;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
 import net.sf.saxon.serialize.charcode.XMLCharacterData;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -49,7 +53,7 @@ public class XML10ContentChecker extends ProxyReceiver {
     @Override
     public void startElement(NodeName elemName, SchemaType type, AttributeMap attributes, NamespaceMap namespaces, Location location, int properties) throws XPathException {
         for (AttributeInfo att : attributes) {
-            checkString(att.getValue(), att.getLocation());
+            checkString(StringView.of(att.getValue()), att.getLocation());
         }
         nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
     }
@@ -80,7 +84,7 @@ public class XML10ContentChecker extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         checkString(chars, locationId);
         nextReceiver.characters(chars, locationId, properties);
     }
@@ -90,7 +94,7 @@ public class XML10ContentChecker extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         checkString(chars, locationId);
         nextReceiver.comment(chars, locationId, properties);
     }
@@ -100,7 +104,7 @@ public class XML10ContentChecker extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, /*@NotNull*/ CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, /*@NotNull*/ UnicodeString data, Location locationId, int properties) throws XPathException {
         checkString(data, locationId);
         nextReceiver.processingInstruction(target, data, locationId, properties);
     }
@@ -112,21 +116,14 @@ public class XML10ContentChecker extends ProxyReceiver {
      * @param locationId the location of the string
      */
 
-    private void checkString(CharSequence in, Location locationId) throws XPathException {
-        final int len = in.length();
-        for (int c = 0; c < len; c++) {
-            int ch32 = in.charAt(c);
-            if (UTF16CharacterSet.isHighSurrogate(ch32)) {
-                char low = in.charAt(++c);
-                ch32 = UTF16CharacterSet.combinePair((char) ch32, low);
-            }
-            if (!XMLCharacterData.isValid10(ch32)) {
-                XPathException err = new XPathException("The result tree contains a character not allowed by XML 1.0 (hex " +
-                        Integer.toHexString(ch32) + ')');
-                err.setErrorCode("SERE0006");
-                err.setLocator(locationId);
-                throw err;
-            }
+    private void checkString(UnicodeString in, Location locationId) throws XPathException {
+        long foundInvalid = in.indexWhere(c -> !XMLCharacterData.isValid10(c), 0);
+        if (foundInvalid >= 0) {
+            int ch32 = in.codePointAt(foundInvalid);
+            throw new XPathException("The result tree contains a character not allowed by XML 1.0 (hex " +
+                    Integer.toHexString(ch32) + ')')
+                    .withErrorCode("SERE0006")
+                    .withLocation(locationId);
         }
     }
 

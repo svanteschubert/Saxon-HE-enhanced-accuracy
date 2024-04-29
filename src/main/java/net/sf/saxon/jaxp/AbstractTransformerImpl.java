@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,14 +14,16 @@ import net.sf.saxon.expr.JPConverter;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.s9api.*;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.JavaExternalObjectType;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.ObjectValue;
-import net.sf.saxon.value.UntypedAtomicValue;
+import net.sf.saxon.value.StringValue;
 import org.w3c.dom.Node;
 import org.xml.sax.XMLFilter;
 
@@ -41,6 +43,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.function.Supplier;
 
 /**
  * Saxon implementation of the JAXP Transformer interface.
@@ -48,8 +51,8 @@ import java.util.Properties;
  */
 abstract class AbstractTransformerImpl extends IdentityTransformer {
 
-    private XsltExecutable xsltExecutable;
-    private Map<String, Object> parameters = new HashMap<>(8);
+    private final XsltExecutable xsltExecutable;
+    private final Map<String, Object> parameters = new HashMap<>(8);
 
     AbstractTransformerImpl(XsltExecutable e) {
         super(e.getProcessor().getUnderlyingConfiguration());
@@ -108,7 +111,7 @@ abstract class AbstractTransformerImpl extends IdentityTransformer {
             Properties localOutputProperties = getLocalOutputProperties();
             for (String key : localOutputProperties.stringPropertyNames()) {
                 QName propertyName = QName.fromClarkName(key);
-                if (!(propertyName.getNamespaceURI().equals(NamespaceConstant.SAXON) && propertyName.getLocalName().equals("next-in-chain"))) {
+                if (!(propertyName.getNamespaceUri().equals(NamespaceUri.SAXON) && propertyName.getLocalName().equals("next-in-chain"))) {
                     ((Serializer) destination).setOutputProperty(QName.fromClarkName(key),
                                                                  localOutputProperties.getProperty(key));
                 }
@@ -173,12 +176,12 @@ abstract class AbstractTransformerImpl extends IdentityTransformer {
         }
         Configuration config = getConfiguration();
         net.sf.saxon.value.SequenceType required = details.getUnderlyingDeclaredType();
-        Sequence converted;
+        GroundedValue converted;
         try {
             if (value instanceof Sequence) {
-                converted = (Sequence)value;
+                converted = ((Sequence)value).materialize();
             } else if (value instanceof String) {
-                converted = new UntypedAtomicValue((String) value);
+                converted = StringValue.makeUntypedAtomic(StringView.tidy((String) value));
             } else if (required.getPrimaryType() instanceof JavaExternalObjectType) {
                 converted = new ObjectValue<>(value);
             } else {
@@ -191,7 +194,8 @@ abstract class AbstractTransformerImpl extends IdentityTransformer {
             }
 
             if (required != null && !required.matches(converted, config.getTypeHierarchy())) {
-                RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, qName.toString(), -1);
+                Supplier<RoleDiagnostic> role =
+                        () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, qName.toString(), -1);
                 converted = config.getTypeHierarchy().applyFunctionConversionRules(
                         converted, required, role, Loc.NONE);
             }

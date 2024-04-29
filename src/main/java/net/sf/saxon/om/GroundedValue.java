@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,18 +9,15 @@ package net.sf.saxon.om;
 
 import net.sf.saxon.expr.SingletonIntersectExpression;
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.ma.zeno.ZenoChain;
+import net.sf.saxon.ma.zeno.ZenoSequence;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.UnfailingIterator;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
 
 /**
  * A value that exists in memory and that can be directly addressed
- * @since 9.5.  Generified in 9.9. De-generified in 10.0
+ * @since 9.5.  Generified in 9.9.  Generification reverted in 10.0.
  */
 public interface GroundedValue extends Sequence {
 
@@ -34,7 +31,7 @@ public interface GroundedValue extends Sequence {
      */
 
     @Override
-    UnfailingIterator iterate();
+    SequenceIterator iterate();
 
     /**
      * Get the n'th item in the value, counting from zero (0)
@@ -89,26 +86,41 @@ public interface GroundedValue extends Sequence {
     }
 
     /**
-     * Get the string value of this sequence. The string value of an item is the result of applying the string()
+     * Get the string value of this sequence, as an instance of {@link UnicodeString}.
+     * The string value of an item is the result of applying the XPath string()
      * function. The string value of a sequence is the space-separated result of applying the string-join() function
      * using a single space as the separator
+     *
+     * <p>The result of this method is always equivalent to the result of the {@link #getStringValue()} method.
+     * Use this method in preference either (a) if you need to use the value in a context where a {@link UnicodeString}
+     * is required, or (b) if the underlying value is held as a {@code UnicodeString}, or in a form that is readily
+     * converted to a {@code UnicodeString}. This is typically the case (i) when the value is a text or element node
+     * in a TinyTree, and (ii) when the value is a {@code StringItem}: that is, an atomic value of type
+     * {@code xs:string}.</p>
+     *
+     * @return the string value of the sequence.
+     * @throws XPathException if the sequence contains items that have no string value (for example, function items)
+     */
+
+    UnicodeString getUnicodeStringValue() throws XPathException;
+
+    /**
+     * Get the string value of this sequence, as an instance of {@link String}.
+     * The string value of an item is the result of applying the XPath string()
+     * function. The string value of a sequence is the space-separated result of applying the string-join() function
+     * using a single space as the separator.
+     *
+     * <p>The result of this method is always equivalent to the result of the {@link #getUnicodeStringValue()} method.
+     *    Use this method in preference either (a) if you need to use the value in a context where a {@link String}
+     *    is required, or (b) if the underlying value is held as a {@code String}, or in a form that is readily
+     *    converted to a {@code String}. This is typically the case (i) when the value is an attribute node
+     *    in a TinyTree, or (ii) any kind of node in a third-party tree model such as DOM.</p>
      *
      * @return the string value of the sequence.
      * @throws XPathException if the sequence contains items that have no string value (for example, function items)
      */
 
     String getStringValue() throws XPathException;
-
-    /**
-     * Get the string value of this sequence. The string value of an item is the result of applying the string()
-     * function. The string value of a sequence is the space-separated result of applying the string-join() function
-     * using a single space as the separator
-     *
-     * @return the string value of the sequence.
-     * @throws XPathException if the sequence contains items that have no string value (for example, function items)
-     */
-
-    CharSequence getStringValueCS() throws XPathException;
 
     /**
      * Reduce the sequence to its simplest form. If the value is an empty sequence, the result will be
@@ -145,29 +157,13 @@ public interface GroundedValue extends Sequence {
         return Err.depictSequence(this).toString();
     }
 
+    /**
+     * Get an {@link Iterable} that wraps this <code>GroundedValue</code>, allowing
+     * it to be used in a Java for-each loop.
+     * @return an iterable delivering the contents of this value
+     */
     default Iterable<? extends Item> asIterable() {
-        // For .NEU - don't use a lambda expression here
-        return new Iterable<Item>() {
-            @Override
-            public Iterator<Item> iterator() {
-                final UnfailingIterator base = iterate();
-                return new Iterator<Item>() {
-
-                    Item pending = null;
-
-                    @Override
-                    public boolean hasNext() {
-                        pending = base.next();
-                        return pending != null;
-                    }
-
-                    @Override
-                    public Item next() {
-                        return pending;
-                    }
-                };
-            }
-        };
+        return new GroundedValueAsIterable(this);
     }
 
     /**
@@ -189,10 +185,12 @@ public interface GroundedValue extends Sequence {
      */
 
     default GroundedValue concatenate(GroundedValue... others) {
-        List<GroundedValue> c = new ArrayList<>();
-        c.add(this);
-        Collections.addAll(c, others);
-        return new Chain(c);
+        ZenoChain<Item> chain = new ZenoChain<>();
+        chain = chain.addAll(asIterable());
+        for (GroundedValue val : others) {
+            chain = chain.addAll(val.asIterable());
+        }
+        return new ZenoSequence(chain);
     }
 }
 

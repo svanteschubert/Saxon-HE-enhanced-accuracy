@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,6 @@
 
 package net.sf.saxon.tree.wrapper;
 
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.tree.iter.AxisIterator;
 
@@ -23,16 +22,17 @@ public class WrappingIterator implements AxisIterator {
 
     AxisIterator base;
     VirtualNode parent;
-    /*@Nullable*/ NodeInfo current;
+    /*@Nullable*/ NodeInfo _current;
     boolean atomizing = false;
     WrappingFunction wrappingFunction;
 
     /**
      * Create a WrappingIterator
      *
-     * @param base   The underlying iterator
-     * @param parent If all the nodes to be wrapped have the same parent,
-     *               it can be specified here. Otherwise specify null.
+     * @param base     The underlying iterator
+     * @param function The wrapping function
+     * @param parent   If all the nodes to be wrapped have the same parent,
+     *                 it can be specified here. Otherwise specify null.
      */
 
     public WrappingIterator(AxisIterator base, WrappingFunction function, VirtualNode parent) {
@@ -45,26 +45,27 @@ public class WrappingIterator implements AxisIterator {
     /*@Nullable*/
     @Override
     public NodeInfo next() {
-        Item n = base.next();
-        if (n instanceof NodeInfo && !atomizing) {
-            current = wrappingFunction.makeWrapper((NodeInfo) n, parent);
-        } else {
-            current = (NodeInfo) n;
+        NodeInfo n = base.next();
+        if (n == null) {
+            return _current = null;
         }
-        return current;
+        if (atomizing) {
+            _current = n;
+        } else {
+            _current = wrappingFunction.makeWrapper(n, parent);
+        }
+        return _current;
     }
 
     /*@Nullable*/
     public NodeInfo current() {
-        return current;
+        return _current;
     }
 
     @Override
     public void close() {
         base.close();
     }
-
-
 
 }
 

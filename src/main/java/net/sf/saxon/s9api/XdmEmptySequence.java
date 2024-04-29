@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,12 @@
 
 package net.sf.saxon.s9api;
 
-import java.util.Collections;
+import net.sf.saxon.transpile.CSharpModifiers;
+
+import java.util.ArrayList;
 
 /**
- * The class <tt>XdmEmptySequence</tt> represents an empty sequence in the XDM Data Model.
+ * The class <code>XdmEmptySequence</code> represents an empty sequence in the XDM Data Model.
  * <p>This is a singleton class: there is only one instance, which may be obtained
  * using the {@link #getInstance} method.</p>
  * <p>An empty sequence may also be represented by an {@link XdmValue} whose length happens to be zero.
@@ -20,9 +22,10 @@ import java.util.Collections;
  * Java null value.</p>
  */
 
+@CSharpModifiers(code = {"internal"})
 public class XdmEmptySequence extends XdmValue {
 
-    private static XdmEmptySequence THE_INSTANCE = new XdmEmptySequence();
+    private static final XdmEmptySequence THE_INSTANCE = new XdmEmptySequence();
 
     /**
      * Return the singleton instance of this class
@@ -36,7 +39,7 @@ public class XdmEmptySequence extends XdmValue {
     }
 
     private XdmEmptySequence() {
-        super(Collections.emptyList());
+        super(new ArrayList<XdmItem>(0));  // written this way for C#
     }
 
     /**

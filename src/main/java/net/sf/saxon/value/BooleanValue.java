@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,11 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
-import net.sf.saxon.expr.sort.ComparisonException;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.str.StringConstants;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
@@ -22,8 +22,8 @@ import net.sf.saxon.type.ValidationFailure;
  * A boolean XPath value
  */
 
-public final class BooleanValue extends AtomicValue implements Comparable, AtomicMatchKey {
-    private boolean value;
+public final class BooleanValue extends AtomicValue implements XPathComparable, AtomicMatchKey, ContextFreeAtomicValue {
+    private final boolean value;
 
     /**
      * The boolean value TRUE
@@ -42,8 +42,8 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      */
 
     private BooleanValue(boolean value) {
+        super(BuiltInAtomicType.BOOLEAN);
         this.value = value;
-        typeLabel = BuiltInAtomicType.BOOLEAN;
     }
 
     /**
@@ -67,8 +67,8 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      */
 
     public BooleanValue(boolean value, AtomicType typeLabel) {
+        super(typeLabel);
         this.value = value;
-        this.typeLabel = typeLabel;
     }
 
     /**
@@ -80,9 +80,7 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
 
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        BooleanValue v = new BooleanValue(value);
-        v.typeLabel = typeLabel;
-        return v;
+        return new BooleanValue(value, typeLabel);
     }
 
     /**
@@ -93,24 +91,34 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      * @return the relevant BooleanValue if validation succeeds; or a ValidationFailure if not.
      */
 
-    public static ConversionResult fromString(CharSequence s) {
-        // implementation designed to avoid creating new objects
-        s = Whitespace.trimWhitespace(s);
-        int len = s.length();
-        if (len == 1) {
-            char c = s.charAt(0);
-            if (c == '1') {
-                return TRUE;
-            } else if (c == '0') {
-                return FALSE;
-            }
-        } else if (len == 4) {
-            if (s.charAt(0) == 't' && s.charAt(1) == 'r' && s.charAt(2) == 'u' && s.charAt(3) == 'e') {
-                return TRUE;
-            }
-        } else if (len == 5) {
-            if (s.charAt(0) == 'f' && s.charAt(1) == 'a' && s.charAt(2) == 'l' && s.charAt(3) == 's' && s.charAt(4) == 'e') {
-                return FALSE;
+    public static ConversionResult fromString(UnicodeString s) {
+        // implementation designed to avoid creating new objects or computing hash codes
+        long start = Whitespace.trimmedStart(s);
+        long end = Whitespace.trimmedEnd(s);
+        if (start >= 0) { // start == -1 means empty string or all whitespace
+            long len = end - start;
+            if (len == 1) {
+                int first = s.codePointAt(start);
+                if (first == '0') {
+                    return FALSE;
+                } else if (first == '1') {
+                    return TRUE;
+                }
+            } else if (len == 4) {
+                if (s.codePointAt(start++) == 't'
+                        && s.codePointAt(start++) == 'r'
+                        && s.codePointAt(start++) == 'u'
+                        && s.codePointAt(start) == 'e') {
+                    return TRUE;
+                }
+            } else if (len == 5) {
+                if (s.codePointAt(start++) == 'f'
+                        && s.codePointAt(start++) == 'a'
+                        && s.codePointAt(start++) == 'l'
+                        && s.codePointAt(start++) == 's'
+                        && s.codePointAt(start) == 'e') {
+                    return FALSE;
+                }
             }
         }
         ValidationFailure err = new ValidationFailure(
@@ -118,6 +126,7 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
         err.setErrorCode("FORG0001");
         return err;
     }
+
 
     /**
      * Get the value
@@ -158,44 +167,8 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      */
 
     @Override
-    public String getPrimitiveStringValue() {
-        return value ? "true" : "false";
-    }
-
-    /**
-     * Get a Comparable value that implements the XML Schema ordering comparison semantics for this value.
-     * The default implementation returns "this". This is overridden for particular atomic types.
-     * <p>In the case of data types that are partially ordered, the returned Comparable extends the standard
-     * semantics of the compareTo() method by returning the value {@link net.sf.saxon.om.SequenceTool#INDETERMINATE_ORDERING} when there
-     * is no defined order relationship between two given values.</p>
-     *
-     * @return a Comparable that follows XML Schema comparison rules
-     */
-
-    @Override
-    public Comparable getSchemaComparable() {
-        return new BooleanComparable();
-    }
-
-    private class BooleanComparable implements Comparable {
-
-        public boolean asBoolean() {
-            return BooleanValue.this.getBooleanValue();
-        }
-
-        @Override
-        public int compareTo(/*@NotNull*/ Object o) {
-            return equals(o) ? 0 : SequenceTool.INDETERMINATE_ORDERING;
-        }
-
-        public boolean equals(Object o) {
-            return o instanceof BooleanComparable && asBoolean() == ((BooleanComparable) o).asBoolean();
-        }
-
-        public int hashCode() {
-            return asBoolean() ? 9999999 : 8888888;
-        }
-
+    public UnicodeString getPrimitiveStringValue() {
+        return value ? StringConstants.TRUE : StringConstants.FALSE;
     }
 
     /**
@@ -205,8 +178,6 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      * string, date, time, dateTime, yearMonthDuration, dayTimeDuration, and anyURI.
      *
      *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
      * @param collator the collation to be used when comparing strings
      * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
      *                 sensitive
@@ -216,7 +187,17 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      */
 
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone) {
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
+        return this;
+    }
+
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) {
+        return this;
+    }
+
+    @Override
+    public XPathComparable getXPathComparable()  {
         return this;
     }
 
@@ -232,18 +213,18 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      */
 
     @Override
-    public int compareTo(Object other) {
-        if (!(other instanceof BooleanValue)) {
-            XPathException e = new XPathException("Boolean values are not comparable to " + other.getClass(), "XPTY0004");
-            throw new ComparisonException(e);
+    public int compareTo(XPathComparable other) {
+        if (other instanceof BooleanValue) {
+            if (value == ((BooleanValue)other).value) {
+                return 0;
+            }
+            if (value) {
+                return +1;
+            }
+            return -1;
+        } else {
+            throw new ClassCastException("Cannot compare xs:boolean to " + other);
         }
-        if (value == ((BooleanValue) other).value) {
-            return 0;
-        }
-        if (value) {
-            return +1;
-        }
-        return -1;
     }
 
     /**
@@ -272,8 +253,9 @@ public final class BooleanValue extends AtomicValue implements Comparable, Atomi
      *
      * @return a string representation of this value: "true()" or "false()"
      */
-    public String toString() {
-        return getStringValue() + "()";
+    @Override
+    public String show() {
+        return this.getUnicodeStringValue() + "()";
     }
 }
 

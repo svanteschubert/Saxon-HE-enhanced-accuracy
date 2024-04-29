@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -116,16 +116,17 @@ public interface StaticError {
      * too many errors have been signalled. There is no absolute guarantee that setting this
      * property will cause execution to be abandoned. If a dynamic error is marked as fatal, it
      * will generally not be caught by any try/catch mechanism within the stylesheet or query.
+     * @param message the message
      */
 
-    void setFatal(String message);
+    void setTerminationMessage(String message);
 
     /**
-     * Ask whether this error is to be treated as fatal, and if so, return the relevant messsage
+     * Ask whether this error is to be treated as fatal, and if so, return the relevant message
      * @return a non-null message if the error has been marked as a fatal error.
      */
 
-    String getFatalErrorMessage();
+    String getTerminationMessage();
 
 }
 

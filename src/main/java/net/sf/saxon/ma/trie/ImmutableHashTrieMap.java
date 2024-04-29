@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import java.util.List;
 // by Saxonica Limited with permission from the author
 
 public abstract class ImmutableHashTrieMap<K, V>
-        implements ImmutableMap<K,V>, Iterable<Tuple2<K, V>>  {
+        implements ImmutableMap<K,V>, Iterable<TrieKVP<K, V>>  {
 
     private static final ImmutableHashTrieMap EMPTY_NODE = new EmptyHashNode();
 
@@ -73,30 +73,30 @@ public abstract class ImmutableHashTrieMap<K, V>
     private static class EmptyHashNode<K, V>
             extends ImmutableHashTrieMap<K, V> {
         @Override
-        ImmutableHashTrieMap<K, V> put(final int shift, final K key,
+        public ImmutableHashTrieMap<K, V> put(final int shift, final K key,
                                        final V value) {
             return new EntryHashNode<>(key, value);
         }
 
         @Override
-        ImmutableHashTrieMap<K, V> remove(final int shift,
+        public ImmutableHashTrieMap<K, V> remove(final int shift,
                                           final K key) {
             return this;
         }
 
         @Override
-        boolean isArrayNode() {
+        public boolean isArrayNode() {
             return false;
         }
 
         @Override
-        V get(final int shift, final K key) {
+        public V get(final int shift, final K key) {
             return null;
         }
 
         @Override
-        public Iterator<Tuple2<K, V>> iterator() {
-            return Collections.<Tuple2<K, V>>emptySet().iterator();
+        public Iterator<TrieKVP<K, V>> iterator() {
+            return Collections.emptyIterator();
         }
     }
 
@@ -118,15 +118,15 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        ImmutableHashTrieMap<K, V> put(final int shift, final K key,
+        public ImmutableHashTrieMap<K, V> put(final int shift, final K key,
                                        final V value) {
             if (this.key.equals(key)) {
                 // Overwriting this entry
                 return new EntryHashNode<>(key, value);
             } else if (this.key.hashCode() == key.hashCode()) {
                 // This is a collision. Return a new ListHashNode.
-                return new ListHashNode<>(new Tuple2<>(this.key, this.value),
-                                          new Tuple2<>(key, value));
+                return new ListHashNode<>(new TrieKVP<>(this.key, this.value),
+                                          new TrieKVP<>(key, value));
             }
             // Split this node into an ArrayHashNode with this and the new value
             // as entries.
@@ -135,7 +135,7 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        ImmutableHashTrieMap<K, V> remove(final int shift,
+        public ImmutableHashTrieMap<K, V> remove(final int shift,
                                           final K key) {
             if (this.key.equals(key)) {
                 return empty();
@@ -144,12 +144,12 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        boolean isArrayNode() {
+        public boolean isArrayNode() {
             return false;
         }
 
         @Override
-        V get(final int shift, final K key) {
+        public V get(final int shift, final K key) {
             if (this.key.equals(key)) {
                 return value;
             }
@@ -157,8 +157,8 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        public Iterator<Tuple2<K, V>> iterator() {
-            return Collections.singleton(new Tuple2<>(key, value)).iterator();
+        public Iterator<TrieKVP<K, V>> iterator() {
+            return Collections.singleton(new TrieKVP<>(key, value)).iterator();
         }
     }
 
@@ -169,17 +169,17 @@ public abstract class ImmutableHashTrieMap<K, V>
      */
 
     private static class ListHashNode<K, V> extends ImmutableHashTrieMap<K, V> {
-        private final ImmutableList<Tuple2<K, V>> entries;
+        private final ImmutableList<TrieKVP<K, V>> entries;
 
-        public ListHashNode(Tuple2<K, V> entry1,
-                            Tuple2<K, V> entry2) {
+        public ListHashNode(TrieKVP<K, V> entry1,
+                            TrieKVP<K, V> entry2) {
             // These entries must collide
-            assert entry1._1.hashCode() == entry2._1.hashCode();
-            entries = ImmutableList.<Tuple2<K, V>>empty().prepend(entry1)
-                    .prepend(entry2);
+            assert entry1.key.hashCode() == entry2.key.hashCode();
+            ImmutableList<TrieKVP<K, V>> newList = ImmutableList.empty();
+            entries = newList.prepend(entry1).prepend(entry2);
         }
 
-        private ListHashNode(final ImmutableList<Tuple2<K, V>> entries) {
+        private ListHashNode(final ImmutableList<TrieKVP<K, V>> entries) {
             // Size should be at least 2
             assert !entries.isEmpty();
             assert !entries.tail().isEmpty();
@@ -187,23 +187,22 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        ImmutableHashTrieMap<K, V> put(final int shift, final K key,
+        public ImmutableHashTrieMap<K, V> put(final int shift, final K key,
                                        final V value) {
-            if (entries.head()._1.hashCode() != key.hashCode()) {
+            if (entries.head().key.hashCode() != key.hashCode()) {
                 return newArrayHashNode(shift,
-                        entries.head()._1.hashCode(),
+                        entries.head().key.hashCode(),
                         this,
                         key.hashCode(),
                                         new EntryHashNode<>(
                                                 key, value));
             }
-            ImmutableList<Tuple2<K, V>> newList = ImmutableList.empty();
+            ImmutableList<TrieKVP<K, V>> newList = ImmutableList.empty();
             boolean found = false;
-            for (Tuple2<K, V> entry : entries) {
-                if (entry._1.equals(key)) {
+            for (TrieKVP<K, V> entry : entries) {
+                if (entry.key.equals(key)) {
                     // Node replacement
-                    newList =
-                            newList.prepend(new Tuple2<>(key, value));
+                    newList = newList.prepend(new TrieKVP<>(key, value));
                     found = true;
                 } else {
                     newList = newList.prepend(entry);
@@ -211,48 +210,48 @@ public abstract class ImmutableHashTrieMap<K, V>
             }
             if (!found) {
                 // Adding a new entry
-                newList = newList.prepend(new Tuple2<>(key, value));
+                newList = newList.prepend(new TrieKVP<>(key, value));
             }
             return new ListHashNode<>(newList);
         }
 
         @Override
-        ImmutableHashTrieMap<K, V> remove(final int shift,
+        public ImmutableHashTrieMap<K, V> remove(final int shift,
                                           final K key) {
-            ImmutableList<Tuple2<K, V>> newList = ImmutableList.empty();
+            ImmutableList<TrieKVP<K, V>> newList = ImmutableList.empty();
             int size = 0;
-            for (Tuple2<K, V> entry : entries) {
-                if (!entry._1.equals(key)) {
+            for (TrieKVP<K, V> entry : entries) {
+                if (!entry.key.equals(key)) {
                     newList = newList.prepend(entry);
                     size++;
                 }
             }
             if (size == 1) {
-                Tuple2<K, V> entry = newList.head();
-                return new EntryHashNode<>(entry._1, entry._2);
+                TrieKVP<K, V> entry = newList.head();
+                return new EntryHashNode<>(entry.key, entry.value);
             }
             return new ListHashNode<>(newList);
         }
 
         @Override
-        boolean isArrayNode() {
+        public boolean isArrayNode() {
             return false;
         }
 
         @Override
-        V get(final int shift, final K key) {
-            for (Tuple2<K, V> entry : entries) {
-                if (entry._1.equals(key)) {
-                    return entry._2;
+        public V get(final int shift, final K key) {
+            for (TrieKVP<K, V> entry : entries) {
+                if (entry.key.equals(key)) {
+                    return entry.value;
                 }
             }
             return null;
         }
 
         @Override
-        public Iterator<Tuple2<K, V>> iterator() {
-            return new Iterator<Tuple2<K, V>>() {
-                private ImmutableList<Tuple2<K, V>> curList =
+        public Iterator<TrieKVP<K, V>> iterator() {
+            return new Iterator<TrieKVP<K, V>>() {
+                private ImmutableList<TrieKVP<K, V>> curList =
                         ListHashNode.this.entries;
 
                 @Override
@@ -261,8 +260,8 @@ public abstract class ImmutableHashTrieMap<K, V>
                 }
 
                 @Override
-                public Tuple2<K, V> next() {
-                    Tuple2<K, V> retVal = curList.head();
+                public TrieKVP<K, V> next() {
+                    TrieKVP<K, V> retVal = curList.head();
                     curList = curList.tail();
                     return retVal;
                 }
@@ -351,7 +350,7 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        ImmutableHashTrieMap<K, V> put(final int shift, final K key,
+        public ImmutableHashTrieMap<K, V> put(final int shift, final K key,
                                        final V value) {
             final int bucket = getBucket(shift, key);
             ImmutableHashTrieMap<K, V>[] newNodes = new ImmutableHashTrieMap[FANOUT];
@@ -365,7 +364,7 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        ImmutableHashTrieMap<K, V> remove(final int shift,
+        public ImmutableHashTrieMap<K, V> remove(final int shift,
                                           final K key) {
             final int bucket = getBucket(shift, key);
             if (subnodes[bucket] == EMPTY_NODE) {
@@ -396,16 +395,16 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        V get(final int shift, final K key) {
+        public V get(final int shift, final K key) {
             final int bucket = getBucket(shift, key);
             return subnodes[bucket].get(shift + BITS, key);
         }
 
         @Override
-        public Iterator<Tuple2<K, V>> iterator() {
-            return new Iterator<Tuple2<K, V>>() {
+        public Iterator<TrieKVP<K, V>> iterator() {
+            return new Iterator<TrieKVP<K, V>>() {
                 private int bucket = 0;
-                private Iterator<Tuple2<K, V>> childIterator =
+                private Iterator<TrieKVP<K, V>> childIterator =
                         subnodes[0].iterator();
 
                 @Override
@@ -425,7 +424,7 @@ public abstract class ImmutableHashTrieMap<K, V>
                 }
 
                 @Override
-                public Tuple2<K, V> next() {
+                public TrieKVP<K, V> next() {
                     return childIterator.next();
                 }
 
@@ -485,7 +484,7 @@ public abstract class ImmutableHashTrieMap<K, V>
         }
 
         @Override
-        public Iterator<Tuple2<K, V>> iterator() {
+        public Iterator<TrieKVP<K, V>> iterator() {
             return subnode.iterator();
         }
     }

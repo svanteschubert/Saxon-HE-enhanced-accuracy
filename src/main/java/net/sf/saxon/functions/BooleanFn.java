@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
@@ -17,6 +20,7 @@ import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.BooleanValue;
@@ -55,7 +59,7 @@ public class BooleanFn extends SystemFunction {
         boolean forStreaming = visitor.isOptimizeForStreaming();
         exp = ExpressionTool.unsortedIfHomogeneous(exp, forStreaming);
         if (exp instanceof Literal) {
-            GroundedValue val = ((Literal)exp).getValue();
+            GroundedValue val = ((Literal)exp).getGroundedValue();
             if (val instanceof BooleanValue) {
                 return exp;
             }
@@ -77,13 +81,11 @@ public class BooleanFn extends SystemFunction {
         } else if (exp.isCallOn(Count.class)) {
             // rewrite boolean(count(x)) => exists(x)
             Expression exists = SystemFunction.makeCall("exists", exp.getRetainedStaticContext(), ((SystemFunctionCall) exp).getArg(0));
-            assert exists != null;
             ExpressionTool.copyLocationInfo(exp, exists);
             return exists.optimize(visitor, contextItemType);
         } else if (exp.getItemType() instanceof NodeTest) {
             // rewrite boolean(x) => exists(x)
             Expression exists = SystemFunction.makeCall("exists", exp.getRetainedStaticContext(), exp);
-            assert exists != null;
             ExpressionTool.copyLocationInfo(exp, exists);
             return exists.optimize(visitor, contextItemType);
         } else {
@@ -105,7 +107,7 @@ public class BooleanFn extends SystemFunction {
             public Expression optimize(/*@NotNull*/ ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
                 Expression e = super.optimize(visitor, contextItemType);
                 if (e == this) {
-                    Expression ebv = rewriteEffectiveBooleanValue(getArg(0), visitor, contextItemType);
+                    Expression ebv = rewriteEffectiveBooleanValue(this.getArg(0), visitor, contextItemType);
                     if (ebv != null) {
                         ebv = ebv.optimize(visitor, contextItemType);
                         if (ebv.getItemType() == BuiltInAtomicType.BOOLEAN &&
@@ -123,17 +125,17 @@ public class BooleanFn extends SystemFunction {
             }
 
             @Override
+            @CSharpModifiers(code={"public", "override"})
             public boolean effectiveBooleanValue(XPathContext c) throws XPathException {
                 try {
                     return getArg(0).effectiveBooleanValue(c);
                 } catch (XPathException e) {
-                    e.maybeSetLocation(getLocation());
-                    e.maybeSetContext(c);
-                    throw e;
+                    throw e.maybeWithLocation(getLocation()).maybeWithContext(c);
                 }
             }
 
             @Override
+            @CSharpModifiers(code = {"public", "override"})
             public BooleanValue evaluateItem(XPathContext context) throws XPathException {
                 return BooleanValue.get(effectiveBooleanValue(context));
             }
@@ -141,14 +143,28 @@ public class BooleanFn extends SystemFunction {
     }
 
     @Override
-    public String getCompilerName() {
-        return "BooleanFnCompiler";
-    }
-
-    @Override
     public String getStreamerName() {
         return "BooleanFn";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new BooleanFnElaborator();
+    }
+
+    public static class BooleanFnElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            Expression arg = fnc.getArg(0);
+            return arg.makeElaborator().elaborateForBoolean();
+        }
+
+    }
 }

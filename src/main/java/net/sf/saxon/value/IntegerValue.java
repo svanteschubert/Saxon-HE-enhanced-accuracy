@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,17 @@
 
 package net.sf.saxon.value;
 
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.functions.FormatNumber;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.type.ValidationFailure;
+import net.sf.saxon.z.IntIterator;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -37,10 +40,10 @@ public abstract class IntegerValue extends DecimalValue {
      * minimum (or no maximum) for this type. The special value MAX_UNSIGNED_LONG represents the
      * value 2^64-1
      */
-    private static long NO_LIMIT = -9999;
-    private static long MAX_UNSIGNED_LONG = -9998;
+    private static final long NO_LIMIT = -9999;
+    private static final long MAX_UNSIGNED_LONG = -9998;
 
-    /*@NotNull*/ private static long[] ranges = {
+    /*@NotNull*/ private static final long[] ranges = {
             // arrange so the most frequently used types are near the start
             StandardNames.XS_INTEGER, NO_LIMIT, NO_LIMIT,
             StandardNames.XS_LONG, Long.MIN_VALUE, Long.MAX_VALUE,
@@ -55,6 +58,10 @@ public abstract class IntegerValue extends DecimalValue {
             StandardNames.XS_UNSIGNED_INT, 0, 4294967295L,
             StandardNames.XS_UNSIGNED_SHORT, 0, 65535,
             StandardNames.XS_UNSIGNED_BYTE, 0, 255};
+
+    public IntegerValue(AtomicType typeLabel) {
+        super(typeLabel);
+    }
 
     /**
      * Factory method: makes either an Int64Value or a BigIntegerValue depending on the value supplied
@@ -78,7 +85,7 @@ public abstract class IntegerValue extends DecimalValue {
      * @return the result of the conversion, or the validation failure if the input is NaN or infinity
      */
 
-    public static ConversionResult makeIntegerValue(double value) {
+    public static ConversionResult fromDouble(double value) {
         if (Double.isNaN(value)) {
             ValidationFailure err = new ValidationFailure("Cannot convert double NaN to an integer");
             err.setErrorCode("FOCA0002");
@@ -93,36 +100,11 @@ public abstract class IntegerValue extends DecimalValue {
             if (value == Math.floor(value)) {
                 return new BigIntegerValue(FormatNumber.adjustToDecimal(value, 2).toBigInteger());
             } else {
-                return new BigIntegerValue(new BigDecimal(value).toBigInteger());
+                return new BigIntegerValue(BigDecimal.valueOf(value).toBigInteger());
             }
         }
         return Int64Value.makeIntegerValue((long) value);
     }
-
-    /**
-     * Convert a double to an integer
-     *
-     * @param doubleValue the double to be converted
-     * @return the result of the conversion, or the validation failure if the input is NaN or infinity
-     */
-
-    public static ConversionResult makeIntegerValue(DoubleValue doubleValue) {
-        double value = doubleValue.getDoubleValue();
-        return makeIntegerValue(value);
-    }
-
-    /**
-     * This class allows subtypes of xs:integer to be held, as well as xs:integer values.
-     * This method sets the required type label. Note that this method modifies the value in situ.
-     *
-     * @param type     the subtype of integer required
-     * @param validate true if validation is required, false if the caller warrants that the value
-     *                 is valid for the subtype
-     * @return null if the operation succeeds, or a ValidationException if the value is out of range
-     */
-
-    /*@Nullable*/
-    public abstract ValidationFailure convertToSubType(BuiltInAtomicType type, boolean validate);
 
     /**
      * This class allows subtypes of xs:integer to be held, as well as xs:integer values.
@@ -239,12 +221,12 @@ public abstract class IntegerValue extends DecimalValue {
     /**
      * Static factory method to convert strings to integers.
      *
-     * @param s CharSequence representing the string to be converted
+     * @param s the string to be converted
      * @return either an Int64Value or a BigIntegerValue representing the value of the String, or
      *         a ValidationFailure encapsulating an Exception if the value cannot be converted.
      */
 
-    public static ConversionResult stringToInteger(/*@NotNull*/ CharSequence s) {
+    public static ConversionResult stringToInteger(String s) {
 
         int len = s.length();
         int start = 0;
@@ -274,7 +256,7 @@ public abstract class IntegerValue extends DecimalValue {
                         " to integer: no digits after the sign");
             }
             while (i <= last) {
-                char d = s.charAt(i++);
+                int d = s.charAt(i++);
                 if (d >= '0' && d <= '9') {
                     value = 10 * value + (d - '0');
                 } else {
@@ -285,14 +267,16 @@ public abstract class IntegerValue extends DecimalValue {
         } else {
             // for longer numbers, rely on library routines
             try {
-                CharSequence t = Whitespace.trimWhitespace(s);
-                if (t.charAt(0) == '+') {
-                    t = t.subSequence(1, t.length());
+                if (start > 0 || last < len-1) {
+                    s = s.substring(start, last+1);
                 }
-                if (t.length() < 16) {
-                    return new Int64Value(Long.parseLong(t.toString()));
+                if (s.charAt(0) == '+') {
+                    s = s.substring(1);
+                }
+                if (s.length() < 16) {
+                    return new Int64Value(Long.parseLong(s));
                 } else {
-                    return new BigIntegerValue(new BigInteger(t.toString()));
+                    return new BigIntegerValue(new BigInteger(s));
                 }
             } catch (NumberFormatException err) {
                 return new ValidationFailure("Cannot convert string " + Err.wrap(s, Err.VALUE) + " to an integer");
@@ -308,28 +292,64 @@ public abstract class IntegerValue extends DecimalValue {
      */
 
     /*@Nullable*/
-    public static ValidationFailure castableAsInteger(CharSequence input) {
-        CharSequence s = Whitespace.trimWhitespace(input);
+    public static ValidationFailure castableAsInteger(UnicodeString input) {
+        IntIterator iter = input.codePoints();
+        int state = 0; // 0 - initial whitespace;
+                       // 1 - expecting digits;
+                       // 2 - expecting digits or final whitespace or EOS
+                       // 3 - expecting final whitespace or EOS
 
-        int last = s.length() - 1;
-        if (last < 0) {
-            return new ValidationFailure("Cannot convert empty string to an integer");
-        }
-        int i = 0;
-        if (s.charAt(i) == '+' || s.charAt(i) == '-') {
-            i++;
-        }
-        if (i > last) {
-            return new ValidationFailure("Cannot convert string " + Err.wrap(s, Err.VALUE) +
-                    " to integer: no digits after the sign");
-        }
-        while (i <= last) {
-            char d = s.charAt(i++);
-            if (d >= '0' && d <= '9') {
-                // OK
-            } else {
-                return new ValidationFailure("Cannot convert string " + Err.wrap(s, Err.VALUE) + " to an integer: contains a character that is not a digit");
+        while (iter.hasNext()) {
+            int c = iter.next();
+            switch (state) {
+                case 0:
+                    if (Whitespace.isWhite(c)) {
+                        state = 0;
+                    } else if (c == '+' || c == '-') {
+                        state = 1;
+                    } else if (c >= '0' && c <= '9') {
+                        state = 2;
+                    } else {
+                        return new ValidationFailure("Cannot convert string " + Err.wrap(input, Err.VALUE)
+                                                             + " to an integer: contains a character "
+                                                             + Err.depictCodepoint(c)
+                                                             + " that is not a digit");
+                    }
+                    break;
+                case 1:
+                    if (c >= '0' && c <= '9') {
+                        state = 2;
+                    } else {
+                        return new ValidationFailure("Cannot convert string " + Err.wrap(input, Err.VALUE) +
+                                                             " to an integer: expected a digit, found "
+                                                             + Err.depictCodepoint(c));
+                    }
+                    break;
+                case 2:
+                    if (c >= '0' && c <= '9') {
+                        state = 2;
+                    } else if (Whitespace.isWhite(c)) {
+                        state = 3;
+                    } else {
+                        return new ValidationFailure("Cannot convert string " + Err.wrap(input, Err.VALUE)
+                                                             + " to an integer: expected a digit, found "
+                                                             + Err.depictCodepoint(c));
+                    }
+                    break;
+                case 3:
+                    if (Whitespace.isWhite(c)) {
+                        state = 3;
+                    } else {
+                        return new ValidationFailure("Cannot convert string " + Err.wrap(input, Err.VALUE) + " to an integer: found " + c + " after final whitespace");
+                    }
+                    break;
+                default:
+                    throw new IllegalStateException();
             }
+
+        }
+        if (state == 0 || state == 1) {
+            return new ValidationFailure("Cannot convert string " + Err.wrap(input, Err.VALUE) + " to an integer: no digits found");
         }
         return null;
     }
@@ -418,8 +438,7 @@ public abstract class IntegerValue extends DecimalValue {
         try {
             return div(other);
         } catch (XPathException err) {
-            err.maybeSetLocation(locator);
-            throw err;
+            throw err.maybeWithLocation(locator);
         }
     }
 
@@ -446,8 +465,7 @@ public abstract class IntegerValue extends DecimalValue {
         try {
             return mod(other);
         } catch (XPathException err) {
-            err.maybeSetLocation(locator);
-            throw err;
+            throw err.maybeWithLocation(locator);
         }
     }
 
@@ -474,8 +492,7 @@ public abstract class IntegerValue extends DecimalValue {
         try {
             return idiv(other);
         } catch (XPathException err) {
-            err.maybeSetLocation(locator);
-            throw err;
+            throw err.maybeWithLocation(locator);
         }
     }
 

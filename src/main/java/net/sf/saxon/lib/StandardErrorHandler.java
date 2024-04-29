@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -28,7 +28,7 @@ public class StandardErrorHandler implements org.xml.sax.ErrorHandler {
     // Implement the org.xml.sax.ErrorHandler interface.
     ////////////////////////////////////////////////////////////////////////////
 
-    private ErrorReporter errorReporter;
+    private final ErrorReporter errorReporter;
     private int warningCount = 0;
     private int errorCount = 0;
     private int fatalErrorCount = 0;
@@ -99,11 +99,9 @@ public class StandardErrorHandler implements org.xml.sax.ErrorHandler {
     protected void reportError(SAXParseException e, boolean isFatal) {
         try {
             Loc loc = new Loc(e.getSystemId(), e.getLineNumber(), e.getColumnNumber());
-            if (errorReporter != null) {
-                XmlProcessingIncident err = new XmlProcessingIncident(" Error reported by XML parser: "+ e.getMessage(), SaxonErrorCode.SXXP0003, loc);
-                err.setCause(e);
-                errorReporter.report(err);
-            }
+            XmlProcessingIncident err = new XmlProcessingIncident(" Error reported by XML parser: "+ e.getMessage(), SaxonErrorCode.SXXP0003, loc);
+            err.setCause(e);
+            errorReporter.report(err);
         } catch (Exception unexpected) {
             throw new AssertionError(unexpected);
         }
@@ -137,6 +135,10 @@ public class StandardErrorHandler implements org.xml.sax.ErrorHandler {
 
     public int getFatalErrorCount() {
         return fatalErrorCount;
+    }
+
+    public ErrorReporter getErrorReporter() {
+        return errorReporter;
     }
 }
 

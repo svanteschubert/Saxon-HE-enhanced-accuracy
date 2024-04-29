@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.AxisInfo;
@@ -18,6 +21,7 @@ import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.pattern.NodeTestPattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.*;
@@ -47,14 +51,11 @@ public class RootExpression extends Expression {
     public Expression typeCheck(ExpressionVisitor visitor, /*@Nullable*/ ContextItemStaticInfo contextInfo) throws XPathException {
         TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
         if (contextInfo == null || contextInfo.getItemType() == null || contextInfo.getItemType().equals(ErrorType.getInstance())) {
-            XPathException err = new XPathException(noContextMessage() + ": the context item is absent");
-            err.setErrorCode("XPDY0002");
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException(noContextMessage() + ": the context item is absent")
+                    .withErrorCode("XPDY0002").asTypeError().withLocation(getLocation());
         } else if (!doneWarnings && contextInfo.isParentless()
                 && th.relationship(contextInfo.getItemType(),NodeKindTest.DOCUMENT) == Affinity.DISJOINT) {
-            visitor.issueWarning(noContextMessage() + ": the context item is parentless and is not a document node", getLocation());
+            visitor.issueWarning(noContextMessage() + ": the context item is parentless and is not a document node", SaxonErrorCode.SXWN9026, getLocation());
             doneWarnings = true;
         }
         contextMaybeUndefined = contextInfo.isPossiblyAbsent();
@@ -68,11 +69,10 @@ public class RootExpression extends Expression {
 
         Affinity relation = th.relationship(contextInfo.getItemType(), AnyNodeTest.getInstance());
         if (relation == Affinity.DISJOINT) {
-            XPathException err = new XPathException(noContextMessage() + ": the context item is not a node");
-            err.setErrorCode("XPTY0020");
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException(noContextMessage() + ": the context item is not a node")
+                    .withErrorCode("XPTY0020")
+                    .asTypeError()
+                    .withLocation(getLocation());
         }
         return this;
     }
@@ -100,7 +100,7 @@ public class RootExpression extends Expression {
     }
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return StaticProperty.ORDERED_NODESET |
                 StaticProperty.CONTEXT_DOCUMENT_NODESET |
                 StaticProperty.SINGLE_DOCUMENT_NODESET |
@@ -120,6 +120,7 @@ public class RootExpression extends Expression {
 
     /**
      * Customize the error message on type checking
+     * @return a suitable error message
      */
 
     protected String noContextMessage() {
@@ -139,7 +140,7 @@ public class RootExpression extends Expression {
      */
 
     @Override
-    public final int computeCardinality() {
+    protected final int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -161,7 +162,6 @@ public class RootExpression extends Expression {
      * inference rules defined in the XSLT 3.0 specification.
      *
      * @return the static item type of the expression according to the XSLT 3.0 defined rules
-     * @param contextItemType
      */
     @Override
     public UType getStaticUType(UType contextItemType) {
@@ -187,7 +187,7 @@ public class RootExpression extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return "RootExpression".hashCode();
     }
 
@@ -197,6 +197,8 @@ public class RootExpression extends Expression {
      * @param context The evaluation context
      * @return the NodeInfo of the first selected element, or null if no element
      *         is selected
+     * @throws XPathException for dynamic errors (no context item, context item is not a node, context node
+     * not rooted at a document node)
      */
 
     /*@Nullable*/
@@ -232,7 +234,7 @@ public class RootExpression extends Expression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that need to be re-bound
      */
 
     /*@NotNull*/
@@ -260,8 +262,6 @@ public class RootExpression extends Expression {
      * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
      * by an expression in a source tree.
      *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet
      * @return the pathMapNode representing the focus established by this expression, in the case where this
      *         expression is the first operand of a path expression or filter expression
      */
@@ -325,7 +325,6 @@ public class RootExpression extends Expression {
         return getNode(context) != null;
     }
 
-
     /**
      * Get the (partial) name of a class that supports streaming of this kind of expression
      *
@@ -335,6 +334,30 @@ public class RootExpression extends Expression {
     @Override
     public String getStreamerName() {
         return "RootExpression";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new RootExprElaborator();
+    }
+
+    /**
+     * Elaborator for a root expression ({@code /})
+     */
+
+    public static class RootExprElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final RootExpression expr = (RootExpression) getExpression();
+            return expr::getNode;
+        }
+
     }
 }
 

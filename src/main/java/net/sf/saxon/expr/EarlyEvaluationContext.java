@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,15 +12,17 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.sort.GroupIterator;
 import net.sf.saxon.lib.ErrorReporter;
+import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.regex.RegexIterator;
+import net.sf.saxon.trace.ContextStackFrame;
 import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.value.CalendarValue;
 import net.sf.saxon.value.DateTimeValue;
 
-import javax.xml.transform.URIResolver;
 import java.util.Collections;
 import java.util.Iterator;
 
@@ -31,7 +33,7 @@ import java.util.Iterator;
 
 public class EarlyEvaluationContext implements XPathContext {
 
-    private Configuration config;
+    private final Configuration config;
 
     /**
      * Create an early evaluation context, used for evaluating constant expressions at compile time
@@ -66,6 +68,15 @@ public class EarlyEvaluationContext implements XPathContext {
     }
 
     /**
+     * Get the nearest XPathContextMajor (the next one down the stack). This will be null if unknown, or
+     * if the bottom of the stack has been reached.
+     */
+    @Override
+    public XPathContextMajor getMajorContext() {
+        return null;
+    }
+
+    /**
      * Get the URI resolver. This gets the local URIResolver set in the XPathContext if there
      * is one; if not, it gets the URIResolver from the Controller (which itself defaults to the
      * one set in the Configuration).
@@ -74,8 +85,8 @@ public class EarlyEvaluationContext implements XPathContext {
      * @since 9.6
      */
     @Override
-    public URIResolver getURIResolver() {
-        return config.getURIResolver();
+    public ResourceResolver getResourceResolver() {
+        return config.getResourceResolver();
     }
 
     /**
@@ -209,15 +220,14 @@ public class EarlyEvaluationContext implements XPathContext {
      * Get the context size (the position of the last item in the current node list)
      *
      * @return the context size
-     * @throws net.sf.saxon.trans.XPathException
+     * @throws net.sf.saxon.trans.UncheckedXPathException
      *          if the context position is undefined
      */
 
     @Override
-    public int getLast() throws XPathException {
-        XPathException err = new XPathException("The context item is absent");
-        err.setErrorCode("XPDY0002");
-        throw err;
+    public int getLast() throws UncheckedXPathException {
+        XPathException err = new XPathException("The context item is absent", "XPDY0002");
+        throw new UncheckedXPathException(err);
     }
 
     /**
@@ -374,7 +384,7 @@ public class EarlyEvaluationContext implements XPathContext {
 
     /**
      * Get the implicit timezone, as a positive or negative offset from UTC in minutes.
-     * The range is -14hours to +14hours. This implementation returns {@link CalendarValue#NO_TIMEZONE},
+     * The range is -14hours to +14hours. This implementation returns {@link CalendarValue#MISSING_TIMEZONE},
      * meaning the value is unknown.
      *
      * @return the implicit timezone, as an offset from UTC in minutes
@@ -395,8 +405,8 @@ public class EarlyEvaluationContext implements XPathContext {
      */
 
     @Override
-    public Iterator iterateStackFrames() {
-        return Collections.EMPTY_LIST.iterator();
+    public Iterator<ContextStackFrame> iterateStackFrames() {
+        return Collections.emptyIterator();
     }
 
     /**

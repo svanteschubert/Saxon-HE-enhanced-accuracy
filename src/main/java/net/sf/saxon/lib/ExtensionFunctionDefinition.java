@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,7 @@ package net.sf.saxon.lib;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.AbstractFunction;
-import net.sf.saxon.om.Function;
-import net.sf.saxon.om.Item;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
@@ -151,75 +150,92 @@ public abstract class ExtensionFunctionDefinition {
      * @return a function item corresponding to this extension function
      */
 
-    public final Function asFunction() {
+    public final FunctionItem asFunction(int arity) {
+        return new ExtensionFunction(this, arity);
+    }
 
-        return new AbstractFunction() {
+    private static class ExtensionFunction extends AbstractFunction {
 
-            /**
-             * Invoke the function
-             *
-             * @param context the XPath dynamic evaluation context
-             * @param args    the actual arguments to be supplied
-             * @return the result of invoking the function
-             * @throws XPathException if a dynamic error occurs within the function
-             */
-            @Override
-            public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
-                return makeCallExpression().call(context, args);
+        private final ExtensionFunctionDefinition definition;
+        private final int arity;
+
+        public ExtensionFunction(ExtensionFunctionDefinition definition, int arity) {
+            this.definition = definition;
+            this.arity = arity;
+        }
+
+
+        /**
+         * Invoke the function
+         *
+         * @param context the XPath dynamic evaluation context
+         * @param args    the actual arguments to be supplied
+         * @return the result of invoking the function
+         * @throws XPathException if a dynamic error occurs within the function
+         */
+        @Override
+        public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
+            if (args.length != arity) {
+                // can happen on a dynamic call
+                throw new XPathException("Wrong number of arguments in call to " + definition.getFunctionQName().getDisplayName(),
+                                         "XPTY0004");
             }
+            return definition.makeCallExpression().call(context, args);
+        }
 
-            /**
-             * Get the item type of the function item
-             *
-             * @return the function item's type
-             */
-            @Override
-            public FunctionItemType getFunctionItemType() {
-                return new SpecificFunctionType(getArgumentTypes(), getResultType(getArgumentTypes()));
-            }
+        /**
+         * Get the item type of the function item
+         *
+         * @return the function item's type
+         */
+        @Override
+        public FunctionItemType getFunctionItemType() {
+            return new SpecificFunctionType(
+                    definition.getArgumentTypes(),
+                    definition.getResultType(definition.getArgumentTypes()));
+        }
 
-            /**
-             * Get the name of the function, or null if it is anonymous
-             *
-             * @return the function name, or null for an anonymous inline function
-             */
-            @Override
-            public StructuredQName getFunctionName() {
-                return getFunctionQName();
-            }
+        /**
+         * Get the name of the function, or null if it is anonymous
+         *
+         * @return the function name, or null for an anonymous inline function
+         */
+        @Override
+        public StructuredQName getFunctionName() {
+            return definition.getFunctionQName();
+        }
 
-            /**
-             * Get the arity of the function
-             *
-             * @return the number of arguments in the function signature
-             */
-            @Override
-            public int getArity() {
-                return getArgumentTypes().length;
-            }
+        /**
+         * Get the arity of the function
+         *
+         * @return the number of arguments in the function signature
+         */
+        @Override
+        public int getArity() {
+            return this.arity;
+        }
 
-            /**
-             * Get a description of this function for use in error messages. For named functions, the description
-             * is the function name (as a lexical QName). For others, it might be, for example, "inline function",
-             * or "partially-applied ends-with function".
-             *
-             * @return a description of the function for use in error messages
-             */
-            @Override
-            public String getDescription() {
-                return getFunctionQName().getDisplayName();
-            }
+        /**
+         * Get a description of this function for use in error messages. For named functions, the description
+         * is the function name (as a lexical QName). For others, it might be, for example, "inline function",
+         * or "partially-applied ends-with function".
+         *
+         * @return a description of the function for use in error messages
+         */
+        @Override
+        public String getDescription() {
+            return definition.getFunctionQName().getDisplayName();
+        }
 
-            /**
-             * Ask whether the result of the function should be checked against the declared return type
-             * @return true if the result does not need to be checked (which can cause catastrophic
-             * failure if this trust is misplaced)
-             */
-            @Override
-            public boolean isTrustedResultType() {
-                return trustResultType();
-            }
-        };
+        /**
+         * Ask whether the result of the function should be checked against the declared return type
+         * @return true if the result does not need to be checked (which can cause catastrophic
+         * failure if this trust is misplaced)
+         */
+        @Override
+        public boolean isTrustedResultType() {
+            return definition.trustResultType();
+        }
 
     }
 

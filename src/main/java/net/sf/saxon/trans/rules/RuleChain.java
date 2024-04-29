@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,7 @@ package net.sf.saxon.trans.rules;
  */
 public class RuleChain {
 
-    private Rule head;
+    private Rule _head;
     public Object optimizationData; // give this a better type
 
     /**
@@ -21,16 +21,16 @@ public class RuleChain {
      */
 
     public RuleChain() {
-        head = null;
+        _head = null;
     }
 
     /**
-     * Create an rule chain with a give rule as the head of the chain
-     * @param head the head of a chain of rules
+     * Create an rule chain with a give rule as the _head of the chain
+     * @param head the _head of a chain of rules
      */
 
     public RuleChain(Rule head) {
-        this.head = head;
+        this._head = head;
     }
 
     /**
@@ -39,7 +39,7 @@ public class RuleChain {
      */
 
     public Rule head() {
-        return head;
+        return _head;
     }
 
     /**
@@ -48,7 +48,7 @@ public class RuleChain {
      */
 
     public void setHead(Rule head) {
-        this.head = head;
+        this._head = head;
     }
 
     /**
@@ -64,6 +64,16 @@ public class RuleChain {
             r = r.getNext();
         }
         return i;
+    }
+
+    /**
+     * Ask whether the rule chain has optimization data, requiring allocation of
+     * a PreconditionMatcher when searching the rule chain
+     * @return true if there is optimization data associated with the rule chain.
+     */
+
+    public boolean hasOptimizationData() {
+        return optimizationData != null;
     }
 }
 

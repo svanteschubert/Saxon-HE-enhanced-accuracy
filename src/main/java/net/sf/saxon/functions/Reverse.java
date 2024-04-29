@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
@@ -17,8 +18,12 @@ import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.tree.iter.ReversibleIterator;
 import net.sf.saxon.value.SequenceExtent;
+
+import java.util.List;
 
 /**
  * Implement XPath function fn:reverse()
@@ -71,19 +76,24 @@ public class Reverse extends SystemFunction {
 //    }
 
 
-    public static <T extends Item> SequenceIterator getReverseIterator(SequenceIterator forwards) throws XPathException {
+    public static SequenceIterator getReverseIterator(SequenceIterator forwards) {
         if (forwards instanceof ReversibleIterator) {
             return ((ReversibleIterator) forwards).getReverseIterator();
         } else {
-            SequenceExtent extent = new SequenceExtent(forwards);
-            return extent.reverseIterate();
+            return SequenceExtent.from(forwards).reverseIterate();
         }
     }
 
 
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        return SequenceTool.toLazySequence(getReverseIterator(arguments[0].iterate()));
+        SequenceExtent input;
+        if (arguments[0] instanceof SequenceExtent) {
+            input = (SequenceExtent)arguments[0];
+        } else {
+            input = SequenceExtent.from(arguments[0].iterate());
+        }
+        return SequenceTool.toLazySequence(input.reverseIterate());
     }
 
     /**
@@ -110,9 +120,61 @@ public class Reverse extends SystemFunction {
 
     }
 
+    @CSharpReplaceBody(code="return new Saxon.Impl.Helpers.ReverseListIterator<T>(list);")
+    public static <T extends Item> SequenceIterator reverseIterator(List<T> list) {
+        return new ReverseListIterator(list);
+    }
+
     @Override
     public String getStreamerName() {
         return "Reverse";
+    }
+
+    public static class ReverseListIterator implements SequenceIterator, LastPositionFinder, ReversibleIterator {
+
+        private final java.util.ListIterator<? extends Item> listIter;
+        private final List<? extends Item> list;
+
+        public <T extends Item> ReverseListIterator(List<T> list) {
+            this.list = list;
+            this.listIter = list.listIterator(list.size());
+        }
+
+        @Override
+        public boolean supportsGetLength() {
+            return true;
+        }
+
+        /**
+         * Get the last position (that is, the number of items in the sequence).
+         * @return the number of items in the sequence
+         */
+        @Override
+        public int getLength() {
+            return list.size();
+        }
+
+        /**
+         * Get the next item in the sequence.
+         *
+         * @return the next Item. If there are no more items, return null.
+         */
+        @Override
+        public Item next() {
+            return listIter.hasPrevious() ? listIter.previous() : null;
+        }
+
+        /**
+         * Get a new SequenceIterator that returns the same items in reverse order.
+         * If this SequenceIterator is an AxisIterator, then the returned SequenceIterator
+         * must also be an AxisIterator.
+         *
+         * @return an iterator over the items in reverse order
+         */
+        @Override
+        public SequenceIterator getReverseIterator() {
+            return new ListIterator.Of<>(list);
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.SequenceExtent;
 
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * This class implements the function fn:sort#1, which is a standard function in XPath 3.1
@@ -41,13 +40,13 @@ public class Sort_1 extends SystemFunction {
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        final List<ItemToBeSorted> inputList = getItemsToBeSorted(arguments[0]);
+        final ArrayList<ItemToBeSorted> inputList = getItemsToBeSorted(arguments[0]);
         StringCollator collation = context.getConfiguration().getCollation(getRetainedStaticContext().getDefaultCollationName());
         return doSort(inputList, collation, context);
     }
 
-    protected List<ItemToBeSorted> getItemsToBeSorted(Sequence input) throws XPathException {
-        final List<ItemToBeSorted> inputList = new ArrayList<>();
+    protected ArrayList<ItemToBeSorted> getItemsToBeSorted(Sequence input) throws XPathException {
+        final ArrayList<ItemToBeSorted> inputList = new ArrayList<>();
         int i = 0;
         SequenceIterator iterator = input.iterate();
         Item item;
@@ -61,7 +60,7 @@ public class Sort_1 extends SystemFunction {
         return inputList;
     }
 
-    protected Sequence doSort(final List<ItemToBeSorted> inputList, StringCollator collation, XPathContext context) throws XPathException {
+    protected Sequence doSort(final ArrayList<ItemToBeSorted> inputList, StringCollator collation, XPathContext context) throws XPathException {
         final AtomicComparer atomicComparer = AtomicSortComparer.makeSortComparer(
                 collation, StandardNames.XS_ANY_ATOMIC_TYPE, context);
         try {
@@ -76,15 +75,14 @@ public class Sort_1 extends SystemFunction {
             });
             //GenericSorter.quickSort(0, inputList.size(), sortable);
         } catch (ClassCastException e) {
-            XPathException err = new XPathException("Non-comparable types found while sorting: " + e.getMessage());
-            err.setErrorCode("XPTY0004");
-            throw err;
+            throw new XPathException("Non-comparable types found while sorting: " + e.getMessage(), "XPTY0004")
+                    .asTypeError();
         }
-        List<Item> outputList = new ArrayList<>(inputList.size());
+        ArrayList<Item> outputList = new ArrayList<>(inputList.size());
         for (ItemToBeSorted member : inputList) {
             outputList.add(member.value);
         }
-        return new SequenceExtent(outputList);
+        return new SequenceExtent.Of<>(outputList);
     }
 
 

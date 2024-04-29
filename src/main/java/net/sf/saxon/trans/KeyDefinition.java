@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,14 @@ package net.sf.saxon.trans;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.ContextOriginator;
 import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -29,16 +31,17 @@ import java.util.Map;
 
 public class KeyDefinition extends Actor implements ContextOriginator {
 
-    private SymbolicName symbolicName;
-    private Pattern match;          // the match pattern
+    private final SymbolicName symbolicName;
+    private final Pattern match;          // the match pattern
     private BuiltInAtomicType useType;    // the type of the values returned by the atomized use expression
-    private StringCollator collation;     // the collating sequence, when type=string
-    private String collationName;         // the collation URI
+    private final StringCollator collation;     // the collating sequence, when type=string
+    private final String collationName;         // the collation URI
     private boolean backwardsCompatible = false;
     private boolean strictComparison = false;
     private boolean convertUntypedToOther = false;
     private boolean rangeKey = false;
     private boolean composite = false;
+    private PullEvaluator useExpressionEvaluator;
 
     /**
      * Constructor to create a key definition
@@ -222,15 +225,13 @@ public class KeyDefinition extends Actor implements ContextOriginator {
     /**
      * Set the system Id and line number of the source xsl:key definition
      *
-     * @param systemId   the URI of the module containing the key definition
-     * @param lineNumber the line number of the key definition
-     * @param columnNumber the column number of the key definition
+     * @param loc the location
      */
 
-    public void setLocation(String systemId, int lineNumber, int columnNumber) {
-        setSystemId(systemId);
-        setLineNumber(lineNumber);
-        setColumnNumber(columnNumber);
+    public void setLocation(Location loc) {
+        setSystemId(loc.getSystemId());
+        setLineNumber(loc.getLineNumber());
+        setColumnNumber(loc.getColumnNumber());
     }
 
     /**
@@ -251,6 +252,13 @@ public class KeyDefinition extends Actor implements ContextOriginator {
 
     public Expression getUse() {
         return getBody();
+    }
+
+    public synchronized PullEvaluator obtainUseEvaluator() {
+        if (useExpressionEvaluator == null) {
+            useExpressionEvaluator = getBody().makeElaborator().elaborateForPull();
+        }
+        return useExpressionEvaluator;
     }
 
     /**
@@ -321,14 +329,14 @@ public class KeyDefinition extends Actor implements ContextOriginator {
         if (composite) {
             flags += "c";
         }
+        if (reusable) {
+            flags += "u";
+        }
         if (convertUntypedToOther) {
             flags += "v";
         }
         if (strictComparison) {
             flags += "s";
-        }
-        if (reusable) {
-            flags += "u";
         }
         if (!"".equals(flags)) {
             out.emitAttribute("flags", flags);

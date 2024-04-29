@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 
 package net.sf.saxon.lib;
 
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.Annotation;
 import net.sf.saxon.query.AnnotationList;
@@ -41,7 +42,7 @@ public class XQueryFunctionAnnotationHandler implements FunctionAnnotationHandle
         public Set<String> where;
     }
 
-    private static DisallowedCombination[] blackList = {
+    private static final DisallowedCombination[] blackList = {
             new DisallowedCombination(Annotation.SIMPLE, null, "XUST0032", "DV"),
             new DisallowedCombination(Annotation.UPDATING, null, "XUST0032", "DV"),
             new DisallowedCombination(Annotation.PUBLIC, null, "XQST0125", "IF"),
@@ -101,9 +102,9 @@ public class XQueryFunctionAnnotationHandler implements FunctionAnnotationHandle
      */
 
     @Override
-    public String getAssertionNamespace() {
-        return "http://www.w3.org/2012/xquery";
-    };
+    public NamespaceUri getAssertionNamespace() {
+        return NamespaceUri.of("http://www.w3.org/2012/xquery");
+    }
 
     /**
      * Test whether a function with a given list of annotations satisfies an annotation assertion present

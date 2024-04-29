@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,14 @@ package net.sf.saxon.value;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.om.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.ReportingSingletonIterator;
 import net.sf.saxon.tree.iter.SingletonIterator;
-import net.sf.saxon.tree.iter.UnfailingIterator;
 
 /**
  * A SingletonClosure represents a value that has not yet been evaluated: the value is represented
@@ -44,11 +46,12 @@ public class SingletonClosure extends Closure implements Sequence {
      * @throws XPathException if an error occurs saving the dynamic context
      */
 
-    public SingletonClosure(/*@NotNull*/ Expression exp, /*@NotNull*/ XPathContext context) throws XPathException {
-        expression = exp;
+    public SingletonClosure(Expression exp, PullEvaluator inputEvaluator, XPathContext context) throws XPathException {
+        setInputEvaluator(inputEvaluator);
         savedXPathContext = context.newContext();
+        savedXPathContext.setOrigin(this);
         saveContext(exp, context);
-        //System.err.println("Creating SingletonClosure");
+        //Instrumentation.count("SingletonClosure.new()");
     }
 
     /**
@@ -57,30 +60,67 @@ public class SingletonClosure extends Closure implements Sequence {
 
     /*@NotNull*/
     @Override
-    public UnfailingIterator iterate() throws XPathException {
-        return SingletonIterator.makeIterator(asItem());
+    public SequenceIterator iterate() {
+        try {
+            Item item = asItem();
+            if (item == null) {
+                return EmptyIterator.getInstance();
+            } else if (learningEvaluator != null) {
+                return new ReportingSingletonIterator(item, learningEvaluator, serialNumber);
+            } else {
+                return new SingletonIterator(item);
+            }
+        } catch (XPathException e) {
+            throw new UncheckedXPathException(e);
+        }
     }
 
+    /**
+     * Get the first item in the sequence.
+     *
+     * @return the first item in the sequence if there is one, or null if the sequence
+     * is empty
+     * @throws net.sf.saxon.trans.XPathException in the situation where the sequence is evaluated lazily, and
+     *                                           evaluation of the first item causes a dynamic error.
+     */
+    @Override
+    public Item head() throws XPathException {
+        try {
+            return asItem();
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
+        }
+    }
 
     /**
      * Return the value in the form of an Item
      *
      * @return the value in the form of an Item
+     * @throws XPathException if an error is detected
      */
 
     /*@Nullable*/
-    public Item asItem() throws XPathException {
+    public synchronized Item asItem() throws XPathException {   // bug 6161
         if (!built) {
-            value = expression.evaluateItem(savedXPathContext);
+            value = inputEvaluator.iterate(savedXPathContext).next();
             built = true;
             savedXPathContext = null;   // release variables saved in the context to the garbage collector
+            if (learningEvaluator != null) {
+                learningEvaluator.reportCompletion(serialNumber);
+                //Instrumentation.count("SingletonClosure.reportCompletion()");
+                learningEvaluator = null;
+            }
         }
         return value;
     }
 
     /**
      * Get the n'th item in the sequence (starting from 0). This is defined for all
-     * SequenceValues, but its real benefits come for a SequenceValue stored extensionally
+     * SequenceValues, but its real benefits come for a SequenceValue stored extensionally.
+     *
+     * @param n the index of the requested item
+     * @return the n'th item in the sequence
+     * @throws XPathException if an error is detected
      */
 
     /*@Nullable*/
@@ -93,6 +133,9 @@ public class SingletonClosure extends Closure implements Sequence {
 
     /**
      * Get the length of the sequence
+     *
+     * @return the length of the sequence
+     * @throws XPathException if an error is detected
      */
 
     public int getLength() throws XPathException {
@@ -107,13 +150,22 @@ public class SingletonClosure extends Closure implements Sequence {
      */
 
     @Override
-    public ZeroOrOne materialize() throws XPathException {
-        return new ZeroOrOne(asItem());
+    @CSharpModifiers(code = {"public", "override"})
+    public GroundedValue materialize() throws XPathException {
+        try {
+            return SequenceTool.itemOrEmpty(asItem());
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
+        }
     }
 
     @Override
     public SingletonClosure makeRepeatable() {
         return this;
+    }
+
+    public boolean isBuilt() {
+        return built;
     }
 
 }

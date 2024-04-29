@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,8 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -19,7 +18,7 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * <tt>NamespaceReducer</tt> is a {@link ProxyReceiver} responsible for removing duplicate namespace
+ * <code>NamespaceReducer</code> is a {@link ProxyReceiver} responsible for removing duplicate namespace
  * declarations. It also ensures that an {@code xmlns=""} undeclaration is output when
  * necessary. Used on its own, the {@code NamespaceReducer} simply eliminates unwanted
  * namespace declarations. It can also be subclassed, in which case the subclass
@@ -223,19 +222,19 @@ public class NamespaceReducer extends ProxyReceiver implements NamespaceResolver
 
     /*@Nullable*/
     @Override
-    public String getURIForPrefix(String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
         if (prefix.isEmpty() && !useDefault) {
-            return NamespaceConstant.NULL;
+            return NamespaceUri.NULL;
         } else if ("xml".equals(prefix)) {
-            return NamespaceConstant.XML;
+            return NamespaceUri.XML;
         } else {
             for (int i = namespacesSize - 1; i >= 0; i--) {
                 if (namespaces[i].getPrefix().equals(prefix)) {
-                    return namespaces[i].getURI();
+                    return namespaces[i].getNamespaceUri();
                 }
             }
         }
-        return prefix.isEmpty() ? NamespaceConstant.NULL : null;
+        return prefix.isEmpty() ? NamespaceUri.NULL : null;
     }
 
     /**

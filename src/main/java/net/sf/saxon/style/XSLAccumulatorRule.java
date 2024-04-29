@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,11 @@
 package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.Pattern;
-import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.Whitespace;
 
@@ -27,7 +28,7 @@ public class XSLAccumulatorRule extends StyleElement {
     private boolean capture;
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String matchAtt = null;
         String newValueAtt = null;
@@ -36,7 +37,7 @@ public class XSLAccumulatorRule extends StyleElement {
             NodeName attName = att.getNodeName();
             String value = att.getValue();
             String f = attName.getDisplayName();
-            if (attName.getURI().isEmpty()) {
+            if (attName.getNamespaceUri().isEmpty()) {
                 switch (f) {
                     case "match":
                         matchAtt = value;
@@ -56,11 +57,16 @@ public class XSLAccumulatorRule extends StyleElement {
                             compileError("phase must be 'start' or 'end'", "XTSE0020");
                         }
                         break;
+                    case "capture":
+                        requireXslt40Attribute("capture");
+                        capture = processBooleanAttribute("capture", value);
+                        break;
+
                     default:
                         checkUnknownAttribute(attName);
                         break;
                 }
-            } else if (attName.hasURI(NamespaceConstant.SAXON)) {
+            } else if (attName.hasURI(NamespaceUri.SAXON)) {
                 if (isExtensionAttributeAllowed(attName.getDisplayName())) {
                     if (attName.getLocalPart().equals("capture")) {
                         capture = processBooleanAttribute("saxon:capture", value);
@@ -78,8 +84,8 @@ public class XSLAccumulatorRule extends StyleElement {
         match = makePattern(matchAtt, "match");
 
         if (capture && !postDescent) {
-            compileWarning("saxon:capture has no effect on a pre-descent accumulator rule",
-                           SaxonErrorCode.SXWN9000);
+            compileErrorInAttribute("capture='yes' is not allowed on an accumulator rule with phase='start'",
+                                    "XTSE3355", "capture");
         }
 
     }
@@ -130,11 +136,13 @@ public class XSLAccumulatorRule extends StyleElement {
     }
 
     @Override
-    public SourceBinding hasImplicitBinding(StructuredQName name) {
-        if (name.getLocalPart().equals("value") && name.hasURI("")) {
+    protected SourceBinding hasImplicitBinding(StructuredQName variableName, StructuredQName attributeName) {
+        if (variableName.getLocalPart().equals("value") && variableName.hasURI(NamespaceUri.NULL)
+                && (attributeName == null
+                            || (attributeName.getLocalPart().equals("select") && attributeName.hasURI(NamespaceUri.NULL)))) {
             SourceBinding sb = new SourceBinding(this);
-            sb.setVariableQName(new StructuredQName("", "", "value"));
-            assert ((XSLAccumulator)getParent()) != null;
+            sb.setVariableQName(NamespaceUri.NULL.qName("value"));
+            assert getParent() != null;
             sb.setDeclaredType(((XSLAccumulator)getParent()).getResultType());
             sb.setProperty(SourceBinding.BindingProperty.IMPLICITLY_DECLARED, true);
             return sb;

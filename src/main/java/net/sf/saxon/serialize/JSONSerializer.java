@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,7 +20,7 @@ import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.query.QueryResult;
 import net.sf.saxon.serialize.charcode.CharacterSet;
-import net.sf.saxon.serialize.codenorm.Normalizer;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
@@ -29,12 +29,12 @@ import net.sf.saxon.value.StringValue;
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.stream.StreamResult;
 import java.io.StringWriter;
+import java.text.Normalizer;
 import java.util.*;
 
 /**
  * This class implements the JSON serialization method defined in XSLT+XQuery Serialization 3.1.
  *
- * @author Michael H. Kay
  */
 
 public class JSONSerializer extends SequenceWriter implements ReceiverWithOutputProperties {
@@ -45,7 +45,7 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
     private int topLevelCount = 0;
     private int maxLineLength = 80;
 
-    private JSONEmitter emitter;
+    private final JSONEmitter emitter;
     private Properties outputProperties;
     private CharacterSet characterSet;
     private boolean isIndenting;
@@ -109,11 +109,11 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
     /**
      * Set the Unicode normalizer to be used for normalizing strings.
      *
-     * @param normalizer the normalizer to be used
+     * @param form the normalization form to be used
      */
 
-    public void setNormalizer(Normalizer normalizer) {
-        emitter.setNormalizer(normalizer);
+    public void setNormalizationForm(Normalizer.Form form) {
+        emitter.setNormalizationForm(form);
     }
 
     /**
@@ -147,8 +147,7 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
             }
             boolean oneLiner = !isIndenting || isOneLinerMap((MapItem) item);
             emitter.startMap(oneLiner);
-            boolean first = true;
-            List<AtomicValue> keyList = new ArrayList<>();
+            ArrayList<AtomicValue> keyList = new ArrayList<>(); // Needs to be ArrayList for sort() to work in C#
             for (KeyValuePair pair : ((MapItem) item).keyValuePairs()) {
                 keyList.add(pair.key);
             }
@@ -168,7 +167,6 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
         } else if (item instanceof ArrayItem) {
             boolean oneLiner = !isIndenting || isOneLinerArray((ArrayItem) item);
             emitter.startArray(oneLiner);
-            boolean first = true;
             for (Sequence member : ((ArrayItem) item).members()) {
                 writeSequence(member.materialize());
             }
@@ -177,7 +175,7 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
             String s = serializeNode((NodeInfo) item);
             emitter.writeAtomicValue(new StringValue(s));
         } else if (unfailing) {
-            String s = item.getStringValue();
+            UnicodeString s = item.getUnicodeStringValue();
             emitter.writeAtomicValue(new StringValue(s));
         } else {
             throw new XPathException("JSON output method cannot handle an item of type " + item.getClass(), "SERE0021");
@@ -194,7 +192,7 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
             if (!(member instanceof AtomicValue)) {
                 return false;
             }
-            totalSize += ((AtomicValue) member).getStringValueCS().length() + 1;
+            totalSize += (int)((AtomicValue) member).getUnicodeStringValue().estimatedLength() + 1;
             if (totalSize > maxLineLength) {
                 return false;
             }
@@ -203,15 +201,18 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
     }
 
     private boolean isOneLinerMap(MapItem map) {
-        int totalSize = 0;
+        long totalSize = 0;
         if (map.size() < 2) {
             return true;
         }
         for (KeyValuePair entry : map.keyValuePairs()) {
-            if (!(entry.value instanceof AtomicValue)) {
+            if (entry.value instanceof AtomicValue) {
+                totalSize += (int)entry.key.getUnicodeStringValue().estimatedLength() + ((AtomicValue) entry.value).getUnicodeStringValue().estimatedLength() + 4;
+            } else if (entry.value.getLength() == 0) {
+                totalSize += (int)entry.key.getUnicodeStringValue().estimatedLength() + 6; // ": null"
+            } else {
                 return false;
             }
-            totalSize += entry.key.getStringValueCS().length() + ((AtomicValue) entry.value).getStringValueCS().length() + 4;
             if (totalSize > maxLineLength) {
                 return false;
             }
@@ -240,7 +241,7 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
             level--;
         } else {
             throw new XPathException("JSON serialization: cannot handle a sequence of length "
-                                             + len + Err.depictSequence(seq), "SERE0023");
+                                             + len + " " + Err.depictSequence(seq), "SERE0023");
         }
     }
 

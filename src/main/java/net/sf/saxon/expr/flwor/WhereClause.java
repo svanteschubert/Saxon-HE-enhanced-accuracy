@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,10 +9,10 @@ package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.ItemType;
 
 import java.util.HashMap;
@@ -26,7 +26,8 @@ import static net.sf.saxon.expr.flwor.Clause.ClauseName.WHERE;
  */
 public class WhereClause extends Clause {
 
-    private Operand predicateOp;
+    private final Operand predicateOp;
+    private BooleanEvaluator predicateEvaluator;
 
     public WhereClause(FLWORExpression flwor, Expression predicate) {
         this.predicateOp = new Operand(flwor, predicate, OperandRole.INSPECT);
@@ -80,7 +81,10 @@ public class WhereClause extends Clause {
      */
     @Override
     public TuplePull getPullStream(TuplePull base, XPathContext context) {
-        return new WhereClausePull(base, getPredicate());
+        if (predicateEvaluator == null) {
+            predicateEvaluator = getPredicate().makeElaborator().elaborateForBoolean();
+        }
+        return new WhereClausePull(base, predicateEvaluator);
     }
 
     @Override
@@ -93,7 +97,7 @@ public class WhereClause extends Clause {
         final ItemType actualItemType = getPredicate().getItemType();
         for (VariableReference ref : references) {
             ref.refineVariableType(actualItemType, getPredicate().getCardinality(),
-                    getPredicate() instanceof Literal ? ((Literal) getPredicate()).getValue() : null,
+                    getPredicate() instanceof Literal ? ((Literal) getPredicate()).getGroundedValue() : null,
                     getPredicate().getSpecialProperties());
             ExpressionTool.resetStaticProperties(returnExpr);
         }
@@ -111,7 +115,10 @@ public class WhereClause extends Clause {
      */
     @Override
     public TuplePush getPushStream(TuplePush destination, Outputter output, XPathContext context) {
-        return new WhereClausePush(output, destination, getPredicate());
+        if (predicateEvaluator == null) {
+            predicateEvaluator = getPredicate().makeElaborator().elaborateForBoolean();
+        }
+        return new WhereClausePush(output, destination, predicateEvaluator);
     }
 
     /**
@@ -144,18 +151,19 @@ public class WhereClause extends Clause {
 
     @Override
     public String toShortString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         fsb.append("where ");
         fsb.append(getPredicate().toShortString());
         return fsb.toString();
     }
 
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         fsb.append("where ");
         fsb.append(getPredicate().toString());
         return fsb.toString();
     }
+
 
     /**
      * Get information for inclusion in trace output

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,11 +7,12 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Operand;
 import net.sf.saxon.expr.OperandRole;
-import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.StandardNames;
@@ -125,7 +126,7 @@ public class Fork extends Instruction {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     /*@NotNull*/
@@ -139,22 +140,6 @@ public class Fork extends Instruction {
         Fork f2 = new Fork(e2);
         ExpressionTool.copyLocationInfo(this, f2);
         return f2;
-    }
-
-    /**
-     * Process the instruction, without returning any tail calls. This is the
-     * non-streamed mode of operation, which processes the child expressions
-     * in turn exactly like a sequence constructor.
-     *
-     * @param output the destination for the result
-     * @param context The dynamic context, giving access to the current node,
-     */
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        for (Operand o : operands()) {
-            o.getChildExpression().process(output, context);
-        }
-        return null;
     }
 
     /**
@@ -173,5 +158,27 @@ public class Fork extends Instruction {
         out.endElement();
     }
 
+    @Override
+    public Elaborator getElaborator() {
+        return new ForkElaborator();
+    }
 
+    private static class ForkElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            Fork expr = (Fork)getExpression();
+            PushEvaluator[] prongs = new PushEvaluator[expr.getSize()];
+            for (int i=0; i<prongs.length; i++) {
+                prongs[i] = expr.getProng(i).makeElaborator().elaborateForPush();
+            }
+            return (output, context) -> {
+                // non-streamed evaluation
+                for (PushEvaluator prong : prongs) {
+                    dispatchTailCall(prong.processLeavingTail(output, context));
+                }
+                return null;
+            };
+        }
+    }
 }

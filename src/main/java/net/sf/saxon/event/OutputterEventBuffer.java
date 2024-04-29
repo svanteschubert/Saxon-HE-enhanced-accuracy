@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
@@ -18,7 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * An <tt>EventBuffer</tt> is a receiver of events that records the events in memory
+ * An <code>EventBuffer</code> is a receiver of events that records the events in memory
  * for subsequent replay. It is used, for example, in the implementation of try/catch,
  * where events cannot be written directly to the final serializer in case an error
  * occurs and is caught.
@@ -62,19 +63,19 @@ public class OutputterEventBuffer extends Outputter {
             buffer.add(new OutputterEvent.Attribute(att.getNodeName(), att.getType(), att.getValue(), att.getLocation(), att.getProperties()));
         }
         for (NamespaceBinding binding : namespaces) {
-            buffer.add(new OutputterEvent.Namespace(binding.getPrefix(), binding.getURI(), properties));
+            buffer.add(new OutputterEvent.Namespace(binding.getPrefix(), binding.getNamespaceUri(), properties));
         }
         buffer.add(new OutputterEvent.StartContent());
     }
 
     @Override
-    public void attribute(NodeName name, SimpleType type, CharSequence value,
-                             Location location, int properties) {
+    public void attribute(NodeName name, SimpleType type, String value,
+                          Location location, int properties) {
         buffer.add(new OutputterEvent.Attribute(name, type, value.toString(), location, properties));
     }
 
     @Override
-    public void namespace(String prefix, String uri, int properties) {
+    public void namespace(String prefix, NamespaceUri uri, int properties) {
         buffer.add(new OutputterEvent.Namespace(prefix, uri, properties));
     }
 
@@ -89,17 +90,17 @@ public class OutputterEventBuffer extends Outputter {
     }
 
     @Override
-    public void characters(CharSequence chars, Location location, int properties) {
+    public void characters(UnicodeString chars, Location location, int properties) {
         buffer.add(new OutputterEvent.Text(chars, location, properties));
     }
 
     @Override
-    public void processingInstruction(String name, CharSequence data, Location location, int properties) {
+    public void processingInstruction(String name, UnicodeString data, Location location, int properties) {
         buffer.add(new OutputterEvent.ProcessingInstruction(name, data, location, properties));
     }
 
     @Override
-    public void comment(CharSequence content, Location location, int properties) {
+    public void comment(UnicodeString content, Location location, int properties) {
         buffer.add(new OutputterEvent.Comment(content, location, properties));
     }
 

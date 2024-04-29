@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,14 @@
 
 package net.sf.saxon.expr.instruct;
 
+import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.s9api.Location;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.style.StyleElement;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.style.XSLGlobalParam;
@@ -22,8 +24,6 @@ import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.VisibilityProvenance;
 import net.sf.saxon.trans.XPathException;
 
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -45,8 +45,9 @@ public abstract class Actor implements ExpressionOwner, Location {
     private SlotManager stackFrameMap;
     private PackageData packageData;
     private Component declaringComponent;
-    private Visibility declaredVisibility;
+    private Visibility declaredVisibility = Visibility.UNDEFINED;
     private RetainedStaticContext retainedStaticContext;
+    private PushEvaluator bodyEvaluator;
 
     public Actor() {
     }
@@ -70,6 +71,7 @@ public abstract class Actor implements ExpressionOwner, Location {
 
     /**
      * Get a string used to identify this kind of component when used in tracing output
+     * @return a diagnostic string used to identify the component when tracing
      */
 
     public String getTracingTag() {
@@ -90,6 +92,7 @@ public abstract class Actor implements ExpressionOwner, Location {
     /**
      * Get basic data about the unit of compilation (XQuery module, XSLT package) to which this
      * container belongs
+     * @return the package information
      */
     public PackageData getPackageData() {
         return packageData;
@@ -114,8 +117,8 @@ public abstract class Actor implements ExpressionOwner, Location {
             StylesheetPackage declaringPackage = declaration.getContainingPackage();
             Visibility defaultVisibility = declaration instanceof XSLGlobalParam ? Visibility.PUBLIC : Visibility.PRIVATE;
             Visibility declaredVisibility = declaration.getDeclaredVisibility();
-            Visibility actualVisibility = declaredVisibility == null ? defaultVisibility : declaredVisibility;
-            VisibilityProvenance provenance = declaredVisibility == null ? VisibilityProvenance.DEFAULTED : VisibilityProvenance.EXPLICIT;
+            Visibility actualVisibility = declaredVisibility == Visibility.UNDEFINED ? defaultVisibility : declaredVisibility;
+            VisibilityProvenance provenance = declaredVisibility == Visibility.UNDEFINED ? VisibilityProvenance.DEFAULTED : VisibilityProvenance.EXPLICIT;
             declaringComponent = Component.makeComponent(this, actualVisibility, provenance, declaringPackage, declaringPackage);
         }
         return declaringComponent;
@@ -169,7 +172,7 @@ public abstract class Actor implements ExpressionOwner, Location {
         }
 
         Component target = pack.getComponent(name);
-        if (target == null && name.getComponentName().hasURI(NamespaceConstant.XSLT) &&
+        if (target == null && name.getComponentName().hasURI(NamespaceUri.XSLT) &&
                 name.getComponentName().getLocalPart().equals("original")) {
             target = pack.getOverriddenComponent(getSymbolicName());
         }
@@ -213,16 +216,17 @@ public abstract class Actor implements ExpressionOwner, Location {
         this.lineNumber = lineNumber;
     }
 
-    public void setColumnNumber(int columnNumber) {
-        this.columnNumber = columnNumber;
+    public void setColumnNumber(int col) {
+        this.columnNumber = col;
     }
+
 
     public void setSystemId(String systemId) {
         this.systemId = systemId;
     }
 
     public Location getLocation() {
-        return (Location)this;
+        return this;
     }
 
     @Override
@@ -248,7 +252,7 @@ public abstract class Actor implements ExpressionOwner, Location {
 
     @Override
     public Location saveLocation() {
-        return (Location)this;
+        return this;
     }
 
     public void setRetainedStaticContext(RetainedStaticContext rsc) {
@@ -283,24 +287,12 @@ public abstract class Actor implements ExpressionOwner, Location {
         return declaredVisibility;
     }
 
-
-    /**
-     * Get an iterator over all the properties available. The values returned by the iterator
-     * will be of type String, and each string can be supplied as input to the getProperty()
-     * method to retrieve the value of the property. The iterator may return properties whose
-     * value is null.
-     */
-
-    public Iterator<String> getProperties() {
-        final List<String> list = Collections.emptyList();
-        return list.iterator();
-    }
-
     /**
      * Export expression structure. The abstract expression tree
      * is written to the supplied outputstream.
      *
      * @param presenter the expression presenter used to generate the XML representation of the structure
+     * @throws XPathException if things go wrong, for example an I/O failure
      */
 
     public abstract void export(ExpressionPresenter presenter) throws XPathException;
@@ -312,6 +304,15 @@ public abstract class Actor implements ExpressionOwner, Location {
     @Override
     public void setChildExpression(Expression expr) {
         setBody(expr);
+    }
+
+    protected TailCall process(Outputter out, XPathContext context) throws XPathException {
+        synchronized(this) {
+            if (bodyEvaluator == null) {
+                bodyEvaluator = body.makeElaborator().elaborateForPush();
+            }
+        }
+        return bodyEvaluator.processLeavingTail(out, context);
     }
 }
 

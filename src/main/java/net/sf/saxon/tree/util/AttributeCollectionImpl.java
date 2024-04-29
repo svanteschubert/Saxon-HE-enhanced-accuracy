@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,7 +32,7 @@ import java.util.Arrays;
 
 public class AttributeCollectionImpl implements Attributes {
 
-    private Configuration config;
+    private final Configuration config;
     // Following fields can be null ONLY if used==0. We avoid allocating the arrays for the common
     // case of an empty attribute collection.
     private NodeName[] names = null;
@@ -56,7 +56,7 @@ public class AttributeCollectionImpl implements Attributes {
 
     /**
      * Add an attribute to an attribute list. The parameters correspond
-     * to the parameters of the {@link Outputter#attribute(NodeName, SimpleType, CharSequence, Location, int)}
+     * to the parameters of the {@link Outputter#attribute(NodeName, SimpleType, String, Location, int)}
      * method. There is no check that the name of the attribute is distinct from other attributes
      * already in the collection: this check must be made by the caller.
      *
@@ -98,7 +98,7 @@ public class AttributeCollectionImpl implements Attributes {
 
     /**
      * Set (overwrite) an attribute in the attribute list. The parameters correspond
-     * to the parameters of the {@link Outputter#attribute(NodeName, SimpleType, CharSequence, Location, int)}
+     * to the parameters of the {@link Outputter#attribute(NodeName, SimpleType, String, Location, int)}
      * method.
      *  @param index      Identifies the entry to be replaced. Must be in range (nasty things happen if not)
      * @param nodeName   representing the attribute name.
@@ -246,7 +246,7 @@ public class AttributeCollectionImpl implements Attributes {
         if (index < 0 || index >= used) {
             return null;
         }
-        return names[index].getURI();
+        return names[index].getNamespaceUri().toString();
     }
 
 
@@ -433,7 +433,7 @@ public class AttributeCollectionImpl implements Attributes {
             return -1;        // indicates an empty attribute set
         }
         for (int i = 0; i < used; i++) {
-            if (names[i] != null && names[i].hasURI(uri) && localName.equals(names[i].getLocalPart())) {
+            if (names[i] != null && names[i].getNamespaceUri().toString().equals(uri) && localName.equals(names[i].getLocalPart())) {
                 return i;
             }
         }
@@ -472,7 +472,7 @@ public class AttributeCollectionImpl implements Attributes {
 
     public void setAttribute(AttributeInfo attribute) {
         NodeName name = attribute.getNodeName();
-        int index = getIndex(name.getURI(), name.getLocalPart());
+        int index = getIndex(name.getNamespaceUri().toString(), name.getLocalPart());
         if (index < 0) {
             addAttribute(name, attribute.getType(), attribute.getValue(),
                          attribute.getLocation(), attribute.getProperties());

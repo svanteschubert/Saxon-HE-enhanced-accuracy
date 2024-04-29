@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,10 @@
 package net.sf.saxon.serialize;
 
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.WhitespaceString;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.tree.tiny.CompressedWhitespace;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.Whitespace;
 import net.sf.saxon.z.IntHashMap;
 import net.sf.saxon.z.IntIterator;
@@ -23,7 +23,7 @@ import net.sf.saxon.z.IntIterator;
 public class CharacterMap {
 
     private StructuredQName name;
-    private IntHashMap<String> charMap;
+    private final IntHashMap<String> charMap;
     private int min = Integer.MAX_VALUE;    // the lowest mapped character
     private int max = 0;                    // the highest mapped character
     private boolean mapsWhitespace = false;
@@ -31,7 +31,8 @@ public class CharacterMap {
     /**
      * Create a CharacterMap from a raw map of integers to strings
      *
-     * @param map the mapping of integer Unicode character codes to strings. This must not be subsequently changed.
+     * @param name the name of the CharacterMap
+     * @param map  the mapping of integer Unicode character codes to strings. This must not be subsequently changed.
      */
 
     public CharacterMap(StructuredQName name, IntHashMap<String> map) {
@@ -49,7 +50,7 @@ public class CharacterMap {
      */
 
     public CharacterMap(Iterable<CharacterMap> list) {
-        charMap = new IntHashMap<String>(64);
+        charMap = new IntHashMap<>(64);
         for (CharacterMap map : list) {
             IntIterator keys = map.charMap.keyIterator();
             while (keys.hasNext()) {
@@ -70,7 +71,7 @@ public class CharacterMap {
             if (next > max) {
                 max = next;
             }
-            if (!mapsWhitespace && Whitespace.isWhitespace(next)) {
+            if (!mapsWhitespace && Whitespace.isWhite(next)) {
                 mapsWhitespace = true;
             }
         }
@@ -92,6 +93,15 @@ public class CharacterMap {
     }
 
     /**
+     * Get the contents of the character map
+     * @return the character map, as a map from integer codepoints to strings
+     */
+
+    public IntHashMap<String> getMap() {
+        return charMap;
+    }
+
+    /**
      * Expand all the characters in a string using this character mapping
      *
      * @param in          the input string to be mapped
@@ -99,71 +109,46 @@ public class CharacterMap {
      *                    and after replacement characters. This is done to signal
      *                    that output escaping of these characters is disabled. The flag is set to true when writing
      *                    XML or HTML, but to false when writing TEXT.
+     * @return a string with all characters expanded
      */
 
     /*@NotNull*/
-    public CharSequence map(CharSequence in, boolean insertNulls) {
+    public UnicodeString map(UnicodeString in, boolean insertNulls) {
 
-        if (!mapsWhitespace && in instanceof CompressedWhitespace) {
+        if (!mapsWhitespace && in instanceof WhitespaceString) {
             return in;
         }
 
         // First scan the string to see if there are any possible mapped
         // characters; if not, don't bother creating the new buffer
 
-        boolean move = false;
-        for (int i = 0; i < in.length(); ) {
-            char c = in.charAt(i++);
-            if (c >= min && c <= max) {
-                move = true;
-                break;
-            }
-        }
+        boolean move = in.indexWhere(c -> (c >= min && c <= max), 0) >= 0;
         if (!move) {
             return in;
         }
 
-        FastStringBuffer buffer = new FastStringBuffer(in.length() * 2);
-        int i = 0;
-        while (i < in.length()) {
-            char c = in.charAt(i++);
+        UnicodeBuilder buffer = new UnicodeBuilder();
+        IntIterator iter = in.codePoints();
+        while (iter.hasNext()) {
+            int c = iter.next();
             if (c >= min && c <= max) {
-                if (UTF16CharacterSet.isHighSurrogate(c)) {
-                    // assume the string is properly formed
-                    char d = in.charAt(i++);
-                    int s = UTF16CharacterSet.combinePair(c, d);
-                    String rep = charMap.get(s);
-                    if (rep == null) {
-                        buffer.cat(c);
-                        buffer.cat(d);
-                    } else {
-                        if (insertNulls) {
-                            buffer.cat((char) 0);
-                            buffer.append(rep);
-                            buffer.cat((char) 0);
-                        } else {
-                            buffer.append(rep);
-                        }
-                    }
+                String rep = charMap.get(c);
+                if (rep == null) {
+                    buffer.append(c);
                 } else {
-                    String rep = charMap.get(c);
-                    if (rep == null) {
-                        buffer.cat(c);
+                    if (insertNulls) {
+                        buffer.append((char) 0);
+                        buffer.append(rep);
+                        buffer.append((char) 0);
                     } else {
-                        if (insertNulls) {
-                            buffer.cat((char) 0);
-                            buffer.append(rep);
-                            buffer.cat((char) 0);
-                        } else {
-                            buffer.append(rep);
-                        }
+                        buffer.append(rep);
                     }
                 }
             } else {
-                buffer.cat(c);
+                buffer.append(c);
             }
         }
-        return buffer;
+        return buffer.toUnicodeString();
     }
 
     /**

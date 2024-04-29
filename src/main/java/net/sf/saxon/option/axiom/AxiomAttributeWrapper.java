@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,24 +9,25 @@ package net.sf.saxon.option.axiom;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.PrependAxisIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.tree.wrapper.VirtualNode;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.value.UntypedAtomicValue;
+import net.sf.saxon.value.StringValue;
 import org.apache.axiom.om.OMAttribute;
 import org.apache.axiom.om.OMContainer;
 import org.apache.axiom.om.OMElement;
 
 import java.util.Iterator;
-import java.util.function.Predicate;
 
 /**
  * A node in the XML parse tree representing an XML element, character content,
@@ -35,15 +36,13 @@ import java.util.function.Predicate;
  * Axiom nodes.</p>
  * <p>Note that in Axiom, an OMAttribute is not an OMNode. Therefore, we need a separate
  * class AttributeWrapper for attribute nodes.</p>
- *
- * @author Michael H. Kay
  */
 
 public class AxiomAttributeWrapper implements NodeInfo, VirtualNode, SiblingCountingNode {
 
     protected OMAttribute node;
 
-    private AxiomParentNodeWrapper parent; // null means unknown
+    private final AxiomParentNodeWrapper parent; // null means unknown
 
     protected int index; // -1 means unknown
 
@@ -159,7 +158,7 @@ public class AxiomAttributeWrapper implements NodeInfo, VirtualNode, SiblingCoun
 
     @Override
     public AtomicSequence atomize() {
-        return new UntypedAtomicValue(getStringValueCS());
+        return StringValue.makeUntypedAtomic(getUnicodeStringValue());
     }
 
     /**
@@ -292,18 +291,8 @@ public class AxiomAttributeWrapper implements NodeInfo, VirtualNode, SiblingCoun
      */
 
     @Override
-    public String getStringValue() {
-        return node.getAttributeValue();
-    }
-
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        return node.getAttributeValue();
+    public UnicodeString getUnicodeStringValue() {
+        return StringView.tidy(node.getAttributeValue());
     }
 
     /**
@@ -340,9 +329,9 @@ public class AxiomAttributeWrapper implements NodeInfo, VirtualNode, SiblingCoun
      */
 
     @Override
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         String uri = node.getNamespaceURI();
-        return uri == null ? "" : uri;
+        return NamespaceUri.of(uri);
     }
 
     /**
@@ -404,7 +393,7 @@ public class AxiomAttributeWrapper implements NodeInfo, VirtualNode, SiblingCoun
      */
 
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
         // for clarifications, see the W3C specs or:
         // http://msdn.microsoft.com/library/default.asp?url=/library/en-us/xmlsdk/html/xmrefaxes.asp
         switch (axisNumber) {
@@ -459,7 +448,7 @@ public class AxiomAttributeWrapper implements NodeInfo, VirtualNode, SiblingCoun
      */
 
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
         return null;
     }
 
@@ -494,7 +483,7 @@ public class AxiomAttributeWrapper implements NodeInfo, VirtualNode, SiblingCoun
      */
 
     @Override
-    public void generateId(FastStringBuffer buffer) {
+    public void generateId(StringBuilder buffer) {
         Navigator.appendSequentialKey(this, buffer, true);
         //buffer.append(Navigator.getSequentialKey(this));
     }

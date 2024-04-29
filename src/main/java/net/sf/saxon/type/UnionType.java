@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,10 +13,12 @@ import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NamespaceResolver;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.List;
 import java.util.Optional;
 
 import static net.sf.saxon.om.Genre.ATOMIC;
@@ -55,7 +57,7 @@ public interface UnionType extends ItemType, CastingTarget {
      * @return the atomic types and plain union types in the transitive membership of the union type.
      */
 
-    Iterable<? extends PlainType> getPlainMemberTypes() throws MissingComponentException;
+    List<? extends PlainType> getPlainMemberTypes() throws MissingComponentException;
 
     /**
      * Get the result type of a cast operation to this union type, as a sequence type.
@@ -80,7 +82,7 @@ public interface UnionType extends ItemType, CastingTarget {
      * @throws ValidationException if the supplied value is not in the lexical space of the data type
      */
 
-    AtomicSequence getTypedValue(CharSequence value, /*@Nullable*/ NamespaceResolver resolver, ConversionRules rules)
+    AtomicSequence getTypedValue(UnicodeString value, /*@Nullable*/ NamespaceResolver resolver, ConversionRules rules)
             throws ValidationException;
 
     /**
@@ -107,23 +109,12 @@ public interface UnionType extends ItemType, CastingTarget {
     @Override
     default Optional<String> explainMismatch(Item item, TypeHierarchy th) {
         if (item.getGenre() == ATOMIC) {
-            FastStringBuffer message = new FastStringBuffer(256);
-            message.append("The required type is a union type allowing any of ");
-
-            String punctuation = "(";
-            try {
-                for (PlainType member: getPlainMemberTypes()) {
-                    message.append(punctuation);
-                    punctuation = ", ";
-                    message.append(member.getTypeName().getDisplayName());
-                }
-            } catch (MissingComponentException e) {
-                message.append("*member types unobtainable*");
-            }
-            message.append("), but the supplied type ");
-            message.append(((AtomicValue)item).getItemType().getDisplayName());
-            message.append(" is not any of these");
-            return Optional.of(message.toString());
+            String message = "This is a union type, and the supplied value "
+                    + Err.depict(item)
+                    + " of type "
+                    + ((AtomicValue) item).getItemType().getDescription()
+                    + " does not match any of its member types";
+            return Optional.of(message);
         } else {
             return Optional.empty();
         }

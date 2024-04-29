@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,18 +8,20 @@
 package net.sf.saxon;
 
 
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+
 /**
  * The Version class holds the SAXON version information.
  */
 
 public final class Version {
 
-    private static final int MAJOR_VERSION = 10;
-    private static final int MINOR_VERSION = 9;
-    private static final int BUILD = 21612; //mddhh
-    private static final String MAJOR_RELEASE_DATE = "2020-03-16";
-    private static final String MINOR_RELEASE_DATE = "2023-02-16";
-
+    private static final int MAJOR_VERSION = 12;
+    private static final int MINOR_VERSION = 4;
+    private static final int BUILD = 112912; //mmddhh  BEWARE: a leading 0 means octal.
+    private static final String MAJOR_RELEASE_DATE = "2023-01-12";
+    private static final String MINOR_RELEASE_DATE = "2023-11-29";
 
     private Version() {
         // class is never instantiated
@@ -112,8 +114,18 @@ public final class Version {
      */
 
     public static String getProductTitle() {
-        return getProductName() + '-' + softwareEdition + ' ' +
-            getProductVersion() + (platform.isJava() ? 'J' : 'N') + " from Saxonica";
+        return getProductName() + '-' + getSoftwarePlatform() + '-' + softwareEdition + ' ' +
+            getProductVersion()  + " from Saxonica";
+    }
+
+    /**
+     * Get a string identifying the execution platform: "J" for "Java", "CS" for C#, etc
+     * @return "J" for "Java", "CS" for C#
+     */
+
+    @CSharpReplaceBody(code="return \"CS\";")
+    public static String getSoftwarePlatform() {
+        return "J";
     }
 
     /**
@@ -133,10 +145,14 @@ public final class Version {
      */
     public static void main(String[] args) {
         System.err.println(getProductTitle() + " (build " + BUILD + ')');
+        if (args.length > 0 && args[0].equals("-resources")) {
+            // Diagnostics to list embedded resources, used only in SaxonCS
+            platform.showEmbeddedResources();
+        }
     }
 
 
-    public static Class<? extends Configuration> configurationClass;
+    //public static Class<? extends Configuration> configurationClass;
 
 
     public static String softwareEdition;
@@ -148,7 +164,8 @@ public final class Version {
     public static Platform platform;
 
     static {
-              platform = new net.sf.saxon.java.JavaPlatform();
+
+            platform = new net.sf.saxon.java.JavaPlatform();
     }
 
 

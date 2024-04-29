@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -36,7 +36,7 @@ public class XSLPreserveSpace extends StyleElement {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
@@ -63,7 +63,7 @@ public class XSLPreserveSpace extends StyleElement {
     public void index(ComponentDeclaration decl, PrincipalStylesheetModule top) {
         if (getFingerprint() == StandardNames.XSL_STRIP_SPACE) {
             if (getFingerprint() == StandardNames.XSL_STRIP_SPACE) {
-                String elements = getAttributeValue("", "elements");
+                String elements = getAttributeValue(NamespaceUri.NULL, "elements");
                 if (elements != null && !elements.trim().isEmpty()) {
                     top.getStylesheetPackage().setStripsWhitespace(true);
                 }
@@ -101,7 +101,7 @@ public class XSLPreserveSpace extends StyleElement {
                     } else if (brace == s.length() - 1) {
                         compileError("Missing local part in EQName");
                     } else {
-                        String uri = s.substring(2, brace);
+                        NamespaceUri uri = NamespaceUri.of(s.substring(2, brace));
                         String local = s.substring(brace+1);
                         if (local.equals("*")) {
                             nt = new NamespaceTest(getNamePool(), Type.ELEMENT, uri);
@@ -115,7 +115,7 @@ public class XSLPreserveSpace extends StyleElement {
                         compileError("No prefix before ':*'");
                     }
                     String prefix = s.substring(0, s.length() - 2);
-                    String uri = getURIForPrefix(prefix, false);
+                    NamespaceUri uri = getURIForPrefix(prefix, false);
                     if (uri == null) {
                         undeclaredNamespaceError(prefix, "XTSE0280", "elements");
                     }
@@ -133,7 +133,7 @@ public class XSLPreserveSpace extends StyleElement {
                 } else {
                     String prefix;
                     String localName;
-                    String uri;
+                    NamespaceUri uri;
                     try {
                         String[] parts = NameChecker.getQNameParts(s);
                         prefix = parts[0];
@@ -158,8 +158,7 @@ public class XSLPreserveSpace extends StyleElement {
 
             }
         } catch (XPathException e) {
-            e.maybeSetLocation(allocateLocation());
-            compileError(e);
+            compileError(e.maybeWithLocation(allocateLocation()));
         }
     }
 

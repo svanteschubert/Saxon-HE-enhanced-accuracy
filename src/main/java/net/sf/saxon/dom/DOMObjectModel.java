@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.JPConverter;
 import net.sf.saxon.expr.PJConverter;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.lib.ActiveSource;
 import net.sf.saxon.lib.ExternalObjectModel;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.AnyNodeTest;
@@ -21,10 +22,7 @@ import net.sf.saxon.tree.wrapper.VirtualNode;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.SequenceExtent;
-import org.w3c.dom.Document;
-import org.w3c.dom.DocumentFragment;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
+import org.w3c.dom.*;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -134,7 +132,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
         if (Node.class.isAssignableFrom(sourceClass) && !NodeOverNodeInfo.class.isAssignableFrom(sourceClass)) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object obj, XPathContext context) {
+                public GroundedValue convert(Object obj, XPathContext context) {
                     return wrapOrUnwrapNode((Node) obj, context.getConfiguration());
                 }
 
@@ -146,7 +144,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
         } else if (NodeList.class.isAssignableFrom(sourceClass)) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object obj, XPathContext context) {
+                public GroundedValue convert(Object obj, XPathContext context) {
                     Configuration config = context.getConfiguration();
                     NodeList list = (NodeList) obj;
                     final int len = list.getLength();
@@ -154,7 +152,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
                     for (int i = 0; i < len; i++) {
                         nodes[i] = wrapOrUnwrapNode(list.item(i), config);
                     }
-                    return new SequenceExtent(nodes);
+                    return new SequenceExtent.Of<>(nodes);
                 }
 
                 @Override
@@ -170,7 +168,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
         } else if (DOMSource.class.isAssignableFrom(sourceClass)) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object obj, XPathContext context) {
+                public GroundedValue convert(Object obj, XPathContext context) {
                     return unravel((DOMSource) obj, context.getConfiguration());
                 }
 
@@ -182,7 +180,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
         } else if (DocumentWrapper.class == sourceClass) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object obj, XPathContext context) {
+                public GroundedValue convert(Object obj, XPathContext context) {
                     return ((DocumentWrapper) obj).getRootNode();
                 }
 
@@ -271,18 +269,19 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
     }
 
     /**
-     * Test whether this object model recognizes a particular kind of JAXP Source object,
-     * and if it does, send the contents of the document to a supplied Receiver, and return true.
-     * Otherwise, return false
+     * Give this ExternalObjectModel the opportunity of recognising a Source object and returning
+     * an ActiveSource, which will be used to send an instance of this external model to a supplied
+     * Receiver. The default implementation returns null.
+     *
+     * @param supplied a supplied Source
+     * @return an ActiveSource object if the source is recognised, or null if not
      */
-
     @Override
-    public boolean sendSource(Source source, Receiver receiver) throws XPathException {
-        if (source instanceof DOMSource) {
-            sendDOMSource((DOMSource)source, receiver);
-            return true;
+    public ActiveSource getActiveSource(Source supplied) {
+        if (supplied instanceof DOMSource) {
+            return new ActiveDOMSource((DOMSource) supplied);
         }
-        return false;
+        return null;
     }
 
     public static void sendDOMSource(DOMSource source, Receiver receiver) throws XPathException {
@@ -294,11 +293,32 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
             receiver.endDocument();
             receiver.close();
         } else {
+            // Do a quick check (not guaranteed to catch all cases) that this isn't a non-namespace-aware DOM,
+            // to catch the common case of failing to set namespace-awareness on the DOM factory
+            if (startNode.getNodeType() == Type.DOCUMENT) {
+                Element top = ((Document) startNode).getDocumentElement();
+                if (top != null && top.getNamespaceURI() == null) {
+                    if (top.getNodeName().contains(":")) {
+                        issueWarning(receiver, "Supplied DOM uses namespaces, but is not created as namespace-aware");
+                    } else if (top.hasAttribute("xmlns")) {
+                        issueWarning(receiver, "Supplied DOM declares a default namespace, but is not created as namespace-aware");
+                    }
+                }
+            }
             DOMSender driver = new DOMSender(startNode, receiver);
             driver.setSystemId(source.getSystemId());
             receiver.open();
             driver.send();
             receiver.close();
+        }
+    }
+
+    private static void issueWarning(Receiver receiver, String text) {
+        try {
+            Configuration config = receiver.getPipelineConfiguration().getConfiguration();
+            config.getLogger().warning("WARNING: " + text);
+        } catch (Exception err) {
+            System.err.println("WARNING: " + text);
         }
     }
 
@@ -423,8 +443,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
         List<Node> nodes = new ArrayList<>(20);
 
         SequenceIterator iter = value.iterate();
-        Item item;
-        while ((item = iter.next()) != null) {
+        for (Item item; (item = iter.next()) != null; ) {
             if (item instanceof VirtualNode) {
                 Object o = ((VirtualNode) item).getRealNode();
                 if (o instanceof Node) {
@@ -451,7 +470,7 @@ public class DOMObjectModel extends TreeModel implements ExternalObjectModel {
         if (Node.class.isAssignableFrom(target)) {
             if (nodes.size() != 1) {
                 throw new XPathException("Cannot convert XPath value to Java object: requires a single DOM Node" +
-                        "but supplied value contains " + nodes.size() + " nodes");
+                        " but supplied value contains " + nodes.size() + " nodes");
             }
             return nodes.get(0);
             // could fail if the node is of the wrong kind

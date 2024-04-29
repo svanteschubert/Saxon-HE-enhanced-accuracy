@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.type;
 
 
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 public enum PrimitiveUType {
 
@@ -49,7 +50,7 @@ public enum PrimitiveUType {
 
     private final int bit;
 
-    private PrimitiveUType(int bit) {
+    PrimitiveUType(int bit) {
         this.bit = bit;
     }
 
@@ -65,6 +66,7 @@ public enum PrimitiveUType {
         return values()[bit];
     }
 
+    @CSharpModifiers(code={"public", "override"})
     public String toString() {
         switch (this) {
             case DOCUMENT:

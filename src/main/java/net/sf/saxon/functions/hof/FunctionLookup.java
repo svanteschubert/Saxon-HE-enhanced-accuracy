@@ -14,13 +14,18 @@ import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.*;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.FocusIterator;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.sxpath.IndependentContext;
+import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ManualIterator;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.QNameValue;
 
@@ -54,6 +59,12 @@ public class FunctionLookup extends ContextAccessorFunction {
                 ExpressionTool.equalOrNull(getRetainedStaticContext(), ((FunctionLookup) o).getRetainedStaticContext());
     }
 
+    @Override
+    public int hashCode() {
+        // Included explicitly because equals() is overridden: prevents compiler warnings
+        return super.hashCode();
+    }
+
     /**
      * Bind a context item to appear as part of the function's closure. If this method
      * has been called, the supplied context item will be used in preference to the
@@ -62,7 +73,7 @@ public class FunctionLookup extends ContextAccessorFunction {
      * @param context the context to which the function applies. Must not be null.
      */
     @Override
-    public Function bindContext(XPathContext context) {
+    public FunctionItem bindContext(XPathContext context) {
         FunctionLookup bound = (FunctionLookup) SystemFunction.makeFunction("function-lookup", getRetainedStaticContext(), 2);
         FocusIterator focusIterator = context.getCurrentIterator();
         if (focusIterator != null) {
@@ -77,7 +88,7 @@ public class FunctionLookup extends ContextAccessorFunction {
         return bound;
     }
 
-    public Function lookup(StructuredQName name, int arity, XPathContext context) throws XPathException {
+    public FunctionItem lookup(StructuredQName name, int arity, XPathContext context) throws XPathException {
 
         Controller controller = context.getController();
         Executable exec = controller.getExecutable();
@@ -94,7 +105,7 @@ public class FunctionLookup extends ContextAccessorFunction {
         ic.setNamespaceResolver(rsc);
         ic.setPackageData(pd);
         try {
-            Function fi = lib.getFunctionItem(sn, ic);
+            FunctionItem fi = lib.getFunctionItem(sn, ic);
             if (fi instanceof UserFunction) {
                 Visibility vis = ((UserFunction) fi).getDeclaredVisibility();
                 if (vis == Visibility.ABSTRACT) {
@@ -110,13 +121,23 @@ public class FunctionLookup extends ContextAccessorFunction {
             }
             return fi;
         } catch (XPathException e) {
-            if ("XPST0017".equals(e.getErrorCodeLocalPart())) {
+            if (e.hasErrorCode("XPST0017")) {
                 return null;
             }
             throw e;
         }
     }
 
+    /**
+     * Determine the special properties of this function.
+     * @param arguments the actual arguments to the function call
+     */
+    @Override
+    public int getSpecialProperties(Expression[] arguments) {
+        // Prevent inlining of stylesheet functions or variables calling function-lookup(), because
+        // the dynamic context might be different
+        return super.getSpecialProperties(arguments) | StaticProperty.HAS_SIDE_EFFECTS;
+    }
 
     /**
      * Evaluate the expression
@@ -128,23 +149,39 @@ public class FunctionLookup extends ContextAccessorFunction {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         XPathContext c = boundContext == null ? context : boundContext;
         QNameValue qname = (QNameValue) arguments[0].head();
         IntegerValue arity = (IntegerValue) arguments[1].head();
-        Function fi = lookup(qname.getStructuredQName(), (int) arity.longValue(), c);
+        FunctionItem fi = lookup(qname.getStructuredQName(), (int) arity.longValue(), c);
         if (fi == null) {
-            return ZeroOrOne.empty();
+            return EmptySequence.getInstance();
         }
         if (fi instanceof ContextAccessorFunction) {
             fi = ((ContextAccessorFunction) fi).bindContext(c);
         }
         Component target = fi instanceof UserFunction ? ((UserFunction) fi).getDeclaringComponent() : null;
-        ExportAgent agent = out -> makeFunctionCall(Literal.makeLiteral(qname), Literal.makeLiteral(arity)).export(out);
-        Function result = new UserFunctionReference.BoundUserFunction(agent, fi, target, c.getController());
-        return new ZeroOrOne(result);
+        ExportAgent agent = new FunctionLookupExportAgent(this, qname, arity);
+        return new UserFunctionReference.BoundUserFunction(fi, (int) arity.longValue(), target, agent, c.getController());
+    }
+
+    public static class FunctionLookupExportAgent implements ExportAgent {
+
+        private final QNameValue qName;
+        private final IntegerValue arity;
+        private final FunctionLookup container;
+
+        public FunctionLookupExportAgent(FunctionLookup container, QNameValue qName, IntegerValue arity) {
+            this.arity = arity;
+            this.qName = qName;
+            this.container = container;
+        }
+        @Override
+        public void export(ExpressionPresenter out) throws XPathException {
+            container.makeFunctionCall(Literal.makeLiteral(qName), Literal.makeLiteral(arity)).export(out);
+        }
     }
 }
 
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

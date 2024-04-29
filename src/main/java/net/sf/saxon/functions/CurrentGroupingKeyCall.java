@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,9 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.sort.GroupIterator;
 import net.sf.saxon.om.*;
@@ -98,7 +101,7 @@ public class CurrentGroupingKeyCall extends Expression implements Callable {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables to be renamed
      */
     @Override
     public Expression copy(RebindingMap rebindings) {
@@ -120,15 +123,8 @@ public class CurrentGroupingKeyCall extends Expression implements Callable {
 
     /*@NotNull*/
     @Override
-    public SequenceIterator iterate(XPathContext c) throws XPathException {
-        GroupIterator gi = c.getCurrentGroupIterator();
-        AtomicSequence result = gi==null ? null : gi.getCurrentGroupingKey();
-        if (result == null) {
-            XPathException err = new XPathException("There is no current grouping key", "XTDE1071");
-            err.setLocation(getLocation());
-            throw err;
-        }
-        return result.iterate();
+    public SequenceIterator iterate(XPathContext context) throws XPathException {
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
@@ -154,6 +150,33 @@ public class CurrentGroupingKeyCall extends Expression implements Callable {
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         return SequenceTool.toLazySequence(iterate(context));
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new CurrentGroupingKeyCallElaborator();
+    }
+
+    private static class CurrentGroupingKeyCallElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            CurrentGroupingKeyCall expr = (CurrentGroupingKeyCall) getExpression();
+            return context -> {
+                GroupIterator gi = context.getCurrentGroupIterator();
+                AtomicSequence result = gi == null ? null : gi.getCurrentGroupingKey();
+                if (result == null) {
+                    throw new XPathException("There is no current grouping key", "XTDE1071")
+                            .withLocation(expr.getLocation());
+                }
+                return result.iterate();
+            };
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.ma.arrays;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.oper.OperandArray;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
@@ -30,10 +31,12 @@ import java.util.List;
  * corresponding expressions: [a,b,c,d]
  */
 
-public class SquareArrayConstructor extends Expression {
+public class SquareArrayConstructor extends Expression implements Pingable {
 
 
     private OperandArray operanda;
+    private double numberOfCalls = 0;
+    private double numberOfConversions = 0;
 
 
     /**
@@ -76,7 +79,7 @@ public class SquareArrayConstructor extends Expression {
 
     @Override
     public Iterable<Operand> operands() {
-        return operanda.operands();
+        return operanda;
     }
 
 
@@ -92,7 +95,7 @@ public class SquareArrayConstructor extends Expression {
 
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return 0;
     }
 
@@ -125,8 +128,8 @@ public class SquareArrayConstructor extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
-        int h = 0x878b92a0;
+    protected int computeHashCode() {
+        int h = 0x778b92a0;
         for (Operand o : operands()) {
             h ^= o.getChildExpression().hashCode();
         }
@@ -152,7 +155,6 @@ public class SquareArrayConstructor extends Expression {
     }
 
     private Expression preEvaluate(ExpressionVisitor visitor) {
-        boolean allFixed = false;
         for (Operand o : operands()) {
             if (!(o.getChildExpression() instanceof Literal)) {
                 return this;
@@ -228,7 +230,7 @@ public class SquareArrayConstructor extends Expression {
      */
 
     @Override
-    public final int computeCardinality() {
+    protected final int computeCardinality() {
         // An array is an item!
         return StaticProperty.EXACTLY_ONE;
     }
@@ -263,6 +265,22 @@ public class SquareArrayConstructor extends Expression {
         }
     }
 
+    @Override
+    public String toString() {
+        int n = getOperanda().getNumberOfOperands();
+        switch (n) {
+            case 0:
+                return "[]";
+            case 1:
+                return "[" + getOperanda().getOperand(0).getChildExpression().toString() + "]";
+            case 2:
+                return "[" + getOperanda().getOperand(0).getChildExpression().toString() + ", " +
+                        getOperanda().getOperand(1).getChildExpression().toString() + "]";
+            default:
+                return "[" + getOperanda().getOperand(0).getChildExpression().toString() + ", ...]";
+        }
+    }
+
     /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
      * This method indicates which of these methods is provided. This implementation provides both iterate() and
@@ -272,6 +290,29 @@ public class SquareArrayConstructor extends Expression {
     @Override
     public int getImplementationMethod() {
         return EVALUATE_METHOD;
+    }
+
+    @Override
+    public void ping() {
+        numberOfConversions++;
+    }
+
+    /**
+     * Construct an array, given a list of members
+     *
+     * @param members the members of the array
+     * @return the constructed array
+     */
+    protected ArrayItem makeArray(List<GroundedValue> members) {
+        if (numberOfConversions > numberOfCalls * 0.5) {
+            // More than half the calls result in the array being converted...
+            return new ImmutableArrayItem(members);
+        } else {
+            numberOfCalls++;
+            SimpleArrayItem result = new SimpleArrayItem(members);
+            result.requestNotification(this);
+            return result;
+        }
     }
 
     /**
@@ -295,7 +336,37 @@ public class SquareArrayConstructor extends Expression {
             GroundedValue s = ExpressionTool.eagerEvaluate(o.getChildExpression(), context);
             value.add(s);
         }
-        return new SimpleArrayItem(value);
+        return makeArray(value);
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new SquareArrayConstructorElaborator();
+    }
+
+    private static class SquareArrayConstructorElaborator extends ItemElaborator {
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            SquareArrayConstructor expr = (SquareArrayConstructor)getExpression();
+            List<SequenceEvaluator> eagerEvaluators = new ArrayList<>(expr.getOperanda().getNumberOfOperands());
+            for (Operand o : expr.operands()) {
+                eagerEvaluators.add(o.getChildExpression().makeElaborator().eagerly());
+            }
+            return context -> {
+                List<GroundedValue> members = new ArrayList<>(eagerEvaluators.size());
+                for (SequenceEvaluator e : eagerEvaluators) {
+                    members.add((GroundedValue)e.evaluate(context));
+                }
+                return expr.makeArray(members);
+            };
+        }
+
     }
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,27 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.CodepointCollator;
 import net.sf.saxon.expr.sort.DoubleSortComparer;
+import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.Int64Value;
+import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.NumericValue;
+
+import java.math.BigDecimal;
 
 /**
  * This class implements a comparison of a numeric value to an integer constant using one of the operators
@@ -25,7 +37,7 @@ import net.sf.saxon.value.NumericValue;
 
 public class CompareToIntegerConstant extends CompareToConstant {
 
-    private long comparand;
+    private final long comparand;
 
     /**
      * Create the expression
@@ -69,7 +81,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings list of variable bindings that need to be re-bound
      */
 
     /*@NotNull*/
@@ -98,8 +110,8 @@ public class CompareToIntegerConstant extends CompareToConstant {
      */
 
     @Override
-    public int computeHashCode() {
-        int h = 0x836b12a0;
+    protected int computeHashCode() {
+        int h = 0x136b12a0;
         return h + getLhsExpression().hashCode() ^ (int)comparand;
     }
 
@@ -123,11 +135,11 @@ public class CompareToIntegerConstant extends CompareToConstant {
             return operator == Token.FNE;
         }
         int c = n.compareTo(comparand);
-        return interpretComparisonResult(c);
+        return interpretComparisonResult(operator, c);
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -191,5 +203,90 @@ public class CompareToIntegerConstant extends CompareToConstant {
         // Note: this treats NaN=NaN as true, but it doesn't matter, because the rhs will never be NaN.
     }
 
+    /**
+     * Get the StringCollator used to compare string values.
+     * @return the collator.
+     */
+    @Override
+    public StringCollator getStringCollator() {
+        return CodepointCollator.getInstance(); // actually, the question doesn't arise.
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new CompareToIntegerConstantElaborator();
+    }
+
+    /**
+     * Elaborator for a "compare to integer constant" expression
+     */
+
+    public static class CompareToIntegerConstantElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            CompareToIntegerConstant expression = (CompareToIntegerConstant) getExpression();
+            Expression arg = expression.getBaseExpression();
+            ItemEvaluator argEval = arg.makeElaborator().elaborateForItem();
+            int operator = expression.getComparisonOperator();
+            long comparand = expression.getComparand();
+
+            TypeHierarchy th = getConfiguration().getTypeHierarchy();
+            ItemType operandType = arg.getItemType();
+
+            boolean isDouble = th.isSubType(operandType, BuiltInAtomicType.DOUBLE);
+            boolean isFloat = th.isSubType(operandType, BuiltInAtomicType.FLOAT);
+            boolean isInteger = th.isSubType(operandType, BuiltInAtomicType.INTEGER);
+            boolean isDecimal = (!isInteger) && th.isSubType(operandType, BuiltInAtomicType.DECIMAL);
+
+            if (isInteger) {
+                return context -> {
+                    IntegerValue val = (IntegerValue) argEval.eval(context);
+                    return interpretComparisonResult(operator, val.compareTo(comparand));
+                };
+
+            }
+
+            if (isDouble || isFloat) {
+                // convert constant to double in advance
+                final double constant = (double) comparand;
+                return context -> {
+                    double val = ((NumericValue) argEval.eval(context)).getDoubleValue();
+                    if (Double.isNaN(val)) {
+                        return operator == Token.FNE;
+                    }
+                    return interpretComparisonResult(operator, Double.compare(val, constant));
+                };
+            }
+
+            if (isDecimal) {
+                // convert constant to BigDecimal in advance
+                final BigDecimal deci = BigDecimal.valueOf(comparand);
+                return context -> {
+                    BigDecimal val = ((NumericValue) argEval.eval(context)).getDecimalValue();
+                    return interpretComparisonResult(operator, val.compareTo(deci));
+                };
+            }
+
+            // Otherwise, the type is not statically known or is known to be untyped
+
+            return context -> {
+                NumericValue num = ((NumericValue) argEval.eval(context));
+                if (num.isNaN()) {
+                    return operator == Token.FNE;
+                }
+                int c = num.compareTo(comparand);
+                return interpretComparisonResult(operator, c);
+            };
+
+        }
+
+
+    }
 }
 

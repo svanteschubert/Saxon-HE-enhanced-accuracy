@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,9 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.value.SequenceExtent;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -19,7 +19,7 @@ import java.util.List;
  * checking in the same way as for a native XSLT/XQuery function declaring the type as xs:integer+.
  */
 
-public class OneOrMore<T extends Item> extends SequenceExtent {
+public class OneOrMore<T extends Item> extends ZeroOrMore<T> {
 
     /**
      * Create a sequence containing zero or one items
@@ -28,7 +28,7 @@ public class OneOrMore<T extends Item> extends SequenceExtent {
      */
 
     public OneOrMore(T[] content) {
-        super(content);
+        super(Arrays.asList(content));
         if (content.length == 0) {
             throw new IllegalArgumentException();
         }
@@ -43,11 +43,11 @@ public class OneOrMore<T extends Item> extends SequenceExtent {
 
     public static OneOrMore<Item> makeOneOrMore(Sequence sequence) throws XPathException {
         List<Item> content = new ArrayList<>();
-        sequence.iterate().forEachOrFail(content::add);
+        //noinspection Convert2MethodRef
+        SequenceTool.supply(sequence.iterate(), (ItemConsumer<? super Item>) it -> content.add(it));
         if (content.isEmpty()) {
             throw new IllegalArgumentException();
         }
         return new OneOrMore<>(content);
     }
-
 }

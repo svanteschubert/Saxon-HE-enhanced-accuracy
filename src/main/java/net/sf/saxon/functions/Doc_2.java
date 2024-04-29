@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,13 +24,9 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.tree.tiny.TinyBuilder;
 import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.QNameValue;
-import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.value.*;
 
 import javax.xml.transform.Source;
-import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamSource;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -67,8 +63,8 @@ public class Doc_2 extends SystemFunction implements Callable {
 
 
     public static ParseOptions setParseOptions(
-            RetainedStaticContext rsc, Map<String, Sequence> checkedOptions, XPathContext context) throws XPathException {
-        ParseOptions result = new ParseOptions(context.getConfiguration().getParseOptions());
+            RetainedStaticContext rsc, Map<String, GroundedValue> checkedOptions, XPathContext context) throws XPathException {
+        ParseOptions result = context.getConfiguration().getParseOptions();
 
         Sequence value = checkedOptions.get("validation");
         if (value != null) {
@@ -80,39 +76,40 @@ public class Doc_2 extends SystemFunction implements Callable {
             if (v == Validation.INVALID) {
                throw new XPathException("Invalid validation value " + valStr, "SXZZ0002");
             }
-            result.setSchemaValidationMode(v);
+            result = result.withSchemaValidationMode(v);
         }
         value = checkedOptions.get("type");
         if (value != null) {
             QNameValue qval = (QNameValue) value.head();
-            result.setTopLevelType(context.getConfiguration().getSchemaType(qval.getStructuredQName()));
-            result.setSchemaValidationMode(Validation.BY_TYPE);
+            result = result
+                    .withTopLevelType(context.getConfiguration().getSchemaType(qval.getStructuredQName()))
+                    .withSchemaValidationMode(Validation.BY_TYPE);
         }
         value = checkedOptions.get("strip-space");
         if (value != null) {
             String s = value.head().getStringValue();
             switch (s) {
                 case "all":
-                    result.setSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
+                    result = result.withSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
                     break;
                 case "none":
-                    result.setSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                    result = result.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
                     break;
                 case "ignorable":
-                    result.setSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
+                    result = result.withSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
                     break;
                 case "package-defined":
                 case "default":
                     PackageData data = rsc.getPackageData();
                     if (data instanceof StylesheetPackage) {
-                        result.setSpaceStrippingRule(((StylesheetPackage) data).getSpaceStrippingRule());
+                        result = result.withSpaceStrippingRule(((StylesheetPackage) data).getSpaceStrippingRule());
                     }
                     break;
             }
         }
         value = checkedOptions.get("dtd-validation");
         if (value != null) {
-            result.setDTDValidationMode(((BooleanValue)value.head()).getBooleanValue() ? Validation.STRICT : Validation.SKIP);
+            result = result.withDTDValidationMode(((BooleanValue)value.head()).getBooleanValue() ? Validation.STRICT : Validation.SKIP);
         }
         value = checkedOptions.get("accumulators");
         if (value != null) {
@@ -126,11 +123,11 @@ public class Doc_2 extends SystemFunction implements Callable {
                 Accumulator acc = reg.getAccumulator(name.getStructuredQName());
                 accumulators.add(acc);
             }
-            result.setApplicableAccumulators(accumulators);
+            result = result.withApplicableAccumulators(accumulators);
         }
         value = checkedOptions.get("use-xsi-schema-location");
         if (value != null) {
-            result.setUseXsiSchemaLocation(((BooleanValue) value.head()).getBooleanValue());
+            result = result.withUseXsiSchemaLocation(((BooleanValue) value.head()).getBooleanValue());
         }
         return result;
     }
@@ -145,14 +142,14 @@ public class Doc_2 extends SystemFunction implements Callable {
      * @throws XPathException if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne<NodeInfo> call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue hrefVal = (AtomicValue) arguments[0].head();
         if (hrefVal == null) {
-            return ZeroOrOne.empty();
+            return EmptySequence.getInstance();
         }
         String href = hrefVal.getStringValue();
         Item param = arguments[1].head();
-        Map<String, Sequence> checkedOptions =
+        Map<String, GroundedValue> checkedOptions =
                 getDetails().optionDetails.processSuppliedOptions((MapItem) param, context);
         ParseOptions parseOptions = setParseOptions(getRetainedStaticContext(), checkedOptions, context);
 
@@ -167,7 +164,7 @@ public class Doc_2 extends SystemFunction implements Callable {
                     item.getTreeInfo(), parseOptions.getApplicableAccumulators()
             );
         }
-        return new ZeroOrOne<>(item);
+        return item;
     }
 
     private TreeInfo fetch(String href, ParseOptions options, XPathContext context) throws XPathException {
@@ -183,14 +180,16 @@ public class Doc_2 extends SystemFunction implements Callable {
         Source source = config.getSourceResolver().resolveSource(new StreamSource(abs.toASCIIString()), config);
 
         TreeInfo newdoc;
-        if (source instanceof NodeInfo || source instanceof DOMSource) {
+        if (DocumentFn.sourceIsTree(source)) {
             NodeInfo startNode = controller.prepareInputTree(source);
             newdoc = startNode.getTreeInfo();
         } else {
             Builder b = controller.makeBuilder();
+            b.setDurability(Durability.LASTING);
             if (b instanceof TinyBuilder) {
                 ((TinyBuilder) b).setStatistics(config.getTreeStatistics().SOURCE_DOCUMENT_STATISTICS);
             }
+
             b.setPipelineConfiguration(b.getPipelineConfiguration());
             try {
                 Sender.send(source, b, options);

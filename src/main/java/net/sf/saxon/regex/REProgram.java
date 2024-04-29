@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,7 +30,8 @@
 
 package net.sf.saxon.regex;
 
-import java.util.function.IntPredicate;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import java.util.List;
 
@@ -39,19 +40,19 @@ import java.util.List;
  */
 
 public class REProgram {
-    static final int OPT_HASBACKREFS = 1;
-    static final int OPT_HASBOL = 2;
+    protected static final int OPT_HASBACKREFS = 1;
+    protected static final int OPT_HASBOL = 2;
 
-    Operation operation;
-    REFlags flags;
-    UnicodeString prefix;              // Prefix string optimization
-    IntPredicate initialCharClass;
-    List<RegexPrecondition> preconditions = new java.util.ArrayList<RegexPrecondition>();
-    int minimumLength = 0;
-    int fixedLength = -1;
-    int optimizationFlags;      // Optimization flags (REProgram.OPT_*)
-    int maxParens = -1;
-    int backtrackingLimit = -1;
+    protected Operation operation;
+    protected REFlags flags;
+    protected UnicodeString prefix;              // Prefix string optimization
+    protected IntPredicateProxy initialCharClass;
+    protected List<RegexPrecondition> preconditions = new java.util.ArrayList<RegexPrecondition>();
+    protected int minimumLength = 0;
+    protected int fixedLength = -1;
+    protected int optimizationFlags;      // Optimization flags (REProgram.OPT_*)
+    protected int maxParens = -1;
+    protected int backtrackingLimit = -1;
 
     /**
      * Constructs a program object from a character array
@@ -89,14 +90,14 @@ public class REProgram {
 
         // Try various compile-time optimizations
 
-        if (operation instanceof Operation.OpSequence) {
-            Operation first = ((Operation.OpSequence)operation).getOperations().get(0);
-            if (first instanceof Operation.OpBOL) {
+        if (operation instanceof OpSequence) {
+            Operation first = ((OpSequence)operation).getOperations().get(0);
+            if (first instanceof OpBOL) {
                 optimizationFlags |= REProgram.OPT_HASBOL;
-            } else if (first instanceof Operation.OpAtom) {
-                prefix = ((Operation.OpAtom)first).getAtom();
-            } else if (first instanceof Operation.OpCharClass) {
-                initialCharClass = ((Operation.OpCharClass)first).getPredicate();
+            } else if (first instanceof OpAtom) {
+                prefix = ((OpAtom)first).getAtom();
+            } else if (first instanceof OpCharClass) {
+                initialCharClass = ((OpCharClass)first).getPredicate();
             }
             addPrecondition(operation, -1, 0);
         }
@@ -115,28 +116,28 @@ public class REProgram {
     }
 
     private void addPrecondition(Operation op, int fixedPosition, int minPosition) {
-        if (op instanceof Operation.OpAtom || op instanceof Operation.OpCharClass) {
+        if (op instanceof OpAtom || op instanceof OpCharClass) {
             preconditions.add(new RegexPrecondition(op, fixedPosition, minPosition));
-        } else if (op instanceof Operation.OpRepeat && ((Operation.OpRepeat) op).min >= 1) {
-            Operation.OpRepeat parent = (Operation.OpRepeat) op;
+        } else if (op instanceof OpRepeat && ((OpRepeat) op).min >= 1) {
+            OpRepeat parent = (OpRepeat) op;
             Operation child = parent.op;
-            if (child instanceof Operation.OpAtom || child instanceof Operation.OpCharClass) {
+            if (child instanceof OpAtom || child instanceof OpCharClass) {
                 if (parent.min == 1) {
                     preconditions.add(new RegexPrecondition(parent, fixedPosition, minPosition));
                 } else {
-                    Operation.OpRepeat parent2 = new Operation.OpRepeat(child, parent.min, parent.min, true);
+                    OpRepeat parent2 = new OpRepeat(child, parent.min, parent.min, true);
                     preconditions.add(new RegexPrecondition(parent2, fixedPosition, minPosition));
                 }
             } else {
                 addPrecondition(child, fixedPosition, minPosition);
             }
-        } else if (op instanceof Operation.OpCapture) {
-            addPrecondition(((Operation.OpCapture)op).childOp, fixedPosition, minPosition);
-        } else if (op instanceof Operation.OpSequence) {
+        } else if (op instanceof OpCapture) {
+            addPrecondition(((OpCapture)op).childOp, fixedPosition, minPosition);
+        } else if (op instanceof OpSequence) {
             int fp = fixedPosition;
             int mp = minPosition;
-            for (Operation o : ((Operation.OpSequence)op).getOperations()) {
-                if (o instanceof Operation.OpBOL) {
+            for (Operation o : ((OpSequence)op).getOperations()) {
+                if (o instanceof OpBOL) {
                     fp = 0;
                 }
                 addPrecondition(o, fp, mp);

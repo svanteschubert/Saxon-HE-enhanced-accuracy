@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.s9api;
 
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NameChecker;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
@@ -27,7 +28,7 @@ import java.util.Objects;
  */
 public class QName {
 
-    private StructuredQName sqName;
+    private final StructuredQName sqName;
 
     /**
      * Construct a QName using a namespace prefix, a namespace URI, and a local name (in that order).
@@ -40,7 +41,7 @@ public class QName {
      */
 
     public QName(String prefix, String uri, String localName) {
-        sqName = new StructuredQName(prefix, uri, localName);
+        sqName = new StructuredQName(prefix, NamespaceUri.of(uri), localName);
     }
 
     /**
@@ -54,6 +55,27 @@ public class QName {
 
     public QName(String uri, String lexical) {
         uri = (uri == null ? "" : uri);
+        int colon = lexical.indexOf(':');
+        if (colon < 0) {
+            sqName = new StructuredQName("", NamespaceUri.of(uri), lexical);
+        } else {
+            String prefix = lexical.substring(0, colon);
+            String local = lexical.substring(colon + 1);
+            sqName = new StructuredQName(prefix, NamespaceUri.of(uri), local);
+        }
+    }
+
+    /**
+     * Construct a QName using a namespace URI and a lexical representation. The lexical representation
+     * may be a local name on its own, or it may be in the form prefix:local-name.
+     * <p>This constructor does not check that the components of the QName are lexically valid.</p>
+     *
+     * @param uri     The namespace URI. Use {@link NamespaceUri#NULL} for names that are not in any namespace.
+     * @param lexical Either the local part of the name, or the prefix and local part in the format prefix:local
+     * @since 12.3
+     */
+
+    public QName(NamespaceUri uri, String lexical) {
         int colon = lexical.indexOf(':');
         if (colon < 0) {
             sqName = new StructuredQName("", uri, lexical);
@@ -74,7 +96,7 @@ public class QName {
     public QName(String localName) {
         int colon = localName.indexOf(':');
         if (colon < 0) {
-            sqName = new StructuredQName("", "", localName);
+            sqName = new StructuredQName("", NamespaceUri.NULL, localName);
         } else {
             throw new IllegalArgumentException("Local name contains a colon");
         }
@@ -103,9 +125,9 @@ public class QName {
             lexicalQName = "Q" + lexicalQName;
         }
         try {
-            NodeInfo node = (NodeInfo) element.getUnderlyingValue();
-            sqName = StructuredQName.fromLexicalQName(lexicalQName, true,
-                    true, node.getAllNamespaces());
+            NodeInfo node = element.getUnderlyingValue();
+            sqName = StructuredQName.fromLexicalQName((lexicalQName), true,
+                                                      true, node.getAllNamespaces());
 
         } catch (XPathException err) {
             throw new IllegalArgumentException(err);
@@ -119,7 +141,7 @@ public class QName {
      */
 
     public QName(javax.xml.namespace.QName qName) {
-        sqName = new StructuredQName(qName.getPrefix(), qName.getNamespaceURI(), qName.getLocalPart());
+        sqName = new StructuredQName(qName.getPrefix(), NamespaceUri.of(qName.getNamespaceURI()), qName.getLocalPart());
     }
 
     /**
@@ -215,10 +237,8 @@ public class QName {
 
     public boolean isValid(Processor processor) {
         String prefix = getPrefix();
-        if (prefix.length() > 0) {
-            if (!NameChecker.isValidNCName(prefix)) {
-                return false;
-            }
+        if (!prefix.isEmpty() && !NameChecker.isValidNCName(prefix)) {
+            return false;
         }
         return NameChecker.isValidNCName(getLocalName());
     }
@@ -237,14 +257,40 @@ public class QName {
     }
 
     /**
-     * The namespace URI of the QName. Returns "" (the zero-length string) if the
+     * The namespace URI of the QName, as a string. Returns the zero-length string if the
      * QName is not in a namespace.
      *
      * @return the namespace part of the QName, or "" for a name in no namespace
      */
 
+    public String getNamespace() {
+        return sqName.getNamespaceUri().toString();
+    }
+
+    /**
+     * The namespace URI of the QName, as a string. Returns the zero-length string if the
+     * QName is not in a namespace.
+     *
+     * <p>Retained for backwards compatibility; deprecated.</p>
+     *
+     * @return the namespace part of the QName, or "" for a name in no namespace
+     * @deprecated since 12.0 - use {@link #getNamespaceUri()} or {@link #getNamespace()}
+     */
+
+    @Deprecated
     public String getNamespaceURI() {
-        return sqName.getURI();
+        return sqName.getNamespaceUri().toString();
+    }
+
+    /**
+     * The namespace URI of the QName. Returns {@link NamespaceUri#NULL} (the zero-length string) if the
+     * QName is not in a namespace.
+     *
+     * @return the namespace part of the QName, or NamespaceUri#NULL for a name in no namespace
+     */
+
+    public NamespaceUri getNamespaceUri() {
+        return sqName.getNamespaceUri();
     }
 
     /**
@@ -268,7 +314,7 @@ public class QName {
      */
 
     public String getClarkName() {
-        String uri = getNamespaceURI();
+        NamespaceUri uri = getNamespaceUri();
         if (uri.isEmpty()) {
             return getLocalName();
         } else {
@@ -284,8 +330,8 @@ public class QName {
    *
    */
     public String getEQName() {
-        String uri = getNamespaceURI();
-        if (uri.length() == 0) {
+        NamespaceUri uri = getNamespaceUri();
+        if (uri.isEmpty()) {
             return getLocalName();
         } else {
             return "Q{" + uri + "}" + getLocalName();

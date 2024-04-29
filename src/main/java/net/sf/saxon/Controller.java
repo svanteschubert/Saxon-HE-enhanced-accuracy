@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -28,6 +28,10 @@ import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.TraceEventMulticaster;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.rules.RuleManager;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.tree.iter.GroundedIterator;
 import net.sf.saxon.tree.tiny.TinyBuilder;
 import net.sf.saxon.tree.wrapper.SpaceStrippedDocument;
 import net.sf.saxon.tree.wrapper.SpaceStrippedNode;
@@ -41,8 +45,8 @@ import org.xml.sax.SAXParseException;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.Transformer;
-import javax.xml.transform.URIResolver;
 import javax.xml.transform.sax.SAXSource;
+import javax.xml.transform.stream.StreamSource;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
@@ -78,9 +82,14 @@ import java.util.function.Function;
  * was split into two: XSLT-specific functionality has been moved into the subclass {@link XsltController}.
  */
 
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<Saxon.Hej.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
 public class Controller implements ContextOriginator {
 
-    private Configuration config;
+    private final Configuration config;
     protected Executable executable;
 
     protected Item globalContextItem;
@@ -88,12 +97,11 @@ public class Controller implements ContextOriginator {
     private Map<PackageData, Bindery> binderies;
     private GlobalParameterSet globalParameters;
     private boolean convertParameters = true;
-    private Map<GlobalVariable, Set<GlobalVariable>> globalVariableDependencies = new HashMap<>();
+    private final Map<GlobalVariable, Set<GlobalVariable>> globalVariableDependencies = new HashMap<>();
     protected TraceListener traceListener;
     private boolean tracingPaused;
     private Logger traceFunctionDestination;
-    private URIResolver standardURIResolver;
-    private URIResolver userURIResolver;
+    private ResourceResolver resourceResolver;
     protected Receiver principalResult;
     protected String principalResultURI;
     private UnparsedTextURIResolver unparsedTextResolver;
@@ -117,9 +125,11 @@ public class Controller implements ContextOriginator {
     public final static String ANONYMOUS_PRINCIPAL_OUTPUT_URI = "dummy:/anonymous/principal/result";
     private StylesheetCache stylesheetCache = null;
 
-    private Function<SequenceIterator, FocusTrackingIterator> focusTrackerFactory = FocusTrackingIterator::new;
+    private Function<SequenceIterator, FocusTrackingIterator> focusTrackerFactory =
+            CSharp.constructorRef(FocusTrackingIterator::new, 1);
 
     private Function<SequenceIterator, FocusTrackingIterator> multiThreadedFocusTrackerFactory;
+
 
     /**
      * Create a Controller and initialise variables. Note: XSLT applications should
@@ -176,8 +186,8 @@ public class Controller implements ContextOriginator {
         globalParameters = new GlobalParameterSet();
         focusTrackerFactory = config.getFocusTrackerFactory(executable, false);
         multiThreadedFocusTrackerFactory = config.getFocusTrackerFactory(executable, true);
-        standardURIResolver = config.getSystemURIResolver();
-        userURIResolver = config.getURIResolver();
+        //standardURIResolver = config.getSystemURIResolver();
+        resourceResolver = null;
         unparsedTextResolver = config.getUnparsedTextURIResolver();
         validationMode = config.getSchemaValidationMode();
         errorReporter = config.makeErrorReporter();
@@ -284,9 +294,10 @@ public class Controller implements ContextOriginator {
                 String systemId = ((NodeInfo) val).getRoot().getSystemId();
                 try {
                     if (systemId != null && new URI(systemId).isAbsolute()) {
+                        DocumentKey key = new DocumentKey(systemId);
                         DocumentPool pool = getDocumentPool();
-                        if (pool.find(systemId) == null) {
-                            pool.add(((NodeInfo) val).getTreeInfo(), systemId);
+                        if (pool.find(key) == null) {
+                            pool.add(((NodeInfo) val).getTreeInfo(), key);
                         }
                     }
                 } catch (URISyntaxException err) {
@@ -382,47 +393,18 @@ public class Controller implements ContextOriginator {
      * Controller as well as other configuration information.
      */
 
-    /*@NotNull*/
     public PipelineConfiguration makePipelineConfiguration() {
-        PipelineConfiguration pipe = config.makePipelineConfiguration();
-        pipe.setURIResolver(userURIResolver == null ? standardURIResolver : userURIResolver);
-        pipe.getParseOptions().setSchemaValidationMode(validationMode); // added in 9.7
-        pipe.getParseOptions().setErrorReporter(errorReporter); // added in 9.7.0.4
+
+        ParseOptions parseOptions = getConfiguration().getParseOptions()
+                .withSchemaValidationMode(validationMode)
+                .withErrorReporter(errorReporter);
+
+        PipelineConfiguration pipe = new PipelineConfiguration(getConfiguration(), parseOptions);
+
         pipe.setController(this);
-        final Executable executable = getExecutable();
-        if (executable != null) {
-            // can be null for an IdentityTransformer
-            pipe.setHostLanguage(executable.getHostLanguage());
-        }
+
         return pipe;
     }
-
-//    /**
-//     * Set the error listener.
-//     *
-//     * @param listener the ErrorListener to be used
-//     */
-//
-//    public void setErrorReporter(ErrorListener listener) {
-//        if (listener instanceof UnfailingErrorListener) {
-//            errorListener = (UnfailingErrorListener) listener;
-//        } else {
-//            errorListener = new DelegatingErrorListener(listener);
-//        }
-//    }
-//
-//    /**
-//     * Get the error listener.
-//     *
-//     * @return the ErrorListener in use. Note that this is not necessarily the ErrorListener that was supplied
-//     * to the {@link #setErrorReporter(ErrorListener)} method; if that was not an {@link UnfailingErrorListener},
-//     * it will have been wrapped in a {@link DelegatingErrorListener}, and it is the DelegatingErrorListener
-//     * that this method returns.
-//     */
-//
-//    public UnfailingErrorListener getErrorReporter() {
-//        return errorListener;
-//    }
 
     /**
      * Set a callback that will be used when reporting a dynamic error or warning
@@ -461,7 +443,8 @@ public class Controller implements ContextOriginator {
      * Report a run-time warning
      *
      * @param message   the warning message
-     * @param errorCode the local part of the error code (in the ERR namespace). May be null.
+     * @param errorCode the error code. If unprefixed, this is assumed to be in the ERR namespace.
+     *                  For a different namespace, use <code>Q{uri}local</code> format. May be null.
      * @param locator   the location in the source code. May be null.
      */
 
@@ -479,6 +462,7 @@ public class Controller implements ContextOriginator {
         errorReporter.report(warning);
     }
 
+    @CSharpReplaceBody(code="reportFatalError(err); throw err;")
     protected void handleXPathException(XPathException err) throws XPathException {
         Throwable cause = err.getException();
         if (cause instanceof SAXParseException) {
@@ -593,9 +577,12 @@ public class Controller implements ContextOriginator {
             if (contextItem instanceof NodeInfo) {
                 // In XSLT, apply strip-space and strip-type-annotations options
                 NodeInfo node = (NodeInfo) contextItem;
-                contextItem = prepareInputTree(node);
+                contextItem = prepareInputTree(node.asActiveSource());
                 if (node.getNodeKind() == Type.DOCUMENT && node.getSystemId() != null) {
-                    getDocumentPool().add(node.getTreeInfo(), node.getSystemId());
+                    DocumentKey key = new DocumentKey(node.getSystemId());
+                    if (getDocumentPool().find(key) == null) {
+                        getDocumentPool().add(node.getTreeInfo(), key);
+                    }
                 }
             }
         }
@@ -651,15 +638,12 @@ public class Controller implements ContextOriginator {
      * Set an object that will be used to resolve URIs used in
      * document(), etc.
      *
-     * @param resolver An object that implements the URIResolver interface, or
+     * @param resolver An object that implements the ResourceResolver interface, or
      *                 null.
      */
 
-    public void setURIResolver(URIResolver resolver) {
-        userURIResolver = resolver;
-        if (resolver instanceof StandardURIResolver) {
-            ((StandardURIResolver) resolver).setConfiguration(getConfiguration());
-        }
+    public void setResourceResolver(ResourceResolver resolver) {
+        resourceResolver = resolver;
     }
 
     /**
@@ -671,20 +655,8 @@ public class Controller implements ContextOriginator {
      * @return the user-supplied URI resolver if there is one, or null otherwise.
      */
 
-    public URIResolver getURIResolver() {
-        return userURIResolver;
-    }
-
-    /**
-     * Get the fallback URI resolver. This is the URIResolver that Saxon uses when
-     * the user-supplied URI resolver returns null.
-     * <p>This method is intended for internal use only.</p>
-     *
-     * @return the the system-defined URIResolver
-     */
-
-    public URIResolver getStandardURIResolver() {
-        return standardURIResolver;
+    public ResourceResolver getResourceResolver() {
+        return resourceResolver;
     }
 
     /**
@@ -1293,11 +1265,25 @@ public class Controller implements ContextOriginator {
      */
 
     public NodeInfo makeSourceTree(Source source, int validationMode) throws XPathException {
-
-        if (source instanceof SAXSource && config.getBooleanProperty(Feature.IGNORE_SAX_SOURCE_PARSER)) {
+        if (source instanceof NodeSource) {
+            return ((NodeSource) source).getNode();
+        } else if (source instanceof TreeInfo) {
+            return ((TreeInfo) source).getRootNode();
+        } else if (source instanceof NodeInfo) {
+            return ((NodeInfo)source);
+        } else if (source instanceof SAXSource && config.getBooleanProperty(Feature.IGNORE_SAX_SOURCE_PARSER)) {
             // This option is provided to allow the parser set by applications such as Ant to be overridden by
             // the parser requested using FeatureKeys.SOURCE_PARSER
             ((SAXSource) source).setXMLReader(null);
+        } else if (source instanceof StreamSource && source.getSystemId() != null &&
+                ((StreamSource) source).getInputStream() == null && ((StreamSource) source).getReader() == null) {
+            // Check to see if the document is already in the document pool. This can happen when a Transformer
+            // is reused to perform multiple transformations on the same source document. Bug 4837.
+            DocumentKey key = new DocumentKey(source.getSystemId());
+            TreeInfo existing = sourceDocumentPool.find(key);
+            if (existing != null) {
+                return existing.getRootNode();
+            }
         }
         Builder sourceBuilder = makeBuilder();
         sourceBuilder.setUseEventLocation(true);
@@ -1315,7 +1301,7 @@ public class Controller implements ContextOriginator {
             r = config.getAnnotationStripper(r);
         }
         PipelineConfiguration pipe = sourceBuilder.getPipelineConfiguration();
-        pipe.getParseOptions().setSchemaValidationMode(validationMode);
+        pipe.setParseOptions(pipe.getParseOptions().withSchemaValidationMode(validationMode));
         r.setPipelineConfiguration(pipe);
         Sender.send(source, r, null);
         if (source instanceof AugmentedSource && ((AugmentedSource)source).isPleaseCloseAfterUse()) {
@@ -1341,9 +1327,9 @@ public class Controller implements ContextOriginator {
      * if the stylesheet strips input type annotations.
      * <p>This method is intended for internal use.</p>
      *
-     * @param source the input tree. Must be either a DOMSource or a NodeInfo
+     * @param source the input tree. Must be either a DOMSource or a NodeSource
      * @return the NodeInfo representing the input node, suitably wrapped. Exceptionally,
-     * the the source is a whitespace text node that is itself stripped, return null.
+     * if the source is a whitespace text node that is itself stripped, return null.
      */
 
     public NodeInfo prepareInputTree(Source source) {
@@ -1377,12 +1363,13 @@ public class Controller implements ContextOriginator {
      * <p>This method is intended for internal use.</p>
      *
      * @param context the dynamic context for evaluating the global variables
+     * @throws XPathException if pre-evaluation is attempted and fails with a dynamic error
      */
 
     public void preEvaluateGlobals(XPathContext context) throws XPathException {
         for (PackageData pack : getExecutable().getPackages()) {
             for (GlobalVariable var : pack.getGlobalVariableList()) {
-                if (!var.isUnused() && var.getDeclaredVisibility() != Visibility.ABSTRACT) {
+                if (!var.isUnused()) {
                     try {
                         var.evaluateVariable(context, var.getDeclaringComponent());
                     } catch (XPathException err) {
@@ -1403,6 +1390,7 @@ public class Controller implements ContextOriginator {
      * @throws XPathException if adding this dependency creates a cycle of dependencies among global variables.
      */
 
+    @SuppressWarnings("Java8MapApi")
     public synchronized void registerGlobalVariableDependency(GlobalVariable one, GlobalVariable two) throws XPathException {
         if (one == two) {
             throw new XPathException.Circularity("Circular dependency among global variables: "
@@ -1421,8 +1409,11 @@ public class Controller implements ContextOriginator {
                 registerGlobalVariableDependency(one, var);
             }
         }
-        Set<GlobalVariable> existingDependencies =
-                globalVariableDependencies.computeIfAbsent(one, k -> new HashSet<>());
+        Set<GlobalVariable> existingDependencies = globalVariableDependencies.get(one);
+        if (existingDependencies == null) {
+            existingDependencies = new HashSet<>();
+            globalVariableDependencies.put(one, existingDependencies);
+        }
         existingDependencies.add(two);
 
     }
@@ -1531,6 +1522,7 @@ public class Controller implements ContextOriginator {
      * @return the stylesheet cache
      */
 
+    @CSharpModifiers(code={"internal"})
     public synchronized StylesheetCache getStylesheetCache() {
         if (stylesheetCache == null) {
             this.stylesheetCache = new StylesheetCache();
@@ -1551,6 +1543,23 @@ public class Controller implements ContextOriginator {
         return multithreaded && multiThreadedFocusTrackerFactory != null ?
                 multiThreadedFocusTrackerFactory :
                 focusTrackerFactory;
+    }
+
+    /**
+     * Use the factory function to create a FocusIterator. If the supplied iterator is already
+     * a FocusIterator then it is returned unchanged
+     * @param iter the supplied iterator to be wrapped
+     * @param multithreaded true if multithreaded access is requiried
+     * @return a FocusIterator that returns the same items as the supplied iterator, while tracking
+     * the current item and current position, and enabling look-eahead to evaluate last().
+     */
+
+    public FocusIterator makeFocusTracker(SequenceIterator iter, boolean multithreaded) {
+        if (iter instanceof FocusIterator) {
+            return (FocusIterator)iter;
+        } else {
+            return getFocusTrackerFactory(multithreaded).apply(iter);
+        }
     }
 
     /**
@@ -1587,12 +1596,12 @@ public class Controller implements ContextOriginator {
     public void setMemoizingFocusTrackerFactory() {
         setFocusTrackerFactory(base -> {
             FocusTrackingIterator fti;
-            if (!base.getProperties().contains(SequenceIterator.Property.GROUNDED) &&
+            if (!(base instanceof GroundedIterator && ((GroundedIterator)base).isActuallyGrounded()) &&
                     !(base instanceof GroupIterator) && !(base instanceof RegexIterator)) {
                 try {
                     MemoSequence ms = new MemoSequence(base);
                     fti = FocusTrackingIterator.track(ms.iterate());
-                } catch (XPathException e) {
+                } catch (UncheckedXPathException e) {
                     fti = FocusTrackingIterator.track(base);
                 }
             } else {
@@ -1601,6 +1610,7 @@ public class Controller implements ContextOriginator {
             return fti;
         });
     }
+
 
 }
 

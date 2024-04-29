@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.functions.Number_1;
 import net.sf.saxon.om.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.wrapper.VirtualNode;
 import net.sf.saxon.value.AtomicValue;
@@ -33,15 +34,14 @@ import javax.xml.xpath.XPathExpressionException;
  * <p>The class also includes some methods retained from Saxon's original XPath API. When these methods
  * are used, the object contains the context node and other state, so it is not thread-safe.</p>
  *
- * @author Michael H. Kay
  */
 
 
 public class XPathExpressionImpl implements XPathExpression {
 
-    private Configuration config;
-    private Executable executable;
-    private Expression expression;
+    private final Configuration config;
+    private final Executable executable;
+    private final Expression expression;
     private Expression atomizer;
     private SlotManager stackFrameMap;
 
@@ -94,12 +94,9 @@ public class XPathExpressionImpl implements XPathExpression {
     /**
      * JAXP 1.3 evaluate() method
      *
-     * @param node  The context node. This must use a representation of nodes that this implementation understands.
-     *              This may be a Saxon NodeInfo, or a node in one of the external object models supported, for example
-     *              DOM, DOM4J, JDOM, or XOM, provided the support module for that object model is loaded.
-     *
-     *              <p>An instance of {@link TreeInfo} is also accepted.</p>
-     *
+     * @param node  The context node: generalized in Saxon to allow any XDM item to act as the context item.
+     *              <p>The types of values accepted, and the conversions applied, are described in the Saxon
+     *              documentation.
      *              <p><b>Contrary to the interface specification, Saxon does not supply an empty
      *              document when the value is null. This is because XPath 2.0 allows the context
      *              item to be "absent" (null). So Saxon executes the XPath expression with the
@@ -147,34 +144,23 @@ public class XPathExpressionImpl implements XPathExpression {
     @Override
     public Object evaluate(/*@Nullable*/ Object node, /*@NotNull*/ QName qName) throws XPathExpressionException {
         Item contextItem;
-        if (node instanceof ZeroOrOne) {
-            node = ((ZeroOrOne) node).head();
+
+        JPConverter converter = JPConverter.allocate(node.getClass(), null, config);
+        GroundedValue val;
+        try {
+            val = converter.convert(node, new EarlyEvaluationContext(config));
+        } catch (XPathException e) {
+            throw new XPathExpressionException(
+                    "Failure converting a node of class " + node.getClass().getName() +
+                            ": " + e.getMessage());
         }
-        if (node instanceof TreeInfo) {
-            node = ((TreeInfo)node).getRootNode();
-        }
-        if (node instanceof NodeInfo) {
-            if (!((NodeInfo) node).getConfiguration().isCompatible(config)) {
-                throw new XPathExpressionException(
-                        "Supplied node must be built using the same or a compatible Configuration");
-            }
-            if (((NodeInfo) node).getTreeInfo().isTyped() && !executable.isSchemaAware()) {
-                throw new XPathExpressionException(
-                        "The expression was compiled to handled untyped data, but the input is typed");
-            }
-            contextItem = (NodeInfo) node;
-        } else if (node instanceof Item) {
-            contextItem = (Item) node;
+        if (val.getLength() == 0) {
+            contextItem = null;
+        } else if (val.getLength() > 1) {
+            throw new XPathExpressionException(
+                    "Supplied context item is a sequence of " + val.getLength() + " items");
         } else {
-            JPConverter converter = JPConverter.allocate(node.getClass(), null, config);
-            Sequence val;
-            try {
-                val = converter.convert(node, new EarlyEvaluationContext(config));
-            } catch (XPathException e) {
-                throw new XPathExpressionException(
-                        "Failure converting a node of class " + node.getClass().getName() +
-                                ": " + e.getMessage());
-            }
+            val = val.head();
             if (val instanceof NodeInfo) {
                 if (!((NodeInfo) val).getConfiguration().isCompatible(config)) {
                     throw new XPathExpressionException(
@@ -184,19 +170,16 @@ public class XPathExpressionImpl implements XPathExpression {
                     throw new XPathExpressionException(
                             "The expression was compiled to handled untyped data, but the input is typed");
                 }
-                contextItem = (NodeInfo) val;
-            } else {
-                throw new XPathExpressionException(
-                        "Cannot locate an object model implementation for nodes of class "
-                                + node.getClass().getName());
             }
+            contextItem = (Item)val;
         }
+
 
         XPathContextMajor context = new XPathContextMajor(contextItem, executable);
         context.openStackFrame(stackFrameMap);
         try {
             if (qName.equals(XPathConstants.BOOLEAN)) {
-                return expression.effectiveBooleanValue(context);
+                return expression.makeElaborator().elaborateForBoolean().eval(context);
             } else if (qName.equals(XPathConstants.STRING)) {
                 SequenceIterator iter = expression.iterate(context);
 
@@ -234,11 +217,15 @@ public class XPathExpressionImpl implements XPathExpression {
                 }
                 throw new XPathExpressionException("Expression result is not a node");
             } else if (qName.equals(XPathConstants.NODESET)) {
-                context.openStackFrame(stackFrameMap);
-                SequenceIterator iter = expression.iterate(context);
-                GroundedValue extent = iter.materialize();
-                PJConverter converter = PJConverter.allocateNodeListCreator(config, node);
-                return converter.convert(extent, Object.class, context);
+                try {
+                    context.openStackFrame(stackFrameMap);
+                    SequenceIterator iter = expression.iterate(context);
+                    GroundedValue extent = SequenceTool.toGroundedValue(iter);
+                    PJConverter pj = PJConverter.allocateNodeListCreator(config, node);
+                    return pj.convert(extent, Object.class, context);
+                } catch (UncheckedXPathException e) {
+                    throw e.getXPathException();
+                }
             } else {
                 throw new IllegalArgumentException("qName: Unknown type for expected result");
             }
@@ -250,12 +237,13 @@ public class XPathExpressionImpl implements XPathExpression {
     /**
      * Evaluate the expression to return a string value
      *
-     * @param node the initial context node. This must be either an instance of NodeInfo or a node
-     *             recognized by a known external object model.
-     *             <p><b>Contrary to the interface specification, Saxon does not supply an empty
-     *             document when the value is null. This is because XPath 2.0 allows the context
-     *             item to be "absent" (null). So Saxon executes the XPath expression with the
-     *             context item undefined.</b></p>
+     * @param node  The context node: generalized in Saxon to allow any XDM item to act as the context item.
+     *              <p>The types of values accepted, and the conversions applied, are described in the Saxon
+     *              documentation.</p>
+     *              <p><b>Contrary to the interface specification, Saxon does not supply an empty
+     *              document when the value is null. This is because XPath 2.0 allows the context
+     *              item to be "absent" (null). So Saxon executes the XPath expression with the
+     *              context item undefined.</b></p>
      * @return the results of the expression, converted to a String
      * @throws XPathExpressionException if evaluation fails
      */
@@ -280,7 +268,7 @@ public class XPathExpressionImpl implements XPathExpression {
      * @param qName       The type required, identified by a constant in {@link XPathConstants}
      * @return the result of the evaluation, as a Java object of the appropriate type:
      *         see {@link #evaluate(Object, javax.xml.namespace.QName)}
-     * @throws XPathExpressionException
+     * @throws XPathExpressionException if an error is detected
      */
     /*@Nullable*/
     @Override

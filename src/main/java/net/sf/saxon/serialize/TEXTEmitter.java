@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,12 @@
 package net.sf.saxon.serialize;
 
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.SaxonOutputKeys;
-import net.sf.saxon.om.NamespaceMap;
-import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.serialize.charcode.UTF8CharacterSet;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -23,7 +23,6 @@ import java.util.regex.Pattern;
 /**
  * This class generates TEXT output
  *
- * @author Michael H. Kay
  */
 
 public class TEXTEmitter extends XMLEmitter {
@@ -41,10 +40,7 @@ public class TEXTEmitter extends XMLEmitter {
 
     @Override
     protected void openDocument() throws XPathException {
-
-        if (writer == null) {
-            makeWriter();
-        }
+        assert writer != null;
         if (characterSet == null) {
             characterSet = UTF8CharacterSet.getInstance();
         }
@@ -65,7 +61,7 @@ public class TEXTEmitter extends XMLEmitter {
                         "UTF-16LE".equalsIgnoreCase(encoding) ||
                         "UTF-16BE".equalsIgnoreCase(encoding))) {
             try {
-                writer.write('\uFEFF');
+                writer.writeCodePoint(0xFEFF);
             } catch (java.io.IOException err) {
                 // Might be an encoding exception; just ignore it
             }
@@ -90,7 +86,7 @@ public class TEXTEmitter extends XMLEmitter {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (!started) {
             openDocument();
         }
@@ -98,14 +94,14 @@ public class TEXTEmitter extends XMLEmitter {
             int badchar = testCharacters(chars);
             if (badchar != 0) {
                 throw new XPathException(
-                        "Output character not available in this encoding (x" + Integer.toString(badchar, 16) + ")", "SERE0008");
+                        "Output character not available in this encoding (x" + Integer.toHexString(badchar) + ")", "SERE0008");
             }
         }
         if (newlineMatcher != null) {
-            chars = newlineMatcher.matcher(chars).replaceAll(newlineRepresentation);
+            chars = StringView.of(newlineMatcher.matcher(chars.toString()).replaceAll(newlineRepresentation));
         }
         try {
-            writer.write(chars.toString());
+            writer.write(chars);
         } catch (java.io.IOException err) {
             throw new XPathException(err);
         }
@@ -139,7 +135,7 @@ public class TEXTEmitter extends XMLEmitter {
      */
 
     @Override
-    public void processingInstruction(String name, /*@NotNull*/ CharSequence value, Location locationId, int properties)
+    public void processingInstruction(String name, /*@NotNull*/ UnicodeString value, Location locationId, int properties)
             throws XPathException {
     }
 
@@ -149,7 +145,7 @@ public class TEXTEmitter extends XMLEmitter {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
     }
 
 }

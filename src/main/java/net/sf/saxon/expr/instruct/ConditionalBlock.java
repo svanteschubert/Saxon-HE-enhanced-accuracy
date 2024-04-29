@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,11 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.SignificantItemDetector;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -17,6 +19,7 @@ import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Action;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
@@ -32,7 +35,7 @@ import java.util.List;
 
 public class ConditionalBlock extends Instruction {
 
-    private Operand[] operanda;
+    private final Operand[] operanda;
     private boolean allNodesUntyped;
 
     /**
@@ -92,7 +95,7 @@ public class ConditionalBlock extends Instruction {
 
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         if (size() == 0) {
             // An empty sequence has all special properties except "has side effects".
             return StaticProperty.SPECIAL_PROPERTY_MASK & ~StaticProperty.HAS_SIDE_EFFECTS;
@@ -262,8 +265,8 @@ public class ConditionalBlock extends Instruction {
         }
         if (alwaysEmpty) {
             visitor.getStaticContext().issueWarning("The result of the sequence constructor will always be empty, so xsl:on-empty " +
-                "instructions will always be evaluated, and xsl:on-non-empty instructions will never be evaluated", getLocation());
-            List<Expression> retain = new ArrayList<Expression>();
+                "instructions will always be evaluated, and xsl:on-non-empty instructions will never be evaluated", SaxonErrorCode.SXWN9029, getLocation());
+            List<Expression> retain = new ArrayList<>();
             for (int c = 0; c < size(); c++) {
                 if (getChildExpression(c) instanceof OnNonEmptyExpr) {
                     // no action
@@ -277,8 +280,8 @@ public class ConditionalBlock extends Instruction {
         }
         if (alwaysNonEmpty) {
             visitor.getStaticContext().issueWarning("The result of the sequence constructor will never be empty, so xsl:on-empty " +
-                "instructions will never be evaluated, and xsl:on-non-empty instructions will always be evaluated", getLocation());
-            List<Expression> retain = new ArrayList<Expression>();
+                "instructions will never be evaluated, and xsl:on-non-empty instructions will always be evaluated", SaxonErrorCode.SXWN9029, getLocation());
+            List<Expression> retain = new ArrayList<>();
             for (int c = 0; c < size(); c++) {
                 if (getChildExpression(c) instanceof OnEmptyExpr) {
                     // no action
@@ -293,7 +296,7 @@ public class ConditionalBlock extends Instruction {
         if (lastOrdinaryInstruction == -1) {
             // all instructions are either xsl:on-empty or xsl:on-non-empty
             // We can discard the xsl:on-non-empty instructions, and make the on-empty instructions unconditional
-            List<Expression> retain = new ArrayList<Expression>();
+            List<Expression> retain = new ArrayList<>();
             for (int c = 0; c < size(); c++) {
                 if (getChildExpression(c) instanceof OnEmptyExpr) {
                     retain.add(((OnEmptyExpr) getChildExpression(c)).getBaseExpression());
@@ -342,55 +345,6 @@ public class ConditionalBlock extends Instruction {
     }
 
 
-
-    @Override
-    @SuppressWarnings("StatementWithEmptyBody")
-    public TailCall processLeavingTail(Outputter output, final XPathContext context) throws XPathException {
-
-        final List<OnNonEmptyExpr> onNonEmptyPending = new ArrayList<>();
-
-        Action action = () -> {
-            for (Expression e : onNonEmptyPending) {
-                e.process(output, context);
-            }
-        };
-
-        SignificantItemDetector significantItemDetector = new SignificantItemDetector(output, action);
-
-        for (Operand o : operands()) {
-            Expression child = o.getChildExpression();
-            try {
-                if (child instanceof OnEmptyExpr) {
-                    // Ignore on-empty instructions until the end
-                } else if (child instanceof OnNonEmptyExpr) {
-                    if (significantItemDetector.isEmpty()) {
-                        onNonEmptyPending.add((OnNonEmptyExpr)child);
-                    } else {
-                        child.process(output, context);
-                    }
-                } else {
-                    child.process(significantItemDetector, context);
-                }
-
-            } catch (XPathException e) {
-                e.maybeSetLocation(child.getLocation());
-                e.maybeSetContext(context);
-                throw e;
-            }
-        }
-
-        // At the end, if the content produced until now is empty, process the on-empty instructions
-        if (significantItemDetector.isEmpty()) {
-            for (Operand o : operands()) {
-                Expression child = o.getChildExpression();
-                if (child instanceof OnEmptyExpr) {
-                    child.process(output, context);
-                }
-            }
-        }
-        return null;
-    }
-
     /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
      * This method indicates which of these methods is provided. This implementation provides both iterate() and
@@ -411,5 +365,80 @@ public class ConditionalBlock extends Instruction {
     @Override
     public String getStreamerName() {
         return "ConditionalBlock";
+    }
+
+    public Elaborator getElaborator() {
+        return new ConditionalBlockElaborator();
+    }
+
+    private static class ConditionalBlockElaborator extends PushElaborator {
+
+        private final static int ON_EMPTY = 0;
+        private final static int ON_NON_EMPTY = 1;
+        private final static int ALWAYS = 2;
+
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            ConditionalBlock expr = (ConditionalBlock) getExpression();
+            PushEvaluator[] pushers = new PushEvaluator[expr.operanda.length];
+            int[] instruction = new int[expr.operanda.length];
+            for (int i=0; i< pushers.length; i++) {
+                Expression child = expr.operanda[i].getChildExpression();
+                pushers[i] = child.makeElaborator().elaborateForPush();
+                if (child instanceof OnEmptyExpr) {
+                    instruction[i] = ON_EMPTY;
+                } else if (child instanceof OnNonEmptyExpr) {
+                    instruction[i] = ON_NON_EMPTY;
+                } else {
+                    instruction[i] = ALWAYS;
+                }
+            }
+            return (output, context) -> {
+
+                final List<PushEvaluator> onNonEmptyPending = new ArrayList<>();
+
+                Action action = () -> {
+                    for (PushEvaluator e : onNonEmptyPending) {
+                        dispatchTailCall(e.processLeavingTail(output, context));
+                    }
+                };
+
+                SignificantItemDetector significantItemDetector = new SignificantItemDetector(output, action);
+
+                for (int i=0; i<instruction.length; i++) {
+                    try {
+                        switch (instruction[i]) {
+                            case ON_EMPTY:
+                                // Ignore on-empty instructions until the end
+                                break;
+                            case ON_NON_EMPTY:
+                                if (significantItemDetector.isEmpty()) {
+                                    onNonEmptyPending.add(pushers[i]);
+                                } else {
+                                    dispatchTailCall(pushers[i].processLeavingTail(output, context));
+                                }
+                                break;
+                            case ALWAYS:
+                                dispatchTailCall(pushers[i].processLeavingTail(significantItemDetector, context));
+                                break;
+                        }
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(expr.operanda[i].getChildExpression().getLocation())
+                                .maybeWithContext(context);
+                    }
+                }
+
+                // At the end, if the content produced until now is empty, process the on-empty instructions
+                if (significantItemDetector.isEmpty()) {
+                    for (int i=0; i<instruction.length; i++) {
+                        if (instruction[i] == ON_EMPTY) {
+                            dispatchTailCall(pushers[i].processLeavingTail(output, context));
+                        }
+                    }
+                }
+                return null;
+            };
+        }
     }
 }

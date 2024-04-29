@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,7 @@ import java.util.Properties;
 import java.util.Stack;
 
 /**
- * <p><tt>NamespaceDifferencer</tt> is a {@link ProxyReceiver} responsible for removing duplicate namespace
+ * <p><code>NamespaceDifferencer</code> is a {@link ProxyReceiver} responsible for removing duplicate namespace
  * declarations. It also ensures that namespace undeclarations are emitted when necessary.</p>
  *
  * <p>The NamespaceDifferencer assumes that in the input event stream, all in-scope namespaces for every element
@@ -39,19 +39,29 @@ import java.util.Stack;
 public class NamespaceDifferencer extends ProxyReceiver {
 
     private boolean undeclareNamespaces = false;
-    private Stack<NamespaceMap> namespaceStack = new Stack<>();
-    private NodeName currentElement;
+    private final Stack<NamespaceMap> namespaceStack = new Stack<>();
 
     /**
-     * Create a NamespaceDeclarer
+     * Create a NamespaceDifferencer
+     *
+     * @param next the Receiver to which events will be passed after namespace reduction
+     */
+
+    public NamespaceDifferencer(Receiver next) {
+        super(next);
+        undeclareNamespaces = false;
+        namespaceStack.push(NamespaceMap.emptyMap());
+    }
+
+    /**
+     * Create a NamespaceDifferencer
      *
      * @param next the Receiver to which events will be passed after namespace reduction
      */
 
     public NamespaceDifferencer(Receiver next, Properties details) {
-        super(next);
+        this(next);
         undeclareNamespaces = "yes".equals(details.getProperty(SaxonOutputKeys.UNDECLARE_PREFIXES));
-        namespaceStack.push(NamespaceMap.emptyMap());
     }
 
     /**
@@ -64,10 +74,9 @@ public class NamespaceDifferencer extends ProxyReceiver {
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties)
             throws XPathException {
-        currentElement = elemName;
         NamespaceMap parentMap = namespaceStack.peek();
         namespaceStack.push(namespaces);
-        NamespaceMap delta = getDifferences(namespaces, parentMap, currentElement.hasURI(""));
+        NamespaceMap delta = getDifferences(namespaces, parentMap, elemName.hasURI(NamespaceUri.NULL));
         nextReceiver.startElement(elemName, type, attributes, delta, location, properties);
 
     }
@@ -82,24 +91,25 @@ public class NamespaceDifferencer extends ProxyReceiver {
         if (thisMap != parentMap) {
             NamespaceMap delta = NamespaceDeltaMap.emptyMap();
             for (NamespaceBinding nb : thisMap) {
-                String parentUri = parentMap.getURI(nb.getPrefix());
+                NamespaceUri parentUri = parentMap.getNamespaceUri(nb.getPrefix());
                 if (parentUri == null) {
-                    delta = delta.put(nb.getPrefix(), nb.getURI());
-                } else if (!parentUri.equals(nb.getURI())) {
-                    delta = delta.put(nb.getPrefix(), nb.getURI());
+                    delta = delta.put(nb.getPrefix(), nb.getNamespaceUri());
+                } else if (!parentUri.equals(nb.getNamespaceUri())) {
+                    delta = delta.put(nb.getPrefix(), nb.getNamespaceUri());
                 }
             }
             if (undeclareNamespaces) {
                 for (NamespaceBinding nb : parentMap) {
-                    if (thisMap.getURI(nb.getPrefix()) == null) {
-                        delta = delta.put(nb.getPrefix(), "");
+                    if (thisMap.getNamespaceUri(nb.getPrefix()) == null) {
+                        delta = delta.put(nb.getPrefix(), NamespaceUri.NULL);
                     }
                 }
             } else {
-                // undeclare the default namespace if the child element is in the default namespace
+                // undeclare the default namespace if the parent element has a default namespace and the child does not
+                // See also bug 4696, test
                 if (!parentMap.getDefaultNamespace().isEmpty() &&
                         thisMap.getDefaultNamespace().isEmpty()) {
-                    delta = delta.put("", "");
+                    delta = delta.put("", NamespaceUri.NULL);
                 }
             }
             return delta;

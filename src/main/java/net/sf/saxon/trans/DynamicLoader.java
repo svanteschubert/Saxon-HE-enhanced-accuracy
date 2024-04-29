@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,20 +9,22 @@ package net.sf.saxon.trans;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Version;
+import net.sf.saxon.lib.IDynamicLoader;
 import net.sf.saxon.lib.Logger;
 import net.sf.saxon.serialize.MessageEmitter;
 
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.util.HashMap;
 
 /**
  * Utility class used to perform dynamic loading of user-hook implementations
  */
-public class DynamicLoader {
+public class DynamicLoader implements IDynamicLoader {
 
     private ClassLoader classLoader;
 
-    protected HashMap<String, Class> knownClasses = new HashMap<String, Class>(20);
+    protected HashMap<String, Class<?>> knownClasses = new HashMap<>(20);
 
     public DynamicLoader() {
         registerKnownClasses();
@@ -84,8 +86,8 @@ public class DynamicLoader {
      * @throws XPathException if the class cannot be loaded.
      */
 
-    public Class getClass(String className, Logger traceOut, ClassLoader classLoader) throws XPathException {
-        Class known = knownClasses.get(className);
+    public Class<?> getClass(String className, Logger traceOut, ClassLoader classLoader) throws XPathException {
+        Class<?> known = knownClasses.get(className);
         if (known != null) {
             return known;
         }
@@ -119,7 +121,8 @@ public class DynamicLoader {
                 // functions
                 traceOut.error("The class " + className + " could not be loaded: " + e.getMessage());
             }
-            throw new XPathException("Failed to load " + className + getMissingJarFileMessage(className), e);
+            String id = e.getMessage().equals(className) ? "required class" : className;
+            throw new XPathException("Failed to load " + id + getMissingJarFileMessage(className), e);
         }
 
     }
@@ -143,12 +146,15 @@ public class DynamicLoader {
      */
 
     public Object getInstance(String className, /*@Nullable*/ ClassLoader classLoader) throws XPathException {
-        Class theclass = getClass(className, null, classLoader);
+        Class<?> theclass = getClass(className, null, classLoader);
         try {
-            return theclass.newInstance();
+            Constructor<?> constructor = theclass.getConstructor();
+            return constructor.newInstance();
+        } catch (NoSuchMethodException err) {
+                throw new XPathException("Failed to instantiate class " + className +
+                                                 " (it has no public zero-argument constructor)", err);
         } catch (Exception err) {
-            throw new XPathException("Failed to instantiate class " + className +
-                    " (does it have a public zero-argument constructor?)", err);
+            throw new XPathException("Failed to instantiate class " + className, err);
         }
     }
 
@@ -173,9 +179,13 @@ public class DynamicLoader {
      */
 
     public Object getInstance(String className, Logger traceOut, /*@Nullable*/ ClassLoader classLoader) throws XPathException {
-        Class theclass = getClass(className, traceOut, classLoader);
+        Class<?> theclass = getClass(className, traceOut, classLoader);
         try {
-            return theclass.newInstance();
+            Constructor<?> constructor = theclass.getConstructor();
+            return constructor.newInstance();
+        } catch (NoSuchMethodException err) {
+            throw new XPathException("Failed to instantiate class " + className +
+                                             " (it has no public zero-argument constructor)", err);
         } catch (NoClassDefFoundError err) {
             throw new XPathException("Failed to load instance of class " + className + getMissingJarFileMessage(className), err);
         } catch (Exception err) {
@@ -191,15 +201,16 @@ public class DynamicLoader {
 
     private String getJarFileForClass(String className) {
         if (className.startsWith("net.sf.saxon.option.sql.")) {
-            return "saxon-sql-"+ Version.getProductVersion() +".jar";
+            return "saxon-sql-" + Version.getProductVersion() + ".jar";
         } else if (className.startsWith("com.ibm.icu.")) {
             return "icu4j-59.1.jar";
         } else if (className.startsWith("com.saxonica")) {
-            return "saxon-"+Version.softwareEdition.toLowerCase()+"-"+Version.getProductVersion() +".jar";
+            return "saxon-" + Version.softwareEdition.toLowerCase() + "-" + Version.getProductVersion() + ".jar";
         } else {
             return null;
         }
     }
+
 
     private String getMissingJarFileMessage(String className) {
         String jar = getJarFileForClass(className);

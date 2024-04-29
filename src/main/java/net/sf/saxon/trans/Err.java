@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,15 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.Instruction;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.om.*;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
+import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.value.SingletonClosure;
 import net.sf.saxon.value.Whitespace;
+import net.sf.saxon.z.IntIterator;
 
 /**
  * Class containing utility methods for handling error messages
@@ -36,8 +42,28 @@ public class Err {
      * @param cs the variable information to be delimited
      * @return the delimited variable information
      */
-    public static String wrap(CharSequence cs) {
+    public static String wrap(UnicodeString cs) {
         return wrap(cs, GENERAL);
+    }
+
+    /**
+     * Add delimiters to represent variable information within an error message
+     *
+     * @param cs the variable information to be delimited
+     * @return the delimited variable information
+     */
+    public static String wrap(String cs) {
+        return wrap(cs, GENERAL);
+    }
+
+    /**
+     * Add delimiters to represent variable information within an error message
+     *
+     * @param cs the variable information to be delimited
+     * @return the delimited variable information
+     */
+    public static String wrap(String cs, int valueType) {
+        return wrap(StringView.of(cs), valueType);
     }
 
     /**
@@ -47,14 +73,16 @@ public class Err {
      * @param valueType the type of value, e.g. element name or attribute name
      * @return the delimited variable information
      */
-    public static String wrap(/*@Nullable*/ CharSequence cs, int valueType) {
+    public static String wrap(UnicodeString cs, int valueType) {
         if (cs == null) {
             return "(NULL)";
         }
-        FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
-        int len = cs.length();
-        for (int i = 0; i < len; i++) {
-            char c = cs.charAt(i);
+        StringBuilder sb = new StringBuilder(64);
+        IntIterator iter = cs.codePoints();
+        int len = 0;
+        while (iter.hasNext()) {
+            int c = iter.next();
+            len++;
             switch (c) {
                 case '\n':
                     sb.append("\\n");
@@ -65,16 +93,14 @@ public class Err {
                 case '\r':
                     sb.append("\\r");
                     break;
-//                case '\\':
-//                    sb.append("\\\\");
-//                    break;
                 default:
                     if (c < 32) {
                         sb.append("\\x");
                         sb.append(Integer.toHexString(c));
                     } else {
-                        sb.cat(c);
+                        sb.appendCodePoint(c);
                     }
+                    break;
             }
         }
         String s;
@@ -86,7 +112,7 @@ public class Err {
             if (s.startsWith("Q{")) {
                 try {
                     StructuredQName qn = StructuredQName.fromEQName(sb.toString());
-                    String uri = abbreviateURI(qn.getURI());
+                    String uri = abbreviateURI(qn.getNamespaceUri());
                     s = "Q{" + uri + "}" + qn.getLocalPart();
                 } catch (Exception e) {
                     s = sb.toString();
@@ -121,7 +147,10 @@ public class Err {
      * Create a string representation of an item for use in an error message
      */
 
-    public static CharSequence depict(Item item) {
+    public static String depict(Item item) {
+        if (item == null) {
+            return "(*null*)";
+        }
         if (item instanceof NodeInfo) {
             NodeInfo node = (NodeInfo)item;
             switch (node.getNodeKind()) {
@@ -130,9 +159,9 @@ public class Err {
                 case Type.ELEMENT:
                     return '<' + node.getDisplayName() + '>';
                 case Type.ATTRIBUTE:
-                    return '@' + node.getDisplayName() + "=\"" + node.getStringValueCS() + '"';
+                    return '@' + node.getDisplayName() + "=\"" + node.getUnicodeStringValue() + '"';
                 case Type.TEXT:
-                    return "text{" + truncate30(node.getStringValueCS()) + "}";
+                    return "text{" + truncate30(node.getUnicodeStringValue()) + "}";
                 case Type.COMMENT:
                     return "<!--...-->";
                 case Type.PROCESSING_INSTRUCTION:
@@ -147,18 +176,46 @@ public class Err {
         }
     }
 
+    public static String depictCodepoint(int cp) {
+        String hexCode = "#x" + Integer.toHexString(cp);
+        if (cp >= 20 && cp < UTF16CharacterSet.SURROGATE1_MIN) {
+            return "'" + (char)cp + "'(" + hexCode + ")";
+        } else {
+            return hexCode;
+        }
+    }
+
     public static CharSequence depictSequence(Sequence seq) {
         if (seq == null) {
             return "(*null*)";
         }
         try {
-            GroundedValue val = seq.materialize();
-            if (val.getLength() == 0) {
-                return "()";
-            } else if (val.getLength() == 1) {
-                return depict(seq.head());
+            if (seq instanceof GroundedValue) {
+                GroundedValue val = (GroundedValue) seq;
+                if (val.getLength() == 0) {
+                    return "()";
+                } else if (val.getLength() == 1) {
+                    return depict(seq.head());
+                } else {
+                    return depictSequenceStart(val.iterate(), 3, val.getLength());
+                }
+            } else if (seq instanceof SingletonClosure) {
+                SingletonClosure sc = (SingletonClosure) seq;
+                if (sc.isBuilt()) {
+                    return sc.asItem() == null ? "()" : depict(sc.asItem());
+                } else {
+                    return "(*not-yet-evaluated singleton*)";
+                }
+            } else if (seq instanceof net.sf.saxon.value.MemoClosure) {
+                net.sf.saxon.value.MemoClosure mc = (net.sf.saxon.value.MemoClosure)seq;
+                seq = mc.getSequenceAsIs();
+                if (seq == null) {
+                    return "(*not-yet-evaluated sequence*)";
+                } else {
+                    return depictSequence(seq);
+                }
             } else {
-                return depictSequenceStart(val.iterate(), 3, val.getLength());
+                return "(*lazily evaluated*)";
             }
         } catch (Exception e) {
             return "(*unreadable*)";
@@ -166,34 +223,30 @@ public class Err {
     }
 
     public static String depictSequenceStart(SequenceIterator seq, int max, int actual) {
-        try {
-            FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
-            int count = 0;
-            sb.append(" (");
-            Item next;
-            while ((next = seq.next()) != null) {
-                if (count++ > 0) {
-                    sb.append(", ");
-                }
-                if (count > max) {
-                    sb.append("... [" + actual + "])");
-                    return sb.toString();
-                }
-
-                sb.cat(Err.depict(next));
+        StringBuilder sb = new StringBuilder(64);
+        int count = 0;
+        sb.append(" (");
+        Item next;
+        while ((next = seq.next()) != null) {
+            if (count++ > 0) {
+                sb.append(", ");
             }
-            sb.append(") ");
-            return sb.toString();
-        } catch (XPathException e) {
-            return "";
+            if (count > max) {
+                sb.append("... [" + actual + "])");
+                return sb.toString();
+            }
+
+            sb.append(Err.depict(next));
         }
+        sb.append(") ");
+        return sb.toString();
     }
 
-    public static CharSequence truncate30(CharSequence cs) {
+    public static UnicodeString truncate30(UnicodeString cs) {
         if (cs.length() <= 30) {
             return Whitespace.collapseWhitespace(cs);
         } else {
-            return Whitespace.collapseWhitespace(cs.subSequence(0, 30)) + "...";
+            return Whitespace.collapseWhitespace(cs.substring(0, 30)).concat(BMPString.of("..."));
         }
     }
 
@@ -219,13 +272,17 @@ public class Err {
         }
     }
 
+    public static String abbreviateURI(NamespaceUri uri) {
+        return abbreviateURI(uri.toString());
+    }
+
     public static String abbreviateEQName(String eqName) {
         try {
             if (eqName.startsWith("{")) {
                 eqName = "Q" + eqName;
             }
             StructuredQName sq = StructuredQName.fromEQName(eqName);
-            return "Q{" + abbreviateURI(sq.getURI()) + "}" + sq.getLocalPart();
+            return "Q{" + abbreviateURI(sq.getNamespaceUri()) + "}" + sq.getLocalPart();
         } catch (Exception e) {
             return eqName;
         }
@@ -240,4 +297,39 @@ public class Err {
     }
 
 
+    public static String describeGenre(Genre genre) {
+        switch (genre) {
+            case ANY:
+                return "any item";
+            case ATOMIC:
+                return "an atomic value";
+            case NODE:
+                return "a node";
+            case FUNCTION:
+                return "a function";
+            case MAP:
+                return "a map";
+            case ARRAY:
+                return "an array";
+            case EXTERNAL:
+            default:
+                return "an external object";
+        }
+    }
+
+    public static String describeVisibility(Visibility vis) {
+        return vis.toString().toLowerCase();
+    }
+
+    public static String show(Location loc) {
+        return abbreviateURI(loc.getSystemId()) + "#" + loc.getLineNumber();
+    }
+
+    public static String indefiniteArticleFor(String s, boolean caps) {
+        if ("aeioux".indexOf(s.charAt(0)) >= 0) {
+            return (caps ? "An" : "an");
+        } else {
+            return (caps ? "A" : "a");
+        }
+    }
 }

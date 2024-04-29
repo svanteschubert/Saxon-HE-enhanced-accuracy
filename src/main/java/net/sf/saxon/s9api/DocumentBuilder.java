@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,17 +11,24 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.EarlyEvaluationContext;
 import net.sf.saxon.expr.JPConverter;
+import net.sf.saxon.lib.AugmentedSource;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.NoElementsSpaceStrippingRule;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.TreeInfo;
+import net.sf.saxon.om.TreeModel;
 import net.sf.saxon.query.XQueryExpression;
+import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.Whitespace;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
 import java.io.File;
 import java.net.URI;
+import java.util.Objects;
 
 /**
  * A document builder holds properties controlling how a Saxon document tree should be built, and
@@ -37,10 +44,10 @@ import java.net.URI;
  *
  * @since 9.0
  */
-
+@CSharpModifiers(code = {"internal"})
 public class DocumentBuilder {
 
-    private Configuration config;
+    private final Configuration config;
     private SchemaValidator schemaValidator;
     private boolean dtdValidation;
     private boolean lineNumbering;
@@ -139,12 +146,29 @@ public class DocumentBuilder {
     }
 
     /**
-     * Set the schemaValidator to be used. This determines whether schema validation is applied to an input
+     * Set options for schema validation. This determines whether schema validation is applied to an input
      * document and whether type annotations in a supplied document are retained. If no schemaValidator
      * is supplied, then schema validation does not take place.
      * <p>This option requires the schema-aware version of the Saxon product (Saxon-EE).</p>
-     * <p>Since a <code>SchemaValidator</code> is serially reusable but not thread-safe, using this
-     * method is not appropriate when the <code>DocumentBuilder</code> is shared between threads.</p>
+     * <p>The supplied <code>SchemaValidator</code> is not actually used directly when a document is built
+     * using {@link #parse(File, Destination)} or {@link #parse(Source, Destination)}
+     * (the {@link SchemaValidator#validate(Source)}
+     * method is never called). Rather, some of the properties of the <code>SchemaValidator</code> are used to control
+     * how schema validation is performed by the <code>DocumentBuilder</code>. The particular properties
+     * that take effect include:</p>
+     * <ul>
+     *     <li>The validation mode (strict or lax)</li>
+     *     <li>The required top-level element declaration (see {@link SchemaValidator#setDocumentElementName(QName)}</li>
+     *     <li>The required type of the top-level element (see {@link SchemaValidator#setDocumentElementTypeName(QName)}</li>
+     *     <li>The option {@link SchemaValidator#isUseXsiSchemaLocation()}</li>
+     *     <li>The option {@link SchemaValidator#isExpandAttributeDefaults()}</li>
+     *     <li>Validation parameters set using {@link SchemaValidator#setParameter}</li>
+     *     <li>The {@link net.sf.saxon.lib.InvalidityHandler}</li>
+     * </ul>
+     * <p>Properties that do NOT have any effect include:</p>
+     * <ul>
+     *     <li>The option {@link SchemaValidator#isCollectStatistics()}</li>
+     * </ul>
      *
      * @param validator the SchemaValidator to be used
      */
@@ -189,7 +213,7 @@ public class DocumentBuilder {
      * Set the whitespace stripping policy applied when loading a document
      * using this <code>DocumentBuilder</code>.
      *
-     * <p>(New rule in 9.8:) If DTD or schema validation is applied, the only permitted setting
+     * <p>If DTD or schema validation is applied, the only permitted setting
      * is {@link WhitespaceStrippingPolicy#IGNORABLE}. Any other value results
      * in an exception from the {@link #build(File)} method</p>
      *
@@ -304,9 +328,17 @@ public class DocumentBuilder {
      */
 
     public XdmNode build(Source source) throws SaxonApiException {
-        if (source == null) {
-            throw new NullPointerException("source");
+        Objects.requireNonNull(source, "source");
+        ParseOptions options = getParseOptions(source);
+        try {
+            TreeInfo doc = config.buildDocumentTree(source, options);
+            return new XdmNode(doc.getRootNode());
+        } catch (XPathException e) {
+            throw new SaxonApiException(e);
         }
+    }
+
+    private ParseOptions getParseOptions(Source source) throws SaxonApiException {
         if (!(whitespacePolicy == WhitespaceStrippingPolicy.UNSPECIFIED
                       || whitespacePolicy == WhitespaceStrippingPolicy.IGNORABLE
                       || whitespacePolicy.ordinal() == Whitespace.XSLT)) {
@@ -317,32 +349,37 @@ public class DocumentBuilder {
                 throw new SaxonApiException("When schema validation is used, the whitespace stripping policy must be IGNORABLE");
             }
         }
-        ParseOptions options = new ParseOptions(config.getParseOptions());
-        options.setDTDValidationMode(dtdValidation ? Validation.STRICT : Validation.STRIP);
+        ParseOptions options = config.getParseOptions()
+                .withDTDValidationMode(dtdValidation ? Validation.STRICT : Validation.STRIP);
+
         if (schemaValidator != null) {
-            options.setSchemaValidationMode(schemaValidator.isLax() ? Validation.LAX : Validation.STRICT);
+            options = options.withSchemaValidationMode(schemaValidator.isLax() ? Validation.LAX : Validation.STRICT);
             if (schemaValidator.getDocumentElementName() != null) {
                 QName qn = schemaValidator.getDocumentElementName();
-                options.setTopLevelElement(new StructuredQName(
-                        qn.getPrefix(), qn.getNamespaceURI(), qn.getLocalName()));
+                options = options.withTopLevelElement(qn.getStructuredQName());
             }
             if (schemaValidator.getDocumentElementType() != null) {
-                options.setTopLevelType(schemaValidator.getDocumentElementType());
+                options = options.withTopLevelType(schemaValidator.getDocumentElementType());
             }
+            options = options.withExpandAttributeDefaults(schemaValidator.isExpandAttributeDefaults());
+            options = options.withUseXsiSchemaLocation(schemaValidator.isUseXsiSchemaLocation());
+            options = options.withValidationParams(schemaValidator.getValidationParameters());
+            options = options.withInvalidityHandler(schemaValidator.getInvalidityHandler());
         }
+
         if (treeModel != null) {
-            options.setModel(treeModel);
+            options = options.withModel(treeModel);
         }
         if (whitespacePolicy != null && whitespacePolicy != WhitespaceStrippingPolicy.UNSPECIFIED) {
             int option = whitespacePolicy.ordinal();
             if (option == Whitespace.XSLT) {
-                options.setSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
-                options.addFilter(whitespacePolicy.makeStripper());
+                options = options.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                options = options.withFilter(whitespacePolicy.makeStripper());
             } else {
-                options.setSpaceStrippingRule(whitespacePolicy.getSpaceStrippingRule());
+                options = options.withSpaceStrippingRule(whitespacePolicy.getSpaceStrippingRule());
             }
         }
-        options.setLineNumbering(lineNumbering);
+        options = options.withLineNumbering(lineNumbering);
         if (source.getSystemId() == null && baseURI != null) {
             source.setSystemId(baseURI.toString());
         }
@@ -350,15 +387,13 @@ public class DocumentBuilder {
             XQueryExpression exp = projectionQuery.getUnderlyingCompiledQuery();
             FilterFactory ff = config.makeDocumentProjector(exp);
             if (ff != null) {
-                options.addFilter(ff);
+                options = options.withFilter(ff);
             }
         }
-        try {
-            TreeInfo doc = config.buildDocumentTree(source, options);
-            return new XdmNode(doc.getRootNode());
-        } catch (XPathException e) {
-            throw new SaxonApiException(e);
+        if (source instanceof AugmentedSource) {
+            options = options.merge(((AugmentedSource)source).getParseOptions());
         }
+        return options;
     }
 
     /**
@@ -422,7 +457,7 @@ public class DocumentBuilder {
     private static class BuildingContentHandlerImpl extends ReceivingContentHandler
             implements BuildingContentHandler {
 
-        private Builder builder;
+        private final Builder builder;
 
         public BuildingContentHandlerImpl(Receiver r, Builder b) {
             setReceiver(r);
@@ -485,6 +520,7 @@ public class DocumentBuilder {
      *                                  object model is not on the class path
      */
 
+
     public XdmNode wrap(Object node) throws IllegalArgumentException {
         if (node instanceof NodeInfo) {
             NodeInfo nodeInfo = (NodeInfo) node;
@@ -500,8 +536,41 @@ public class DocumentBuilder {
                 return XdmItem.wrapItem(nodeInfo);
             } catch (XPathException e) {
                 throw new IllegalArgumentException(e.getMessage());
+            } catch (ClassCastException e) {
+                throw new IllegalArgumentException("Class " + node.getClass() + " is not a recognized external node type");
             }
         }
+    }
+
+
+    /**
+     * Parse a source document, sending it to a supplied {@link Destination}
+     * <p>The process is streamed; no tree is constructed in memory.</p>
+     * @param source The source document to be parsed
+     * @param destination The destination to which the document is to be sent
+     * @throws SaxonApiException if parsing fails, or if the destination reports an error
+     */
+
+    public void parse(Source source, Destination destination) throws SaxonApiException {
+        try {
+            ParseOptions options = getParseOptions(source);
+            PipelineConfiguration pipe = config.makePipelineConfiguration();
+            Sender.send(source, destination.getReceiver(pipe, new SerializationProperties()), options);
+        } catch (XPathException e) {
+            throw new SaxonApiException(e);
+        }
+    }
+
+    /**
+     * Parse a source document from a File, sending it to a supplied {@link Destination}
+     * <p>The process is streamed; no tree is constructed in memory.</p>
+     * @param file      The file containing the XML source document to be parsed
+     * @param destination The destination to which the document is to be sent
+     * @throws SaxonApiException if parsing fails, or if the destination reports an error
+     */
+
+    public void parse(File file, Destination destination) throws SaxonApiException {
+        parse(new StreamSource(file), destination);
     }
 
 

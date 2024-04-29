@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,8 @@ package net.sf.saxon.expr.flwor;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.trans.XPathException;
 
 /**
@@ -20,9 +22,9 @@ import net.sf.saxon.trans.XPathException;
  */
 public class ReturnClausePush extends TuplePush {
 
-    private Expression returnExpr;
+    private final PushEvaluator returnExpr;
 
-    public ReturnClausePush(Outputter outputter, Expression returnExpr) {
+    public ReturnClausePush(Outputter outputter, PushEvaluator returnExpr) {
         super(outputter);
         this.returnExpr = returnExpr;
     }
@@ -36,7 +38,8 @@ public class ReturnClausePush extends TuplePush {
      */
     @Override
     public void processTuple(XPathContext context) throws XPathException {
-        returnExpr.process(getOutputter(), context);
+        TailCall tc = returnExpr.processLeavingTail(getOutputter(), context);
+        Expression.dispatchTailCall(tc);
     }
 
     /**

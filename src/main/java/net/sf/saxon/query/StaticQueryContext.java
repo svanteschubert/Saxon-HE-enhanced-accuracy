@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,11 +16,13 @@ import net.sf.saxon.expr.parser.CodeInjector;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.lib.*;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.NamePool;
-import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
 import net.sf.saxon.trace.TraceCodeInjector;
 import net.sf.saxon.trace.XQueryTraceCodeInjector;
 import net.sf.saxon.trans.UncheckedXPathException;
@@ -58,28 +60,36 @@ import java.util.*;
  * @since 8.4
  */
 
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<Saxon.Hej.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
 public class StaticQueryContext {
 
     private Configuration config;
     private NamePool namePool;
     private String baseURI;
-    private HashMap<String, String> userDeclaredNamespaces;
+    private HashMap<String, NamespaceUri> userDeclaredNamespaces;
     /*@Nullable*/ private Set<GlobalVariable> userDeclaredVariables;
     private boolean inheritNamespaces = true;
     private boolean preserveNamespaces = true;
     private int constructionMode = Validation.PRESERVE;
-    private String defaultFunctionNamespace = NamespaceConstant.FN;
-    /*@Nullable*/ private String defaultElementNamespace = NamespaceConstant.NULL;
+    private NamespaceUri defaultFunctionNamespace = NamespaceUri.FN;
+    /*@Nullable*/ private NamespaceUri defaultElementNamespace = NamespaceUri.NULL;
     private ItemType requiredContextItemType = AnyItemType.getInstance();
     private boolean preserveSpace = false;
     private boolean defaultEmptyLeast = true;
     /*@Nullable*/ private ModuleURIResolver moduleURIResolver;
     private ErrorReporter errorReporter;
     /*@Nullable*/ private CodeInjector codeInjector;
-    private boolean isUpdating = false;
+    private boolean updating = false;
     private String defaultCollationName;
     private Location moduleLocation;
     private OptimizerOptions optimizerOptions;
+    private int languageVersion = 31;
+    private UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy
+            = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
 
 
 
@@ -120,6 +130,7 @@ public class StaticQueryContext {
         this.config = config;
         this.namePool = config.getNamePool();
         this.errorReporter = config.makeErrorReporter();
+        this.languageVersion = config.getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS) ? 40 : 31;
         if (initialize) {
             copyFrom(config.getDefaultStaticQueryContext());
         } else {
@@ -140,17 +151,6 @@ public class StaticQueryContext {
         copyFrom(c);
     }
 
-    /**
-     * Static method used to create the default static context: intended for internal use only
-     */
-
-    public static StaticQueryContext makeDefaultStaticQueryContext(Configuration config) {
-        StaticQueryContext sqc = new StaticQueryContext();
-        sqc.config = config;
-        sqc.namePool = config.getNamePool();
-        sqc.reset();
-        return sqc;
-    }
 
     /**
      * Copy details from another StaticQueryContext
@@ -176,11 +176,11 @@ public class StaticQueryContext {
         requiredContextItemType = c.requiredContextItemType;
         preserveSpace = c.preserveSpace;
         defaultEmptyLeast = c.defaultEmptyLeast;
-        moduleURIResolver = c.moduleURIResolver;
         errorReporter = c.errorReporter;
         codeInjector = c.codeInjector;
-        isUpdating = c.isUpdating;
+        updating = c.updating;
         optimizerOptions = c.optimizerOptions;
+        unprefixedElementMatchingPolicy = c.unprefixedElementMatchingPolicy;
     }
 
 
@@ -198,13 +198,14 @@ public class StaticQueryContext {
         preserveSpace = false;
         defaultEmptyLeast = true;
         requiredContextItemType = AnyItemType.getInstance();
-        defaultFunctionNamespace = NamespaceConstant.FN;
-        defaultElementNamespace = NamespaceConstant.NULL;
+        defaultFunctionNamespace = NamespaceUri.FN;
+        defaultElementNamespace = NamespaceUri.NULL;
         moduleURIResolver = null;
         defaultCollationName = config.getDefaultCollationName();
         clearNamespaces();
-        isUpdating = false;
+        updating = false;
         optimizerOptions = config.getOptimizerOptions();
+        unprefixedElementMatchingPolicy = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
 
     }
 
@@ -310,8 +311,7 @@ public class StaticQueryContext {
     /**
      * Set the Base URI of the query
      *
-     * @param baseURI the base URI of the query, or null to indicate that no base URI is available.
-     *                This should be a valid absolute URI.
+     * @param baseURI the base URI of the query, or null to indicate that no base URI is available
      * @since 8.4
      */
 
@@ -325,14 +325,16 @@ public class StaticQueryContext {
      *
      * @param version The XQuery language version. Must be 10 (="1.0") or 30 (="3.0") or 31 (="3.1").
      * @since 9.2; changed in 9.3 to expect a DecimalValue rather than a string. Changed in 9.7 to
-     * accept an int (30 = "3.0") and to allow "3.1".  From 9.8.0.3 the supplied value is ignored
-     * and the language version is always set to "3.1".
-     * @deprecated since 10.0
+     * accept an int (30 = "3.0") and to allow "3.1".  From 9.8.0.3 the supplied value was ignored
+     * and the language version was always set to "3.1".  From 11.0 the value 40 was accepted.
      */
 
     public void setLanguageVersion(int version) {
         if (version==10 || version==30 || version==31) {
-            // value is ignored
+            languageVersion = 31;
+        } else if (version == 40) {
+            config.checkLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION, "XQuery 4.0", -1);
+            languageVersion = 40;
         } else {
             throw new IllegalArgumentException("languageVersion = " + version);
         }
@@ -344,11 +346,11 @@ public class StaticQueryContext {
      * @return the language version. Either "1.0" or "1.1". Default is "1.0".
      * @since 9.2; changed in 9.3 to return a DecimalValue rather than a string;
      * changed in 9.7 to return an int (30 = "3.0" and so on). Changed in 9.8.0.3 to
-     * always return 31.
+     * always return 31. Changed in 11.0 to return 31 or 40.
      */
 
     public int getLanguageVersion() {
-        return 31;
+        return languageVersion;
     }
 
     /**
@@ -385,11 +387,7 @@ public class StaticQueryContext {
      */
 
     public void setCompileWithTracing(boolean trace) {
-        if (trace) {
-            codeInjector = new XQueryTraceCodeInjector();
-        } else {
-            codeInjector = null;
-        }
+        codeInjector = trace ? new XQueryTraceCodeInjector() : null;
     }
 
     /**
@@ -425,7 +423,7 @@ public class StaticQueryContext {
      */
 
     public boolean isUpdating() {
-        return isUpdating;
+        return updating;
     }
 
     /**
@@ -560,14 +558,14 @@ public class StaticQueryContext {
 
     /*@NotNull*/
     public XQueryExpression compileQuery(/*@NotNull*/ String query) throws XPathException {
-        XQueryParser qp = (XQueryParser) config.newExpressionParser("XQ", isUpdating, 31);
+        QueryModule mainModule = new QueryModule(this);
+        XQueryParser qp = (XQueryParser) config.newExpressionParser("XQ", updating, mainModule);
         if (codeInjector != null) {
             qp.setCodeInjector(codeInjector);
         } else if (config.isCompileWithTracing()) {
             qp.setCodeInjector(new TraceCodeInjector());
         }
         qp.setStreaming(isStreaming());
-        QueryModule mainModule = new QueryModule(this);
         return qp.makeXQueryExpression(query, mainModule, config);
     }
 
@@ -698,11 +696,11 @@ public class StaticQueryContext {
      */
 
     /*@Nullable*/
-    public QueryLibrary getCompiledLibrary(String namespace) {
+    public QueryLibrary getCompiledLibrary(NamespaceUri namespace) {
         return null;
     }
 
-    public Collection<QueryLibrary> getCompiledLibraries() {
+    public Iterable<QueryLibrary> getCompiledLibraries() {
         return Collections.emptySet();
     }
 
@@ -724,17 +722,17 @@ public class StaticQueryContext {
      * @since 9.0
      */
 
-    public void declareNamespace( /*@Nullable*/ String prefix, /*@Nullable*/ String uri) {
+    public void declareNamespace(String prefix, NamespaceUri uri) {
         if (prefix == null) {
             throw new NullPointerException("Null prefix supplied to declareNamespace()");
         }
         if (uri == null) {
             throw new NullPointerException("Null namespace URI supplied to declareNamespace()");
         }
-        if (prefix.equals("xml") != uri.equals(NamespaceConstant.XML)) {
+        if (prefix.equals("xml") != uri.equals(NamespaceUri.XML)) {
             throw new IllegalArgumentException("Misdeclaration of XML namespace");
         }
-        if (prefix.equals("xmlns") || uri.equals(NamespaceConstant.XMLNS)) {
+        if (prefix.equals("xmlns") || uri.equals(NamespaceUri.XMLNS)) {
             throw new IllegalArgumentException("Misdeclaration of xmlns namespace");
         }
         if (prefix.isEmpty()) {
@@ -756,14 +754,17 @@ public class StaticQueryContext {
 
     public void clearNamespaces() {
         userDeclaredNamespaces.clear();
-        declareNamespace("xml", NamespaceConstant.XML);
-        declareNamespace("xs", NamespaceConstant.SCHEMA);
-        declareNamespace("xsi", NamespaceConstant.SCHEMA_INSTANCE);
-        declareNamespace("fn", NamespaceConstant.FN);
-        declareNamespace("local", NamespaceConstant.LOCAL);
-        declareNamespace("err", NamespaceConstant.ERR);
-        declareNamespace("saxon", NamespaceConstant.SAXON);
-        declareNamespace("", "");
+        declareNamespace("xml", NamespaceUri.XML);
+        declareNamespace("xs", NamespaceUri.SCHEMA);
+        declareNamespace("xsi", NamespaceUri.SCHEMA_INSTANCE);
+        declareNamespace("fn", NamespaceUri.FN);
+        declareNamespace("math", NamespaceUri.MATH);
+        declareNamespace("map", NamespaceUri.MAP_FUNCTIONS);
+        declareNamespace("array", NamespaceUri.ARRAY_FUNCTIONS);
+        declareNamespace("local", NamespaceUri.LOCAL);
+        declareNamespace("err", NamespaceUri.ERR);
+        declareNamespace("saxon", NamespaceUri.SAXON);
+        declareNamespace("", NamespaceUri.NULL);
 
     }
 
@@ -773,7 +774,7 @@ public class StaticQueryContext {
      * @return the user-declared namespaces
      */
 
-    protected HashMap<String, String> getUserDeclaredNamespaces() {
+    protected HashMap<String, NamespaceUri> getUserDeclaredNamespaces() {
         return userDeclaredNamespaces;
     }
 
@@ -798,7 +799,7 @@ public class StaticQueryContext {
      *         null to indicate that the prefix has not been declared
      */
 
-    public String getNamespaceForPrefix(String prefix) {
+    public NamespaceUri getNamespaceForPrefix(String prefix) {
         return userDeclaredNamespaces.get(prefix);
     }
 
@@ -809,7 +810,7 @@ public class StaticQueryContext {
      * @since 8.4
      */
 
-    public String getDefaultFunctionNamespace() {
+    public NamespaceUri getDefaultFunctionNamespace() {
         return defaultFunctionNamespace;
     }
 
@@ -820,7 +821,7 @@ public class StaticQueryContext {
      * @since 8.4
      */
 
-    public void setDefaultFunctionNamespace(String defaultFunctionNamespace) {
+    public void setDefaultFunctionNamespace(NamespaceUri defaultFunctionNamespace) {
         this.defaultFunctionNamespace = defaultFunctionNamespace;
     }
 
@@ -831,7 +832,7 @@ public class StaticQueryContext {
      * @since 8.4
      */
 
-    public void setDefaultElementNamespace(String uri) {
+    public void setDefaultElementNamespace(NamespaceUri uri) {
         defaultElementNamespace = uri;
         declareNamespace("", uri);
     }
@@ -844,9 +845,35 @@ public class StaticQueryContext {
      */
 
     /*@Nullable*/
-    public String getDefaultElementNamespace() {
+    public NamespaceUri getDefaultElementNamespace() {
         return defaultElementNamespace;
     }
+
+    /**
+     * Get the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
+     * The value can be any of {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE} (the default),
+     * which uses the value of {@link #getDefaultElementNamespace()}, or {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE_OR_NONE},
+     * which matches both the namespace given in {@link #getDefaultElementNamespace()} and the null namespace,
+     * or {@link UnprefixedElementMatchingPolicy#ANY_NAMESPACE}, which matches any namespace (that is, it
+     * matches by local name only).
+     */
+
+    public UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy() {
+        return unprefixedElementMatchingPolicy;
+    }
+
+    /**
+     * Set the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
+     * The value can be any of {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE} (the default),
+     * which uses the value of {@link #getDefaultElementNamespace()}, or {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE_OR_NONE},
+     * which matches both the namespace given in {@link #getDefaultElementNamespace()} and the null namespace,
+     * or {@link UnprefixedElementMatchingPolicy#ANY_NAMESPACE}, which matches any namespace (that is, it
+     * matches by local name only).
+     */
+    public void setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy) {
+        this.unprefixedElementMatchingPolicy = unprefixedElementMatchingPolicy;
+    }
+
 
     /**
      * Declare a global variable. This has the same effect as including a global variable declaration
@@ -863,7 +890,7 @@ public class StaticQueryContext {
      */
 
     public void declareGlobalVariable(
-            StructuredQName qName, SequenceType type, Sequence value, boolean external)
+            StructuredQName qName, SequenceType type, GroundedValue value, boolean external)
             throws XPathException {
         if (value == null && !external) {
             throw new NullPointerException("No initial value for declared variable");
@@ -885,19 +912,18 @@ public class StaticQueryContext {
     }
 
     /**
-     * Iterate over all the declared global variables
+     * Iterator over all the declared global variables
      *
      * @return an iterator over all the global variables that have been declared. They are returned
      *         as instances of class {@link GlobalVariable}
      * @since 9.1
      */
 
-    public Iterator<GlobalVariable> iterateDeclaredGlobalVariables() {
+    public Iterable<GlobalVariable> iterateDeclaredGlobalVariables() {
         if (userDeclaredVariables == null) {
-            List<GlobalVariable> empty = Collections.emptyList();
-            return empty.iterator();
+            return Collections.emptyList();
         } else {
-            return userDeclaredVariables.iterator();
+            return userDeclaredVariables;
         }
     }
 
@@ -1099,7 +1125,7 @@ public class StaticQueryContext {
      * @param listener the ErrorListener to be used
      * @deprecated since 10.0: use {@link #setErrorReporter(ErrorReporter)}
      */
-
+    @Deprecated
     public void setErrorListener(ErrorListener listener) {
         setErrorReporter(new ErrorReporterToListener(listener));
     }
@@ -1110,7 +1136,7 @@ public class StaticQueryContext {
      * @return the registered ErrorListener
      * @deprecated since 10.0: use {@link #getErrorReporter()}
      */
-
+    @Deprecated
     public ErrorListener getErrorListener() {
         if (errorReporter instanceof ErrorReporterToListener) {
             return ((ErrorReporterToListener) errorReporter).getErrorListener();
@@ -1157,7 +1183,7 @@ public class StaticQueryContext {
      */
 
     public void setUpdatingEnabled(boolean updating) {
-        isUpdating = updating;
+        this.updating = updating;
     }
 
     /**
@@ -1170,7 +1196,7 @@ public class StaticQueryContext {
      */
 
     public boolean isUpdatingEnabled() {
-        return isUpdating;
+        return updating;
     }
 
 }

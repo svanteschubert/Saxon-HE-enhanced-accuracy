@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,18 +23,18 @@ import static net.sf.saxon.expr.flwor.Clause.ClauseName.TRACE;
  */
 public class TraceClause extends Clause {
 
-    private Clause target;
+    private final Clause target;
     private NamespaceResolver nsResolver;
 
     /**
      * Create a traceClause
      *
-     * @param target    the clause whose evaluation is being traced
+     * @param expression the FLWOR expression
+     * @param target     the clause whose evaluation is being traced
      */
 
     public TraceClause(FLWORExpression expression, Clause target) {
         this.target = target;
-        this.setLocation(target.getLocation());
         this.nsResolver = expression.getRetainedStaticContext();
     }
 

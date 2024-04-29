@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,9 +9,9 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.CopyOf;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -43,7 +43,7 @@ public final class XSLCopyOf extends StyleElement {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String selectAtt = null;
         String copyNamespacesAtt = null;
@@ -66,7 +66,7 @@ public final class XSLCopyOf extends StyleElement {
                 validationAtt = Whitespace.trim(value);
             } else if (f.equals("type")) {
                 typeAtt = Whitespace.trim(value);
-            } else if (attName.getLocalPart().equals("read-once") && attName.hasURI(NamespaceConstant.SAXON)) {
+            } else if (attName.getLocalPart().equals("read-once") && attName.hasURI(NamespaceUri.SAXON)) {
                 compileError("The saxon:read-once attribute is no longer available - use xsl:stream");
             } else {
                 checkUnknownAttribute(attName);
@@ -82,7 +82,7 @@ public final class XSLCopyOf extends StyleElement {
         } else {
             copyAccumulators = processBooleanAttribute("copy-accumulators", copyAccumulatorsAtt);
             if (copyAccumulators && isConstructingComplexContent()) {
-                compileWarning("Copying accumulators is pointless when the copied element "
+                issueWarning("Copying accumulators is pointless when the copied element "
                                        + "is immediately attached to a new parent, since that action "
                                        + "will lose the accumulator values", SaxonErrorCode.SXWN9017);
                 copyAccumulators = false;
@@ -125,6 +125,7 @@ public final class XSLCopyOf extends StyleElement {
     public Expression compile(Compilation exec, ComponentDeclaration decl) {
         CopyOf inst = new CopyOf(select, copyNamespaces, validation, schemaType, false);
         inst.setCopyAccumulators(copyAccumulators);
+        inst.setLocation(saveLocation());
         //inst.setCopyLineNumbers(exec.getConfiguration().isLineNumbering());
         inst.setSchemaAware(exec.isSchemaAware());
         return inst;

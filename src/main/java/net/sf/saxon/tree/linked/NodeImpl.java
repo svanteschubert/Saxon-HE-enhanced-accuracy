@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,31 +12,29 @@ import net.sf.saxon.event.Builder;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.NameTest;
+import net.sf.saxon.pattern.NodePredicate;
+import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.NamespaceNode;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.SteppingNavigator;
 import net.sf.saxon.tree.util.SteppingNode;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.type.*;
-import net.sf.saxon.value.UntypedAtomicValue;
-
-import java.util.function.Predicate;
+import net.sf.saxon.value.StringValue;
 
 
 /**
  * A node in the "linked" tree representing any kind of node except a namespace node.
  * Specific node kinds are represented by concrete subclasses.
  *
- * @author Michael H. Kay
  */
 
 public abstract class NodeImpl
-        implements MutableNodeInfo, SteppingNode<NodeImpl>, SiblingCountingNode, Location {
+        implements MutableNodeInfo, SteppingNode, SiblingCountingNode, Location {
 
     /*@Nullable*/ private ParentNodeImpl parent;
     private int index; // Set to -1 when the node is deleted
@@ -79,16 +77,6 @@ public abstract class NodeImpl
     @Override
     public TreeInfo getTreeInfo() {
         return getPhysicalRoot();
-    }
-
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        return getStringValue();
     }
 
     /**
@@ -150,7 +138,7 @@ public abstract class NodeImpl
     public AtomicSequence atomize() throws XPathException {
         SchemaType stype = getSchemaType();
         if (stype == Untyped.getInstance() || stype == BuiltInAtomicType.UNTYPED_ATOMIC) {
-            return new UntypedAtomicValue(getStringValueCS());
+            return StringValue.makeUntypedAtomic(getUnicodeStringValue());
         } else {
             return stype.atomize(this);
         }
@@ -174,13 +162,17 @@ public abstract class NodeImpl
     /**
      * Determine whether this is the same node as another node
      *
-     * @return true if this Node object and the supplied Node object represent the
-     * same node in the tree.
+     * @return true if the argument is the same node in the tree.
      */
 
-    public boolean equals(NodeInfo other) {
+    public boolean equals(Object other) {
         // default implementation: differs for attribute and namespace nodes
         return this == other;
+    }
+
+    @Override
+    public int hashCode() {
+        return System.identityHashCode(this);
     }
 
     /**
@@ -240,16 +232,16 @@ public abstract class NodeImpl
      */
 
     @Override
-    public void generateId(/*@NotNull*/ FastStringBuffer buffer) {
+    public void generateId(/*@NotNull*/ StringBuilder buffer) {
         long seq = getSequenceNumber();
         if (seq == -1L) {
             getPhysicalRoot().generateId(buffer);
-            buffer.cat(NODE_LETTER[getNodeKind()]);
-            buffer.append(Long.toString(seq) + "h" + hashCode());
+            buffer.append(NODE_LETTER[getNodeKind()]);
+            buffer.append(seq + "h" + hashCode());
         } else {
             parent.generateId(buffer);
-            buffer.cat(NODE_LETTER[getNodeKind()]);
-            buffer.append(Integer.toString(index));
+            buffer.append(NODE_LETTER[getNodeKind()]);
+            buffer.append(index);
         }
     }
 
@@ -332,6 +324,7 @@ public abstract class NodeImpl
 
     /**
      * Get the NamePool
+     * @return the namePool for the configuration owning this node
      */
 
     public NamePool getNamePool() {
@@ -359,9 +352,9 @@ public abstract class NodeImpl
      */
 
     @Override
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         NodeName qName = getNodeName();
-        return qName == null ? "" : qName.getURI();
+        return qName == null ? NamespaceUri.NULL : qName.getNamespaceUri();
     }
 
     /**
@@ -532,13 +525,13 @@ public abstract class NodeImpl
      * Return an enumeration over the nodes reached by the given axis from this node
      *
      * @param axisNumber The axis to be iterated over
-     * @param nodeTest   A pattern to be matched by the returned nodes
+     * @param predicate   A pattern to be matched by the returned nodes
      * @return an AxisIterator that scans the nodes reached by the axis in turn.
      */
 
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
-
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate predicate) {
+        NodeTest nodeTest = Navigator.nodeTestFromPredicate(predicate);
         switch (axisNumber) {
             case AxisInfo.ANCESTOR:
                 return new AncestorEnumeration(this, nodeTest, false);
@@ -565,13 +558,13 @@ public abstract class NodeImpl
                         ((NameTest)nodeTest).getPrimitiveType() == Type.ELEMENT) {
                     return ((DocumentImpl) this).getAllElements(((NameTest)nodeTest).getFingerprint());
                 } else if (hasChildNodes()) {
-                    return new SteppingNavigator.DescendantAxisIterator<>(this, false, nodeTest);
+                    return new SteppingNavigator.DescendantAxisIterator(this, false, nodeTest);
                 } else {
                     return EmptyIterator.ofNodes();
                 }
 
             case AxisInfo.DESCENDANT_OR_SELF:
-                return new SteppingNavigator.DescendantAxisIterator<>(this, true, nodeTest);
+                return new SteppingNavigator.DescendantAxisIterator(this, true, nodeTest);
 
             case AxisInfo.FOLLOWING:
                 return new FollowingEnumeration(this, nodeTest);
@@ -621,7 +614,7 @@ public abstract class NodeImpl
 
     /*@Nullable*/
     @Override
-    public String getAttributeValue( /*@NotNull*/ String uri, /*@NotNull*/ String localName) {
+    public String getAttributeValue( /*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String localName) {
         return null;
     }
 
@@ -701,12 +694,12 @@ public abstract class NodeImpl
     }
 
     @Override
-    public NodeImpl getSuccessorElement(NodeImpl anchor, String uri, String local) {
-        NodeImpl next = getNextInDocument(anchor);
+    public NodeImpl getSuccessorElement(SteppingNode anchor, NamespaceUri uri, String local) {
+        NodeImpl next = getNextInDocument((NodeImpl)anchor);
         while (next != null && !(next.getNodeKind() == Type.ELEMENT &&
-                                         (uri == null || uri.equals(next.getURI())) &&
+                                         (uri == null || next.getNodeName().hasURI(uri)) &&
                                          (local == null || local.equals(next.getLocalPart())))) {
-            next = next.getNextInDocument(anchor);
+            next = next.getNextInDocument((NodeImpl)anchor);
         }
         return next;
     }
@@ -872,12 +865,13 @@ public abstract class NodeImpl
      * @param attType    the type annotation of the new attribute
      * @param value      the string value of the new attribute
      * @param properties properties including IS_ID and IS_IDREF properties
-     * @param inheritNamespaces
+     * @param inheritNamespaces true if any namespace needed for this attribute is to be inherited
+     *                          by descendant elements
      * @throws IllegalStateException if the element already has an attribute with the given name.
      */
 
     @Override
-    public void addAttribute(NodeName name, SimpleType attType, CharSequence value, int properties, boolean inheritNamespaces) {
+    public void addAttribute(NodeName name, SimpleType attType, String value, int properties, boolean inheritNamespaces) {
         // No action, unless this is an element node
     }
 
@@ -885,17 +879,25 @@ public abstract class NodeImpl
      * Rename this node
      *
      * @param newNameCode the NamePool code of the new name
-     * @param inheritNamespaces
+     * @param inherit true if any namespace needed for the new name is to be inherited by descendant elements
      */
 
     @Override
-    public void rename(NodeName newNameCode, boolean inheritNamespaces) {
+    public void rename(NodeName newNameCode, boolean inherit) {
         // implemented for node kinds that have a name
     }
 
 
+    /**
+     * Add a namespace binding (that is, a namespace node) to this element. This call has no effect if applied
+     * to a node other than an element.
+     *
+     * @param nscode The namespace binding to be added
+     * @param inherit true if the namespace is to be inherited by descendant elements
+     */
+
     @Override
-    public void addNamespace(NamespaceBinding nscode, boolean inheritNamespaces) {
+    public void addNamespace(NamespaceBinding nscode, boolean inherit) {
         // implemented for element nodes only
     }
 

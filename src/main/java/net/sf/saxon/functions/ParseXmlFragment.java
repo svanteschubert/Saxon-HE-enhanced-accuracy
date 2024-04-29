@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,14 +17,18 @@ import net.sf.saxon.event.Sender;
 import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.lib.Validation;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.ParseOptions;
+import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
+import net.sf.saxon.resource.ActiveSAXSource;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.tiny.TinyBuilder;
 import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.StringValue;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
@@ -46,9 +50,14 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    @CSharpReplaceBody(code="return Saxon.Hej.value.EmptySequence.getInstance(); // TODO: implement me!")
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         StringValue input = (StringValue) arguments[0].head();
-        return input == null ? ZeroOrOne.empty() : new ZeroOrOne(evalParseXml(input, context));
+        if (input == null) {
+            return EmptySequence.getInstance();
+        } else {
+            return evalParseXml(input, context);
+        }
     }
 
     private NodeInfo evalParseXml(StringValue inputArg, XPathContext context) throws XPathException {
@@ -81,24 +90,22 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
                         // with a clean parser
                     }
                 } else {
-                    //try {
-                        reader = Version.platform.loadParserForXmlFragments();//SAXParserFactoryImpl.newInstance().newSAXParser().getXMLReader();
-                    /*} catch (ParserConfigurationException | SAXException e) {
-                        throw XPathException.makeXPathException(e);
-                    } */
+                    reader = Version.platform.loadParserForXmlFragments();
                 }
 
+                ActiveSAXSource.configureParser(reader);
                 source.setXMLReader(reader);
                 source.setSystemId(baseURI);
 
                 Builder b = controller.makeBuilder();
+                b.setDurability(Durability.TEMPORARY);
                 if (b instanceof TinyBuilder) {
                     ((TinyBuilder) b).setStatistics(controller.getConfiguration().getTreeStatistics().FN_PARSE_STATISTICS);
                 }
                 Receiver s = b;
-                ParseOptions options = new ParseOptions();
-                options.setSchemaValidationMode(Validation.SKIP);
-                options.setDTDValidationMode(Validation.SKIP);
+                ParseOptions options = new ParseOptions()
+                        .withSchemaValidationMode(Validation.SKIP)
+                        .withDTDValidationMode(Validation.SKIP);
                 List<Boolean> safetyCheck = new ArrayList<>();
                 reader.setEntityResolver((publicId, systemId) -> {
                     if ("http://www.saxonica.com/parse-xml-fragment/actual.xml".equals(systemId)) {
@@ -112,18 +119,18 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
                 });
                 PackageData pd = getRetainedStaticContext().getPackageData();
                 if (pd instanceof StylesheetPackage) {
-                    options.setSpaceStrippingRule(((StylesheetPackage) pd).getSpaceStrippingRule());
+                    options = options.withSpaceStrippingRule(((StylesheetPackage) pd).getSpaceStrippingRule());
                     if (((StylesheetPackage) pd).isStripsTypeAnnotations()) {
                         s = configuration.getAnnotationStripper(s);
                     }
                 } else {
-                    options.setSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
+                    options = options.withSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
                 }
-                options.setErrorHandler(errorHandler);
+                options = options.withErrorHandler(errorHandler);
 
                 s.setPipelineConfiguration(b.getPipelineConfiguration());
 
-                options.addFilter(OuterElementStripper::new);
+                options = options.withFilter(CSharp.methodRef(OuterElementStripper::new));
 
                 try {
                     Sender.send(source, s, options);
@@ -169,7 +176,7 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
         }
 
         private int level = 0;
-        private boolean suppressStartContent = false;
+        private final boolean suppressStartContent = false;
 
         /**
          * Notify the start of an element
@@ -195,4 +202,4 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
     }
 }
 
-// Copyright (c) 2012-2020 Saxonica Limited
+// Copyright (c) 2012-2023 Saxonica Limited

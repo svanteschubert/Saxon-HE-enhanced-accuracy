@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -70,13 +70,13 @@ public abstract class BooleanExpression extends BinaryExpression implements Nega
             throw err1;
         }
         // Precompute the EBV of any constant operand
-        if (getLhsExpression() instanceof Literal && !(((Literal) getLhsExpression()).getValue() instanceof BooleanValue)) {
+        if (getLhsExpression() instanceof Literal && !(((Literal) getLhsExpression()).getGroundedValue() instanceof BooleanValue)) {
             setLhsExpression(Literal.makeLiteral(
-                    BooleanValue.get(getLhsExpression().effectiveBooleanValue(visitor.makeDynamicContext())), this));
+                    BooleanValue.get(((Literal)getLhsExpression()).getGroundedValue().effectiveBooleanValue()), this));
         }
-        if (getRhsExpression() instanceof Literal && !(((Literal) getRhsExpression()).getValue() instanceof BooleanValue)) {
+        if (getRhsExpression() instanceof Literal && !(((Literal) getRhsExpression()).getGroundedValue() instanceof BooleanValue)) {
             setRhsExpression(Literal.makeLiteral(
-                    BooleanValue.get(getRhsExpression().effectiveBooleanValue(visitor.makeDynamicContext())), this));
+                    BooleanValue.get(((Literal) getRhsExpression()).getGroundedValue().effectiveBooleanValue()), this));
         }
         return preEvaluate();
     }
@@ -86,7 +86,7 @@ public abstract class BooleanExpression extends BinaryExpression implements Nega
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 

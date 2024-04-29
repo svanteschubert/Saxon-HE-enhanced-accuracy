@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,6 @@ import net.sf.saxon.expr.instruct.CallTemplate;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.CodepointCollator;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeTestPattern;
@@ -31,6 +30,7 @@ import net.sf.saxon.value.Whitespace;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Handler for xsl:key elements in stylesheet. <br>
@@ -83,7 +83,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -97,7 +97,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String nameAtt = null;
         String matchAtt = null;
@@ -106,9 +106,9 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String value = att.getValue();
-            String uri = attName.getURI();
+            NamespaceUri uri = attName.getNamespaceUri();
             String local = attName.getLocalPart();
-            if ("".equals(uri)) {
+            if (uri.isEmpty()) {
                 switch (local) {
                     case "name":
                         nameAtt = Whitespace.trim(value);
@@ -130,7 +130,10 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
                         checkUnknownAttribute(attName);
                         break;
                 }
-            } else if (local.equals("range-key") && uri.equals(NamespaceConstant.SAXON)) {
+            } else if (local.equals("range-key") && uri.equals(NamespaceUri.SAXON)) {
+                if (Version.platform.isDotNet()) {
+                    compileError("saxon:range-key is not supported in SaxonCS");
+                }
                 rangeKey = processBooleanAttribute("range-key", value);
             } else {
                 checkUnknownAttribute(attName);
@@ -160,7 +163,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
         //We use null to mean "not yet evaluated"
         if (getObjectName() == null) {
             // allow for forwards references
-            String nameAtt = getAttributeValue("", "name");
+            String nameAtt = getAttributeValue(NamespaceUri.NULL, "name");
             if (nameAtt != null) {
                 setObjectName(makeQName(nameAtt, null, "name"));
             }
@@ -181,9 +184,8 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
                 compileError("An xsl:key element with a @use attribute must be empty", "XTSE1205");
             }
             try {
-                RoleDiagnostic role =
+                Supplier<RoleDiagnostic> role = () ->
                         new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:key/use", 0);
-                //role.setSourceLocator(new ExpressionLocation(this));
                 use = config.getTypeChecker(false).staticTypeCheck(
                         use,
                         SequenceType.ATOMIC_SEQUENCE,
@@ -223,17 +225,11 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
 
     }
 
-    private static class ContainsGlobalVariable implements Predicate<Expression> {
-        @Override
-        public boolean test(Expression e) {
-            return e instanceof GlobalVariableReference ||
-                    e instanceof UserFunctionCall ||
-                    e instanceof CallTemplate ||
-                    e instanceof ApplyTemplates;
-        }
-    }
-
-    private static ContainsGlobalVariable containsGlobalVariable = new ContainsGlobalVariable();
+    private static final Predicate<Expression> containsGlobalVariable = e -> (
+        e instanceof GlobalVariableReference ||
+        e instanceof UserFunctionCall ||
+        e instanceof CallTemplate ||
+        e instanceof ApplyTemplates);
 
     @Override
     public void index(ComponentDeclaration decl, PrincipalStylesheetModule top) {
@@ -249,7 +245,12 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
         Configuration config = env.getConfiguration();
         StringCollator collator = null;
         if (collationName != null) {
-            collator = findCollation(collationName, getBaseURI());
+            try {
+                collator = findCollation(collationName, getBaseURI());
+            } catch (XPathException err) {
+                compileError("Failed to load collation " + collationName + ": " + err.getMessage(), "XTSE1210");
+                collator = CodepointCollator.getInstance();     // for recovery paths
+            }
             if (collator == null) {
                 compileError("The collation name " + Err.wrap(collationName, Err.URI) + " is not recognized", "XTSE1210");
                 collator = CodepointCollator.getInstance();
@@ -275,9 +276,8 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
             }
 
             try {
-                RoleDiagnostic role =
+                Supplier<RoleDiagnostic> role = () ->
                         new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:key/use", 0);
-                //role.setSourceLocator(new ExpressionLocation(this));
                 use = config.getTypeChecker(false).staticTypeCheck(
                         use,
                         SequenceType.ATOMIC_SEQUENCE,
@@ -328,7 +328,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
         keydef.setRangeKey(rangeKey);
         keydef.setIndexedItemType(useType);
         keydef.setStackFrameMap(stackFrameMap);
-        keydef.setLocation(getSystemId(), getLineNumber(), getColumnNumber());
+        keydef.setLocation(this);
         keydef.setBackwardsCompatible(xPath10ModeIsEnabled());
         keydef.setComposite(composite);
         keydef.obtainDeclaringComponent(this);
@@ -357,11 +357,5 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
     }
 
 
-    /**
-     * Generate byte code if appropriate
-     *
-     * @param opt the optimizer
-     */
-    @Override
-    public void generateByteCode(Optimizer opt) {}
+
 }

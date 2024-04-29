@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,6 +17,7 @@ import net.sf.saxon.lib.TraceListener;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trace.Traceable;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
@@ -82,15 +83,15 @@ public class Trace extends SystemFunction implements Traceable {
                     + Navigator.getPath((NodeInfo) val));
             } else if (val instanceof AtomicValue) {
                 out.info(label + ": " + Type.displayTypeName(val) + ": "
-                        + val.getStringValue());
+                        + val.getUnicodeStringValue());
             } else if (val instanceof ArrayItem || val instanceof MapItem) {
                 out.info(label + ": " + val.toShortString());
-            } else if (val instanceof Function) {
-                StructuredQName name = ((Function)val).getFunctionName();
-                out.info(label + ": function " + (name==null ? "(anon)" : name.getDisplayName()) + "#" + ((Function)val).getArity());
-            } else if (val instanceof ObjectValue) {
-                Object obj = ((ObjectValue)val).getObject();
-                out.info(label + ": " + obj.getClass().getName() + " = " + Err.truncate30(obj.toString()));
+            } else if (val instanceof FunctionItem) {
+                StructuredQName name = ((FunctionItem)val).getFunctionName();
+                out.info(label + ": function " + (name==null ? "(anon)" : name.getDisplayName()) + "#" + ((FunctionItem)val).getArity());
+            } else if (val.getGenre() == Genre.EXTERNAL) {
+                Object obj = ((ObjectValue<?>)val).getObject();
+                out.info(label + ": " + obj.getClass().getName() + " = " + Err.truncate30(StringView.tidy(obj.toString())));
             } else {
                 out.info(label + ": " + val.toShortString());
             }
@@ -114,7 +115,13 @@ public class Trace extends SystemFunction implements Traceable {
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         Controller controller = context.getController();
-        String label = arguments.length == 1 ? "*" : arguments[1].head().getStringValue();
+        String label = "*";
+        if (arguments.length > 1) {
+            Item labelArg = arguments[1].head();
+            if (labelArg != null) {
+                label = labelArg.getStringValue();
+            }
+        }
         if (controller.isTracing()) {
             Sequence value = arguments[0].materialize();
             notifyListener(label, value, context);
@@ -147,9 +154,9 @@ public class Trace extends SystemFunction implements Traceable {
 
     private class TracingIterator implements SequenceIterator {
 
-        private SequenceIterator base;
-        private String label;
-        private Logger out;
+        private final SequenceIterator base;
+        private final String label;
+        private final Logger out;
         private boolean empty = true;
         private int position = 0;
 
@@ -161,7 +168,7 @@ public class Trace extends SystemFunction implements Traceable {
         }
 
         @Override
-        public Item next() throws XPathException {
+        public Item next() {
             Item n = base.next();
             position++;
             if (n == null) {

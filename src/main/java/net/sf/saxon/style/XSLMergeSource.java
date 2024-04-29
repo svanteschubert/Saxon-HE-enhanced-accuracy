@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,10 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.accum.Accumulator;
 import net.sf.saxon.expr.accum.AccumulatorRegistry;
 import net.sf.saxon.expr.sort.MergeInstr;
+import net.sf.saxon.functions.Count;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -59,7 +61,7 @@ public class XSLMergeSource extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return false;
     }
 
@@ -214,7 +216,11 @@ public class XSLMergeSource extends StyleElement {
         }
 
         if (sourceName == null) {
-            sourceName = "saxon-merge-source-" + hashCode();
+            try {
+                sourceName = "merge-source " + (Count.count(iterateAxis(AxisInfo.PRECEDING_SIBLING, NodeKindTest.ELEMENT)) + 1);
+            } catch (XPathException e) {
+                sourceName = "merge-source " + hashCode();
+            }
         }
 
         if (forEachItemAtt != null) {
@@ -278,7 +284,7 @@ public class XSLMergeSource extends StyleElement {
                 mergeKeyCount++;
             } else if (child.getNodeKind() == Type.TEXT) {
                 // with xml:space=preserve, white space nodes may still be there
-                if (!Whitespace.isWhite(child.getStringValueCS())) {
+                if (!Whitespace.isAllWhite(child.getUnicodeStringValue())) {
                     compileError("No character data is allowed within xsl:merge-source", "XTSE0010");
                 }
             } else if (child instanceof StyleElement) {

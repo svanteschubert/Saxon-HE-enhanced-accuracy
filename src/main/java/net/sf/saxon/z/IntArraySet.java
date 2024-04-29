@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.z;
 
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 
 import java.util.Arrays;
 
@@ -22,9 +22,8 @@ import java.util.Arrays;
  * array each time you do that.</p>
  * <p>Not thread safe.</p>
  *
- * @author Michael Kay
  */
-public class IntArraySet implements IntSet {
+public class IntArraySet extends IntSet {
 
     public static final int[] EMPTY_INT_ARRAY = new int[0];
 
@@ -38,7 +37,7 @@ public class IntArraySet implements IntSet {
      * Hashcode, evaluated lazily
      */
 
-    private int hashCode = -1;
+    private int _hashCode = -1;
 
     /**
      * Create an empty set
@@ -88,7 +87,7 @@ public class IntArraySet implements IntSet {
     @Override
     public void clear() {
         contents = EMPTY_INT_ARRAY;
-        hashCode = -1;
+        _hashCode = -1;
     }
 
     @Override
@@ -119,7 +118,7 @@ public class IntArraySet implements IntSet {
 
     @Override
     public boolean remove(int value) {
-        hashCode = -1;
+        _hashCode = -1;
         int pos = Arrays.binarySearch(contents, value);
         if (pos < 0) {
             return false;
@@ -146,7 +145,7 @@ public class IntArraySet implements IntSet {
 
     @Override
     public boolean add(int value) {
-        hashCode = -1;
+        _hashCode = -1;
         if (contents.length == 0) {
             contents = new int[]{value};
             return true;
@@ -241,7 +240,7 @@ public class IntArraySet implements IntSet {
                 }
             }
         } else {
-            return IntSet.super.union(other);
+            return super.union(other);
         }
     }
 
@@ -269,7 +268,7 @@ public class IntArraySet implements IntSet {
     }
 
     public String toString() {
-        FastStringBuffer sb = new FastStringBuffer(contents.length * 4);
+        StringBuilder sb = new StringBuilder(contents.length * 4);
         for (int i = 0; i < contents.length; i++) {
             if (i == contents.length - 1) {
                 sb.append(contents[i] + "");
@@ -325,15 +324,15 @@ public class IntArraySet implements IntSet {
 
     public int hashCode() {
         // Note, hashcodes are the same as those used by IntHashSet
-        if (hashCode == -1) {
+        if (_hashCode == -1) {
             int h = 936247625;
             IntIterator it = iterator();
             while (it.hasNext()) {
                 h += it.next();
             }
-            hashCode = h;
+            _hashCode = h;
         }
-        return hashCode;
+        return _hashCode;
     }
 
     /**
@@ -342,13 +341,13 @@ public class IntArraySet implements IntSet {
 
     public static class IntArrayIterator implements IntIterator {
 
-        private int[] contents;
-        private int limit;
+        private final int[] contents;
+        private final int limit;
         private int i = 0;
 
         /**
          * Create an iterator over the integers in an array (in positions 0 to n-1
-         * inclusive, were n is the value of the limit argument)
+         * inclusive, where n is the value of the limit argument)
          *
          * @param contents the array over which to iterate
          * @param limit    the number of items to be included in the iteration

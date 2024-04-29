@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -278,7 +278,7 @@ public final class AxisInfo {
     private static final int COM = 1 << Type.COMMENT;
     private static final int NAM = 1 << Type.NAMESPACE;
 
-    private static int[] voidAxisTable = {
+    private static final int[] voidAxisTable = {
             DOC,                                // ANCESTOR
             0,                                  // ANCESTOR_OR_SELF;
             DOC | ATT | TEX | PIN | COM | NAM,  // ATTRIBUTE;
@@ -312,7 +312,7 @@ public final class AxisInfo {
      * The following table indicates the kinds of node found on each axis
      */
 
-    private static int[] nodeKindTable = {
+    private static final int[] nodeKindTable = {
             DOC | ELE,                                 // ANCESTOR
             DOC | ELE | ATT | TEX | PIN | COM | NAM,   // ANCESTOR_OR_SELF;
             ATT,                                       // ATTRIBUTE;
@@ -385,7 +385,7 @@ public final class AxisInfo {
     };
 
 
-    private static IntHashMap<UType> axisTransitions = new IntHashMap<>(50);
+    private static final IntHashMap<UType> axisTransitions = new IntHashMap<>(50);
 
     private static void e(PrimitiveUType origin, int axis, UType target) {
         axisTransitions.put(makeKey(origin, axis), target);
@@ -408,7 +408,7 @@ public final class AxisInfo {
         for (PrimitiveUType u : origins) {
             UType r = axisTransitions.get(makeKey(u, axis));
             if (r == null) {
-                System.err.println("Unknown transitions for primitive type " + u.toString() + "::" + axis);
+                throw new AssertionError("Unknown transitions for primitive type " + u.toString() + "::" + axis);
             }
             resultType = resultType.union(r);
         }

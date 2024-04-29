@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,12 +19,23 @@ import net.sf.saxon.om.SequenceIterator;
 public interface LookaheadIterator extends SequenceIterator {
 
     /**
+     * Ask whether the hasNext() method can be called. This method must
+     * be called before calling hasNext(), because some iterators
+     * implement this interface, but only support look-ahead under particular
+     * circumstances (this is usually because they delegate to another
+     * iterator)
+     * @return true if the {@link #hasNext()} method is available
+     */
+
+    boolean supportsHasNext();
+
+    /**
      * Determine whether there are more items to come. Note that this operation
      * is stateless and it is not necessary (or usual) to call it before calling
      * next(). It is used only when there is an explicit need to tell if we
      * are at the last element.
-     * <p>This method must not be called unless the result of getProperties() on the iterator
-     * includes the property {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD} </p>
+     * <p>This method must not be called unless the result of {@link #supportsHasNext()}
+     * is true.</p>
      *
      * @return true if there are more items in the sequence
      */

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,27 +11,30 @@ import net.sf.saxon.event.Event;
 import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.IndentWhitespace;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.tiny.CharSlice;
 import net.sf.saxon.type.AnyType;
 import net.sf.saxon.type.ComplexType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Untyped;
 import net.sf.saxon.value.Whitespace;
+import net.sf.saxon.z.IntIterator;
 
 import javax.xml.transform.OutputKeys;
-import java.util.*;
+import java.util.HashSet;
+import java.util.Properties;
+import java.util.Set;
+import java.util.StringTokenizer;
 
 /**
  * XMLIndenter: This ProxyReceiver indents elements, by adding character data where appropriate.
  * The character data is always added as "ignorable white space", that is, it is never added
  * adjacent to existing character data.
- *
- * @author Michael Kay
  */
 
 
@@ -39,7 +42,6 @@ public class XMLIndenter extends ProxyReceiver {
 
     private int level = 0;
 
-    protected char[] indentChars = {'\n', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
     private boolean sameline = false;
     private boolean afterStartTag = false;
     private boolean afterEndTag = true;
@@ -48,9 +50,7 @@ public class XMLIndenter extends ProxyReceiver {
     private int column = 0;     // .. in whitespace text nodes between tags
     private int suppressedAtLevel = -1;
     private Set<NodeName> suppressedElements = null;
-    private XMLEmitter emitter;
-    //private AttributeCollectionImpl bufferedAttributes;
-    //private List<NamespaceBindingSet> bufferedNamespaces = new ArrayList<NamespaceBindingSet>(8);
+    private final XMLEmitter emitter;
 
 
     /**
@@ -62,7 +62,6 @@ public class XMLIndenter extends ProxyReceiver {
     public XMLIndenter(XMLEmitter next) {
         super(next);
         emitter = next;
-        //bufferedAttributes = new AttributeCollectionImpl(getConfiguration());
     }
 
     /**
@@ -110,19 +109,19 @@ public class XMLIndenter extends ProxyReceiver {
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties) throws XPathException {
         if (afterStartTag || afterEndTag) {
-            if (isDoubleSpaced(nameCode)) {
-                nextReceiver.characters("\n", location, ReceiverOption.NONE);
-                line = 0;
-                column = 0;
-            }
-            indent();
+            boolean doubleSpaced = isDoubleSpaced(nameCode);
+//            if (doubleSpaced) {
+//                line = 0;
+//                column = 0;
+//            }
+            indent(doubleSpaced);
         } else {
             flushPendingWhitespace();
         }
 
         level++;
         if (suppressedAtLevel < 0) {
-            String xmlSpace = attributes.getValue(NamespaceConstant.XML, "space");
+            String xmlSpace = attributes.getValue(NamespaceUri.XML, "space");
             if (xmlSpace != null && xmlSpace.trim().equals("preserve")) {
                 // Note, we are suppressing indentation within an xml:space="preserve" region even if a descendant
                 // specifies xml:space="default"
@@ -151,9 +150,9 @@ public class XMLIndenter extends ProxyReceiver {
                 for (NamespaceBinding binding : nbs) {
                     String prefix = binding.getPrefix();
                     if (prefix.isEmpty()) {
-                        len += 9 + binding.getURI().length();
+                        len += 9 + binding.getNamespaceUri().toString().length();
                     } else {
-                        len += prefix.length() + 10 + binding.getURI().length();
+                        len += prefix.length() + 10 + binding.getNamespaceUri().toString().length();
                     }
                 }
             }
@@ -165,7 +164,7 @@ public class XMLIndenter extends ProxyReceiver {
                         + 4 + (prefix.isEmpty() ? 4 : prefix.length() + 5);
             }
             if (len > getLineLength()) {
-                int indent = (level - 1) * getIndentation() + 3;
+                int indent = (level - 1) * getIndentation() + 2;
                 emitter.setIndentForNextAttribute(indent);
             }
         }
@@ -180,7 +179,7 @@ public class XMLIndenter extends ProxyReceiver {
     public void endElement() throws XPathException {
         level--;
         if (afterEndTag && !sameline) {
-            indent();
+            indent(false);
         } else {
             flushPendingWhitespace();
         }
@@ -200,9 +199,9 @@ public class XMLIndenter extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (afterEndTag) {
-            indent();
+            indent(false);
         } else {
             flushPendingWhitespace();
         }
@@ -216,13 +215,14 @@ public class XMLIndenter extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (suppressedAtLevel < 0 && Whitespace.isWhite(chars)) {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (suppressedAtLevel < 0 && Whitespace.isAllWhite(chars)) {
             pendingWhitespace = new Event.Text(chars, locationId, properties);
         } else {
             flushPendingWhitespace();
-            for (int i = 0; i < chars.length(); i++) {
-                char c = chars.charAt(i);
+            IntIterator iter = chars.codePoints();
+            while (iter.hasNext()) {
+                int c = iter.next();
                 if (c == '\n') {
                     sameline = false;
                     line++;
@@ -241,9 +241,9 @@ public class XMLIndenter extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (afterEndTag) {
-            indent();
+            indent(false);
         } else {
             flushPendingWhitespace();
         }
@@ -269,9 +269,10 @@ public class XMLIndenter extends ProxyReceiver {
      * Output white space to reflect the current indentation level
      *
      * @throws XPathException if a downstream error occurs doing the output
+     * @param doubleSpace true if double-spacing is requested for this element
      */
 
-    private void indent() throws XPathException {
+    private void indent(boolean doubleSpace) throws XPathException {
         if (suppressedAtLevel >= 0) {
             // indentation has been suppressed (e.g. by xmlspace="preserve")
             flushPendingWhitespace();
@@ -285,20 +286,7 @@ public class XMLIndenter extends ProxyReceiver {
                 return;     // there's already enough white space, don't add more
             }
         }
-        if (spaces + 2 >= indentChars.length) {
-            int increment = 5 * getIndentation();
-            if (spaces + 2 > indentChars.length + increment) {
-                increment += spaces + 2;
-            }
-            char[] c2 = new char[indentChars.length + increment];
-            System.arraycopy(indentChars, 0, c2, 0, indentChars.length);
-            Arrays.fill(c2, indentChars.length, c2.length, ' ');
-            indentChars = c2;
-        }
-        // output the initial newline character only if line==0
-        int start = line == 0 ? 0 : 1;
-        //super.characters(indentChars.subSequence(start, start+spaces+1), 0, ReceiverOption.NO_SPECIAL_CHARS);
-        emitter.characters(new CharSlice(indentChars, start, spaces + 1),
+        emitter.characters(IndentWhitespace.of(line == 0 ? (doubleSpace ? 2 : 1) : 0, spaces),
                            Loc.NONE, ReceiverOption.NO_SPECIAL_CHARS);
         sameline = false;
     }
@@ -313,7 +301,7 @@ public class XMLIndenter extends ProxyReceiver {
     @Override
     public void endDocument() throws XPathException {
         if (afterEndTag) {
-            emitter.characters("\n", Loc.NONE, ReceiverOption.NONE);  // if permitted, output a trailing newline, for tidier console output
+            emitter.characters(BMPString.of("\n"), Loc.NONE, ReceiverOption.NONE);  // if permitted, output a trailing newline, for tidier console output
         }
         super.endDocument();
     }

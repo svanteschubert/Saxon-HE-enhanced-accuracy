@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,16 @@ package net.sf.saxon.expr.sort;
 
 import net.sf.saxon.functions.CollationKeyFn;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.regex.ARegularExpression;
+import net.sf.saxon.regex.RegexIterator;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.value.Base64BinaryValue;
+import net.sf.saxon.value.StringValue;
+import net.sf.saxon.transpile.*;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * A Comparer that treats strings as an alternating sequence of alpha parts and numeric parts. The
@@ -27,8 +31,8 @@ import java.util.regex.Pattern;
 
 public class AlphanumericCollator implements StringCollator {
 
-    private StringCollator baseCollator;
-    private static Pattern pattern = Pattern.compile("\\d+");
+    private final StringCollator baseCollator;
+    private static final ARegularExpression pattern = ARegularExpression.compile("\\d+", "");
     public final static String PREFIX = "http://saxon.sf.net/collation/alphaNumeric?base=";
 
     /**
@@ -57,55 +61,53 @@ public class AlphanumericCollator implements StringCollator {
      * Compare two objects.
      *
      * @return &lt;0 if a&lt;b, 0 if a=b, &gt;0 if a&gt;b
+     * @param cs1 the first string
+     * @param cs2 the second string
      */
 
     @Override
-    public int compareStrings(CharSequence cs1, CharSequence cs2) {
-        String s1 = cs1.toString();
-        String s2 = cs2.toString();
-        int pos1 = 0;
-        int pos2 = 0;
-        Matcher m1 = pattern.matcher(s1);
-        Matcher m2 = pattern.matcher(s2);
+    public int compareStrings(UnicodeString cs1, UnicodeString cs2) {
+
+        RegexIterator iter1 = pattern.analyze(cs1);
+        RegexIterator iter2 = pattern.analyze(cs2);
+
+
         while (true) {
 
-            // find the next number in each string
+            // find the next numeric or non-numeric substring in each string
 
-            boolean b1 = m1.find(pos1);
-            boolean b2 = m2.find(pos2);
-            int m1start = b1 ? m1.start() : s1.length();
-            int m2start = b2 ? m2.start() : s2.length();
+            StringValue sv1 = iter1.next();
+            StringValue sv2 = iter2.next();
 
-            // compare an alphabetic pair (even if zero-length)
-
-            int c = baseCollator.compareStrings(s1.substring(pos1, m1start), s2.substring(pos2, m2start));
-            if (c != 0) {
-                return c;
+            if (sv1 == null) {
+                return sv2 == null ? 0 : -1;
             }
 
-            // if one match found a number and the other didn't, exit accordingly
-
-            if (b1 && !b2) {
+            if (sv2 == null) {
                 return +1;
-            } else if (b2 && !b1) {
-                return -1;
-            } else if (!b1) {
-                return 0;
             }
 
-            // a number was found in each of the strings: compare the numbers
+            boolean numeric1 = iter1.isMatching();
+            boolean numeric2 = iter2.isMatching();
 
-            BigInteger n1 = new BigInteger(s1.substring(m1start, m1.end()));
-            BigInteger n2 = new BigInteger(s2.substring(m2start, m2.end()));
-            c = n1.compareTo(n2);
-            if (c != 0) {
-                return c;
+            if (numeric1 && numeric2) {
+                BigInteger n1 = new BigInteger(sv1.getStringValue());
+                BigInteger n2 = new BigInteger(sv2.getStringValue());
+                int c = n1.compareTo(n2);
+                if (c != 0) {
+                    return c;
+                }
+            } else {
+                UnicodeString u1 = numeric1 ? EmptyUnicodeString.getInstance() : sv1.getUnicodeStringValue();
+                UnicodeString u2 = numeric2 ? EmptyUnicodeString.getInstance() : sv2.getUnicodeStringValue();
+                int c = baseCollator.compareStrings(u1, u2);
+                if (c != 0) {
+                    return c;
+                }
             }
 
-            // the numbers are equal: move on to the next part of the string
+            // otherwise, the substrings are equal: move on to the next part of the string
 
-            pos1 = m1.end();
-            pos2 = m2.end();
         }
     }
 
@@ -119,83 +121,46 @@ public class AlphanumericCollator implements StringCollator {
      */
 
     @Override
-    public boolean comparesEqual(CharSequence s1, CharSequence s2) {
+    public boolean comparesEqual(UnicodeString s1, UnicodeString s2) {
         return compareStrings(s1, s2) == 0;
     }
 
     /**
-     * Get a collation key for comparing two Strings. The essential property of collation keys
-     * is that if two values are equal under the collation, then the collation keys are
-     * compare correctly under the equals() method.
+     * Get a collation key for a String. The essential property of collation keys
+     * is that if (and only if) two strings are equal under the collation, then
+     * comparing the collation keys using the equals() method must return true.
      * @param cs the string whose collation key is required
      */
 
     @Override
-    public AtomicMatchKey getCollationKey(/*@NotNull*/ CharSequence cs) {
-        // The string is normalized by removing leading zeros in a numeric component
-        String s = cs.toString();
+    public AtomicMatchKey getCollationKey(/*@NotNull*/ UnicodeString cs) {
         // See bug 5049
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        int pos1 = 0;
-        Matcher m1 = pattern.matcher(s);
-        while (true) {
+        RegexIterator iter = pattern.analyze(cs);
+        for (StringValue sv; (sv = iter.next()) != null;) {
+            if (iter.isMatching()) {
+                // numeric part
+                BigInteger n = new BigInteger(sv.getStringValue());
+                byte[] bin = n.toByteArray();
+                int len = bin.length;
+                // Assume max length of numeric part 255
+                writeByte(baos, (byte)0); // separator from previous alpha part
+                writeByte(baos, (byte)len);
+                baos.write(bin, 0, bin.length); // written this way to avoid checked exceptions
+            } else {
+                Base64BinaryValue b64 = CollationKeyFn.getCollationKey(sv.getUnicodeStringValue(), baseCollator);
+                final byte[] bin = b64.getBinaryValue();
+                baos.write(bin, 0, bin.length);
 
-            // find the next number in the string
-
-            boolean b1 = m1.find(pos1);
-            int m1start = b1 ? m1.start() : s.length();
-
-            // handle an alphabetic part (even if zero-length)
-
-            Base64BinaryValue b64 = CollationKeyFn.getCollationKey(s.substring(pos1, m1start), baseCollator);
-            byte[] bin = b64.getBinaryValue();
-            baos.write(bin, 0, bin.length);
-
-            // reached end?
-
-            if (!b1) {
-                return new Base64BinaryValue(baos.toByteArray());
             }
-
-            // handle a numeric part
-
-            BigInteger n = new BigInteger(s.substring(m1start, m1.end()));
-            bin = n.toByteArray();
-            int len = bin.length;
-            // Assume max length of numeric part 255
-            baos.write(0); // separator from previous alpha part
-            baos.write((byte) len);
-            baos.write(bin, 0, bin.length); // written this way to avoid checked exceptions
-
-            // move on to the next part of the string
-
-            pos1 = m1.end();
         }
+        return new Base64BinaryValue(baos.toByteArray());
     }
 
-//    public AtomicMatchKey getCollationKey2(/*@NotNull*/ UnicodeString cs) {
-//        // See bug 5049
-//        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-//        RegexIterator iter = pattern.analyze(cs);
-//        for (StringValue sv; (sv = iter.next()) != null; ) {
-//            if (iter.isMatching()) {
-//                // numeric part
-//                BigInteger n = new BigInteger(sv.getStringValue());
-//                byte[] bin = n.toByteArray();
-//                int len = bin.length;
-//                // Assume max length of numeric part 255
-//                baos.write(0); // separator from previous alpha part
-//                baos.write((byte) len);
-//                baos.write(bin, 0, bin.length); // written this way to avoid checked exceptions
-//            } else {
-//                Base64BinaryValue b64 = CollationKeyFn.getCollationKey(sv.getUnicodeStringValue(), baseCollator);
-//                final byte[] bin = b64.getBinaryValue();
-//                baos.write(bin, 0, bin.length);
-//
-//            }
-//        }
-//        return new Base64BinaryValue(baos.toByteArray());
-//    }
+    @CSharpReplaceBody(code="baos.WriteByte(val);")
+    private static void writeByte(ByteArrayOutputStream baos, byte val) {
+        baos.write(val);
+    }
 
 }
 

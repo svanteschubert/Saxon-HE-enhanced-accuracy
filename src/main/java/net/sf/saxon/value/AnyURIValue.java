@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,14 @@
 
 package net.sf.saxon.value;
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.*;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 
 /**
@@ -27,8 +29,7 @@ import java.nio.charset.Charset;
 
 public final class AnyURIValue extends StringValue {
 
-    /*@NotNull*/ public static final AnyURIValue EMPTY_URI = new AnyURIValue("");
-
+    public static final AnyURIValue EMPTY_URI = new AnyURIValue("");  // Used in bytecode
 
     /**
      * Constructor
@@ -38,9 +39,13 @@ public final class AnyURIValue extends StringValue {
      *              perform whitespace normalization.
      */
 
-    public AnyURIValue(/*@Nullable*/ CharSequence value) {
-        this.value = value == null ? "" : Whitespace.collapseWhitespace(value).toString();
-        typeLabel = BuiltInAtomicType.ANY_URI;
+    public AnyURIValue(UnicodeString value) {
+        super(value == null ? EmptyUnicodeString.getInstance() : Whitespace.collapseWhitespace(value),
+              BuiltInAtomicType.ANY_URI);
+    }
+
+    public AnyURIValue(String value) {
+        this(StringView.tidy(value));
     }
 
     /**
@@ -52,9 +57,8 @@ public final class AnyURIValue extends StringValue {
      *              to the definition of this type.
      */
 
-    public AnyURIValue(/*@Nullable*/ CharSequence value, AtomicType type) {
-        this.value = value == null ? "" : Whitespace.collapseWhitespace(value).toString();
-        typeLabel = type;
+    public AnyURIValue(UnicodeString value, AtomicType type) {
+        super(value == null ? "" : Whitespace.collapseWhitespace(value).toString(), type);
     }
 
 
@@ -67,10 +71,12 @@ public final class AnyURIValue extends StringValue {
 
     /*@NotNull*/
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        AnyURIValue v = new AnyURIValue(value);
-        v.typeLabel = typeLabel;
-        return v;
+    public AnyURIValue copyAsSubType(AtomicType typeLabel) {
+        return new AnyURIValue(this.getUnicodeStringValue(), typeLabel);
+    }
+
+    public StringValue convertToString() {
+        return new StringValue(getContent(), BuiltInAtomicType.STRING);
     }
 
     /*@NotNull*/
@@ -81,6 +87,7 @@ public final class AnyURIValue extends StringValue {
 
 
     /*@Nullable*/
+    @CSharpReplaceBody(code="return System.Uri.UnescapeDataString(s);")
     public static String decode(/*@Nullable*/ String s) {
         // Evaluates all escapes in s, applying UTF-8 decoding if needed.  Assumes
         // that escapes are well-formed syntactically, i.e., of the form %XX.  If a
@@ -91,7 +98,7 @@ public final class AnyURIValue extends StringValue {
         //
 
         if (s == null) {
-            return s;
+            return null;
         }
         int n = s.length();
         if (n == 0) {
@@ -101,9 +108,9 @@ public final class AnyURIValue extends StringValue {
             return s;
         }
 
-        FastStringBuffer sb = new FastStringBuffer(n);
+        StringBuilder sb = new StringBuilder(n);
         ByteBuffer bb = ByteBuffer.allocate(n);
-        Charset utf8 = Charset.forName("UTF-8");
+        Charset utf8 = StandardCharsets.UTF_8;
 
         // This is not horribly efficient, but it will do for now
         char c = s.charAt(0);
@@ -117,7 +124,7 @@ public final class AnyURIValue extends StringValue {
                 betweenBrackets = false;
             }
             if (c != '%' || betweenBrackets) {
-                sb.cat(c);
+                sb.append(c);
                 if (++i >= n) {
                     break;
                 }
@@ -137,7 +144,7 @@ public final class AnyURIValue extends StringValue {
                 }
             }
             bb.flip();
-            sb.cat(utf8.decode(bb));
+            sb.append(utf8.decode(bb));
         }
 
         return sb.toString();

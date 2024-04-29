@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,9 @@
 
 package net.sf.saxon.om;
 
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 
 /**
@@ -71,11 +70,13 @@ public final class NamePool {
     // Next fingerprint available to be allocated. Starts at 1024 as low-end fingerprints are statically allocated to system-defined
     // names
 
-    private AtomicInteger unique = new AtomicInteger(1024);
+    private final AtomicCounter unique = new AtomicCounter(1024);
 
     // A map containing suggested prefixes for particular URIs
 
-    private ConcurrentHashMap<String, String> suggestedPrefixes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<NamespaceUri, String> suggestedPrefixes = new ConcurrentHashMap<>();
+
+
 
 
 
@@ -93,7 +94,7 @@ public final class NamePool {
      * @param prefix the suggested prefix
      */
 
-    public void suggestPrefix(String prefix, String uri) {
+    public void suggestPrefix(String prefix, NamespaceUri uri) {
         suggestedPrefixes.put(uri, prefix);
     }
 
@@ -145,8 +146,8 @@ public final class NamePool {
      * @return a prefix that has previously been associated with this URI, if available; otherwise null
      */
 
-    public String suggestPrefixForURI(String uri) {
-        if (uri.equals(NamespaceConstant.XML)) {
+    public String suggestPrefixForURI(NamespaceUri uri) {
+        if (uri.equals(NamespaceUri.XML)) {
             return "xml";
         }
         return suggestedPrefixes.get(uri);
@@ -162,29 +163,35 @@ public final class NamePool {
      * for the same name with a prefix equal to "".
      */
 
-    public synchronized int allocateFingerprint(String uri, String local) {
-        if (NamespaceConstant.isReserved(uri) || NamespaceConstant.SAXON.equals(uri)) {
+    public synchronized int allocateFingerprint(NamespaceUri uri, String local) {
+        if (NamespaceUri.isReserved(uri) || NamespaceUri.SAXON.equals(uri)) {
             int fp = StandardNames.getFingerprint(uri, local);
             if (fp != -1) {
                 return fp;
             }
         }
         StructuredQName qName = new StructuredQName("", uri, local);
-        Integer existing = qNameToInteger.get(qName);
-        if (existing != null) {
+        int existing = qNameToInteger.getOrDefault(qName, -1);
+        if (existing >= 0) {
             return existing;
         }
-        int next = unique.getAndIncrement();
-        if (next > MAX_FINGERPRINT) {
+        long nextUnique = unique.getAndIncrement();
+        if (nextUnique > MAX_FINGERPRINT) {
             throw new NamePoolLimitException("Too many distinct names in NamePool");
         }
-        existing = qNameToInteger.putIfAbsent(qName, next);
-        if (existing == null) {
+        int next = (int)nextUnique;
+        Integer existing2 = qNameToInteger.putIfAbsent(qName, next);
+        if (keyWasAbsent(existing2)) {
             integerToQName.put(next, qName);
             return next;
         } else {
             return existing;
         }
+    }
+
+    @CSharpReplaceBody(code="return result == default(System.Int32);")
+    private static boolean keyWasAbsent(Integer result) {
+        return result == null;
     }
 
     /**
@@ -197,12 +204,12 @@ public final class NamePool {
      */
 
     /*@NotNull*/
-    public String getURI(int nameCode) {
+    public NamespaceUri getURI(int nameCode) {
         int fp = nameCode & FP_MASK;
         if ((fp & USER_DEFINED_MASK) == 0) {
             return StandardNames.getURI(fp);
         }
-        return getUnprefixedQName(fp).getURI();
+        return getUnprefixedQName(fp).getNamespaceUri();
     }
 
     /**
@@ -260,20 +267,20 @@ public final class NamePool {
      */
 
     public int allocateClarkName(String expandedName) {
-        String namespace;
+        NamespaceUri namespace;
         String localName;
         if (expandedName.charAt(0) == '{') {
             int closeBrace = expandedName.indexOf('}');
             if (closeBrace < 0) {
                 throw new IllegalArgumentException("No closing '}' in Clark name");
             }
-            namespace = expandedName.substring(1, closeBrace);
+            namespace = NamespaceUri.of(expandedName.substring(1, closeBrace));
             if (closeBrace == expandedName.length()) {
                 throw new IllegalArgumentException("Missing local part in Clark name");
             }
             localName = expandedName.substring(closeBrace + 1);
         } else {
-            namespace = "";
+            namespace = NamespaceUri.NULL;
             localName = expandedName;
         }
 
@@ -291,18 +298,17 @@ public final class NamePool {
      * @return the integer fingerprint, or -1 if this is not found in the name pool
      */
 
-    public int getFingerprint(String uri, String localName) {
+    public int getFingerprint(NamespaceUri uri, String localName) {
         // A read-only version of allocate()
 
-        if (NamespaceConstant.isReserved(uri) || uri.equals(NamespaceConstant.SAXON)) {
+        if (NamespaceUri.isReserved(uri) || uri.equals(NamespaceUri.SAXON)) {
             int fp = StandardNames.getFingerprint(uri, localName);
             if (fp != -1) {
                 return fp;
                 // otherwise, look for the name in this namepool
             }
         }
-        Integer fp = qNameToInteger.get(new StructuredQName("", uri, localName));
-        return fp == null ? -1 : fp;
+        return qNameToInteger.getOrDefault(new StructuredQName("", uri, localName), -1);
 
     }
 

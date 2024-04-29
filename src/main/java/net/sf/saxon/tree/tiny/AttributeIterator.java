@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,8 +15,6 @@ import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
-import java.util.EnumSet;
-
 /**
  * AttributeIterator is an iterator over all the attribute nodes of an Element in the TinyTree.
  */
@@ -31,7 +29,7 @@ final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
 
     /**
      * Constructor. Note: this constructor will only be called if the relevant node
-     * is an element and if it has one or more attributes. Otherwise an EmptyEnumeration
+     * is an element and if it has one or more attributes. Otherwise an {@link net.sf.saxon.tree.iter.EmptyIterator}
      * will be constructed instead.
      *
      * @param tree:     the containing TinyTree
@@ -75,7 +73,7 @@ final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
     }
 
     /**
-     * Get the next item in the sequence. <BR>
+     * Get the next item in the sequence.
      *
      * @return the next Item. If there are no more nodes, return null.
      */
@@ -106,18 +104,5 @@ final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
         }
     }
 
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.ATOMIZING);
-    }
 }
 

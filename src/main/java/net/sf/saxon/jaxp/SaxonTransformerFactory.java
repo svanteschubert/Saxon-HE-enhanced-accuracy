@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,6 +17,7 @@ import net.sf.saxon.trans.CompilerInfo;
 import net.sf.saxon.trans.ConfigurationReader;
 import net.sf.saxon.trans.XPathException;
 import org.xml.sax.XMLFilter;
+import org.xmlresolver.ResolverFeature;
 
 import javax.xml.XMLConstants;
 import javax.xml.transform.*;
@@ -48,7 +49,7 @@ import java.util.Comparator;
 
 public class SaxonTransformerFactory extends SAXTransformerFactory implements Configuration.ApiProvider {
 
-    private Processor processor;
+    private final Processor processor;
     private ErrorListener errorListener = new StandardErrorListener();
 
     /**
@@ -152,7 +153,7 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
                 compiler.setErrorReporter(new ErrorReporterToListener(errorListener));
             }
             XsltExecutable executable = compiler.compile(source);
-            return new TemplatesImpl(executable);
+            return new TemplatesImpl(this, executable);
         } catch (SaxonApiException e) {
             throw new TransformerConfigurationException(e);
         }
@@ -181,7 +182,7 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
         try {
             XsltCompiler compiler = processor.newXsltCompiler();
             compiler.getUnderlyingCompilerInfo().copyFrom(info);
-            return new TemplatesImpl(compiler.compile(source));
+            return new TemplatesImpl(this, compiler.compile(source));
         } catch (SaxonApiException e) {
             throw new TransformerConfigurationException(e);
         }
@@ -237,7 +238,7 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
 
     @Override
     public void setURIResolver(URIResolver resolver) {
-        getConfiguration().setURIResolver(resolver);
+        getConfiguration().setResourceResolver(new ResourceResolverWrappingURIResolver(resolver));
     }
 
     /**
@@ -249,7 +250,10 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
 
     @Override
     public URIResolver getURIResolver() {
-        return getConfiguration().getURIResolver();
+        if (getConfiguration().getResourceResolver() instanceof ResourceResolverWrappingURIResolver) {
+            return ((ResourceResolverWrappingURIResolver) getConfiguration().getResourceResolver()).getWrappedURIResolver();
+        }
+        return null;
     }
 
     //======= CONFIGURATION METHODS =======
@@ -321,17 +325,22 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
                 }
                 break;
             case XMLConstants.ACCESS_EXTERNAL_DTD:
-                getConfiguration().setConfigurationProperty(Feature.XML_PARSER_PROPERTY.name + XMLConstants.ACCESS_EXTERNAL_DTD, value);
+                getConfiguration().setConfigurationProperty(FeatureKeys.XML_PARSER_PROPERTY + XMLConstants.ACCESS_EXTERNAL_DTD, value);
                 break;
             case XMLConstants.ACCESS_EXTERNAL_STYLESHEET:
                 getConfiguration().setConfigurationProperty(Feature.ALLOWED_PROTOCOLS, value.toString());
+                ResourceResolver resolver = getConfiguration().getResourceResolver();
+                if (resolver instanceof CatalogResourceResolver) {
+                    CatalogResourceResolver catres = (CatalogResourceResolver) resolver;
+                    catres.setFeature(ResolverFeature.ACCESS_EXTERNAL_DOCUMENT, value.toString());
+                    catres.setFeature(ResolverFeature.ACCESS_EXTERNAL_ENTITY, value.toString());
+                }
                 break;
             default:
                 getConfiguration().setConfigurationProperty(name, value);
                 break;
         }
     }
-
     /**
      * Allows the user to retrieve specific attributes on the underlying
      * implementation.
@@ -457,7 +466,7 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
 
     @Override
     public TemplatesHandler newTemplatesHandler() {
-        return new TemplatesHandlerImpl(processor);
+        return new TemplatesHandlerImpl(this, processor);
     }
 
     /**

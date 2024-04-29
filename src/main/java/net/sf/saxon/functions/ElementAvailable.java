@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,16 +7,14 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.NameChecker;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
+import net.sf.saxon.str.StringTool;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.BooleanValue;
 
@@ -63,6 +61,7 @@ public class ElementAvailable extends SystemFunction {
             case StandardNames.XSL_IMPORT:
             case StandardNames.XSL_IMPORT_SCHEMA:
             case StandardNames.XSL_INCLUDE:
+            case StandardNames.XSL_ITEM_TYPE:
             case StandardNames.XSL_ITERATE:
             case StandardNames.XSL_KEY:
             case StandardNames.XSL_MAP:
@@ -98,6 +97,7 @@ public class ElementAvailable extends SystemFunction {
             case StandardNames.XSL_SOURCE_DOCUMENT:
             case StandardNames.XSL_STRIP_SPACE:
             case StandardNames.XSL_STYLESHEET:
+            case StandardNames.XSL_SWITCH:
             case StandardNames.XSL_TEMPLATE:
             case StandardNames.XSL_TEXT:
             case StandardNames.XSL_TRANSFORM:
@@ -114,6 +114,12 @@ public class ElementAvailable extends SystemFunction {
         }
     }
 
+    public static boolean isXslt40Element(int fp) {
+        return isXslt30Element(fp)
+                || fp == StandardNames.XSL_ARRAY
+                || fp == StandardNames.XSL_ARRAY_MEMBER;
+    }
+
     /**
      * Special-case for element-available('xsl:evaluate') which may be dynamically-disabled,
      * and the spec says that this should be assessed at run-time.  By indicating that the
@@ -125,9 +131,9 @@ public class ElementAvailable extends SystemFunction {
     public int getSpecialProperties(Expression[] arguments) {
         try {
             if (arguments[0] instanceof StringLiteral) {
-                String arg = ((StringLiteral) arguments[0]).getStringValue();
+                String arg = ((StringLiteral) arguments[0]).stringify();
                 StructuredQName elem = getElementName(arg);
-                if (elem.hasURI(NamespaceConstant.XSLT) && elem.getLocalPart().equals("evaluate")) {
+                if (elem.hasURI(NamespaceUri.XSLT) && elem.getLocalPart().equals("evaluate")) {
                     return super.getSpecialProperties(arguments) | StaticProperty.DEPENDS_ON_RUNTIME_ENVIRONMENT;
                 }
             }
@@ -145,24 +151,29 @@ public class ElementAvailable extends SystemFunction {
      * were recognized.
      *
      * @param lexicalName the lexical QName of the element
-     * @param edition the target edition that the stylesheet is to run under, e.g. "HE", "JS"
+     * @param targetEdition the target edition that the stylesheet is to run under, e.g. "HE", "JS"
      * @param context     the XPath evaluation context
      * @return true if the instruction is available, in the sense of the XSLT element-available() function
      * @throws XPathException if a dynamic error occurs (e.g., a bad QName)
      */
 
-    private boolean isElementAvailable(String lexicalName, String edition, XPathContext context) throws XPathException {
+    private boolean isElementAvailable(String lexicalName, String targetEdition, XPathContext context) throws XPathException {
 
         StructuredQName qName = getElementName(lexicalName);
 
-        if (qName.hasURI(NamespaceConstant.XSLT)) {
-            int fp = context.getConfiguration().getNamePool().getFingerprint(NamespaceConstant.XSLT, qName.getLocalPart());
-            boolean known = isXslt30Element(fp);
+        if (qName.hasURI(NamespaceUri.XSLT)) {
+            int fp = context.getConfiguration().getNamePool().getFingerprint(NamespaceUri.XSLT, qName.getLocalPart());
+            int xsltVersion = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
             if (fp == StandardNames.XSL_EVALUATE) {
-                known = known && !context.getConfiguration().getBooleanProperty(Feature.DISABLE_XSL_EVALUATE);
+                return !context.getConfiguration().getBooleanProperty(Feature.DISABLE_XSL_EVALUATE);
             }
-            return known;
-        } else if (qName.hasURI(NamespaceConstant.IXSL) && !edition.equals("JS")) {
+            if (fp == StandardNames.XSL_IMPORT_SCHEMA) {
+                return context.getConfiguration().isLicensedFeature(Configuration.LicenseFeature.SCHEMA_VALIDATION)
+                        && targetEdition.equals("EE");
+            }
+            return xsltVersion == 40 ? isXslt40Element(fp) : isXslt30Element(fp);
+
+        } else if (qName.hasURI(NamespaceUri.IXSL) && !targetEdition.equals("JS")) {
             return false;
         }
         return context.getConfiguration().isExtensionElementAvailable(qName);
@@ -170,8 +181,8 @@ public class ElementAvailable extends SystemFunction {
 
     private StructuredQName getElementName(String lexicalName) throws XPathException {
         try {
-            if (lexicalName.indexOf(':') < 0 && NameChecker.isValidNCName(lexicalName)) {
-                String uri = getRetainedStaticContext().getURIForPrefix("", true);
+            if (NameChecker.isValidNCName(StringTool.codePoints(lexicalName))) {
+                NamespaceUri uri = getRetainedStaticContext().getURIForPrefix("", true);
                 return new StructuredQName("", uri, lexicalName);
             } else {
                 return StructuredQName.fromLexicalQName(lexicalName, false,

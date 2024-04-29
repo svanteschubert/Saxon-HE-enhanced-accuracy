@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,10 +9,11 @@ package net.sf.saxon.tree.linked;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.NoNamespaceName;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
@@ -21,19 +22,18 @@ import net.sf.saxon.value.StringValue;
  * ProcInstImpl is an implementation of ProcInstInfo used by the Propagator to construct
  * its trees.
  *
- * @author Michael H. Kay
  */
 
 
 public class ProcInstImpl extends NodeImpl {
 
-    String content;
+    UnicodeString content;
     String name;
     String systemId;
     int lineNumber = -1;
     int columnNumber = -1;
 
-    public ProcInstImpl(String name, String content) {
+    public ProcInstImpl(String name, UnicodeString content) {
         this.name = name;
         this.content = content;
     }
@@ -51,7 +51,7 @@ public class ProcInstImpl extends NodeImpl {
 
 
     @Override
-    public String getStringValue() {
+    public UnicodeString getUnicodeStringValue() {
         return content;
     }
 
@@ -63,7 +63,7 @@ public class ProcInstImpl extends NodeImpl {
     /*@NotNull*/
     @Override
     public AtomicSequence atomize() {
-        return new StringValue(getStringValue());
+        return new StringValue(getUnicodeStringValue());
     }
 
     @Override
@@ -74,8 +74,9 @@ public class ProcInstImpl extends NodeImpl {
     /**
      * Set the system ID and line number
      *
-     * @param uri        the system identifier
-     * @param lineNumber the line number
+     * @param uri          the system identifier
+     * @param lineNumber   the line number
+     * @param columnNumber the column number
      */
 
     public void setLocation(String uri, int lineNumber, int columnNumber) {
@@ -127,11 +128,11 @@ public class ProcInstImpl extends NodeImpl {
      * Rename this node
      *
      * @param newNameCode the new name
-     * @param inheritNamespaces
+     * @param inherit true if any new namespace binding is to be inherited by descendants
      */
 
     @Override
-    public void rename(NodeName newNameCode, boolean inheritNamespaces) {
+    public void rename(NodeName newNameCode, boolean inherit) {
         name = newNameCode.getLocalPart();
     }
 
@@ -143,8 +144,8 @@ public class ProcInstImpl extends NodeImpl {
      */
 
     @Override
-    public void replaceStringValue(/*@NotNull*/ CharSequence stringValue) {
-        content = stringValue.toString();
+    public void replaceStringValue(/*@NotNull*/ UnicodeString stringValue) {
+        content = stringValue;
     }
 }
 

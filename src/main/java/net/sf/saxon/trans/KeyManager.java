@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -37,7 +37,9 @@ import net.sf.saxon.z.IntHashMap;
 import java.lang.ref.WeakReference;
 import java.util.*;
 
-import static net.sf.saxon.trans.KeyIndex.Status.*;
+import static net.sf.saxon.trans.KeyIndex.Status.BUILT;
+import static net.sf.saxon.trans.KeyIndex.Status.FAILED;
+import static net.sf.saxon.trans.KeyIndex.Status.UNDER_CONSTRUCTION;
 
 
 /**
@@ -79,14 +81,13 @@ import static net.sf.saxon.trans.KeyIndex.Status.*;
  * sought value is untypedAtomic).</li>
  * </ul>
  *
- * @author Michael H. Kay
  */
 
 public class KeyManager {
 
-    private PackageData packageData;
+    private final PackageData packageData;
 
-    private HashMap<StructuredQName, KeyDefinitionSet> keyDefinitions;
+    private final HashMap<StructuredQName, KeyDefinitionSet> keyDefinitions;
     // one entry for each named key; the entry contains
     // a KeyDefinitionSet holding the key definitions with that name
     private transient WeakHashMap<TreeInfo, WeakReference<IntHashMap<KeyIndex>>> docIndexes;
@@ -129,7 +130,7 @@ public class KeyManager {
             try {
                 IndependentContext sc = new IndependentContext(config);
                 sc.setPackageData(packageData);
-                sc.setXPathLanguageLevel(31);
+                sc.setXPathLanguageLevel(packageData.getHostLanguageVersion() == 40 ? 40 : 31);
                 RetainedStaticContext rsc = new RetainedStaticContext(sc);
                 Expression sf = SystemFunction.makeCall("string", rsc, new ContextItemExpression());
                 Expression use = SystemFunction.makeCall("tokenize", rsc, sf);    // Use the new tokenize#1
@@ -252,7 +253,6 @@ public class KeyManager {
                                              TreeInfo doc,
                                              XPathContext context) throws XPathException {
         //System.err.println("Building index " + keySet.getKeyName() + " for doc " + doc.getDocumentNumber() + " in thread " + Thread.currentThread().getId());
-        //Instrumentation.count("buildIndex");
         KeyIndex index = new KeyIndex(keySet.isRangeKey());
         index.buildIndex(keySet, doc, context);
         //System.err.println("Done building index " + keySet.getKeyName() + " for doc " + doc.getDocumentNumber() + " in thread " + Thread.currentThread().getId());
@@ -287,7 +287,6 @@ public class KeyManager {
         if (soughtValue == null) {
             return EmptyIterator.ofNodes();
         }
-
         if (keySet.isBackwardsCompatible()) {
             // if backwards compatibility is in force, treat all values as strings
             final ConversionRules rules = context.getConfiguration().getConversionRules();
@@ -360,11 +359,10 @@ public class KeyManager {
             KeyIndex.Status status = index.getStatus();
             if (status == UNDER_CONSTRUCTION) {
                 if (index.isCreatedInThisThread()) {
-                    XPathException de = new XPathException(
-                            "Key definition " + keySet.getKeyName().getDisplayName() + " is circular");
-                    de.setXPathContext(context);
-                    de.setErrorCode("XTDE0640");
-                    throw de;
+                    throw new XPathException(
+                            "Key definition " + keySet.getKeyName().getDisplayName() + " is circular")
+                            .withXPathContext(context)
+                            .withErrorCode("XTDE0640");
                 } else {
                     // if the index is under construction in another thread, then we plough on regardless.
                     // Both threads will construct the index, but only one will be saved
@@ -418,11 +416,10 @@ public class KeyManager {
             KeyIndex.Status status = index.getStatus();
             if (status == UNDER_CONSTRUCTION) {
                 if (index.isCreatedInThisThread()) {
-                    XPathException de = new XPathException(
-                            "Key definition " + keySet.getKeyName().getDisplayName() + " is circular");
-                    de.setXPathContext(context);
-                    de.setErrorCode("XTDE0640");
-                    throw de;
+                    throw new XPathException(
+                            "Key definition " + keySet.getKeyName().getDisplayName() + " is circular")
+                            .withXPathContext(context)
+                            .withErrorCode("XTDE0640");
                 } else {
                     // if the index is under construction in another thread, then we plough on regardless.
                     // Both threads will construct the index, but only one will be saved
@@ -495,7 +492,8 @@ public class KeyManager {
             } else {
                 doc.setUserData("saxon:key-index-list", indexList);
             }
-            docIndexes.put(doc, new WeakReference<>(indexList));
+            //noinspection Convert2Diamond
+            docIndexes.put(doc, new WeakReference<IntHashMap<KeyIndex>>(indexList));
         } else {
             indexList = indexRef.get();
         }

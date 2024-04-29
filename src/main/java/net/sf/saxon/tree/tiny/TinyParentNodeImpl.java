@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,19 +7,20 @@
 
 package net.sf.saxon.tree.tiny;
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.ZenoString;
 import net.sf.saxon.type.Type;
 
 /**
  * TinyParentNodeImpl is an implementation of a non-leaf node (specifically, an Element node
  * or a Document node)
  *
- * @author Michael H. Kay
  */
 
 
-public abstract class
-TinyParentNodeImpl extends TinyNodeImpl {
+public abstract class TinyParentNodeImpl extends TinyNodeImpl {
 
     /**
      * Determine if the node has children.
@@ -39,18 +40,8 @@ TinyParentNodeImpl extends TinyNodeImpl {
      */
 
     @Override
-    public String getStringValue() {
-        return getStringValueCS(tree, nodeNr).toString();
-    }
-
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        return getStringValueCS(tree, nodeNr);
+    public UnicodeString getUnicodeStringValue() {
+        return getStringValue(tree, nodeNr);
     }
 
     /**
@@ -65,7 +56,7 @@ TinyParentNodeImpl extends TinyNodeImpl {
      * @return the string value of the node, as a CharSequence
      */
 
-    public static CharSequence getStringValueCS(/*@NotNull*/ TinyTree tree, int nodeNr) {
+    public static UnicodeString getStringValue(/*@NotNull*/ TinyTree tree, int nodeNr) {
         int level = tree.depth[nodeNr];
 
         // note, we can't rely on the value being contiguously stored because of whitespace
@@ -80,7 +71,7 @@ TinyParentNodeImpl extends TinyNodeImpl {
             return TinyTextImpl.getStringValue(tree, nodeNr);
         } else if (next < tree.numberOfNodes) {    // bug 4445
             if (tree.depth[next] <= level) {
-                return "";
+                return EmptyUnicodeString.getInstance();
             } else if (tree.nodeKind[next] == Type.TEXT && (next + 1 >= tree.numberOfNodes || tree.depth[next + 1] <= level)) {
                 return TinyTextImpl.getStringValue(tree, next);
             }
@@ -88,26 +79,26 @@ TinyParentNodeImpl extends TinyNodeImpl {
 
         // now handle the general case
 
-        FastStringBuffer sb = null;
+        UnicodeBuilder sb = null;
         while (next < tree.numberOfNodes && tree.depth[next] > level) {
             final byte kind = tree.nodeKind[next];
             if (kind == Type.TEXT || kind == Type.TEXTUAL_ELEMENT) {
                 if (sb == null) {
-                    sb = new FastStringBuffer(FastStringBuffer.C256);
+                    sb = new UnicodeBuilder();
                 }
-                sb.cat(TinyTextImpl.getStringValue(tree, next));
+                sb.accept(TinyTextImpl.getStringValue(tree, next));
             } else if (kind == Type.WHITESPACE_TEXT) {
                 if (sb == null) {
-                    sb = new FastStringBuffer(FastStringBuffer.C256);
+                    sb = new UnicodeBuilder();
                 }
                 WhitespaceTextImpl.appendStringValue(tree, next, sb);
             }
             next++;
         }
         if (sb == null) {
-            return "";
+            return EmptyUnicodeString.getInstance();
         }
-        return sb.condense();
+        return ZenoString.of(sb.toUnicodeString());
     }
 
 }

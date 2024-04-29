@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,10 @@ import javax.xml.transform.SourceLocator;
  * or stylesheet. The interface combines the two JAXP interfaces SourceLocator and Locator.
  */
 
-public interface Location extends SourceLocator, Locator {
+public interface Location extends SourceLocator
+        , Locator
+{
+    //Inherited methods from SourceLocator are implicit in C#
 
     /**
      * Get the system ID. This should be the system identifier of an XML external entity; if a stylesheet module
@@ -63,6 +66,7 @@ public interface Location extends SourceLocator, Locator {
 
     @Override
     int getColumnNumber();
+
 
     /**
      * Get an immutable copy of this Location object. By default Location objects may be mutable, so they

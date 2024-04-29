@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,11 +11,9 @@ import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 
 import java.util.Optional;
@@ -30,8 +28,8 @@ import java.util.Optional;
 public final class SequenceType {
 
 
-    private ItemType primaryType;    // the primary type of the item, e.g. "element", "comment", or "integer"
-    private int cardinality;    // the required cardinality
+    private final ItemType primaryType;    // the primary type of the item, e.g. "element", "comment", or "integer"
+    private final int cardinality;    // the required cardinality
 
     /**
      * A type that allows any sequence of items
@@ -130,6 +128,13 @@ public final class SequenceType {
 
     public static final SequenceType OPTIONAL_INTEGER =
             BuiltInAtomicType.INTEGER.zeroOrOne();
+
+    /**
+     * A type that allows a sequence of integers
+     */
+
+    public static final SequenceType INTEGER_SEQUENCE =
+            BuiltInAtomicType.INTEGER.zeroOrMore();
 
 
     /**
@@ -424,8 +429,8 @@ public final class SequenceType {
 
     public static SequenceType makeSequenceType(ItemType primaryType, int cardinality) {
 
-        if (primaryType instanceof ItemType.WithSequenceTypeCache) {
-            ItemType.WithSequenceTypeCache bat = (ItemType.WithSequenceTypeCache) primaryType;
+        if (primaryType instanceof ItemTypeWithSequenceTypeCache) {
+            ItemTypeWithSequenceTypeCache bat = (ItemTypeWithSequenceTypeCache) primaryType;
             switch (cardinality) {
                 case StaticProperty.EXACTLY_ONE:
                     return bat.one();
@@ -436,6 +441,7 @@ public final class SequenceType {
                 case StaticProperty.ALLOWS_ONE_OR_MORE:
                     return bat.oneOrMore();
                 default:
+                    break;
                     // fall through
             }
         }
@@ -443,6 +449,10 @@ public final class SequenceType {
             return SequenceType.EMPTY_SEQUENCE;
         }
         return new SequenceType(primaryType, cardinality);
+    }
+
+    public static SequenceType one(ItemType itemType) {
+        return new SequenceType(itemType, StaticProperty.EXACTLY_ONE);
     }
 
     /**
@@ -471,15 +481,12 @@ public final class SequenceType {
      * @param value the value to be tested
      * @param th    the type hierarchy cache
      * @return true if the value is a valid instance of this type
-     * @throws XPathException if a dynamic error occurs while evaluating the Sequence (this
-     *                        won't happen if the sequence is grounded)
      */
 
-    public boolean matches(Sequence value, TypeHierarchy th) throws XPathException {
+    public boolean matches(GroundedValue value, TypeHierarchy th) {
         int count = 0;
         SequenceIterator iter = value.iterate();
-        Item item;
-        while ((item = iter.next()) != null) {
+        for (Item item; (item = iter.next()) != null; ) {
             count++;
             if (!primaryType.matches(item, th)) {
                 return false;
@@ -496,37 +503,33 @@ public final class SequenceType {
      *
      * @param value the value which has been found not to match this sequence type
      * @param th the TypeHierarchy cache
+     * @return any extra information
      */
 
     public Optional<String> explainMismatch(GroundedValue value, TypeHierarchy th) {
-        try {
-            int count = 0;
-            SequenceIterator iter = value.iterate();
-            Item item;
-            while ((item = iter.next()) != null) {
-                count++;
-                if (!primaryType.matches(item, th)) {
-                    String s = "The " + RoleDiagnostic.ordinal(count) + " item is not an instance of the required type";
-                    Optional<String> more = primaryType.explainMismatch(item, th);
-                    if (more.isPresent()) {
-                        s = count == 1 ? more.get() : s + ". " + more.get();
-                    } else {
-                        if (count == 1) {
-                            return Optional.empty(); // no new information, so don't say anything
-                        }
+        int count = 0;
+        SequenceIterator iter = value.iterate();
+        for (Item item; (item = iter.next()) != null; ) {
+            count++;
+            if (!primaryType.matches(item, th)) {
+                String s = "The " + RoleDiagnostic.ordinal(count) + " item is not an instance of the required type";
+                Optional<String> more = primaryType.explainMismatch(item, th);
+                if (more.isPresent()) {
+                    s = count == 1 ? more.get() : s + ". " + more.get();
+                } else {
+                    if (count == 1) {
+                        return Optional.empty(); // no new information, so don't say anything
                     }
-                    return Optional.of(s);
                 }
+                return Optional.of(s);
             }
-            if (count == 0 && !Cardinality.allowsZero(cardinality)) {
-                return Optional.of("The type does not allow an empty sequence");
-            } else if (count > 1 && !Cardinality.allowsMany(cardinality)) {
-                return Optional.of("The type does not allow a sequence of more than one item");
-            }
-            return Optional.empty();
-        } catch (XPathException e) {
-            return Optional.empty();
         }
+        if (count == 0 && !Cardinality.allowsZero(cardinality)) {
+            return Optional.of("The type does not allow an empty sequence");
+        } else if (count > 1 && !Cardinality.allowsMany(cardinality)) {
+            return Optional.of("The type does not allow a sequence of more than one item");
+        }
+        return Optional.empty();
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,13 +15,11 @@ import net.sf.saxon.value.StringToDouble11;
  * compare equal to each other, and equal to an empty sequence, but less than anything else.
  * <p>This class is used in XSLT only, so there is no need to handle XQuery's "empty least" vs
  * "empty greatest" options.</p>
- *
- * @author Michael H. Kay
  */
 
 public class NumericComparer11 extends NumericComparer {
 
-    private static NumericComparer11 THE_INSTANCE = new NumericComparer11();
+    private static final NumericComparer11 THE_INSTANCE = new NumericComparer11();
 
     /*@NotNull*/
     public static NumericComparer getInstance() {

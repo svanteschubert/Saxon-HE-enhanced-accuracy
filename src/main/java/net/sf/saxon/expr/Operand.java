@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,10 @@ import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.jiter.MonoIterator;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.value.SequenceType;
@@ -90,6 +92,7 @@ public final class Operand implements Iterable<Operand>, ExpressionOwner {
     }
 
     private static final boolean DEBUG = false;
+    @CSharpReplaceBody(code="")
     public void detachChild() {
         if (DEBUG) {
             childExpression.setParentExpression(null);
@@ -208,6 +211,14 @@ public final class Operand implements Iterable<Operand>, ExpressionOwner {
         return new MonoIterator<>(this);
     }
 
+    /**
+     * Perform type-checking on the child expression. This may cause the child expression to be replaced
+     * with a different child expression.
+     * @param visitor the expression visitor
+     * @param contextInfo information about the static context
+     * @throws XPathException if type checking fails
+     */
+
     public void typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         try {
             setChildExpression(getChildExpression().typeCheck(visitor, contextInfo));
@@ -215,13 +226,22 @@ public final class Operand implements Iterable<Operand>, ExpressionOwner {
             e.maybeSetLocation(getChildExpression().getLocation());
             if (!e.isReportableStatically()) {
                 visitor.getStaticContext().issueWarning(
-                        "Evaluation will always throw a dynamic error: " + e.getMessage(), getChildExpression().getLocation());
+                        "Evaluation will always throw a dynamic error: " + e.getMessage(), SaxonErrorCode.SXWN9027, getChildExpression().getLocation());
                 setChildExpression(new ErrorExpression(new XmlProcessingException(e)));
             } else {
                 throw e;
             }
         }
     }
+
+    /**
+     * Perform optimization on the child expression. This may cause the child expression to be replaced
+     * with a different child expression.
+     *
+     * @param visitor     the expression visitor
+     * @param contextInfo information about the static context
+     * @throws XPathException if optimization fails
+     */
 
     public void optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         try {
@@ -230,13 +250,19 @@ public final class Operand implements Iterable<Operand>, ExpressionOwner {
             e.maybeSetLocation(getChildExpression().getLocation());
             if (!e.isReportableStatically()) {
                 visitor.getStaticContext().issueWarning(
-                        "Evaluation will always throw a dynamic error: " + e.getMessage(), getChildExpression().getLocation());
+                        "Evaluation will always throw a dynamic error: " + e.getMessage(), SaxonErrorCode.SXWN9027, getChildExpression().getLocation());
                 setChildExpression(new ErrorExpression(new XmlProcessingException(e)));
             } else {
                 throw e;
             }
         }
     }
+
+    /**
+     * Get the type-determined usage of the operand, as defined in the XSLT 3.0 streaming spec
+     * @param type the type required by the context in which the expression appears
+     * @return the type-determined usage
+     */
 
     public static OperandUsage typeDeterminedUsage(net.sf.saxon.type.ItemType type) {
         if (type.isPlainType()) {
@@ -247,6 +273,7 @@ public final class Operand implements Iterable<Operand>, ExpressionOwner {
             return OperandUsage.INSPECTION;
         }
     }
+
 
 }
 

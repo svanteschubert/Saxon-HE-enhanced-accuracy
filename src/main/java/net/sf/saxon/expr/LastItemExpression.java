@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
@@ -35,7 +39,7 @@ public final class LastItemExpression extends SingleItemFilter {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that need to be re-bound
      */
 
     /*@NotNull*/
@@ -87,5 +91,52 @@ public final class LastItemExpression extends SingleItemFilter {
         return "lastOf";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new LastItemExprElaborator();
+    }
+
+    /**
+     * Elaborator for a "last item expression" (typically {@code SEQ[last()]})
+     */
+
+    public static class LastItemExprElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+
+            final LastItemExpression expr = (LastItemExpression) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+
+            return context -> getLast(baseEval.iterate(context));
+        }
+
+    }
+
+    /**
+     * Get the last item delivered by an iterator, or null if the iterator is empty
+     * @param iter the supplied iterator (which may or may not be consumed)
+     * @return the last item returned by the iterator, or null if there are none.
+     */
+
+    public static Item getLast(SequenceIterator iter) {
+        if (iter instanceof ReversibleIterator) {
+            return ((ReversibleIterator) iter).getReverseIterator().next();
+        } else {
+            Item current = null;
+            while (true) {
+                Item item = iter.next();
+                if (item == null) {
+                    return current;
+                }
+                current = item;
+            }
+        }
+    }
 }
 

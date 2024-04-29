@@ -7,29 +7,21 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NamespaceMap;
-import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
 
 public class ProxyOutputter extends Outputter {
 
-    private Outputter next;
-    private Location location = Loc.NONE;
+    private final Outputter next;
 
     public ProxyOutputter(Outputter next) {
         this.next = next;
         setPipelineConfiguration(next.getPipelineConfiguration());
         setSystemId(next.getSystemId());
-    }
-
-    public void setLocation(Location location) {
-        this.location = location;
     }
 
     public Outputter getNextOutputter() {
@@ -135,7 +127,7 @@ public class ProxyOutputter extends Outputter {
      * in a single call.
      */
     @Override
-    public void namespace(String prefix, String namespaceUri, int properties) throws XPathException {
+    public void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException {
         next.namespace(prefix, namespaceUri, properties);
     }
 
@@ -157,7 +149,7 @@ public class ProxyOutputter extends Outputter {
      * @throws XPathException         if an error occurs
      */
     @Override
-    public void attribute(NodeName attName, SimpleType typeCode, CharSequence value, Location location, int properties) throws XPathException {
+    public void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties) throws XPathException {
         next.attribute(attName, typeCode, value, location, properties);
     }
 
@@ -199,7 +191,7 @@ public class ProxyOutputter extends Outputter {
      * @throws XPathException if an error occurs
      */
     @Override
-    public void characters(CharSequence chars, Location location, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location location, int properties) throws XPathException {
         next.characters(chars, location, properties);
     }
 
@@ -214,7 +206,7 @@ public class ProxyOutputter extends Outputter {
      * @throws XPathException            if an error occurs
      */
     @Override
-    public void processingInstruction(String name, CharSequence data, Location location, int properties) throws XPathException {
+    public void processingInstruction(String name, UnicodeString data, Location location, int properties) throws XPathException {
         next.processingInstruction(name, data, location, properties);
     }
 
@@ -228,7 +220,7 @@ public class ProxyOutputter extends Outputter {
      * @throws XPathException            if an error occurs
      */
     @Override
-    public void comment(CharSequence content, Location location, int properties) throws XPathException {
+    public void comment(UnicodeString content, Location location, int properties) throws XPathException {
         next.comment(content, location, properties);
     }
 

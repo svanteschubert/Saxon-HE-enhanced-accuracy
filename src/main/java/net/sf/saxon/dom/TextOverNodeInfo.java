@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -144,7 +144,7 @@ public class TextOverNodeInfo extends NodeOverNodeInfo implements Text, Comment 
      *
      * @param offset The 16-bit unit offset at which to split, starting from 0.
      * @return The new node, of the same type as this node.
-     * @throws org.w3c.dom.DOMException
+     * @throws org.w3c.dom.DOMException always (the DOM is read-only)
      */
 
     @Override
@@ -216,7 +216,7 @@ public class TextOverNodeInfo extends NodeOverNodeInfo implements Text, Comment 
         if (node.getNodeKind() != Type.TEXT) {
             throw new UnsupportedOperationException("Method is defined only on text nodes");
         }
-        if (!Whitespace.isWhite(node.getStringValue())) {
+        if (!Whitespace.isAllWhite(node.getUnicodeStringValue())) {
             return false;
         }
         NodeInfo parent = node.getParent();

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -53,7 +53,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
 
     /**
      * Creates an element of the type specified. DOM method: always fails,
-     * because the Saxon tree is not updateable.
+     * because the Saxon tree is not updatable.
      * @throws org.w3c.dom.DOMException always, to indicate that update is not supported in this DOM implementation
      */
 
@@ -67,7 +67,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
      * Creates an empty <code>DocumentFragment</code> object.
      *
      * @return A new <code>DocumentFragment</code> .
-     *         DOM method: returns null, because the Saxon tree is not updateable.
+     *         DOM method: returns null, because the Saxon tree is not updatable.
      */
 
     @Override
@@ -77,7 +77,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
 
     /**
      * Create a <code>Text</code> node given the specified string.
-     * DOM method: returns null, because the Saxon tree is not updateable.
+     * DOM method: returns null, because the Saxon tree is not updatable.
      *
      * @param data The data for the node.
      * @return The new <code>Text</code> object.
@@ -90,7 +90,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
 
     /**
      * Create a <code>Comment</code> node given the specified string.
-     * DOM method: returns null, because the Saxon tree is not updateable.
+     * DOM method: returns null, because the Saxon tree is not updatable.
      *
      * @param data The data for the node.
      * @return The new <code>Comment</code> object.
@@ -103,7 +103,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
     /**
      * Create a <code>CDATASection</code> node whose value  is the specified
      * string.
-     * DOM method: always fails, because the Saxon tree is not updateable.
+     * DOM method: always fails, because the Saxon tree is not updatable.
      *
      * @param data The data for the <code>CDATASection</code> contents.
      * @return The new <code>CDATASection</code> object.
@@ -119,7 +119,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
     /**
      * Create a <code>ProcessingInstruction</code> node given the specified
      * name and data strings.
-     * DOM method: returns null, because the Saxon tree is not updateable.
+     * DOM method: returns null, because the Saxon tree is not updatable.
      *
      * @param target The target part of the processing instruction.
      * @param data   The data for the node.
@@ -136,7 +136,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
 
     /**
      * Create an <code>Attr</code> of the given name.
-     * DOM method: always fails, because the Saxon tree is not updateable.
+     * DOM method: always fails, because the Saxon tree is not updatable.
      *
      * @param name The name of the attribute.
      * @return A new <code>Attr</code> object with the <code>nodeName</code>
@@ -154,7 +154,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
 
     /**
      * Create an <code>EntityReference</code> object.
-     * DOM method: returns null, because the Saxon tree is not updateable.
+     * DOM method: returns null, because the Saxon tree is not updatable.
      *
      * @param name The name of the entity to reference.
      * @return The new <code>EntityReference</code> object.
@@ -222,7 +222,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
 
     /**
      * Import a node from another document to this document.
-     * DOM method: always fails, because the Saxon tree is not updateable.
+     * DOM method: always fails, because the Saxon tree is not updatable.
      *
      * @throws org.w3c.dom.DOMException always, to indicate that update is not supported in this DOM implementation
      * @since DOM Level 2
@@ -237,7 +237,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
     /**
      * Create an element of the given qualified name and namespace URI.
      * HTML-only DOM implementations do not need to implement this method.
-     * DOM method: always fails, because the Saxon tree is not updateable.
+     * DOM method: always fails, because the Saxon tree is not updatable.
      *
      * @param namespaceURI  The  namespace URI of the element to create.
      * @param qualifiedName The  qualified name of the element type to
@@ -255,7 +255,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
     /**
      * Create an attribute of the given qualified name and namespace URI.
      * HTML-only DOM implementations do not need to implement this method.
-     * DOM method: returns null, because the Saxon tree is not updateable.
+     * DOM method: returns null, because the Saxon tree is not updatable.
      *
      * @param namespaceURI  The  namespace URI of the attribute to create.
      * @param qualifiedName The  qualified name of the attribute to
@@ -301,7 +301,7 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
                 break;
             }
             if (next.getNodeKind() == Type.ELEMENT) {
-                if ((ns.equals("*") || ns.equals(next.getURI())) &&
+                if ((ns.equals("*") || ns.equals(next.getNamespaceUri())) &&
                         (localName.equals("*") || localName.equals(next.getLocalPart()))) {
                     nodes.add(NodeOverNodeInfo.wrap(next));
                 }

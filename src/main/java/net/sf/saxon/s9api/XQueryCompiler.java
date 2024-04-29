@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,11 +12,12 @@ import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.ModuleURIResolver;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.query.StaticQueryContext;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingAbort;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import javax.xml.transform.ErrorListener;
 import java.io.*;
@@ -37,12 +38,20 @@ import java.util.List;
  * @since 9.0
  */
 
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<net.sf.saxon.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
+
+@CSharpModifiers(code = {"internal"})
 public class XQueryCompiler {
 
-    private Processor processor;
-    private StaticQueryContext staticQueryContext;
+    private final Processor processor;
+    private final StaticQueryContext staticQueryContext;
     private ItemType requiredContextItemType;
     private String encoding;
+    private int languageVersion;
 
     /**
      * Protected constructor
@@ -90,10 +99,13 @@ public class XQueryCompiler {
      */
 
     public URI getBaseURI() {
+        if (staticQueryContext.getBaseURI() == null) {
+            return null;
+        }
         try {
             return new URI(staticQueryContext.getBaseURI());
         } catch (URISyntaxException err) {
-            throw new IllegalStateException(err);
+            throw new IllegalStateException("Invalid base URI for query: " + staticQueryContext.getBaseURI());
         }
     }
 
@@ -314,7 +326,6 @@ public class XQueryCompiler {
      *               a compile-time exception is reported. In streaming mode, the source
      *               document is supplied as a stream, and no tree is built in memory. The default
      *               is false.
-     *               <p>
      *               <p>When setStreaming(true) is specified, this has the additional side-effect of setting the required
      *               context item type to "document-node()"
      * @since 9.6
@@ -327,7 +338,7 @@ public class XQueryCompiler {
             throw new UnsupportedOperationException("Streaming requires a Saxon-EE license");
         }
         if (option) {
-            setRequiredContextItemType(new ConstructedItemType(NodeKindTest.DOCUMENT, getProcessor()));
+            setRequiredContextItemType(ItemType.DOCUMENT_NODE);
         }
     }
 
@@ -345,14 +356,34 @@ public class XQueryCompiler {
     }
 
     /**
-     * Ask whether an XQuery 1.0 or XQuery 3.0 or XQuery 3.1 processor is being used
+     * Say which version of XQuery should be used
      *
-     * @return always "3.1" in the current Saxon release.
-     * @since 9.2. From Saxon 9.8, only XQuery 3.1 is supported
+     * @param version "3.1" or "4.0" in the current Saxon release.
+     */
+
+    public void setLanguageVersion(String version) {
+        switch (version) {
+            case "3.1":
+                languageVersion = 31;
+                break;
+            case "4.0":
+                languageVersion = 40;
+                break;
+            default:
+                throw new IllegalArgumentException("XQuery version must be 3.1 or 4.0 (not " + version + ")");
+        }
+        staticQueryContext.setLanguageVersion(languageVersion);
+    }
+
+    /**
+     * Ask which version of XQuery is being used
+     *
+     * @return "3.1" or "4.0" in the current Saxon release.
+     * @since 9.2. From Saxon 9.8, only XQuery 3.1 was supported. From 11.0, XQuery 4.0 is supported
      */
 
     public String getLanguageVersion() {
-        return "3.1";
+        return languageVersion == 40 ? "4.0" : "3.1";
     }
 
     /**
@@ -372,8 +403,55 @@ public class XQueryCompiler {
      */
 
     public void declareNamespace(String prefix, String uri) {
-        staticQueryContext.declareNamespace(prefix, uri);
+        staticQueryContext.declareNamespace(prefix, NamespaceUri.of(uri));
     }
+
+
+    /**
+     * Get the policy for handling of unprefixed element names in path expressions and match patterns.
+     *
+     * @return the policy previously set using {@link #setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy)},
+     * or its default, which is {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE}.
+     * @since 12.3
+     */
+
+    public UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy() {
+        return staticQueryContext.getUnprefixedElementMatchingPolicy();
+    }
+
+    /**
+     * Set the policy for handling of unprefixed element names in path expressions and match patterns.
+     * By default, such names are expanded using the default namespace for elements and types. The default policy
+     * is {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE},
+     * which causes such names to be expanded using the default namespace for elements and types.
+     *
+     * <p>Note that any setting other than the default causes the query to behave in a way that
+     * is not conformant with the W3C XQuery 3.1 specifications.</p>
+     *
+     * <p>The chosen policy affects:</p>
+     * <ul>
+     *     <li>Any NCName used as a node-test in an axis step (production <code>ForwardStep</code>
+     *     or <code>ReverseStep</code>) in an XPath expression within the stylesheet, other than an
+     *     axis step using the attribute or namespace axis</li>
+     *     <li>Any NCName used as a node-test in an axis step (production <code>ForwardStepP</code>
+     *     in a pattern within the stylesheet, other than an axis step using the attribute or namespace
+     *     axis</li>
+     * </ul>
+     *
+     * <p>It does not affect names appearing in other contexts (for example, names used in
+     * {@code xsl:strip-space/@elements}), and it does not affect name tests expressed in a form
+     * other than a simple NCName (for example tests of the form <code>Q{}local</code>, or
+     * <code>*:local</code>, or <code>element(local)</code>).</p>
+     *
+     * <p>It does not affect XPath expressions evaluated dynamically using <code>xsl:evaluate</code>.</p>
+     *
+     * @param unprefixedElementMatchingPolicy the policy for handling unprefixed elements.
+     */
+
+    public void setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy) {
+        staticQueryContext.setUnprefixedElementMatchingPolicy(unprefixedElementMatchingPolicy);
+    }
+
 
     /**
      * Declare the default collation
@@ -389,6 +467,17 @@ public class XQueryCompiler {
 
     public void declareDefaultCollation(String uri) {
         staticQueryContext.declareDefaultCollation(uri);
+    }
+
+    /**
+     * Get the name of the default collation
+     * @return the name of the default collation for this query; or the name of the codepoint collation
+     *      if no default collation has been defined.
+     * @since 11.0
+     */
+
+    public String getDefaultCollationName() {
+        return staticQueryContext.getDefaultCollationName();
     }
 
 
@@ -652,7 +741,7 @@ public class XQueryCompiler {
     /**
      * List of errors. The caller should supply an empty list before calling Compile; the processor will then populate
      * the list with error information obtained during the compilation. Each error will be included as an object of type
-     * {@link StaticError}.
+     * {@link XmlProcessingError}.
      * <p>If no error list is supplied by the caller, error information will be written to the standard error stream.
      * Applications should then ensure that the contents of this stream are made visible to the query author.</p>
      * <p>By supplying a custom List with a user-written add() method, it is possible to intercept error conditions as they occur.
@@ -662,11 +751,11 @@ public class XQueryCompiler {
      * <p>Calling this method is equivalent to calling <code>setErrorReporter(errorList::add)</code>: that is,
      * it registers an {@link ErrorReporter} whose {@link ErrorReporter#report} method adds the error to the list.</p>
      *
-     * @param errorList a (typically empty) list that will be populated with {@link StaticError} objects giving details
+     * @param errorList a (typically empty) list that will be populated with {@link XmlProcessingError} objects giving details
      *                  of any static errors found in the query.
      * @since 9.9. Redefined in 10.0 as a convenience wrapper over the new {@link #setErrorReporter(ErrorReporter)} method.
      */
-    public void setErrorList(List<? super StaticError> errorList) {
+    public void setErrorList(List<? super XmlProcessingError> errorList) {
         setErrorReporter(errorList::add);
     }
 

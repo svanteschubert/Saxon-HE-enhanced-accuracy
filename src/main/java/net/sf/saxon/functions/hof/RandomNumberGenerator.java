@@ -27,7 +27,7 @@ import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.SequenceExtent;
 import net.sf.saxon.value.SequenceType;
 
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
@@ -89,16 +89,16 @@ public class RandomNumberGenerator extends SystemFunction implements Callable {
 
         @Override
         public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            Sequence input = (Sequence)arguments[0];
+            Sequence input = arguments[0];
             SequenceIterator iterator = input.iterate();
             Item item;
-            final List<Item> output = new LinkedList<>();
+            final List<Item> output = new ArrayList<>();
             Random random = new Random(nextSeed);
             while ((item = iterator.next()) != null) {
                 int p = random.nextInt(output.size()+1);
                 output.add(p, item);
             }
-            return new SequenceExtent(output);
+            return new SequenceExtent.Of<>(output);
         }
 
         /**
@@ -159,10 +159,10 @@ public class RandomNumberGenerator extends SystemFunction implements Callable {
         long seed;
         if (arguments.length == 0) {
             // seed value must be repeatable within execution scope
-            seed = context.getCurrentDateTime().getCalendar().getTimeInMillis();
+            seed = context.getCurrentDateTime().randomSeed();
         } else {
             AtomicValue val = (AtomicValue) arguments[0].head();
-            seed = val == null ? context.getCurrentDateTime().getCalendar().getTimeInMillis() : val.hashCode();
+            seed = val == null ? context.getCurrentDateTime().randomSeed() : val.hashCode();
         }
         return generator(seed, context);
     }
@@ -170,4 +170,4 @@ public class RandomNumberGenerator extends SystemFunction implements Callable {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

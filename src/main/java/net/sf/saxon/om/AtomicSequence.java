@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.om;
 
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.value.AtomicValue;
 
@@ -54,39 +55,6 @@ public interface AtomicSequence extends GroundedValue, Iterable<AtomicValue> {
     int getLength();
 
     /**
-     * Get the canonical lexical representation as defined in XML Schema. This is not always the same
-     * as the result of casting to a string according to the XPath rules.
-     *
-     * @return the canonical lexical representation if defined in XML Schema; otherwise, the result
-     *         of casting to string according to the XPath 2.0 rules
-     */
-
-    CharSequence getCanonicalLexicalRepresentation();
-
-    /**
-     * Get a Comparable value that implements the XML Schema ordering comparison semantics for this value.
-     * The default implementation is written to compare sequences of atomic values.
-     * This method is overridden for AtomicValue and its subclasses.
-     * <p>In the case of data types that are partially ordered, the returned Comparable extends the standard
-     * semantics of the compareTo() method by returning the value {@link SequenceTool#INDETERMINATE_ORDERING} when there
-     * is no defined order relationship between two given values.</p>
-     *
-     * @return a Comparable that follows XML Schema comparison rules
-     */
-
-    Comparable<?> getSchemaComparable();
-
-    /**
-     * Get a string representation of the sequence. The is the space-separated concatenation of the result of
-     * casting each of the items in the sequence to xs:string
-     * @return a whitespace-separated concatenation of the string values of the items making up the sequence,
-     * as a CharSequence.
-     */
-
-    @Override
-    CharSequence getStringValueCS();
-
-    /**
      * Get a string representation of the sequence. The is the space-separated concatenation of the result of
      * casting each of the items in the sequence to xs:string
      *
@@ -95,7 +63,19 @@ public interface AtomicSequence extends GroundedValue, Iterable<AtomicValue> {
      */
 
     @Override
-    String getStringValue();
+    UnicodeString getUnicodeStringValue();
+
+    /**
+     * Get the canonical lexical representation as defined in XML Schema. This is not always the same
+     * as the result of casting to a string according to the XPath rules.
+     *
+     * @return the canonical lexical representation if defined in XML Schema; otherwise, the result
+     *         of casting to string according to the XPath 2.0 rules
+     */
+
+    UnicodeString getCanonicalLexicalRepresentation();
+
+
 
 }
 

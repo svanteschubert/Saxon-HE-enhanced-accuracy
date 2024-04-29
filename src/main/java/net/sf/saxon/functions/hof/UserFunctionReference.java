@@ -9,14 +9,18 @@ package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.Controller;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.instruct.UserFunction;
+import net.sf.saxon.expr.instruct.UserFunctionParameter;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.functions.AbstractFunction;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.functions.registry.FunctionDefinition;
 import net.sf.saxon.om.*;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.style.StylesheetPackage;
@@ -25,6 +29,8 @@ import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
+
+import java.util.Arrays;
 
 /**
  * A UserFunctionReference is an expression in the form local:f#1 where local:f is a user-defined function.
@@ -36,7 +42,7 @@ import net.sf.saxon.value.AtomicValue;
 public class UserFunctionReference extends Expression
         implements ComponentInvocation, UserFunctionResolvable, Callable {
 
-    private SymbolicName functionName;
+    private final SymbolicName.F functionName;
     private UserFunction nominalTarget;
     private int bindingSlot = -1;
     private int optimizeCounter = 0;
@@ -47,23 +53,32 @@ public class UserFunctionReference extends Expression
         this.functionName = target.getSymbolicName();
     }
 
-    public UserFunctionReference(SymbolicName name) {
+    public UserFunctionReference(UserFunction target, SymbolicName.F name) {
+        // The name of the reference might be a reduced-arity version of the function name, if it has optional params
+        this.nominalTarget = target;
+        this.functionName = name;
+    }
+
+    public UserFunctionReference(SymbolicName.F name) {
         this.functionName = name;
     }
 
     @Override
     public void setFunction(UserFunction function) {
-        if (!function.getSymbolicName().equals(functionName)) {
+        if (!function.getSymbolicName().getComponentName().equals(functionName.getComponentName())) {
             throw new IllegalArgumentException("Function name does not match");
+        }
+
+        if (function.getMinimumArity() > functionName.getArity() || function.getArity() < functionName.getArity()) {
+            throw new IllegalArgumentException("Function arity does not match");
         }
         this.nominalTarget = function;
     }
 
-
     @Override
     public Expression simplify() throws XPathException {
         // if this is an inline function, simplify the body of that function now
-        if (nominalTarget.getFunctionName().hasURI(NamespaceConstant.ANONYMOUS) && typeCheckCounter == 0) {
+        if (nominalTarget.getFunctionName().hasURI(NamespaceUri.ANONYMOUS) && typeCheckCounter == 0) {
             // Prevent recursive simplification
             typeCheckCounter++;
             nominalTarget.setBody(nominalTarget.getBody().simplify());
@@ -94,9 +109,12 @@ public class UserFunctionReference extends Expression
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         // if this is an inline function, typecheck that function now
-        if (nominalTarget.getFunctionName().hasURI(NamespaceConstant.ANONYMOUS) && typeCheckCounter++ < 10) {
-            // Prevent recursive optimization: test case -s:misc-HigherOrderFunctions -t:xqhof2
+        //System.err.println("typeCheck " + this);
+        if (nominalTarget.getFunctionName().hasURI(NamespaceUri.ANONYMOUS) && typeCheckCounter == 0) {
+            // Prevent recursive type-checking: test case -s:misc-HigherOrderFunctions -t:xqhof2
+            typeCheckCounter++;
             nominalTarget.typeCheck(visitor);
+            typeCheckCounter--;
         }
         return this;
     }
@@ -119,15 +137,17 @@ public class UserFunctionReference extends Expression
     @Override
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         // if this is an inline function, optimize that function now
-        if (nominalTarget.getFunctionName().hasURI(NamespaceConstant.ANONYMOUS) && optimizeCounter == 0) {
+        //System.err.println("optimize " + this);
+        if (nominalTarget.getFunctionName().hasURI(NamespaceUri.ANONYMOUS) && optimizeCounter == 0) {
+            // Prevent recursive optimization: test case -s:misc-HigherOrderFunctions -t:xqhof2 ; and bug #5054
             optimizeCounter++;
-            // Prevent recursive optimization: test case -s:misc-HigherOrderFunctions -t:xqhof2 ; see also bug #5054
             Expression o;
             o = nominalTarget.getBody().optimize(visitor, ContextItemStaticInfo.ABSENT);
             nominalTarget.setBody(o);
             SlotManager slotManager = visitor.getConfiguration().makeSlotManager();
-            for (int i=0; i<getArity(); i++) {
-                slotManager.allocateSlotNumber(nominalTarget.getParameterDefinitions()[i].getVariableQName());
+            for (int i = 0; i < getArity(); i++) {
+                UserFunctionParameter param = nominalTarget.getParameterDefinitions()[i];
+                slotManager.allocateSlotNumber(param.getVariableQName(), param);
             }
             ExpressionTool.allocateSlots(o, getArity(), slotManager);
             nominalTarget.setStackFrameMap(slotManager);
@@ -211,7 +231,7 @@ public class UserFunctionReference extends Expression
      * @return the number of arguments in the function signature
      */
     public int getArity() {
-        return nominalTarget.getArity();
+        return functionName.getArity();
     }
 
     /**
@@ -256,6 +276,15 @@ public class UserFunctionReference extends Expression
     }
 
     /**
+     * Compute the special properties of this expression.
+     * @return the special properties, as a bit-significant integer
+     */
+
+    protected int computeSpecialProperties() {
+        return StaticProperty.COMPUTED_FUNCTION;
+    }
+
+    /**
      * Get the static type of the expression as a UType, following precisely the type
      * inference rules defined in the XSLT 3.0 specification.
      *
@@ -270,8 +299,8 @@ public class UserFunctionReference extends Expression
     /**
      * Copy an expression. This makes a deep copy.
      *
-     * @return the copy of the original expression
      * @param rebindings variables that need to be re-bound
+     * @return the copy of the original expression
      */
     @Override
     public Expression copy(RebindingMap rebindings) {
@@ -296,14 +325,8 @@ public class UserFunctionReference extends Expression
      *                                           expression
      */
     @Override
-    public Function evaluateItem(XPathContext context) throws XPathException {
-        if (bindingSlot == -1) {
-            return new BoundUserFunction(this, nominalTarget, nominalTarget.getDeclaringComponent(), context.getController());
-
-        } else {
-            Component targetComponent = context.getTargetComponent(bindingSlot);
-            return new BoundUserFunction(this, (UserFunction) targetComponent.getActor(), targetComponent, context.getController());
-        }
+    public FunctionItem evaluateItem(XPathContext context) throws XPathException {
+        return (FunctionItem) makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -327,7 +350,7 @@ public class UserFunctionReference extends Expression
      * @throws XPathException if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public Function call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public FunctionItem call(XPathContext context, Sequence[] arguments) throws XPathException {
         return evaluateItem(context);
     }
 
@@ -347,11 +370,7 @@ public class UserFunctionReference extends Expression
 
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
-        ExpressionPresenter.ExportOptions options = (ExpressionPresenter.ExportOptions) out.getOptions();
-        if ("JS".equals(options.target) && options.targetVersion == 1){
-            throw new XPathException("Higher-order functions are not available in Saxon-JS v1.*",
-                    "XTSE3540", getLocation());
-        }
+        ExpressionPresenter.ExportOptions options = out.getOptions();
         if (nominalTarget.getDeclaringComponent() == null) {
             // This happens for an inline function declared within a static expression, e.g. one
             // that is bound to a static global variable. There is no separate component registered for
@@ -376,6 +395,35 @@ public class UserFunctionReference extends Expression
     }
 
     /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new UserFunctionReferenceElaborator();
+    }
+
+    private static class UserFunctionReferenceElaborator extends ItemElaborator {
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            UserFunctionReference expr = (UserFunctionReference) getExpression();
+            if (expr.bindingSlot == -1) {
+                return context -> new BoundUserFunction(
+                        expr.nominalTarget, expr.getArity(), expr.nominalTarget.getDeclaringComponent(), expr, context.getController());
+
+            } else {
+                return context -> {
+                    Component targetComponent = context.getTargetComponent(expr.bindingSlot);
+                    return new BoundUserFunction(
+                            (UserFunction) targetComponent.getActor(), expr.getArity(), targetComponent, expr, context.getController());
+                };
+            }
+        }
+    }
+
+    /**
      * A BoundUserFunction represents a user-defined function seen as a component. A single source-level
      * XSLT function may be the actor in several different components (in different stylesheet packages).
      * Although the code of the function is identical in each case, the bindings to other stylesheet components
@@ -384,20 +432,31 @@ public class UserFunctionReference extends Expression
 
     public static class BoundUserFunction extends AbstractFunction implements ContextOriginator {
 
-        private ExportAgent agent;
-        private Function function;
-        private Component component;
-        private Controller controller; // retained in case a function is returned from a query or stylesheet
+        private final ExportAgent agent;
+        private final FunctionItem function;
+        private final int arity;
+        private final Component component;
+        private final Controller controller; // retained in case a function is returned from a query or stylesheet
 
-
-        public BoundUserFunction(ExportAgent agent, Function function, Component component, Controller controller)  {
+        /**
+         * Create a bound user function
+         * @param function the function in question
+         * @param arity the specific arity. This is relevant when the function item has an arity range and we
+         *              are binding a function reference to a specific arity version
+         * @param component the XSLT component containing the function (the same function in two different
+         *                  packages corresponds to different components)
+         * @param agent  used when the function needs to be exported to a SEF file
+         * @param controller the controller object
+         */
+        public BoundUserFunction(FunctionItem function, int arity, Component component, ExportAgent agent, Controller controller) {
             this.agent = agent;
             this.function = function;
+            this.arity = arity;
             this.component = component;
             this.controller = controller;
         }
 
-        public Function getTargetFunction() {
+        public FunctionItem getTargetFunction() {
             return function;
         }
 
@@ -415,7 +474,7 @@ public class UserFunctionReference extends Expression
             c2.setTemporaryOutputState(StandardNames.XSL_FUNCTION);
             c2.setCurrentOutputUri(null);
             c2.setCurrentComponent(component);
-            c2.setURIResolver(oldContext.getURIResolver());
+            c2.setResourceResolver(oldContext.getResourceResolver());
             c2.setOrigin(originator);
             return function.makeNewContext(c2, originator);
         }
@@ -426,6 +485,16 @@ public class UserFunctionReference extends Expression
             XPathContext c2 = function.makeNewContext(context, this);
             if (c2 instanceof XPathContextMajor && component != null) {
                 ((XPathContextMajor) c2).setCurrentComponent(component);
+            }
+            if (function.getArity() > args.length) {
+                assert function instanceof FunctionDefinition && ((FunctionDefinition)function).getMinimumArity() <= args.length;
+                FunctionDefinition fd = (FunctionDefinition)function;
+                Sequence[] extendedArgs = Arrays.copyOf(args, fd.getNumberOfParameters());
+                for (int i=args.length; i<extendedArgs.length; i++) {
+                    extendedArgs[i] = fd.getDefaultValueExpression(i).copy(new RebindingMap())
+                            .makeElaborator().lazily(true, false).evaluate(context);
+                }
+                args = extendedArgs;
             }
             return function.call(c2, args);
         }
@@ -447,7 +516,7 @@ public class UserFunctionReference extends Expression
 
         @Override
         public int getArity() {
-            return function.getArity();
+            return arity;
         }
 
         @Override
@@ -463,4 +532,4 @@ public class UserFunctionReference extends Expression
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

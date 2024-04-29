@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,11 +7,14 @@
 
 package net.sf.saxon.s9api;
 
-import net.sf.saxon.event.*;
+import net.sf.saxon.event.FilterFactory;
+import net.sf.saxon.event.ProxyReceiver;
+import net.sf.saxon.event.Receiver;
+import net.sf.saxon.event.Stripper;
 import net.sf.saxon.om.*;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.Whitespace;
 
@@ -24,7 +27,7 @@ import java.util.function.Predicate;
 
 public class WhitespaceStrippingPolicy {
 
-    private int policy;
+    private final int policy;
     private SpaceStrippingRule stripperRules;
 
     /**
@@ -54,14 +57,16 @@ public class WhitespaceStrippingPolicy {
 
     /**
      * Create a custom whitespace stripping policy, by supplying a predicate that indicates for any given element,
-     * whether whitespace text nodes among its children should be stripped or preserved. Note that xml:space attributes
-     * that might be present have no effect on the outcome, and the decision applies only to immediate children,
+     * whether whitespace text nodes among its children should be stripped or preserved. Note that xml:space
+     * attributes that might be present have no effect on the outcome, and the decision applies only to immediate children,
      * not to descendants.
      * <p>Changed in 9.9 to use the standard Java 8 Predicate class in place of Saxon's version.</p>
-     *
      * @param elementTest a predicate applied to element names, which should return true if whitespace-only
      *                    text node children of the element are to be stripped, false if they are to be retained.
+     * @return the whitespace stripping policy
      */
+
+    @CSharpInnerClass(outer=false, extra="System.Predicate<Saxon.Hej.s9api.QName> elementTest")
     public static WhitespaceStrippingPolicy makeCustomPolicy(final Predicate<QName> elementTest) {
         SpaceStrippingRule rule = new SpaceStrippingRule() {
             @Override
@@ -78,7 +83,7 @@ public class WhitespaceStrippingPolicy {
 
 
             @Override
-            public void export(ExpressionPresenter presenter) throws XPathException {
+            public void export(ExpressionPresenter presenter) {
                 throw new UnsupportedOperationException();
             }
         };
@@ -127,12 +132,7 @@ public class WhitespaceStrippingPolicy {
 
     /*@NotNull*/
     protected FilterFactory makeStripper() {
-        return new FilterFactory() {
-            @Override
-            public ProxyReceiver makeFilter(Receiver next) {
-                return new Stripper(stripperRules, next);
-            }
-        };
+        return next -> new Stripper(stripperRules, next);
     }
 }
 

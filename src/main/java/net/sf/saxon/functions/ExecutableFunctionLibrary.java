@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,25 +12,27 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.UserFunctionCall;
 import net.sf.saxon.expr.instruct.UserFunction;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * An ExecutableFunctionLibrary is a function library that contains definitions of functions for use at
  * run-time. Normally functions are bound at compile-time; however there are various situations in which
  * the information is needed dynamically, for example (a) to support the XSLT function-available() call
  * (in the pathological case where the argument is not known statically), (b) to allow functions to be
- * called from saxon:evaluate(), (c) to allow functions to be called from a debugging breakpoint.
+ * called from saxon:evaluate(), (c) to allow function-lookup(), (d) to allow functions to be called
+ * from a debugging breakpoint.
  */
 
 public class ExecutableFunctionLibrary implements FunctionLibrary {
 
-    private transient Configuration config;
+    private final transient Configuration config;
     private HashMap<SymbolicName, UserFunction> functions = new HashMap<>(20);
     // The key of the hash table is a String that combines the QName of the function with the arity.
 
@@ -63,6 +65,8 @@ public class ExecutableFunctionLibrary implements FunctionLibrary {
      * @param staticArgs   The expressions supplied statically in the function call. The intention is
      *                     that the static type of the arguments (obtainable via getItemType() and getCardinality() may
      *                     be used as part of the binding algorithm.
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          the static evaluation context
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
@@ -72,7 +76,7 @@ public class ExecutableFunctionLibrary implements FunctionLibrary {
      */
 
     @Override
-    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, StaticContext env, List<String> reasons) {
+    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons) {
         UserFunction fn = functions.get(functionName);
         if (fn == null) {
             return null;
@@ -100,7 +104,7 @@ public class ExecutableFunctionLibrary implements FunctionLibrary {
      *          that is private
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
         UserFunction fn = functions.get(functionName);
         if (fn != null && fn.isUpdating()) {
             throw new XPathException("Cannot bind a function item to an updating function");
@@ -113,11 +117,12 @@ public class ExecutableFunctionLibrary implements FunctionLibrary {
      * <p>This supports the function-available() function in XSLT.</p>
      *
      * @param functionName the qualified name of the function being called
+     * @param languageLevel the XPath language level, times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
 
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         return functions.get(functionName) != null;
     }
 
@@ -137,15 +142,14 @@ public class ExecutableFunctionLibrary implements FunctionLibrary {
     }
 
     /**
-     * Iterate over all the functions defined in this function library. The objects
-     * returned by the iterator are of class {@link UserFunction}
+     * Get all the functions defined in this function library.
      *
-     * @return an iterator delivering the {@link UserFunction} objects representing
+     * @return an iterable delivering the {@link UserFunction} objects representing
      *         the user-defined functions in a stylesheet or query
      */
 
-    public Iterator<UserFunction> iterateFunctions() {
-        return functions.values().iterator();
+    public Iterable<UserFunction> getAllFunctions() {
+        return functions.values();
     }
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,6 @@
 
 package net.sf.saxon.style;
 
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
 import net.sf.saxon.trans.ComponentTest;
@@ -25,9 +24,9 @@ import java.util.StringTokenizer;
  */
 public abstract class XSLAcceptExpose extends StyleElement {
 
-    private Set<ComponentTest> explicitComponentTests = new HashSet<>();
-    private Set<ComponentTest> wildcardComponentTests = new HashSet<>();
-    private Visibility visibility;
+    private final Set<ComponentTest> explicitComponentTests = new HashSet<>();
+    private final Set<ComponentTest> wildcardComponentTests = new HashSet<>();
+    private Visibility visibility = Visibility.UNDEFINED;
 
     @Override
     public Visibility getVisibility() {
@@ -39,7 +38,7 @@ public abstract class XSLAcceptExpose extends StyleElement {
         return explicitComponentTests;
     }
 
-    public Set<ComponentTest> getWildcardComponentTests() throws XPathException {
+    public Set<ComponentTest> getWildcardComponentTests() {
         prepareAttributes();
         return wildcardComponentTests;
     }
@@ -47,7 +46,7 @@ public abstract class XSLAcceptExpose extends StyleElement {
     @Override
     protected void prepareAttributes() {
 
-        if (visibility != null) {
+        if (visibility != Visibility.UNDEFINED) {
             return;
         }
 
@@ -80,7 +79,7 @@ public abstract class XSLAcceptExpose extends StyleElement {
             visibility = Visibility.PRIVATE;
         } else {
             visibility = interpretVisibilityValue(visibilityAtt, this instanceof XSLAccept ? "ha" : "");
-            if (visibility == null) {
+            if (visibility == Visibility.UNDEFINED) {
                 visibility = Visibility.PRIVATE; // fall back in case of errors
             }
         }
@@ -133,11 +132,11 @@ public abstract class XSLAcceptExpose extends StyleElement {
                                  this instanceof XSLAccept ? "XTSE3032" : "XTSE3022", "names");
                 } else if (componentTypeCode == StandardNames.XSL_FUNCTION) {
                     StructuredQName name = makeQName(tok.substring(0, hash), null, "names");
-                    test = new NameTest(Type.ELEMENT, name.getURI(), name.getLocalPart(), getNamePool());
+                    test = new NameTest(Type.ELEMENT, name.getNamespaceUri(), name.getLocalPart(), getNamePool());
                     int arity = 0;
                     try {
                         arity = Integer.parseInt(tok.substring(hash + 1));
-                    } catch (Exception err) {
+                    } catch (NumberFormatException err) {
                         compileErrorInAttribute("Malformed function arity in '" + tok + "'", "XTSE0020", "names");
                     }
                     explicitComponentTests.add(new ComponentTest(componentTypeCode, test, arity));
@@ -152,16 +151,16 @@ public abstract class XSLAcceptExpose extends StyleElement {
                     compileErrorInAttribute("No prefix before ':*'", "XTSE0020", "names");
                 }
                 String prefix = tok.substring(0, tok.length() - 2);
-                String uri = getURIForPrefix(prefix, false);
+                NamespaceUri uri = getURIForPrefix(prefix, false);
                 if (uri == null) {
                     compileErrorInAttribute("Undeclared prefix " + prefix, "XTSE0020", "names");
-                    uri = NamespaceConstant.ANONYMOUS; // for recovery
+                    uri = NamespaceUri.ANONYMOUS; // for recovery
                 }
                 test = new NamespaceTest(getNamePool(), Type.ELEMENT, uri);
                 addWildCardTest(componentTypeCode, test);
             } else if (tok.startsWith("Q{") && tok.endsWith("}*")) {
                 final String uri = tok.substring(2, tok.length() - 2);
-                test = new NamespaceTest(getNamePool(), Type.ELEMENT, uri);
+                test = new NamespaceTest(getNamePool(), Type.ELEMENT, NamespaceUri.of(uri));
                 wildcardComponentTests.add(new ComponentTest(componentTypeCode, test, -1));
             } else if (tok.startsWith("*:")) {
                 if (tok.length() == 2) {
@@ -176,12 +175,12 @@ public abstract class XSLAcceptExpose extends StyleElement {
                     compileErrorInAttribute("When component='*' is specified, all names must be wildcards",
                                  this instanceof XSLAccept ? "XTSE3032" : "XTSE3022", "names");
                 } else if (componentTypeCode == StandardNames.XSL_FUNCTION) {
-                    compileErrorInAttribute("When the name identifies a function, the arity must be given (XSLT 3.0 erratum E36)",
+                    compileErrorInAttribute("The name " + tok + " identifies a function, so the arity must be given (XSLT 3.0 erratum E36)",
                                             "XTSE3020", "names");
 
                 } else {
                     StructuredQName name = makeQName(tok, null, "names");
-                    test = new NameTest(Type.ELEMENT, name.getURI(), name.getLocalPart(), getNamePool());
+                    test = new NameTest(Type.ELEMENT, name.getNamespaceUri(), name.getLocalPart(), getNamePool());
                     explicitComponentTests.add(new ComponentTest(componentTypeCode, test, -1));
                 }
             }

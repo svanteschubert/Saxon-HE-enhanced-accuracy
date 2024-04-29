@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,11 +13,11 @@ import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.accum.Accumulator;
 import net.sf.saxon.expr.accum.AccumulatorRegistry;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.Whitespace;
@@ -55,7 +55,7 @@ public class XSLSourceDocument extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -66,9 +66,9 @@ public class XSLSourceDocument extends StyleElement {
 
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
-        parseOptions = new ParseOptions(getConfiguration().getParseOptions());
+        parseOptions = getConfiguration().getParseOptions();
 
         String hrefAtt = null;
         String validationAtt = null;
@@ -91,21 +91,21 @@ public class XSLSourceDocument extends StyleElement {
                 useAccumulatorsAtt = Whitespace.trim(value);
             } else if (f.equals("streamable")) {
                 streaming = processStreamableAtt(value);
-            } else if (attName.hasURI(NamespaceConstant.SAXON)) {
+            } else if (attName.hasURI(NamespaceUri.SAXON)) {
                 isExtensionAttributeAllowed(attName.getDisplayName());
                 String local = attName.getLocalPart();
                 switch (local) {
                     case "dtd-validation":
-                        parseOptions.setDTDValidationMode(processBooleanAttribute(f, value) ? Validation.STRICT : Validation.SKIP);
+                        parseOptions = parseOptions.withDTDValidationMode(processBooleanAttribute(f, value) ? Validation.STRICT : Validation.SKIP);
                         break;
                     case "expand-attribute-defaults":
-                        parseOptions.setExpandAttributeDefaults(processBooleanAttribute(f, value));
+                        parseOptions = parseOptions.withExpandAttributeDefaults(processBooleanAttribute(f, value));
                         break;
                     case "line-numbering":
-                        parseOptions.setLineNumbering(processBooleanAttribute(f, value));
+                        parseOptions = parseOptions.withLineNumbering(processBooleanAttribute(f, value));
                         break;
                     case "xinclude":
-                        parseOptions.setXIncludeAware(processBooleanAttribute(f, value));
+                        parseOptions = parseOptions.withXIncludeAware(processBooleanAttribute(f, value));
 //                } else if (local.equals("tree-model")) {
 //                    List<TreeModel> models = getConfiguration().getExternalObjectModels()
 //                    parseOptions.setModel(processBooleanAttribute(f, value));
@@ -114,18 +114,18 @@ public class XSLSourceDocument extends StyleElement {
                         // TODO
                         break;
                     case "strip-space":
-                        switch (Whitespace.normalizeWhitespace(value).toString()) {
+                        switch (Whitespace.normalizeWhitespace(StringView.of(value)).toString()) {
                             case "#all":
-                                parseOptions.setSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
+                                parseOptions = parseOptions.withSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
                                 break;
                             case "#none":
-                                parseOptions.setSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                                parseOptions = parseOptions.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
                                 break;
                             case "#ignorable":
-                                parseOptions.setSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
+                                parseOptions = parseOptions.withSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
                                 break;
                             case "#default":
-                                parseOptions.setSpaceStrippingRule(null);
+                                parseOptions = parseOptions.withSpaceStrippingRule(null);
                                 break;
                             default:
                                 invalidAttribute("saxon:strip-space", "#all|#none|#ignorable|#default");
@@ -147,15 +147,15 @@ public class XSLSourceDocument extends StyleElement {
 
         if (validationAtt != null) {
             int validation = validateValidationAttribute(validationAtt);
-            parseOptions.setSchemaValidationMode(validation);
+            parseOptions = parseOptions.withSchemaValidationMode(validation);
         }
 
         if (typeAtt != null) {
             if (!isSchemaAware()) {
                 compileError("The @type attribute is available only with a schema-aware XSLT processor", "XTSE1660");
             }
-            parseOptions.setSchemaValidationMode(Validation.BY_TYPE);
-            parseOptions.setTopLevelType(getSchemaType(typeAtt));
+            parseOptions = parseOptions.withSchemaValidationMode(Validation.BY_TYPE);
+            parseOptions = parseOptions.withTopLevelType(getSchemaType(typeAtt));
         }
 
         if (typeAtt != null && validationAtt != null) {
@@ -177,7 +177,7 @@ public class XSLSourceDocument extends StyleElement {
         //checkParamComesFirst(false);
         href = typeCheck("select", href);
         if (!hasChildNodes()) {
-            compileWarning("An empty xsl:source-document instruction has no effect", SaxonErrorCode.SXWN9009);
+            issueWarning("An empty xsl:source-document instruction has no effect", SaxonErrorCode.SXWN9009);
         }
     }
 
@@ -186,11 +186,11 @@ public class XSLSourceDocument extends StyleElement {
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
         Configuration config = getConfiguration();
         if (parseOptions.getSpaceStrippingRule() == null) {
-            parseOptions.setSpaceStrippingRule(getPackageData().getSpaceStrippingRule());
+            parseOptions = parseOptions.withSpaceStrippingRule(getPackageData().getSpaceStrippingRule());
         }
-        parseOptions.setApplicableAccumulators(accumulators);
+        parseOptions = parseOptions.withApplicableAccumulators(accumulators);
         Expression action = compileSequenceConstructor(exec, decl, false);
-        if (action == null) {
+        if (action == null || Literal.isEmptySequence(action))  {
             // body of xsl:source-document is empty: it's a no-op.
             return Literal.makeEmptySequence();
         }
@@ -200,7 +200,7 @@ public class XSLSourceDocument extends StyleElement {
             action = action.typeCheck(visitor, config.makeContextItemStaticInfo(NodeKindTest.DOCUMENT, false));
 
             return config.makeStreamInstruction(
-                        href, action, streaming, parseOptions, null, allocateLocation(),
+                        href, action, streaming, parseOptions, null, saveLocation(),
                         makeRetainedStaticContext());
 
         } catch (XPathException err) {

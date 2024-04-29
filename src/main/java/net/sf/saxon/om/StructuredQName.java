@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,9 @@
 
 package net.sf.saxon.om;
 
+import net.sf.saxon.str.StringTool;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.value.Whitespace;
 
 import javax.xml.namespace.QName;
@@ -22,15 +23,23 @@ import javax.xml.namespace.QName;
 
 public class StructuredQName implements IdentityComparable {
 
-    private char[] content;
-    private int localNameStart;
-    private int prefixStart;
+    private final String prefix;
+    private final NamespaceUri uri;
+    private final String local;
     private int cachedHashCode = -1;
 
-    private StructuredQName(char[] content, int localNameStart, int prefixStart) {
-        this.content = content;
-        this.localNameStart = localNameStart;
-        this.prefixStart = prefixStart;
+    /**
+     * Construct a StructuredQName from a prefix, URI, and local name. This method performs no validation.
+     *
+     * @param prefix    The prefix. Use an empty string to represent the null prefix.
+     * @param uri       The namespace URI. Use {@link NamespaceUri#NULL} to represent the no-namespace
+     * @param localName The local part of the name
+     */
+
+    public StructuredQName(String prefix, NamespaceUri uri, String localName) {
+        this.prefix = prefix == null ? "" : prefix;
+        this.uri = uri;
+        this.local = localName;
     }
 
     /**
@@ -41,19 +50,10 @@ public class StructuredQName implements IdentityComparable {
      * @param localName The local part of the name
      */
 
-    public StructuredQName(String prefix, /*@Nullable*/ String uri, String localName) {
-        if (uri == null) {
-            uri = "";
-        }
-        int plen = prefix.length();
-        int ulen = uri.length();
-        int llen = localName.length();
-        localNameStart = ulen;
-        prefixStart = ulen + llen;
-        content = new char[ulen + llen + plen];
-        uri.getChars(0, ulen, content, 0);
-        localName.getChars(0, llen, content, ulen);
-        prefix.getChars(0, plen, content, ulen + llen);
+    public StructuredQName(String prefix, String uri, String localName) {
+        this.prefix = prefix == null ? "" : prefix;
+        this.uri = NamespaceUri.of(uri);
+        this.local = localName;
     }
 
     /**
@@ -86,7 +86,7 @@ public class StructuredQName implements IdentityComparable {
             namespace = "";
             localName = expandedName;
         }
-        return new StructuredQName("", namespace, localName);
+        return new StructuredQName("", NamespaceUri.of(namespace), localName);
     }
 
     /**
@@ -108,40 +108,36 @@ public class StructuredQName implements IdentityComparable {
      *                        changed on return depending on the caller's requirements.
      */
 
-    public static StructuredQName fromLexicalQName(CharSequence lexicalName, boolean useDefault,
+    public static StructuredQName fromLexicalQName(String lexicalName, boolean useDefault,
                                                    boolean allowEQName, NamespaceResolver resolver)
             throws XPathException {
-        lexicalName = Whitespace.trimWhitespace(lexicalName);
+        lexicalName = Whitespace.trim(lexicalName);
         if (allowEQName && lexicalName.length() >= 4 && lexicalName.charAt(0) == 'Q' && lexicalName.charAt(1) == '{') {
             String name = lexicalName.toString();
-            int endBrace = name.indexOf('}');
+            int endBrace = name.indexOf('}', 2);
             if (endBrace < 0) {
                 throw new XPathException("Invalid EQName: closing brace not found", "FOCA0002");
             } else if (endBrace == name.length() - 1) {
                 throw new XPathException("Invalid EQName: local part is missing", "FOCA0002");
             }
             String uri = name.substring(2, endBrace);
-            if (uri.contains("{")) {
+            if (uri.indexOf('{', 0) >= 0) {
                 throw new XPathException("Namespace URI must not contain '{'", "FOCA0002");
             }
-            String local = name.substring(endBrace + 1);
-            if (!NameChecker.isValidNCName(local)) {
+            String local = name.substring(endBrace + 1, name.length());
+            if (!NameChecker.isValidNCName(StringTool.codePoints(local))) {
                 throw new XPathException("Invalid EQName: local part is not a valid NCName", "FOCA0002");
             }
-            return new StructuredQName("", uri, local);
+            return new StructuredQName("", NamespaceUri.of(uri), local);
         }
         try {
             String[] parts = NameChecker.getQNameParts(lexicalName);
-            String uri = resolver.getURIForPrefix(parts[0], useDefault);
+            NamespaceUri uri = resolver.getURIForPrefix(parts[0], useDefault);
             if (uri == null) {
                 if (NameChecker.isValidNCName(parts[0])) {
-                    XPathException de = new XPathException("Namespace prefix '" + parts[0] + "' has not been declared");
-                    de.setErrorCode("FONS0004");
-                    throw de;
+                    throw new XPathException("Namespace prefix '" + parts[0] + "' has not been declared", "FONS0004");
                 } else {
-                    XPathException de = new XPathException("Invalid namespace prefix '" + parts[0] + "'");
-                    de.setErrorCode("FOCA0002");
-                    throw de;
+                    throw new XPathException("Invalid namespace prefix '" + parts[0] + "'", "FOCA0002");
                 }
             }
             return new StructuredQName(parts[0], uri, parts[1]);
@@ -160,24 +156,23 @@ public class StructuredQName implements IdentityComparable {
      * URI and local name parts are not checked)
      */
 
-    public static StructuredQName fromEQName(CharSequence eqName) {
-        eqName = Whitespace.trimWhitespace(eqName);
-        if (eqName.length() >= 4 && eqName.charAt(0) == 'Q' && eqName.charAt(1) == '{') {
-            String name = eqName.toString();
-            int endBrace = name.indexOf('}');
+    public static StructuredQName fromEQName(String eqName) {
+        eqName = Whitespace.trim(eqName);
+        if (eqName.length() >= 4 && eqName.startsWith("Q{")) {
+            int endBrace = eqName.indexOf('}');
             if (endBrace < 0) {
                 throw new IllegalArgumentException("Invalid EQName: closing brace not found");
-            } else if (endBrace == name.length() - 1) {
+            } else if (endBrace == eqName.length() - 1) {
                 throw new IllegalArgumentException("Invalid EQName: local part is missing");
             }
-            String uri = name.substring(2, endBrace);
+            String uri = eqName.substring(2, endBrace);
             if (uri.indexOf('{') >= 0) {
                 throw new IllegalArgumentException("Invalid EQName: open brace in URI part");
             }
-            String local = name.substring(endBrace + 1);
-            return new StructuredQName("", uri, local);
+            String local = eqName.substring(endBrace + 1);
+            return new StructuredQName("", NamespaceUri.of(uri), local);
         } else {
-            return new StructuredQName("", "", eqName.toString());
+            return new StructuredQName("", NamespaceUri.NULL, eqName);
         }
     }
 
@@ -189,20 +184,30 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public String getPrefix() {
-        return new String(content, prefixStart, content.length - prefixStart);
+        return prefix;
     }
 
     /**
      * Get the namespace URI of the QName.
      *
+     * @return the URI. Returns {@link NamespaceUri#NULL} to represent the no-namespace
+     */
+
+    public NamespaceUri getNamespaceUri() {
+        return this.uri;
+    }
+
+    /**
+     * Get the namespace URI of the QName as a string.
+     *
+     * <p>This method is retained for backwards compatibility, but {@link #getNamespaceUri()} should
+     * be used in preference.</p>
+     *
      * @return the URI. Returns the empty string to represent the no-namespace
      */
 
     public String getURI() {
-        if (localNameStart == 0) {
-            return "";
-        }
-        return new String(content, 0, localNameStart);
+        return this.uri.toString();
     }
 
     /**
@@ -211,17 +216,8 @@ public class StructuredQName implements IdentityComparable {
      * @return true if the namespace URI of this QName is equal to the supplied URI
      */
 
-    public boolean hasURI(String uri) {
-        if (localNameStart != uri.length()) {
-            return false;
-        }
-        for (int i = localNameStart - 1; i >= 0; i--) {
-            // compare from the end of the URI to maximize chance of finding a difference quickly
-            if (content[i] != uri.charAt(i)) {
-                return false;
-            }
-        }
-        return true;
+    public boolean hasURI(NamespaceUri uri) {
+        return this.uri == uri;
     }
 
     /**
@@ -231,7 +227,7 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public String getLocalPart() {
-        return new String(content, localNameStart, prefixStart - localNameStart);
+        return local;
     }
 
     /**
@@ -241,14 +237,10 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public String getDisplayName() {
-        if (prefixStart == content.length) {
-            return getLocalPart();
+        if (prefix.isEmpty()) {
+            return local;
         } else {
-            FastStringBuffer buff = new FastStringBuffer(content.length - localNameStart + 1);
-            buff.append(content, prefixStart, content.length - prefixStart);
-            buff.cat(':');
-            buff.append(content, localNameStart, prefixStart - localNameStart);
-            return buff.toString();
+            return prefix + ":" + local;
         }
     }
 
@@ -269,14 +261,11 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public String getClarkName() {
-        FastStringBuffer buff = new FastStringBuffer(content.length - prefixStart + 2);
-        if (localNameStart > 0) {
-            buff.cat('{');
-            buff.append(content, 0, localNameStart);
-            buff.cat('}');
+        if (uri == NamespaceUri.NULL) {
+            return local;
+        } else {
+            return "{" + uri + "}" + local;
         }
-        buff.append(content, localNameStart, prefixStart - localNameStart);
-        return buff.toString();
     }
 
     /**
@@ -287,14 +276,11 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public String getEQName() {
-        FastStringBuffer buff = new FastStringBuffer(content.length - prefixStart + 2);
-        buff.append("Q{");
-        if (localNameStart > 0) {
-            buff.append(content, 0, localNameStart);
+        if (uri == NamespaceUri.NULL) {
+            return "Q{}" + local;
+        } else {
+            return "Q{" + uri + "}" + local;
         }
-        buff.cat('}');
-        buff.append(content, localNameStart, prefixStart - localNameStart);
-        return buff.toString();
     }
 
     /**
@@ -317,21 +303,7 @@ public class StructuredQName implements IdentityComparable {
             return true;
         }
         if (other instanceof StructuredQName) {
-            int c = ((StructuredQName) other).cachedHashCode;
-            if (c != -1 && c != hashCode()) {
-                return false;
-            }
-            StructuredQName sq2 = (StructuredQName) other;
-            if (localNameStart != sq2.localNameStart || prefixStart != sq2.prefixStart) {
-                return false;
-            }
-            for (int i = prefixStart - 1; i >= 0; i--) {
-                // compare from the end of the local name to maximize chance of finding a difference quickly
-                if (content[i] != sq2.content[i]) {
-                    return false;
-                }
-            }
-            return true;
+            return local.equals(((StructuredQName)other).local) && uri == ((StructuredQName) other).uri;
         } else {
             return false;
         }
@@ -341,22 +313,15 @@ public class StructuredQName implements IdentityComparable {
      * Get a hashcode to reflect the equals() method.
      *
      * <p>The hashcode is based on the URI and local part only, ignoring the prefix. In fact the URI plays little
-     * part in computing the hashcode, because the URI is often long, and largely redundant: QNames with the same
-     * local name will rarely have different URIs, and there are significant performance savings in the NamePool
-     * if a cheaper hashcode is used. So the only contribution from the URI is that we take its length into account.</p>
+     * part in computing the hashcode: {@link NamespaceUri} objects are pooled, so the hashcode is simply the
+     * object identifier.</p>
      *
      * @return a hashcode used to distinguish distinct QNames
      */
 
     public int hashCode() {
         if (cachedHashCode == -1) {
-            int h = 0x8004a00b;
-            h ^= prefixStart;
-            h ^= localNameStart;
-            for (int i = localNameStart; i < prefixStart; i++) {
-                h ^= content[i] << (i & 0x1f);
-            }
-            return cachedHashCode = h;
+            return cachedHashCode = 0x5004a00b ^ local.hashCode() ^ uri.hashCode();
         } else {
             return cachedHashCode;
         }
@@ -370,17 +335,8 @@ public class StructuredQName implements IdentityComparable {
      * @return a hash code computed from the URI and local name
      */
 
-    public static int computeHashCode(CharSequence uri, CharSequence local) {
-        int h = 0x8004a00b;
-        int localLen = local.length();
-        int uriLen = uri.length();
-        int totalLen = localLen + uriLen;
-        h ^= totalLen;
-        h ^= uriLen;
-        for (int i = 0, j = uriLen; i < localLen; i++, j++) {
-            h ^= local.charAt(i) << (j & 0x1f);
-        }
-        return h;
+    public static int computeHashCode(NamespaceUri uri, String local) {
+        return 0x5004a00b ^ local.hashCode() ^ uri.hashCode();
     }
 
     /**
@@ -390,7 +346,7 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public QName toJaxpQName() {
-        return new javax.xml.namespace.QName(getURI(), getLocalPart(), getPrefix());
+        return new javax.xml.namespace.QName(getNamespaceUri().toString(), getLocalPart(), getPrefix());
     }
 
     /**
@@ -400,7 +356,7 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public NamespaceBinding getNamespaceBinding() {
-        return NamespaceBinding.makeNamespaceBinding(getPrefix(), getURI());
+        return new NamespaceBinding(getPrefix(), getNamespaceUri());
     }
 
     /**
@@ -410,7 +366,7 @@ public class StructuredQName implements IdentityComparable {
      * prefixes as well as the namespace URI and local name.
      *
      * @param other the value to be compared with
-     * @return true if the two values are indentical, false otherwise
+     * @return true if the two values are identical, false otherwise
      */
     @Override
     public boolean isIdentical(IdentityComparable other) {

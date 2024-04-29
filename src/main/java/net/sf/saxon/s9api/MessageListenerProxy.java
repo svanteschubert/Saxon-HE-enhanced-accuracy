@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.event.SequenceWriter;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -22,7 +23,7 @@ import net.sf.saxon.type.SchemaType;
 
 class MessageListenerProxy extends SequenceWriter {
 
-    private MessageListener listener;
+    private final MessageListener listener;
     private boolean terminate;
     private Location locationId;
     private String errorCode;
@@ -76,7 +77,7 @@ class MessageListenerProxy extends SequenceWriter {
     }
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (target.equals("error-code") && errorCode == null) {
             // Suppress the error code, not used in this interface
             errorCode = data.toString();
@@ -94,7 +95,7 @@ class MessageListenerProxy extends SequenceWriter {
      */
 
     @Override
-    public void characters(CharSequence s, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString s, Location locationId, int properties) throws XPathException {
         if (this.locationId == null) {
             this.locationId = locationId;
         }

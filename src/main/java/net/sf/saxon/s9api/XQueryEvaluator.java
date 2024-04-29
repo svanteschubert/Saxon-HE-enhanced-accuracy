@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,9 +15,7 @@ import net.sf.saxon.expr.instruct.GlobalContextRequirement;
 import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.lib.ErrorReporter;
-import net.sf.saxon.lib.Logger;
-import net.sf.saxon.lib.TraceListener;
+import net.sf.saxon.lib.*;
 import net.sf.saxon.om.*;
 import net.sf.saxon.query.DynamicQueryContext;
 import net.sf.saxon.query.XQueryExpression;
@@ -25,6 +23,7 @@ import net.sf.saxon.s9api.streams.XdmStream;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.tiny.TinyBuilder;
 import net.sf.saxon.type.TypeHierarchy;
 
@@ -36,6 +35,7 @@ import javax.xml.transform.dom.DOMSource;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * An <code>XQueryEvaluator</code> represents a compiled and loaded query ready for execution.
@@ -57,11 +57,12 @@ import java.util.Set;
  * query (the global context item) will therefore always be a single document node. This will always be built
  * as a tree in memory, it will never be streamed.</p>
  */
+@CSharpModifiers(code = {"internal"})
 public class XQueryEvaluator extends AbstractDestination implements Iterable<XdmItem> {
 
-    private Processor processor;
-    private XQueryExpression expression;
-    private DynamicQueryContext context;
+    private final Processor processor;
+    private final XQueryExpression expression;
+    private final DynamicQueryContext context;
     private Controller controller;  // used only when making direct calls to global functions
     private Destination destination;
     private Set<XdmNode> updatedDocuments;
@@ -124,6 +125,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      * node of this tree is then used as the context item for the query.</p>
      *
      * @param source the source document to act as the initial context item for the query.
+     * @throws SaxonApiException if an error is detected
      */
 
     public void setSource(Source source) throws SaxonApiException {
@@ -208,10 +210,12 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      *
      * @param resolver An object that implements the URIResolver interface, or
      *                 null.
+     * @deprecated since 11.1 - use a <code>ResourceResolver</code> instead
      */
 
+    @Deprecated
     public void setURIResolver(URIResolver resolver) {
-        context.setURIResolver(resolver);
+        context.setResourceResolver(new ResourceResolverWrappingURIResolver(resolver));
     }
 
     /**
@@ -219,11 +223,66 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      *
      * @return the user-supplied URI resolver if there is one, or the
      *         system-defined one otherwise
+     * @deprecated since 11.1 - use a <code>ResourceResolver</code> instead
      */
 
+    @Deprecated
     public URIResolver getURIResolver() {
-        return context.getURIResolver();
+        ResourceResolver rr = context.getResourceResolver();
+        if (rr instanceof ResourceResolverWrappingURIResolver) {
+            return ((ResourceResolverWrappingURIResolver) rr).getWrappedURIResolver();
+        } else {
+            return null;
+        }
     }
+
+    /**
+     * Set the ResourceResolver to be used during query evaluation.
+     * @param resolver the ResourceResolver to be used during query evaluation.
+     */
+
+
+    public void setResourceResolver(ResourceResolver resolver) {
+        context.setResourceResolver(resolver);
+    }
+
+    /**
+     * Get the ResourceResolver to be used during query evaluation.
+     *
+     * @return the ResourceResolver used during query evaluation. Returns null if no user-supplied
+     * ResourceResolver has been set.
+     */
+
+    public ResourceResolver getResourceResolver() {
+        return context.getResourceResolver();
+    }
+
+
+    /**
+     * Set an object that will be used to resolve URIs used in
+     * <code>fn:unparsed-text()</code> and related functions.
+     *
+     * @param resolver An object that implements the UnparsedTextURIResolver interface, or
+     *                 null.
+     * @since 11
+     */
+
+    public void setUnparsedTextResolver(UnparsedTextURIResolver resolver) {
+        context.setUnparsedTextURIResolver(resolver);
+    }
+
+    /**
+     * Get the URI resolver used for <code>fn:unparsed-text()</code> and related functions.
+     *
+     * @return the user-supplied URI resolver if there is one, or the
+     * system-defined one otherwise
+     * @since 11
+     */
+
+    public UnparsedTextURIResolver getUnparsedTextURIResolver() {
+        return context.getUnparsedTextURIResolver();
+    }
+
 
     /**
      * Set the error listener. The error listener receives reports of all run-time
@@ -242,6 +301,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      * @return the ErrorListener in use
      */
 
+    @SuppressWarnings("deprecation")
     public ErrorListener getErrorListener() {
         return context.getErrorListener();
     }
@@ -251,11 +311,13 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      * encountered during this query evaluation.
      * <p>Calling this method overwrites the effect of any previous call on {@link #setErrorListener(ErrorListener)}
      * or {@code setErrorList}.</p>
-     * <p>If no error reporter is supplied by the caller, error information will be written to the standard error stream.</p>
+     * <p>By default, errors are reported to a default error reporter which writes to
+     * the logging destination associated with the Saxon {@link Configuration}, which
+     * in turn defaults to the system error stream.</p>
      *
      * @param reporter a callback function which will be notified of all Static errors and warnings
      *                 encountered during a compilation episode.
-     * @since 11.2 and retrofitted to 10.7
+     * @since 11.2
      */
 
     public void setErrorReporter(ErrorReporter reporter) {
@@ -269,7 +331,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      * or implicitly using {@link #setErrorListener(ErrorListener)}.
      * If no error reporter has been registered, the result may be null, or may return
      * a system supplied error reporter.
-     * @since 11.2 and retrofitted to 10.7
+     * @since 11.2
      */
 
     public ErrorReporter getErrorReporter() {
@@ -356,7 +418,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
                 Set<MutableNodeInfo> docs = expression.runUpdate(context);
                 updatedDocuments = new HashSet<>();
                 for (MutableNodeInfo doc : docs) {
-                    updatedDocuments.add(XdmNode.wrapItem(doc));
+                    updatedDocuments.add(XdmItem.wrapItem(doc));
                 }
             } else {
                 if (destination == null) {
@@ -376,6 +438,8 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
             }
         } catch (TransformerException e) {
             throw new SaxonApiException(e);
+        } catch (UncheckedXPathException e) {
+            throw new SaxonApiException(e.getXPathException());
         }
     }
 
@@ -435,9 +499,9 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
             config.getLogger().info("Processing streamed input " + systemId);
         }
         try {
-            SerializationProperties params = expression.getExecutable().getPrimarySerializationProperties();
-            Receiver receiver = destination.getReceiver(config.makePipelineConfiguration(), params);
+            Receiver receiver = getDestinationReceiver(destination);
             expression.runStreamed(context, source, receiver, null);
+            destination.closeAndNotify();
         } catch (TransformerException e) {
             throw new SaxonApiException(e);
         }
@@ -459,7 +523,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
         }
         try {
             SequenceIterator iter = expression.iterator(context);
-            return XdmValue.wrap(iter.materialize());
+            return XdmValue.wrap(SequenceTool.toGroundedValue(iter));
         } catch (UncheckedXPathException e) {
             throw new SaxonApiException(e.getXPathException());
         } catch (XPathException e) {
@@ -581,6 +645,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
             throw new SaxonApiException(e);
         }
         sourceTreeBuilder = controller.makeBuilder();
+        sourceTreeBuilder.setDurability(Durability.LASTING);
         if (sourceTreeBuilder instanceof TinyBuilder) {
             ((TinyBuilder) sourceTreeBuilder).setStatistics(context.getConfiguration().getTreeStatistics().SOURCE_DOCUMENT_STATISTICS);
         }
@@ -592,7 +657,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
                 throw new SaxonApiException("No source document has been built by the previous pipeline stage");
             }
             doc.getTreeInfo().setSpaceStrippingRule(controller.getSpaceStrippingRule());
-            setSource(doc);
+            setSource(doc.asActiveSource());
             sourceTreeBuilder = null;
             run(destination);
             destination.closeAndNotify();
@@ -640,14 +705,15 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      * @throws SaxonApiException if no function has been defined with the given name and arity;
      *                           or if any of the arguments does not match its required type according to the function
      *                           signature; or if a dynamic error occurs in evaluating the function.
-     * @since 9.3. Changed in 9.6 to apply the function conversion rules to the supplied arguments.
+     * @since 9.3. Changed in 9.6 to apply the function conversion rules to the supplied arguments. Changed in 11.0
+     * to use varArgs.
      */
 
-    public XdmValue callFunction(QName function, XdmValue[] arguments) throws SaxonApiException {
+    public XdmValue callFunction(QName function, XdmValue... arguments) throws SaxonApiException {
         final UserFunction fn = expression.getMainModule().getUserDefinedFunction(
-                function.getNamespaceURI(), function.getLocalName(), arguments.length);
+                function.getNamespaceUri(), function.getLocalName(), arguments.length);
         if (fn == null) {
-            throw new SaxonApiException("No function with name " + function.getClarkName() +
+            throw new SaxonApiException("No function with name " + function.getEQName() +
                     " and arity " + arguments.length + " has been declared in the query");
         }
         try {
@@ -657,17 +723,18 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
                 context.initializeController(controller);
             }
             Configuration config = processor.getUnderlyingConfiguration();
+            TypeHierarchy th = config.getTypeHierarchy();
             Sequence[] vr = SequenceTool.makeSequenceArray(arguments.length);
             for (int i = 0; i < arguments.length; i++) {
                 net.sf.saxon.value.SequenceType type = fn.getParameterDefinitions()[i].getRequiredType();
-                vr[i] = arguments[i].getUnderlyingValue();
-
-                TypeHierarchy th = config.getTypeHierarchy();
-                if (!type.matches(vr[i], th)) {
-                    RoleDiagnostic role = new RoleDiagnostic(
-                            RoleDiagnostic.FUNCTION, function.getStructuredQName().getDisplayName(), i);
-                    vr[i] = th.applyFunctionConversionRules(vr[i], type, role, Loc.NONE);
+                GroundedValue gVal = arguments[i].getUnderlyingValue();
+                if (!type.matches(gVal, th)) {
+                    final int pos = i;
+                    Supplier<RoleDiagnostic> role =
+                            () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, function.getStructuredQName().getDisplayName(), pos);
+                    gVal = th.applyFunctionConversionRules(gVal, type, role, Loc.NONE);
                 }
+                vr[i] = gVal;
             }
             Sequence result = fn.call(vr, controller);
             return XdmValue.wrap(result);

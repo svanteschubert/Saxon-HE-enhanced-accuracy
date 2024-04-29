@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 
 /**
@@ -24,6 +25,7 @@ public class LocalVariableReference extends VariableReference {
 
     /**
      * Create a local variable reference. The binding and slot number will be supplied later
+     * @param name the name of the local variable
      */
 
     public LocalVariableReference(StructuredQName name) {
@@ -159,4 +161,98 @@ public class LocalVariableReference extends VariableReference {
 //    public void refineVariableReference(Expression parent) {
 //        // no-op
 //    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new LocalVariableReferenceElaborator();
+    }
+
+    /**
+     * Elaborator for a local variable reference, for example {@code $var}.
+     */
+
+    public static class LocalVariableReferenceElaborator extends PullElaborator {
+
+        @Override
+        public void setExpression(Expression expr) {
+            super.setExpression(expr);
+            if (((LocalVariableReference)expr).getSlotNumber() < 0) {
+                throw new IllegalStateException("Can't elaborate a local variable reference before slot numbers have been allocated");
+            }
+        }
+
+        @Override
+        public SequenceEvaluator eagerly() {
+            LocalVariableReference varRef = (LocalVariableReference) getExpression();
+            int slot = varRef.getSlotNumber();
+            return new LocalVariableEvaluator(slot);
+        }
+
+        @Override
+        public SequenceEvaluator lazily(boolean repeatable, boolean lazyEvaluationRequired) {
+            return eagerly();
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            LocalVariableReference varRef = (LocalVariableReference)getExpression();
+            int slot = varRef.getSlotNumber();
+            return context -> {
+                try {
+                    return context.evaluateLocalVariable(slot).iterate();
+                } catch (UncheckedXPathException e) {
+                    throw e.getXPathException()
+                            .maybeWithLocation(getExpression().getLocation())
+                            .maybeWithContext(context);
+                }
+            };
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            LocalVariableReference varRef = (LocalVariableReference) getExpression();
+            int slot = varRef.getSlotNumber();
+            return (out, context) -> {
+                try {
+                    SequenceIterator value = context.evaluateLocalVariable(slot).iterate();
+                    for (Item it; (it = value.next()) != null; ) {
+                        out.append(it);
+                    }
+                    return null;
+                } catch (UncheckedXPathException e) {
+                    throw e.getXPathException()
+                            .maybeWithLocation(getExpression().getLocation())
+                            .maybeWithContext(context);
+                } catch (XPathException e) {
+                    throw e.maybeWithLocation(getExpression().getLocation())
+                            .maybeWithContext(context);
+                }
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            LocalVariableReference varRef = (LocalVariableReference) getExpression();
+            int slot = varRef.getSlotNumber();
+            return context -> {
+                try {
+                    return context.evaluateLocalVariable(slot).head();
+                } catch (UncheckedXPathException e) {
+                    throw e.getXPathException()
+                            .maybeWithLocation(getExpression().getLocation())
+                            .maybeWithContext(context);
+                } catch (XPathException e) {
+                    throw e.maybeWithLocation(getExpression().getLocation())
+                            .maybeWithContext(context);
+                }
+            };
+        }
+
+    }
 }

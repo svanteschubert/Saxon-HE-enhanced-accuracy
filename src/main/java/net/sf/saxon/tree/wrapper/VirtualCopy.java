@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,19 +10,21 @@ package net.sf.saxon.tree.wrapper;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.tree.NamespaceNode;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -40,8 +42,8 @@ public class VirtualCopy implements NodeInfo {
     protected Supplier<String> systemIdSupplier;
     protected NodeInfo original;
     protected VirtualCopy parent;
-    protected NodeInfo root;        // the node forming the root of the subtree that was copied
     protected VirtualTreeInfo tree;
+    protected NodeInfo root;        // the node forming the root of the subtree that was copied
     private boolean dropNamespaces = false;
 
     /**
@@ -54,7 +56,8 @@ public class VirtualCopy implements NodeInfo {
 
     protected VirtualCopy(NodeInfo base, NodeInfo root) {
         original = base;
-        systemIdSupplier = base::getBaseURI; // computing the base URI can be expensive, so do it lazily
+        systemIdSupplier = CSharp.methodRef(base::getBaseURI);
+            // computing the base URI can be expensive, so do it lazily
         this.root = root;
     }
 
@@ -138,15 +141,15 @@ public class VirtualCopy implements NodeInfo {
         if (getNodeKind() == Type.ELEMENT) {
             if (dropNamespaces) {
                 NamespaceMap nsMap = NamespaceMap.emptyMap();
-                String ns = getURI();
+                NamespaceUri ns = getNamespaceUri();
                 if (!ns.isEmpty()) {
                     nsMap = nsMap.put(getPrefix(), ns);
                 }
                 AxisIterator iter = original.iterateAxis(AxisInfo.ATTRIBUTE);
                 NodeInfo att;
                 while ((att = iter.next()) != null) {
-                    if (!att.getURI().equals("")) {
-                        nsMap = nsMap.put(att.getPrefix(), att.getURI());
+                    if (!att.getNamespaceUri().isEmpty()) {
+                        nsMap = nsMap.put(att.getPrefix(), att.getNamespaceUri());
                     }
                 }
                 return nsMap;
@@ -319,26 +322,13 @@ public class VirtualCopy implements NodeInfo {
     }
 
     /**
-     * Return the string value of the node. The interpretation of this depends on the type
-     * of node. For an element it is the accumulated character content of the element,
-     * including descendant elements.
-     *
-     * @return the string value of the node
+     * Get the string value of the item
+     * @return the string value of this node
      */
 
     @Override
-    public String getStringValue() {
-        return getStringValueCS().toString();
-    }
-
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        return original.getStringValueCS();
+    public UnicodeString getUnicodeStringValue() {
+        return original.getUnicodeStringValue();
     }
 
     /**
@@ -363,8 +353,8 @@ public class VirtualCopy implements NodeInfo {
      */
 
     @Override
-    public String getURI() {
-        return original.getURI();
+    public NamespaceUri getNamespaceUri() {
+        return original.getNamespaceUri();
     }
 
     /**
@@ -457,7 +447,7 @@ public class VirtualCopy implements NodeInfo {
      */
 
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
         VirtualCopy newParent = null;
         switch (axisNumber) {
             case AxisInfo.CHILD:
@@ -508,7 +498,7 @@ public class VirtualCopy implements NodeInfo {
      *         if this node is not an element.
      */
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
         return original.getAttributeValue(uri, local);
     }
 
@@ -555,9 +545,9 @@ public class VirtualCopy implements NodeInfo {
      */
 
     @Override
-    public void generateId(/*@NotNull*/ FastStringBuffer buffer) {
+    public void generateId(/*@NotNull*/ StringBuilder buffer) {
         buffer.append("d");
-        buffer.append(Long.toString(getTreeInfo().getDocumentNumber()));
+        buffer.append(getTreeInfo().getDocumentNumber());
         original.generateId(buffer);
     }
 
@@ -597,18 +587,18 @@ public class VirtualCopy implements NodeInfo {
         if (getNodeKind() == Type.ELEMENT) {
             if (dropNamespaces) {
                 List<NamespaceBinding> allNamespaces = new ArrayList<>(5);
-                String ns = getURI();
+                NamespaceUri ns = getNamespaceUri();
                 if (ns.isEmpty()) {
-                    if (getParent() != null && !getParent().getURI().isEmpty()) {
-                        allNamespaces.add(new NamespaceBinding("", ""));
+                    if (getParent() != null && !getParent().getNamespaceUri().isEmpty()) {
+                        allNamespaces.add(new NamespaceBinding("", NamespaceUri.NULL));
                     }
                 } else {
-                    allNamespaces.add(new NamespaceBinding(getPrefix(), getURI()));
+                    allNamespaces.add(new NamespaceBinding(getPrefix(), getNamespaceUri()));
                 }
                 for (AttributeInfo att : original.attributes()) {
                     NodeName name = att.getNodeName();
-                    if (name.getURI() != null) {
-                        NamespaceBinding b = new NamespaceBinding(name.getPrefix(), name.getURI());
+                    if (name.getNamespaceUri() != null) {
+                        NamespaceBinding b = new NamespaceBinding(name.getPrefix(), name.getNamespaceUri());
                         if (!allNamespaces.contains(b)) {
                             allNamespaces.add(b);
                         }
@@ -693,7 +683,7 @@ public class VirtualCopy implements NodeInfo {
     }
 
     /**
-     * Return the public identifier for the current document event.
+     * Return the public identifier for the _current document event.
      * <p>The return value is the public identifier of the document
      * entity or of the external parsed entity in which the markup that
      * triggered the event appears.</p>
@@ -729,7 +719,7 @@ public class VirtualCopy implements NodeInfo {
      */
 
     protected VirtualCopier makeCopier(AxisIterator axis, VirtualCopy newParent, boolean testInclusion) {
-        return new VirtualCopier(axis, newParent, testInclusion);
+        return new VirtualCopier(this, axis, newParent, testInclusion);
     }
 
     /**
@@ -740,13 +730,15 @@ public class VirtualCopy implements NodeInfo {
      * the original copied node must be truncated.
      */
 
-    protected class VirtualCopier implements AxisIterator {
+    protected static class VirtualCopier implements AxisIterator {
 
+        protected VirtualCopy node;
         protected AxisIterator base;
-        private VirtualCopy parent;
+        private final VirtualCopy parent;
         protected boolean testInclusion;
 
-        public VirtualCopier(AxisIterator base, VirtualCopy parent, boolean testInclusion) {
+        public VirtualCopier(VirtualCopy node, AxisIterator base, VirtualCopy parent, boolean testInclusion) {
+            this.node = node;
             this.base = base;
             this.parent = parent;
             this.testInclusion = testInclusion;
@@ -764,15 +756,15 @@ public class VirtualCopy implements NodeInfo {
         public NodeInfo next() {
             NodeInfo next = base.next();
             if (next != null) {
-                if (testInclusion && !isIncludedInCopy(next)) {
+                if (testInclusion && !node.isIncludedInCopy(next)) {
                     // we're only interested in nodes within the subtree that was copied.
                     // Assert: once we find a node outside this subtree, all further nodes will also be outside
                     //         the subtree.
                     return null;
                 }
-                VirtualCopy vc = wrap(next);
+                VirtualCopy vc = node.wrap(next);
                 vc.parent = parent;
-                vc.systemIdSupplier = systemIdSupplier;
+                vc.systemIdSupplier = node.systemIdSupplier;
                 next = vc;
             }
             return next;

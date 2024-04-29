@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -111,6 +111,16 @@ public class RebasedNode extends AbstractVirtualNode implements WrappingFunction
     public boolean equals(Object other) {
         return other instanceof RebasedNode && node.equals(((RebasedNode) other).node);
     }
+
+    /**
+     * The hashCode() method obeys the contract for hashCode(): that is, if two objects are equal
+     * (represent the same node) then they must have the same hashCode()
+     */
+    @Override
+    public int hashCode() {
+        return node.hashCode();
+    }
+
 
     /**
      * Determine the relative position of this node and another node, in document order.

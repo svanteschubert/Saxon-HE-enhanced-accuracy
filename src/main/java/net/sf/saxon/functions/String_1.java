@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,20 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.StringEvaluator;
+import net.sf.saxon.expr.elab.UnicodeStringEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.StringElaborator;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
+import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.instruct.SimpleNodeConstructor;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.One;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.TypeHierarchy;
@@ -31,18 +36,16 @@ public class String_1 extends ScalarSystemFunction {
 
     @Override
     public AtomicValue evaluate(Item arg, XPathContext context) throws XPathException {
-        CharSequence result;
         try {
-            result = arg.getStringValueCS();
-        } catch (UnsupportedOperationException err) {
-            throw new XPathException(err.getMessage(), "FOTY0014");
+            return new StringValue(arg.getUnicodeStringValue());
+        } catch (UncheckedXPathException err) {
+            throw err.getXPathException();
         }
-        return new StringValue(result);
     }
 
     @Override
-    public ZeroOrOne resultWhenEmpty() {
-        return new One(StringValue.EMPTY_STRING);
+    public Sequence resultWhenEmpty() {
+        return StringValue.EMPTY_STRING;
     }
 
     /**
@@ -70,15 +73,47 @@ public class String_1 extends ScalarSystemFunction {
     }
 
     @Override
-    public String getCompilerName() {
-        return "StringFnCompiler";
-    }
-
-    @Override
     public String getStreamerName() {
         return "StringFn";
     }
 
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new StringFnElaborator();
+    }
 
+    public static class StringFnElaborator extends StringElaborator {
+
+        public UnicodeStringEvaluator elaborateForUnicodeString(boolean zeroLengthWhenAbsent) {
+            SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            Expression arg = fnc.getArg(0);
+            UnicodeStringEvaluator argEval = arg.makeElaborator().elaborateForUnicodeString(true);
+            return context -> {
+                try {
+                    return argEval.eval(context);
+                } catch (UncheckedXPathException err) {
+                    throw err.getXPathException();
+                }
+            };
+        }
+
+        public StringEvaluator elaborateForString(boolean zeroLengthWhenAbsent) {
+            SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            Expression arg = fnc.getArg(0);
+            StringEvaluator argEval = arg.makeElaborator().elaborateForString(true);
+            return context -> {
+                try {
+                    return argEval.eval(context);
+                } catch (UncheckedXPathException err) {
+                    throw err.getXPathException();
+                }
+            };
+        }
+    }
 }
 

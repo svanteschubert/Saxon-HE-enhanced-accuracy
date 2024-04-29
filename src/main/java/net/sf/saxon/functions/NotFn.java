@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Negatable;
 import net.sf.saxon.expr.SystemFunctionCall;
@@ -18,6 +21,7 @@ import net.sf.saxon.expr.parser.TypeChecker;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.BooleanValue;
 
@@ -67,13 +71,12 @@ public class NotFn extends SystemFunction {
              */
 
             @Override
+            @CSharpModifiers(code = {"public", "override"})
             public boolean effectiveBooleanValue(XPathContext c) throws XPathException {
                 try {
-                    return !getArg(0).effectiveBooleanValue(c);
+                    return !this.getArg(0).effectiveBooleanValue(c);
                 } catch (XPathException e) {
-                    e.maybeSetLocation(getLocation());
-                    e.maybeSetContext(c);
-                    throw e;
+                    throw e.maybeWithLocation(this.getLocation()).maybeWithContext(c);
                 }
             }
         };
@@ -103,13 +106,30 @@ public class NotFn extends SystemFunction {
     }
 
     @Override
-    public String getCompilerName() {
-        return "NotFnCompiler";
-    }
-
-    @Override
     public String getStreamerName() {
         return "NotFn";
+    }
+
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new NotFnElaborator();
+    }
+
+    public static class NotFnElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            Expression arg = fnc.getArg(0);
+            BooleanEvaluator argEval = arg.makeElaborator().elaborateForBoolean();
+            return context -> !argEval.eval(context);
+        }
+
+
     }
 }
 

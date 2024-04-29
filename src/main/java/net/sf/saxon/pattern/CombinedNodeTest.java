@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,11 +16,9 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.tree.tiny.NodeVectorTree;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.z.IntExceptPredicate;
-import net.sf.saxon.z.IntSet;
+import net.sf.saxon.z.*;
 
 import java.util.Optional;
-import java.util.function.IntPredicate;
 
 /**
  * A CombinedNodeTest combines two node tests using one of the operators
@@ -28,15 +26,13 @@ import java.util.function.IntPredicate;
  * when optimizing a union (etc) of two path expressions using the same axis.
  * A CombinedNodeTest is also used to support constructs such as element(N,T),
  * which can be expressed as (element(N,*) intersect element(*,T))
- *
- * @author Michael H. Kay
  */
 
 public class CombinedNodeTest extends NodeTest {
 
-    private NodeTest nodetest1;
-    private NodeTest nodetest2;
-    private int operator;
+    private final NodeTest nodetest1;
+    private final NodeTest nodetest2;
+    private final int operator;
 
     /**
      * Create a NodeTest that combines two other node tests
@@ -110,14 +106,14 @@ public class CombinedNodeTest extends NodeTest {
     }
 
     @Override
-    public IntPredicate getMatcher(NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(NodeVectorTree tree) {
         switch (operator) {
             case Token.UNION:
-                return nodetest1.getMatcher(tree).or(nodetest2.getMatcher(tree));
+                return IntUnionPredicate.makeUnion(nodetest1.getMatcher(tree), (nodetest2.getMatcher(tree)));
             case Token.INTERSECT:
-                return nodetest1.getMatcher(tree).and(nodetest2.getMatcher(tree));
+                return IntIntersectionPredicate.makeIntersection(nodetest1.getMatcher(tree), (nodetest2.getMatcher(tree)));
             case Token.EXCEPT:
-                return new IntExceptPredicate(nodetest1.getMatcher(tree), nodetest2.getMatcher(tree));
+                return IntExceptPredicate.makeDifference(nodetest1.getMatcher(tree), nodetest2.getMatcher(tree));
             default:
                 throw new IllegalArgumentException("Unknown operator in Combined Node Test");
         }
@@ -162,7 +158,7 @@ public class CombinedNodeTest extends NodeTest {
             if (nodetest2 instanceof ContentTypeTest) {
                 SchemaType schemaType = ((ContentTypeTest) nodetest2).getSchemaType();
                 if (forExport) {
-                    schemaType = schemaType.getNearestNamedType();
+                    schemaType = TypeHierarchy.getNearestNamedType(schemaType);
                 }
                 content = ", " + schemaType.getEQName();
                 if (nodetest2.isNillable()) {

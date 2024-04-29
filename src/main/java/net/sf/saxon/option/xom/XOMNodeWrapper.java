@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,11 @@ package net.sf.saxon.option.xom;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.SteppingNavigator;
 import net.sf.saxon.tree.util.SteppingNode;
@@ -20,12 +22,10 @@ import net.sf.saxon.tree.wrapper.AbstractNodeWrapper;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.value.UntypedAtomicValue;
 import nu.xom.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Predicate;
 
 /**
  * A node in the XML parse tree representing an XML element, character content,
@@ -37,7 +37,7 @@ import java.util.function.Predicate;
  * @author Wolfgang Hoschek (ported net.sf.saxon.jdom to XOM)
  */
 
-public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCountingNode, SteppingNode<XOMNodeWrapper> {
+public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCountingNode, SteppingNode {
 
     protected Node node;
 
@@ -182,9 +182,9 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
         switch (getNodeKind()) {
             case Type.COMMENT:
             case Type.PROCESSING_INSTRUCTION:
-                return new StringValue(getStringValueCS());
+                return new StringValue(getUnicodeStringValue());
             default:
-                return new UntypedAtomicValue(getStringValueCS());
+                return StringValue.makeUntypedAtomic(getUnicodeStringValue());
         }
     }
 
@@ -379,18 +379,8 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
 
     @Override
-    public String getStringValue() {
-        return node.getValue();
-    }
-
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        return node.getValue();
+    public UnicodeString getUnicodeStringValue() {
+        return StringView.tidy(node.getValue());
     }
 
     /**
@@ -442,14 +432,14 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
 
     @Override
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         switch (nodeKind) {
             case Type.ELEMENT:
-                return ((Element) node).getNamespaceURI();
+                return NamespaceUri.of(((Element) node).getNamespaceURI());
             case Type.ATTRIBUTE:
-                return ((Attribute) node).getNamespaceURI();
+                return NamespaceUri.of(((Attribute) node).getNamespaceURI());
             default:
-                return "";
+                return NamespaceUri.NULL;
         }
     }
 
@@ -545,14 +535,15 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
     }
 
     @Override
-    public XOMNodeWrapper getSuccessorElement(XOMNodeWrapper anchor, String uri, String local) {
-        Node stop = anchor == null ? null : anchor.node;
+    public SteppingNode getSuccessorElement(SteppingNode anchor, NamespaceUri uri, String local) {
+        Node stop = anchor == null ? null : ((XOMNodeWrapper)anchor).node;
         Node next = node;
+        String requiredUri = uri == null ? null : uri.toString();
         do {
             next = getSuccessorNode(next, stop);
         } while (next != null &&
                 !(next instanceof Element &&
-                        (uri == null || uri.equals(((Element) next).getNamespaceURI())) &&
+                        (uri == null || requiredUri.equals(((Element) next).getNamespaceURI())) &&
                         (local == null || local.equals(((Element) next).getLocalName()))));
         if (next == null) {
             return null;
@@ -632,14 +623,14 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
     }
 
     @Override
-    protected AxisIterator iterateAttributes(Predicate<? super NodeInfo> nodeTest) {
+    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
         return new Navigator.AxisFilter(
                 new AttributeAxisIterator(this, nodeTest),
                 nodeTest);
     }
 
     @Override
-    protected AxisIterator iterateChildren(Predicate<? super NodeInfo> nodeTest) {
+    protected AxisIterator iterateChildren(NodeTest nodeTest) {
         if (hasChildNodes()) {
             return new Navigator.AxisFilter(
                     new ChildAxisIterator(this, true, true, nodeTest),
@@ -650,21 +641,21 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
     }
 
     @Override
-    protected AxisIterator iterateSiblings(Predicate<? super NodeInfo> nodeTest, boolean forwards) {
+    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
         return new Navigator.AxisFilter(
                 new ChildAxisIterator(this, false, forwards, nodeTest),
                 nodeTest);
     }
 
     @Override
-    protected AxisIterator iterateDescendants(Predicate<? super NodeInfo> nodeTest, boolean includeSelf) {
+    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
         if (includeSelf) {
-            return new SteppingNavigator.DescendantAxisIterator<>(
+            return new SteppingNavigator.DescendantAxisIterator(
                     this, true, nodeTest);
 
         } else {
             if (hasChildNodes()) {
-                return new SteppingNavigator.DescendantAxisIterator<>(
+                return new SteppingNavigator.DescendantAxisIterator(
                         this, false, nodeTest);
             } else {
                 return EmptyIterator.ofNodes();
@@ -685,9 +676,9 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
 
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
         if (nodeKind == Type.ELEMENT) {
-            Attribute att = ((Element) node).getAttribute(local, uri);
+            Attribute att = ((Element) node).getAttribute(local, uri.toString());
             if (att != null) {
                 return att.getValue();
             }
@@ -726,7 +717,7 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
 
     @Override
-    public void generateId(FastStringBuffer buffer) {
+    public void generateId(StringBuilder buffer) {
         Navigator.appendSequentialKey(this, buffer, true);
         //buffer.append(Navigator.getSequentialKey(this));
     }
@@ -762,10 +753,10 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
                     // include the default namespace undeclaration xmlns="" only if needed
                     ParentNode parent = node.getParent();
                     if (parent instanceof Element && !((Element)parent).getNamespaceURI("").isEmpty()) {
-                        list.add(new NamespaceBinding(prefix, uri));
+                        list.add(new NamespaceBinding(prefix, NamespaceUri.of(uri)));
                     }
                 } else {
-                    list.add(new NamespaceBinding(prefix, uri));
+                    list.add(new NamespaceBinding(prefix, NamespaceUri.of(uri)));
                 }
             }
             return list.toArray(NamespaceBinding.EMPTY_ARRAY);
@@ -799,7 +790,7 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
                 for (int i = 0; i < size; i++) {
                     String prefix = elem.getNamespacePrefix(i);
                     String uri = elem.getNamespaceURI(prefix);
-                    nsMap = nsMap.bind(prefix, uri);
+                    nsMap = nsMap.bind(prefix, NamespaceUri.of(uri));
                 }
                 return inScopeNamespaces = nsMap;
             }
@@ -844,13 +835,13 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
     private final class AttributeAxisIterator implements AxisIterator {
 
-        private XOMNodeWrapper start;
+        private final XOMNodeWrapper start;
 
         private int cursor;
 
-        private Predicate<? super NodeInfo> nodeTest;
+        private final NodeTest nodeTest;
 
-        AttributeAxisIterator(XOMNodeWrapper start, Predicate<? super NodeInfo> test) {
+        AttributeAxisIterator(XOMNodeWrapper start, NodeTest test) {
             // use lazy instead of eager materialization (performance)
             this.start = start;
             if (test == AnyNodeTest.getInstance()) {
@@ -892,16 +883,16 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
     private final class ChildAxisIterator implements AxisIterator {
 
-        private XOMNodeWrapper commonParent;
+        private final XOMNodeWrapper commonParent;
         private int ix;
-        private boolean forwards; // iterate in document order (not reverse order)
+        private final boolean forwards; // iterate in document order (not reverse order)
 
-        private ParentNode par;
+        private final ParentNode par;
         private int cursor;
 
-        private Predicate<? super NodeInfo> nodeTest;
+        private final NodeTest nodeTest;
 
-        private ChildAxisIterator(XOMNodeWrapper start, boolean downwards, boolean forwards, Predicate<? super NodeInfo> test) {
+        private ChildAxisIterator(XOMNodeWrapper start, boolean downwards, boolean forwards, NodeTest test) {
             this.forwards = forwards;
 
             if (test == AnyNodeTest.getInstance()) {

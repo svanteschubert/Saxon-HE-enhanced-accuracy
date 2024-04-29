@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -64,7 +65,7 @@ public class OuterForExpression extends ForExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     /*@NotNull*/
@@ -89,23 +90,7 @@ public class OuterForExpression extends ForExpression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-
-        // First create an iteration of the base sequence.
-
-        // Then create a MappingIterator which applies a mapping function to each
-        // item in the base sequence. The mapping function is essentially the "return"
-        // expression, wrapped in a MappingAction object that is responsible also for
-        // setting the range variable at each step.
-
-        SequenceIterator base = getSequence().iterate(context);
-        LookaheadIterator ahead = LookaheadIteratorImpl.makeLookaheadIterator(base);
-        if (ahead.hasNext()) {
-            MappingFunction map = new MappingAction(context, getLocalSlotNumber(), getAction());
-            return new MappingIterator(ahead, map);
-        } else {
-            context.setLocalVariable(getLocalSlotNumber(), EmptySequence.getInstance());
-            return getAction().iterate(context);
-        }
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
@@ -115,21 +100,7 @@ public class OuterForExpression extends ForExpression {
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        SequenceIterator base = getSequence().iterate(context);
-        int position = 1;
-        int slot = getLocalSlotNumber();
-        LookaheadIterator ahead = LookaheadIteratorImpl.makeLookaheadIterator(base);
-        if (ahead.hasNext()) {
-            while (true) {
-                Item item = ahead.next();
-                if (item == null) break;
-                context.setLocalVariable(slot, item);
-                getAction().process(output, context);
-            }
-        } else {
-            context.setLocalVariable(getLocalSlotNumber(), EmptySequence.getInstance());
-            getAction().process(output, context);
-        }
+        dispatchTailCall(makeElaborator().elaborateForPush().processLeavingTail(output, context));
     }
 
     /**
@@ -144,32 +115,8 @@ public class OuterForExpression extends ForExpression {
         return "outerFor";
     }
 
-    /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     */
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        SequenceIterator base = getSequence().iterate(context);
-        int position = 1;
-        int slot = getLocalSlotNumber();
-        LookaheadIterator ahead = LookaheadIteratorImpl.makeLookaheadIterator(base);
-        if (ahead.hasNext()) {
-            while (true) {
-                Item item = ahead.next();
-                if (item == null) break;
-                context.setLocalVariable(slot, item);
-                getAction().evaluatePendingUpdates(context, pul);
-            }
-        } else {
-            context.setLocalVariable(getLocalSlotNumber(), EmptySequence.getInstance());
-            getAction().evaluatePendingUpdates(context, pul);
-        }
+    protected String allowingEmptyString() {
+        return " allowing empty";
     }
 
 
@@ -178,9 +125,98 @@ public class OuterForExpression extends ForExpression {
         out.emitAttribute("outer", "true");
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new OuterForExprElaborator();
+    }
+
+    /**
+     * An elaborator for a "for" expression, typically written as {for $x in SEQ return R}.
+     *
+     * <p>Provides both "pull" and "push" implementations.</p>
+     */
+
+    public static class OuterForExprElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final ForExpression expr = (ForExpression) getExpression();
+            final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
+            final int actionCardinality = expr.getAction().getCardinality();
+            final int slot = expr.getLocalSlotNumber();
+            final PullEvaluator actionEval = expr.getAction().makeElaborator().elaborateForPull();
+            return context -> {
+                SequenceIterator base = selectEval.iterate(context);
+                LookaheadIterator ahead = LookaheadIteratorImpl.makeLookaheadIterator(base);
+                if (ahead.hasNext()) {
+                    return MappingIterator.map(ahead, item -> {
+                        context.setLocalVariable(slot, item);
+                        return actionEval.iterate(context);
+                    });
+                } else {
+                    context.setLocalVariable(slot, EmptySequence.getInstance());
+                    return actionEval.iterate(context);
+                }
+            };
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            final ForExpression expr = (ForExpression) getExpression();
+            final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
+            final PushEvaluator actionEval = expr.getAction().makeElaborator().elaborateForPush();
+            final int slot = expr.getLocalSlotNumber();
+            return (output, context) -> {
+                SequenceIterator base = selectEval.iterate(context);
+                LookaheadIterator ahead = LookaheadIteratorImpl.makeLookaheadIterator(base);
+                if (ahead.hasNext()) {
+                    while (true) {
+                        Item item = ahead.next();
+                        if (item == null) break;
+                        context.setLocalVariable(slot, item);
+                        dispatchTailCall(actionEval.processLeavingTail(output, context));
+                    }
+                } else {
+                    context.setLocalVariable(slot, EmptySequence.getInstance());
+                    dispatchTailCall(actionEval.processLeavingTail(output, context));
+                }
+                return null;
+            };
+        }
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            final ForExpression expr = (ForExpression) getExpression();
+            final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
+            final UpdateEvaluator actionEval = expr.getAction().makeElaborator().elaborateForUpdate();
+            final int slot = expr.getLocalSlotNumber();
+            return (context, pul) -> {
+                SequenceIterator base = selectEval.iterate(context);
+                LookaheadIterator ahead = LookaheadIteratorImpl.makeLookaheadIterator(base);
+                if (ahead.hasNext()) {
+                    while (true) {
+                        Item item = ahead.next();
+                        if (item == null) {
+                            break;
+                        }
+                        context.setLocalVariable(slot, item);
+                        actionEval.registerUpdates(context, pul);
+                    }
+                } else {
+                    context.setLocalVariable(slot, EmptySequence.getInstance());
+                    actionEval.registerUpdates(context, pul);
+                }
+            };
+        }
+    }
 
 }
 
-// Copyright (c) 2008-2020 Saxonica Limited
+// Copyright (c) 2008-2023 Saxonica Limited
 
 

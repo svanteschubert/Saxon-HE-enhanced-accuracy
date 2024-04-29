@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,6 @@ import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.type.UType;
@@ -29,9 +28,9 @@ import java.util.Optional;
  */
 public class RoleDiagnostic {
 
-    private int kind;
-    private String operation;
-    private int operand;
+    private final int kind;
+    private final String operation;
+    private final int operand;
     private String errorCode = "XPTY0004";  // default error code for type errors
 
     public static final int FUNCTION = 0;
@@ -51,10 +50,13 @@ public class RoleDiagnostic {
     public static final int AXIS_STEP = 14;
     public static final int OPTION = 15;
     public static final int CHARACTER_MAP_EXPANSION = 16;
+    public static final int FOR_MEMBER = 17;
+
     //public static final int DOCUMENT_ORDER = 17;  // 9.8 and earlier
     //public static final int MAP_CONSTRUCTOR = 18;  // 9.8 and earlier
     public static final int MATCH_PATTERN = 19;
     public static final int MISC = 20;
+    public static final int DYNAMIC_FUNCTION = 21;
 
 
     /**
@@ -75,6 +77,13 @@ public class RoleDiagnostic {
         this.kind = kind;
         this.operation = operation;
         this.operand = operand;
+    }
+
+    public RoleDiagnostic(int kind, String operation, int operand, String errorCode) {
+        this.kind = kind;
+        this.operation = operation;
+        this.operand = operand;
+        this.errorCode = errorCode;
     }
 
     /**
@@ -173,8 +182,12 @@ public class RoleDiagnostic {
                 return "value of the " + name + " option";
             case CHARACTER_MAP_EXPANSION:
                 return "substitute value for character '" + name + "' in the character map";
+            case FOR_MEMBER:
+                return "'for member $" + name + "' expression";
             case MATCH_PATTERN:
                 return "match pattern";
+            case DYNAMIC_FUNCTION:
+                return "target of a dynamic function call {" + name + "}";
             case MISC:
                 return operation;
             default:
@@ -214,6 +227,7 @@ public class RoleDiagnostic {
      *
      * @param requiredItemType the item type required by the context of a particular expression
      * @param supplied the supplied expression
+     * @param th       the type hierarchy
      * @return a message of the form "Required item type of A is R; supplied value has item type S"
      */
 
@@ -221,7 +235,7 @@ public class RoleDiagnostic {
         if (supplied instanceof Literal) {
             String s = composeRequiredMessage(requiredItemType);
             Optional<String> more = SequenceType.makeSequenceType(requiredItemType, StaticProperty.ALLOWS_ZERO_OR_MORE)
-                    .explainMismatch(((Literal)supplied).getValue(), th);
+                    .explainMismatch(((Literal)supplied).getGroundedValue(), th);
             if (more.isPresent()) {
                 s = s + ". " + more.get();
             }
@@ -239,24 +253,28 @@ public class RoleDiagnostic {
      *
      * @param requiredItemType the item type required by the context of a particular expression
      * @param item the actual item in error. Must NOT be null (unlike earlier releases).
+     * @param th   the type hierarchy
      * @return a message of the form "Required item type of A is R; supplied value has item type S"
      */
 
     public String composeErrorMessage(ItemType requiredItemType, Item item, TypeHierarchy th) {
 
-        FastStringBuffer message = new FastStringBuffer(256);
+        StringBuilder message = new StringBuilder(256);
         message.append(composeRequiredMessage(requiredItemType));
         message.append("; the supplied value ");
-        message.cat(Err.depict(item));
+        message.append(Err.depict(item));
 
         if (requiredItemType.getGenre() != item.getGenre()) {
             message.append(" is ");
-            message.append(item.getGenre().getDescription());
+            message.append(Err.describeGenre(item.getGenre()));
         } else {
             message.append(" does not match. ");
             if (th != null) {
                 Optional<String> more = requiredItemType.explainMismatch(item, th);
-                more.ifPresent(message::append);
+                //noinspection OptionalIsPresent
+                if (more.isPresent()) {
+                    message.append(more.get());
+                }
             }
         }
         return message.toString();
@@ -283,7 +301,7 @@ public class RoleDiagnostic {
      */
 
     public String save() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         fsb.append(kind + "|");
         fsb.append(operand + "|");
         fsb.append(errorCode.equals("XPTY0004") ? "" : errorCode);
@@ -295,6 +313,7 @@ public class RoleDiagnostic {
     /**
      * Reconstruct from a saved string
      * @param in the saved string representation of the RoleDiagnostic
+     * @return the RoleDiagnostic
      */
 
     public static RoleDiagnostic reconstruct(String in) {

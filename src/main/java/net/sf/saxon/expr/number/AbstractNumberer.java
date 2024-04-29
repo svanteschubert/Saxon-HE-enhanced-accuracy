@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,12 @@
 package net.sf.saxon.expr.number;
 
 import net.sf.saxon.lib.Numberer;
-import net.sf.saxon.regex.EmptyString;
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.Twine8;
+import net.sf.saxon.str.UnicodeString;
 
+import java.util.Arrays;
 import java.util.Locale;
 
 /**
@@ -30,6 +32,9 @@ public abstract class AbstractNumberer implements Numberer {
     public static final int UPPER_CASE = 0;
     public static final int LOWER_CASE = 1;
     public static final int TITLE_CASE = 2;
+
+    public static int[] lowerCaseAlphabet = StringTool.expand(new Twine8("0123456789abcdefghijklmnopqrstuvwxyz"));
+    public static int[] upperCaseAlphabet = StringTool.expand(new Twine8("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
 
 
     /**
@@ -65,6 +70,8 @@ public abstract class AbstractNumberer implements Numberer {
 
     /**
      * Get the language used by this numberer
+     *
+     * @return the language used by this numberer
      */
 
     public String getLanguage() {
@@ -86,20 +93,28 @@ public abstract class AbstractNumberer implements Numberer {
      * Format a number into a string. This method is provided for backwards compatibility. It merely
      * calls the other format method after constructing a RegularGroupFormatter. The method is final;
      * localization subclasses should implement the method
-     * {@link net.sf.saxon.lib.Numberer#format(long, UnicodeString, NumericGroupFormatter, String, String)} rather than this method.
+     * {@link Numberer#format(long, UnicodeString, NumericGroupFormatter, String, String, String)}
+     * rather than this method.
      *
      * @param number         The number to be formatted
      * @param picture        The format token. This is a single component of the format attribute
      *                       of xsl:number, e.g. "1", "01", "i", or "a"
      * @param groupSize      number of digits per group (0 implies no grouping)
      * @param groupSeparator string to appear between groups of digits
-     * @param letterValue    The letter-value specified to xsl:number: "alphabetic" or
-     *                       "traditional". Can also be an empty string or null.
-     * @param ordinal        The value of the ordinal attribute specified to xsl:number
-     *                       The value "yes" indicates that ordinal numbers should be used; "" or null indicates
-     *                       that cardinal numbers
+     * @param letterValue     The letter-value specified to xsl:number: "alphabetic" or
+     *                        "traditional". The value "Xnn" or "xnn" signifies use of a radix other than 10,
+     *                        in the range 2 to 36. Can also be an empty string or null.
+     * @param cardinal       When called from xsl:number, the value is set to an empty string.
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "c", for example "c(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".
+     * @param ordinal        When called from xsl:number, the value of the ordinal attribute ("true"
+     *                       and "1" are normalized to "yes").
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "o", for example "o(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".
      * @return the formatted number. Note that no errors are reported; if the request
-     *         is invalid, the number is formatted as if the string() function were used.
+     * is invalid, the number is formatted as if the string() function were used.
      */
 
     @Override
@@ -108,11 +123,12 @@ public abstract class AbstractNumberer implements Numberer {
                                int groupSize,
                                String groupSeparator,
                                String letterValue,
+                               String cardinal,
                                String ordinal) {
 
         return format(number, picture,
-                new RegularGroupFormatter(groupSize, groupSeparator, EmptyString.THE_INSTANCE),
-                letterValue, ordinal);
+                      new RegularGroupFormatter(groupSize, groupSeparator, EmptyUnicodeString.getInstance()),
+                      letterValue, cardinal, ordinal);
     }
 
     /**
@@ -122,40 +138,57 @@ public abstract class AbstractNumberer implements Numberer {
      * @param picture           The format token. This is a single component of the format attribute
      *                          of xsl:number, e.g. "1", "01", "i", or "a"
      * @param numGroupFormatter object contains separators to appear between groups of digits
-     * @param letterValue       The letter-value specified to xsl:number: "alphabetic" or
-     *                          "traditional". Can also be an empty string or null.
-     * @param ordinal           The value of the ordinal attribute specified to xsl:number
-     *                          The value "yes" indicates that ordinal numbers should be used; "" or null indicates
-     *                          cardinal numbers. A value such as "-er" indicates ordinal with a particular gender.
-     * @return the formatted number. Note that no errors are reported; if the request
-     *         is invalid, the number is formatted as if the string() function were used.
+     * @param letterValue     The letter-value specified to xsl:number: "alphabetic" or
+     *                        "traditional". The value "Xnn" or "xnn" signifies use of a radix other than 10,
+     *                        in the range 2 to 36. Can also be an empty string or null.
+     * @param cardinal       When called from xsl:number, the value is set to an empty string.
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "c", for example "c(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".
+     * @param ordinal        When called from xsl:number, the value of the ordinal attribute ("true"
+     *                       and "1" are normalized to "yes").
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "o", for example "o(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".     * @return the formatted number. Note that no errors are reported; if the request
+     * is invalid, the number is formatted as if the string() function were used.
      */
     @Override
     public String format(long number,
-                         /*@Nullable*/ UnicodeString picture,
+                         UnicodeString picture,
                          NumericGroupFormatter numGroupFormatter,
                          String letterValue,
+                         String cardinal,
                          String ordinal) {
 
-
+        int[] digits = westernDigits;
+        if (letterValue != null && letterValue.startsWith("x")) {
+            int radix = Integer.parseInt(letterValue.substring(1));
+            digits = Arrays.copyOf(lowerCaseAlphabet, radix);
+        } else if (letterValue != null && letterValue.startsWith("X")) {
+            int radix = Integer.parseInt(letterValue.substring(1));
+            digits = Arrays.copyOf(upperCaseAlphabet, radix);
+        }
         if (number < 0) {
             return "" + number;
         }
-        if (picture == null || picture.uLength() == 0) {
+        if (picture == null || picture.length() == 0) {
             return "" + number;
         }
+        int pictureLength = picture.length32();
 
-        int pictureLength = picture.uLength();
-        FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C16);
-        int formchar = picture.uCharAt(0);
+        StringBuilder sb = new StringBuilder(16);
+        int formchar = picture.codePointAt(0);
+        if (formchar == 'X' || formchar == 'x') {
+            formchar = '0';
+        }
 
-        FastStringBuffer fsb = new FastStringBuffer(2);
+        StringBuilder fsb = new StringBuilder(2);
 
         switch (formchar) {
 
             case '0':
             case '1':
-                sb.append(toRadical(number, westernDigits, pictureLength, numGroupFormatter));
+                sb.append(toRadical(number, digits, pictureLength, numGroupFormatter));
                 if (ordinal != null && !ordinal.isEmpty()) {
                     sb.append(ordinalSuffix(ordinal, number));
                 }
@@ -176,7 +209,7 @@ public abstract class AbstractNumberer implements Numberer {
             case 'w':
             case 'W':
                 int wordCase;
-                if (picture.uLength() == 1) {
+                if (pictureLength == 1) {
                     if (formchar == 'W') {
                         wordCase = UPPER_CASE;
                     } else /*if (formchar == 'w')*/ {
@@ -189,7 +222,7 @@ public abstract class AbstractNumberer implements Numberer {
                 if (ordinal != null && !ordinal.isEmpty()) {
                     return toOrdinalWords(ordinal, number, wordCase);
                 } else {
-                    return toWords(number, wordCase);
+                    return toWords(cardinal, number, wordCase);
                 }
 
             case 'i':
@@ -308,7 +341,7 @@ public abstract class AbstractNumberer implements Numberer {
                 if (number == 0 || number > 10) {
                     return "" + number;
                 }
-                fsb.appendWideChar(65799 + (int) number - 1);
+                fsb.appendCodePoint(65799 + (int) number - 1);
                 return fsb.toString();
 
             case 69216:
@@ -316,7 +349,7 @@ public abstract class AbstractNumberer implements Numberer {
                 if (number == 0 || number > 10) {
                     return "" + number;
                 }
-                fsb.appendWideChar(69216 + (int) number - 1);
+                fsb.appendCodePoint(69216 + (int) number - 1);
                 return fsb.toString();
 
             case 69714:
@@ -324,7 +357,7 @@ public abstract class AbstractNumberer implements Numberer {
                 if (number == 0 || number > 10) {
                     return "" + number;
                 }
-                fsb.appendWideChar(69714 + (int) number - 1);
+                fsb.appendCodePoint(69714 + (int) number - 1);
                 return fsb.toString();
 
             case 119648:
@@ -332,19 +365,19 @@ public abstract class AbstractNumberer implements Numberer {
                 if (number == 0 || number >= 10) {
                     return "" + number;
                 }
-                fsb.appendWideChar(119648 + (int) number - 1);
+                fsb.appendCodePoint(119648 + (int) number - 1);
                 return fsb.toString();
 
             case 127234:
                 // digit one comma
                 if (number == 0) {
-                    fsb.appendWideChar(127233);
+                    fsb.appendCodePoint(127233);
                     return fsb.toString();
                 }
                 if (number >= 10) {
                     return "" + number;
                 }
-                fsb.appendWideChar(127234 + (int) number - 1);
+                fsb.appendCodePoint(127234 + (int) number - 1);
                 return fsb.toString();
 
             case '\u0391':
@@ -410,7 +443,7 @@ public abstract class AbstractNumberer implements Numberer {
                 if (digitValue >= 0) {
 
                     int zero = formchar - digitValue;
-                    int[] digits = new int[10];
+                    digits = new int[10];
                     for (int z = 0; z <= 9; z++) {
                         digits[z] = zero + z;
                     }
@@ -530,9 +563,9 @@ public abstract class AbstractNumberer implements Numberer {
      * @param sb       buffer to hold the result of the formatting
      */
 
-    protected void alphaDefault(long number, char formchar, FastStringBuffer sb) {
-        int min = (int) formchar;
-        int max = (int) formchar;
+    protected void alphaDefault(long number, char formchar, StringBuilder sb) {
+        int min = formchar;
+        int max = formchar;
         // use the contiguous range of letters starting with the specified one
         while (Character.isLetterOrDigit((char) (max + 1))) {
             max++;
@@ -602,10 +635,10 @@ public abstract class AbstractNumberer implements Numberer {
     private String toRadical(long number, int[] digits, int pictureLength,
                              NumericGroupFormatter numGroupFormatter) {
 
-        FastStringBuffer temp = convertDigitSystem(number, digits, pictureLength);
+        String temp = convertDigitSystem(number, digits, pictureLength);
 
         if (numGroupFormatter == null) {
-            return temp.toString();
+            return temp;
         }
 
         return numGroupFormatter.format(temp);
@@ -623,24 +656,24 @@ public abstract class AbstractNumberer implements Numberer {
      * @return the converted number
      */
 
-    public static FastStringBuffer convertDigitSystem(long number, int[] digits, int requiredLength) {
-        FastStringBuffer temp = new FastStringBuffer(FastStringBuffer.C16);
+    public static String convertDigitSystem(long number, int[] digits, int requiredLength) {
+        StringBuilder temp = new StringBuilder(16);
         int base = digits.length;
-        FastStringBuffer s = new FastStringBuffer(FastStringBuffer.C16);
+        StringBuilder s = new StringBuilder(16);
         long n = number;
         int count = 0;
         while (n > 0) {
             int digit = digits[(int) (n % base)];
-            s.prependWideChar(digit);
+            StringTool.prependWideChar(s, digit);
             count++;
             n = n / base;
         }
 
         for (int i = 0; i < (requiredLength - count); i++) {
-            temp.appendWideChar(digits[0]);
+            temp.appendCodePoint(digits[0]);
         }
         temp.append(s);
-        return temp;
+        return temp.toString();
     }
 
     /**
@@ -663,13 +696,13 @@ public abstract class AbstractNumberer implements Numberer {
     // Roman numbers beyond 4000 use overlining and other conventions which we won't
     // attempt to reproduce. We'll go high enough to handle present-day Gregorian years.
 
-    private static String[] romanThousands =
+    private static final String[] romanThousands =
             {"", "m", "mm", "mmm", "mmmm", "mmmmm", "mmmmmm", "mmmmmmm", "mmmmmmmm", "mmmmmmmmm"};
-    private static String[] romanHundreds =
+    private static final String[] romanHundreds =
             {"", "c", "cc", "ccc", "cd", "d", "dc", "dcc", "dccc", "cm"};
-    private static String[] romanTens =
+    private static final String[] romanTens =
             {"", "x", "xx", "xxx", "xl", "l", "lx", "lxx", "lxxx", "xc"};
-    private static String[] romanUnits =
+    private static final String[] romanUnits =
             {"", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"};
 
 
@@ -681,9 +714,9 @@ public abstract class AbstractNumberer implements Numberer {
      */
 
     public String toJapanese(long number) {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C16);
+        StringBuilder fsb = new StringBuilder(16);
         if (number == 0) {
-            fsb.appendWideChar(0x3007);
+            fsb.appendCodePoint(0x3007);
         } else if (number <= 9999) {
             toJapanese((int) number, fsb, false);
         } else {
@@ -700,26 +733,26 @@ public abstract class AbstractNumberer implements Numberer {
      * @param isInitial true except on a recursive call
      */
 
-    private static void toJapanese(int nr, FastStringBuffer fsb, boolean isInitial) {
+    private static void toJapanese(int nr, StringBuilder fsb, boolean isInitial) {
         if (nr == 0) {
             // no action (not used at top level)
         } else if (nr <= 9) {
             if (!(nr == 1 && isInitial)) {
-                fsb.appendWideChar(kanjiDigits[nr]);
+                fsb.appendCodePoint(kanjiDigits[nr]);
             }
         } else if (nr == 10) {
-            fsb.appendWideChar(0x5341);
+            fsb.appendCodePoint(0x5341);
         } else if (nr <= 99) {
             toJapanese(nr / 10, fsb, true);
-            fsb.appendWideChar(0x5341);
+            fsb.appendCodePoint(0x5341);
             toJapanese(nr % 10, fsb, false);
         } else if (nr <= 999) {
             toJapanese(nr / 100, fsb, true);
-            fsb.appendWideChar(0x767e);
+            fsb.appendCodePoint(0x767e);
             toJapanese(nr % 100, fsb, false);
         } else if (nr <= 9999) {
             toJapanese(nr / 1000, fsb, true);
-            fsb.appendWideChar(0x5343);
+            fsb.appendCodePoint(0x5343);
             toJapanese(nr % 1000, fsb, false);
         }
 
@@ -732,27 +765,29 @@ public abstract class AbstractNumberer implements Numberer {
      * Show the number as words in title case. (We choose title case because
      * the result can then be converted algorithmically to lower case or upper case).
      *
-     * @param number the number to be formatted
+     * @param cardinal the value of the "cardinal" attribute as supplied by the user
+     * @param number   the number to be formatted
      * @return the number formatted as English words
      */
 
-    public abstract String toWords(long number);
+    public abstract String toWords(String cardinal, long number);
 
     /**
      * Format a number as English words with specified case options
      *
+     * @param cardinal the value of the "cardinal" attribute as supplied by the user
      * @param number   the number to be formatted
      * @param wordCase the required case for example {@link #UPPER_CASE},
      *                 {@link #LOWER_CASE}, {@link #TITLE_CASE}
      * @return the formatted number
      */
 
-    public String toWords(long number, int wordCase) {
+    public String toWords(String cardinal, long number, int wordCase) {
         String s;
         if (number == 0) {
             s = zero();
         } else {
-            s = toWords(number);
+            s = toWords(cardinal, number);
         }
         switch (wordCase) {
             case UPPER_CASE:
@@ -829,6 +864,7 @@ public abstract class AbstractNumberer implements Numberer {
                     break;
                 default:
                     s = "A.M.";
+                    break;
             }
         } else if (minutes == 12 * 60 && maxWidth >= 8 && "gb".equals(country)) {
             s = "Noon";
@@ -843,6 +879,7 @@ public abstract class AbstractNumberer implements Numberer {
                     break;
                 default:
                     s = "P.M.";
+                    break;
             }
         }
         return s;

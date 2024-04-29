@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr.instruct;
 
+import net.sf.saxon.expr.LocalBinding;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.Logger;
 import net.sf.saxon.om.StructuredQName;
@@ -34,7 +35,7 @@ public class SlotManager {
 
     public static SlotManager EMPTY = new SlotManager(0);
 
-    private ArrayList<StructuredQName> variableMap = new ArrayList<>(10);
+    private final ArrayList<StructuredQName> variableMap;
     // values are StructuredQName objects representing the variable names
     private int numberOfVariables = 0;
 
@@ -84,10 +85,11 @@ public class SlotManager {
      * Allocate a slot number for a variable
      *
      * @param qName the name of the variable
+     * @param binding the binding of the variable (only used in Saxon-EE)
      * @return the allocated slot number (the next one available)
      */
 
-    public int allocateSlotNumber(StructuredQName qName) {
+    public int allocateSlotNumber(StructuredQName qName, LocalBinding binding) {
         variableMap.add(qName);
         return numberOfVariables++;
     }

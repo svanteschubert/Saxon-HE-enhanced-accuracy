@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,9 +19,11 @@ import net.sf.saxon.trans.KeyDefinitionSet;
 import net.sf.saxon.trans.KeyManager;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.EmptySequence;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -91,29 +93,6 @@ public class KeyFn extends SystemFunction implements StatefulSystemFunction {
     }
 
     /**
-     * Mapping class to filter nodes that have the origin node as an ancestor-or-self
-     */
-
-    public static class SubtreeFilter implements ItemMappingFunction {
-
-        private NodeInfo origin;
-
-        public SubtreeFilter(NodeInfo origin) {
-            this.origin = origin;
-        }
-
-        @Override
-        public NodeInfo mapItem(Item item) {
-            if (Navigator.isAncestorOrSelf(origin, (NodeInfo)item)) {
-                return (NodeInfo)item;
-            } else {
-                return null;
-            }
-        }
-
-    }
-
-    /**
      * Allow the function to create an optimized call based on the values of the actual arguments.
      * This binds the key definition in the common case where the key name is defined statically
      *
@@ -127,7 +106,7 @@ public class KeyFn extends SystemFunction implements StatefulSystemFunction {
     public Expression fixArguments(final Expression... arguments) throws XPathException {
         if (arguments[0] instanceof StringLiteral && staticKeySet == null) {
             KeyManager keyManager = getKeyManager();
-            String keyName = ((StringLiteral) arguments[0]).getStringValue();
+            String keyName = ((StringLiteral) arguments[0]).stringify();
             staticKeySet = getKeyDefinitionSet(keyManager, keyName);
         }
         return null;
@@ -221,14 +200,13 @@ public class KeyFn extends SystemFunction implements StatefulSystemFunction {
         try {
             arg2 = argument2.head();
         } catch (XPathException e) {
-            String code = e.getErrorCodeLocalPart();
-            if ("XPDY0002".equals(code) && argument2 instanceof RootExpression) {
+            if (e.hasErrorCode("XPDY0002") && argument2 instanceof RootExpression) {
                 throw new XPathException("Cannot call the key() function when there is no context node", "XTDE1270", context);
-            } else if ("XPDY0050".equals(code)) {
+            } else if (e.hasErrorCode("XPDY0050")) {
                 throw new XPathException("In the key() function," +
                                                  " the node supplied in the third argument (or the context node if absent)" +
                                                  " must be in a tree whose root is a document node", "XTDE1270", context);
-            } else if ("XPTY0020".equals(code) || "XPTY0019".equals(code)) {
+            } else if (e.hasErrorCode("XPTY0020", "XPTY0019")) {
                 throw new XPathException("Cannot call the key() function when the context item is an atomic value",
                                          "XTDE1270", context);
             }
@@ -257,10 +235,6 @@ public class KeyFn extends SystemFunction implements StatefulSystemFunction {
     protected static Sequence search(
             final KeyManager keyManager, XPathContext context, Sequence sought, NodeInfo origin, KeyDefinitionSet selectedKeySet) throws XPathException {
 
-
-//        if (internal) {
-//            System.err.println("Using key " + fprint + " on doc " + doc);
-//        }
         NodeInfo doc = origin.getRoot();
         if (selectedKeySet.isComposite()) {
             SequenceIterator soughtKey = sought.iterate();
@@ -269,20 +243,42 @@ public class KeyFn extends SystemFunction implements StatefulSystemFunction {
             if (origin.equals(doc)) {
                 return new LazySequence(all);
             }
-            return new LazySequence(new ItemMappingIterator(all, new SubtreeFilter(origin)));
+            return new LazySequence(ItemMappingIterator.filter(all,
+                    item -> Navigator.isAncestorOrSelf(origin, (NodeInfo) item)));
 
         } else {
             // Changed by bug 2929 and bug 4656
             SequenceIterator allResults = null;
+            if (sought instanceof AtomicValue) {
+                SequenceIterator results = keyManager.selectByKey(selectedKeySet, doc.getTreeInfo(), (AtomicValue)sought, context);
+                if (results instanceof EmptyIterator) {
+                    return EmptySequence.getInstance();
+                } else if (results instanceof SingletonIterator) {
+                    NodeInfo result = (NodeInfo)results.next();
+                    if (doc.equals(origin) || Navigator.isAncestorOrSelf(origin, result)) {
+                        return result;
+                    } else {
+                        return EmptySequence.getInstance();
+                    }
+                } else {
+                    if (doc.equals(origin)) {
+                        return new LazySequence(results);
+                    } else {
+                        new LazySequence(ItemMappingIterator.filter(results, item ->
+                                Navigator.isAncestorOrSelf(origin, (NodeInfo) item)));
+                    }
+                }
+
+            }
             SequenceIterator keys = sought.iterate();
             AtomicValue keyValue;
             List<SequenceIterator> allKeyIterators = new ArrayList<>();
-            while ((keyValue = (AtomicValue)keys.next()) != null) {
+            while ((keyValue = (AtomicValue) keys.next()) != null) {
                 SequenceIterator someResults = keyManager.selectByKey(selectedKeySet, doc.getTreeInfo(), keyValue, context);
                 allKeyIterators.add(someResults);
             }
             if (allKeyIterators.isEmpty()) {
-                allResults = EmptyIterator.ofNodes();
+                return EmptySequence.getInstance();
             } else if (allKeyIterators.size() == 1) {
                 allResults = allKeyIterators.get(0);
             } else {
@@ -291,7 +287,8 @@ public class KeyFn extends SystemFunction implements StatefulSystemFunction {
             if (origin.equals(doc)) {
                 return new LazySequence(allResults);
             }
-            return new LazySequence(new ItemMappingIterator(allResults, new SubtreeFilter(origin)));
+            return new LazySequence(ItemMappingIterator.filter(allResults, item ->
+                Navigator.isAncestorOrSelf(origin, (NodeInfo) item)));
         }
     }
 

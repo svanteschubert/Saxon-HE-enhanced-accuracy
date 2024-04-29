@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -37,15 +37,17 @@ public class CopyOfFn extends SystemFunction {
     public Sequence call(final XPathContext context, Sequence[] arguments) throws XPathException {
         Sequence in = arguments.length == 0 ? context.getContextItem() : arguments[0];
         SequenceIterator input = in.iterate();
-        SequenceIterator output = new ItemMappingIterator(input, item -> {
-        if (!(item instanceof NodeInfo)) {
-            return item;
-        } else {
-            VirtualCopy vc = VirtualCopy.makeVirtualCopy((NodeInfo) item);
-            vc.getTreeInfo().setCopyAccumulators(true);
-            // TODO: set the base URI
-            return vc;
-        }
+        SequenceIterator output = ItemMappingIterator.map(input, item -> {
+            if (!(item instanceof NodeInfo)) {
+                return item;
+            } else {
+                VirtualCopy vc = VirtualCopy.makeVirtualCopy((NodeInfo) item);
+                if (getRetainedStaticContext().getPackageData().isXSLT()) {
+                    vc.getTreeInfo().setCopyAccumulators(true);
+                }
+                // TODO: set the base URI
+                return vc;
+            }
         });
         return new LazySequence(output);
     }

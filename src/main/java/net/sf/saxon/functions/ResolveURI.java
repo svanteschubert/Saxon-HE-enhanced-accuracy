@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,15 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.lib.StandardURIChecker;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.ZeroOrOne;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.AnyURIValue;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.EmptySequence;
 
 import java.io.File;
 import java.net.MalformedURLException;
@@ -37,24 +40,26 @@ public class ResolveURI extends SystemFunction {
      */
     /*@Nullable*/
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue arg0 = (AtomicValue) arguments[0].head();
         if (arg0 == null) {
-            return ZeroOrOne.empty();
+            return EmptySequence.getInstance();
         }
         String relative = arg0.getStringValue();
         String base;
+        Item baseArg = null;
         if (getArity() == 2) {
-            //noinspection ConstantConditions
-            base = arguments[1].head().getStringValue();
+            baseArg = arguments[1].head();
+        }
+        if (baseArg != null) {
+            base = baseArg.getStringValue();
         } else {
             base = getStaticBaseUriString();
             if (base == null) {
                 throw new XPathException("Base URI in static context of resolve-uri() is unknown", "FONS0005", context);
             }
         }
-
-        return new ZeroOrOne(resolve(base, relative, context));
+        return resolve(base, relative, context);
     }
 
     /*@NotNull*/
@@ -83,7 +88,7 @@ public class ResolveURI extends SystemFunction {
 
         URI relativeURI = null;
         try {
-            relativeURI = new URI(relative);
+            relativeURI = absoluteOrRelativeURI(relative);
         } catch (URISyntaxException e) {
             throw new XPathException("Relative URI " + Err.wrap(relative) + " is invalid: " + e.getMessage(),
                                      "FORG0002", context);
@@ -106,7 +111,8 @@ public class ResolveURI extends SystemFunction {
             // Special-case JAR file URLs, even though non-conformant
             throw new XPathException("Base URI " + Err.wrap(base) + " is a non-hierarchic URI", "FORG0002", context);
         }
-        if (absoluteURI.getRawFragment() != null) {
+        String fragment = absoluteURI.getRawFragment();
+        if (fragment != null && !fragment.isEmpty()) {
             throw new XPathException("Base URI " + Err.wrap(base) + " contains a fragment identifier", "FORG0002", context);
         }
         if (!base.startsWith("jar:") && absoluteURI.getPath() != null && absoluteURI.getPath().isEmpty()) {
@@ -130,7 +136,12 @@ public class ResolveURI extends SystemFunction {
         if (!resolved.toASCIIString().startsWith("file:////")) {
             resolved = resolved.normalize();
         }
-        String result = escaped ? unescapeSpaces(resolved.toString()) : resolved.toString();
+        // The spec says that special characters are not escaped. But if the input was percent-escaped,
+        // we want the output to be percent-escaped too. Java achieves this automatically, but on C#
+        // it needs special attention.
+        boolean inputIsPercentEncoded = base.contains("%") || relative.contains("%");
+        String resolvedString = inputIsPercentEncoded ? resolved.toASCIIString() : resolved.toString();
+        String result = escaped ? unescapeSpaces(resolvedString) : resolvedString;
 
         // Test case XSLT3 resolve-uri-022. Java even after normalization can leave a URI with trailing "../" or ".." parts.
         // Pragmatically, we just strip these off. This might not be enough if there are query or fragment parts, but it
@@ -147,6 +158,11 @@ public class ResolveURI extends SystemFunction {
 
     }
 
+    @CSharpReplaceBody(code="return new System.Uri(href, System.UriKind.RelativeOrAbsolute);")
+    public static URI absoluteOrRelativeURI(String href) throws URISyntaxException {
+        return new URI(href);
+    }
+
     /**
      * If a system ID can't be parsed as a URL, try to expand it as a relative
      * URI using the current directory as the base URI.
@@ -160,32 +176,34 @@ public class ResolveURI extends SystemFunction {
 
     /*@NotNull*/
     public static String tryToExpand(/*@Nullable*/ String systemId) {
-        if (systemId == null) {
-            systemId = "";
+        if (systemId == null || systemId.isEmpty()) {
+            return resolveAgainstCurrentDirectory("");
         }
         try {
             new URL(systemId);
             return systemId;   // all is well
         } catch (MalformedURLException err) {
-            String dir;
-            try {
-                dir = System.getProperty("user.dir");
-            } catch (Exception geterr) {
-                // this doesn't work when running an applet
-                return systemId;
-            }
-            if (!(dir.endsWith("/") || systemId.startsWith("/"))) {
-                dir = dir + '/';
-            }
+            return resolveAgainstCurrentDirectory(systemId);
+        }
+    }
 
-            try {
-                URI currentDirectoryURI = new File(dir).toURI();
-                URI baseURI = currentDirectoryURI.resolve(systemId);
-                return baseURI.toString();
-            } catch (Exception e) {
-                return systemId;
-            }
-
+    private static String resolveAgainstCurrentDirectory(String systemId) {
+        String dir;
+        try {
+            dir = System.getProperty("user.dir");
+        } catch (Exception geterr) {
+            // this doesn't work when running an applet
+            return systemId;
+        }
+        if (!(dir.endsWith("/") || systemId.startsWith("/"))) {
+            dir = dir + '/';
+        }
+        try {
+            URI currentDirectoryURI = new File(dir).toURI();
+            URI baseURI = currentDirectoryURI.resolve(systemId);
+            return baseURI.toString();
+        } catch (Exception e) {
+            return systemId;
         }
     }
 
@@ -207,17 +225,28 @@ public class ResolveURI extends SystemFunction {
     /*@NotNull*/
     public static URI makeAbsolute(/*@Nullable*/ String relativeURI, /*@Nullable*/ String base) throws URISyntaxException {
         URI absoluteURI;
+        StandardURIChecker checker = StandardURIChecker.getInstance();
         // System.err.println("makeAbsolute " + relativeURI + " against base " + base);
         if (relativeURI == null) {
             if (base == null) {
-                throw new URISyntaxException("", "Relative and Base URI must not both be null");
+                throw failure("", "Relative and Base URI must not both be null");
             }
             absoluteURI = new URI(ResolveURI.escapeSpaces(base));
+            checker.checkThoroughly(absoluteURI);
             if (!absoluteURI.isAbsolute()) {
-                throw new URISyntaxException(base, "Relative URI not supplied, so base URI must be absolute");
+                throw failure(base, "Relative URI not supplied, so base URI must be absolute");
             } else {
                 return absoluteURI;
             }
+        }
+
+        if (relativeURI.startsWith("classpath:")) {
+            // Resolving a classpath: URI involves searching the classpath.
+            // There's no sense in which it makes sense to attempt to make one absolute
+            // against some base URI. They're effectively absolute already.
+            // (If we don't do this, passing them to java.net.URL causes an exception
+            // anyway.)
+            return new URI(relativeURI);
         }
 
         try {
@@ -246,44 +275,74 @@ public class ResolveURI extends SystemFunction {
                     URL absoluteURL = new URL(baseURL, relativeURI);
                     absoluteURI = absoluteURL.toURI();
                 } catch (MalformedURLException err) {
-                    throw new URISyntaxException(base + " " + relativeURI, err.getMessage());
+                    throw failure(base + " " + relativeURI, err.getMessage());
                 }
             } else if (base.startsWith("classpath:")) {
                 absoluteURI = new URI(relativeURI);
                 if (!absoluteURI.isAbsolute()) {
-                    absoluteURI = new URI("classpath:" + relativeURI);
+                    // URIs in the classpath: scheme are a bit of a mess. Given "classpath:/path/to/thing",
+                    // if you attempt to use ClassLoader.getSystemResourceAsStream("/path/to/thing"), it
+                    // will fail because the leading slash is a problem. Conversely, if you have
+                    // "classpath:path/to/thing" and you try to resolve "otherthing" against it,
+                    // you'll get "classpath:otherthing" which is almost certainly wrong. The only
+                    // way around it seems to be to fake the scheme long enough to get correct
+                    // resolution.
+                    String path = base.substring(10);
+                    URI fakeURI;
+                    if (path.startsWith("/")) {
+                        fakeURI = URI.create("file://" + path).resolve(relativeURI);
+                    } else {
+                        fakeURI = URI.create("file:///" + path).resolve(relativeURI);
+                    }
+                    String cpath = fakeURI.getPath().substring(1);
+                    if (cpath.startsWith("../")) {
+                        throw new IllegalArgumentException("Attempt to navigate above root: classpath:" + cpath);
+                    }
+                    absoluteURI = URI.create("classpath:" + cpath);
                 }
             } else {
                 URI baseURI;
                 try {
                     baseURI = new URI(base);
                 } catch (URISyntaxException e) {
-                    throw new URISyntaxException(base, "Invalid base URI: " + e.getMessage());
+                    throw failure(base, "Invalid base URI: " + e.getMessage());
                 }
-                if (baseURI.getFragment() != null) {
-                    int hash = base.indexOf('#');
-                    if (hash >= 0) {
-                        base = base.substring(0, hash);
-                    }
+
+                int hash = base.indexOf('#');
+                if (hash >= 0) {
+                    base = base.substring(0, hash);
                     try {
                         baseURI = new URI(base);
+                        checker.checkThoroughly(baseURI);
                     } catch (URISyntaxException e) {
-                        throw new URISyntaxException(base, "Invalid base URI: " + e.getMessage());
+                        throw failure(base, "Invalid base URI: " + e.getMessage());
                     }
                 }
+
+                URI absOrRel;
                 try {
-                    new URI(relativeURI);   // for validation only
+                    absOrRel = absoluteOrRelativeURI(relativeURI);   // for validation only
+                    checker.checkThoroughly(absOrRel);
                 } catch (URISyntaxException e) {
-                    throw new URISyntaxException(base, "Invalid relative URI: " + e.getMessage());
+                    throw failure(base, "Invalid relative URI: " + e.getMessage());
                 }
-                absoluteURI = relativeURI.isEmpty() ? baseURI : baseURI.resolve(relativeURI);
+                if (absOrRel.isAbsolute()) {
+                    absoluteURI = absOrRel;
+                } else {
+                    absoluteURI = relativeURI.isEmpty() ? baseURI : baseURI.resolve(relativeURI);
+                }
             }
         } catch (IllegalArgumentException err0) {
             // can be thrown by resolve() when given a bad URI
-            throw new URISyntaxException(relativeURI, "Cannot resolve URI against base " + Err.wrap(base));
+            throw failure(relativeURI, "Cannot resolve URI against base " + Err.wrap(base));
         }
 
         return absoluteURI;
+    }
+
+    @CSharpReplaceBody(code="return new System.UriFormatException(\"Failed to resolve \" + input + \": \" + reason);")
+    private static URISyntaxException failure(String input, String reason) {
+        return new URISyntaxException(input, reason);
     }
 
 

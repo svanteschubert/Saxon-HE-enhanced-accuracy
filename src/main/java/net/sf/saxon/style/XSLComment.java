@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,22 +22,17 @@ import net.sf.saxon.value.StringValue;
 public final class XSLComment extends XSLLeafNodeConstructor {
 
     @Override
-    public void prepareAttributes() {
-
-        String selectAtt = null;
-
+    protected void prepareAttributes() {
         for (AttributeInfo att : attributes()){
             NodeName attName = att.getNodeName();
             String f = attName.getDisplayName();
             String value = att.getValue();
             if (f.equals("select")) {
-                selectAtt = value;
-                select = makeExpression(selectAtt, att);
+                select = makeExpression(value, att);
             } else {
                 checkUnknownAttribute(attName);
             }
         }
-
     }
 
     @Override
@@ -62,7 +57,7 @@ public final class XSLComment extends XSLLeafNodeConstructor {
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
         Comment inst = new Comment();
         compileContent(exec, decl, inst, new StringLiteral(StringValue.SINGLE_SPACE));
-        return inst;
+        return inst.withLocation(saveLocation());
     }
 
 }

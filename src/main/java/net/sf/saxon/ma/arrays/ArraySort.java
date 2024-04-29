@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,13 +9,13 @@ package net.sf.saxon.ma.arrays;
 
 import net.sf.saxon.expr.Atomizer;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.*;
-import net.sf.saxon.functions.SystemFunction;
+import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.AtomicSortComparer;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.UnfailingIterator;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.StringValue;
 
@@ -25,7 +25,7 @@ import java.util.List;
 /**
  * Implementation of the extension function array:sort(array, function) =&gt; array
  */
-public class ArraySort extends SystemFunction {
+public class ArraySort extends ArrayFunctionSet.ArrayGeneratingFunction {
 
     private static class MemberToBeSorted{
         public GroundedValue value;
@@ -42,7 +42,7 @@ public class ArraySort extends SystemFunction {
     @Override
     public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
         ArrayItem array = (ArrayItem) arguments[0].head();
-        final List<MemberToBeSorted> inputList = new ArrayList<>(array.arrayLength());
+        final ArrayList<MemberToBeSorted> inputList = new ArrayList<>(array.arrayLength());
         int i = 0;
         StringCollator collation;
         if (arguments.length == 1) {
@@ -55,9 +55,9 @@ public class ArraySort extends SystemFunction {
                 collation = context.getConfiguration().getCollation(collName.getStringValue(), getStaticBaseUriString());
             }
         }
-        Function key = null;
+        FunctionItem key = null;
         if (arguments.length == 3){
-            key = (Function) arguments[2].head();
+            key = (FunctionItem) arguments[2].head();
         }
         for (GroundedValue seq: array.members()){
             MemberToBeSorted member = new MemberToBeSorted();
@@ -84,20 +84,19 @@ public class ArraySort extends SystemFunction {
             });
             //GenericSorter.quickSort(0, array.arrayLength(), sortable);
         } catch (ClassCastException e) {
-            XPathException err = new XPathException("Non-comparable types found while sorting: " + e.getMessage());
-            err.setErrorCode("XPTY0004");
-            throw err;
+            throw new XPathException("Non-comparable types found while sorting: " + e.getMessage())
+                    .withErrorCode("XPTY0004").asTypeError();
         }
         List<GroundedValue> outputList = new ArrayList<>(array.arrayLength());
-        for (MemberToBeSorted member: inputList){
+        for (MemberToBeSorted member: inputList) {
             outputList.add(member.value);
         }
-        return new SimpleArrayItem(outputList);
+        return makeArray(outputList);
     }
 
     public static int compareSortKeys(GroundedValue a, GroundedValue b, AtomicComparer comparer) {
-        UnfailingIterator iteratora = a.iterate();
-        UnfailingIterator iteratorb = b.iterate();
+        SequenceIterator iteratora = a.iterate();
+        SequenceIterator iteratorb = b.iterate();
         while (true){
             AtomicValue firsta = (AtomicValue) iteratora.next();
             AtomicValue firstb = (AtomicValue) iteratorb.next();
@@ -128,8 +127,12 @@ public class ArraySort extends SystemFunction {
     }
 
     private static GroundedValue atomize(Sequence input) throws XPathException {
-        SequenceIterator iterator = input.iterate();
-        SequenceIterator mapper = Atomizer.getAtomizingIterator(iterator, false);
-        return mapper.materialize();
+        try {
+            SequenceIterator iterator = input.iterate();
+            SequenceIterator mapper = Atomizer.getAtomizingIterator(iterator, false);
+            return SequenceTool.toGroundedValue(mapper);
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
+        }
     }
 }

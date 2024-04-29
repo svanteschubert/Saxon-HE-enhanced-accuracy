@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,11 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.type.ValidationException;
 import net.sf.saxon.type.ValidationFailure;
@@ -22,7 +25,11 @@ import java.math.BigDecimal;
  */
 
 public abstract class NumericValue extends AtomicValue
-        implements Comparable<NumericValue>, AtomicMatchKey {
+        implements XPathComparable, AtomicMatchKey, ContextFreeAtomicValue {
+
+    public NumericValue(AtomicType typeLabel) {
+        super(typeLabel);
+    }
 
     /**
      * Get a numeric value by parsing a string; the type of numeric value depends
@@ -212,8 +219,6 @@ public abstract class NumericValue extends AtomicValue
      * Returns null if the value is not comparable according to XPath rules. The implementation
      * for all kinds of NumericValue returns the value itself.
      *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
      * @param collator the collation to be used when comparing strings
      * @param implicitTimezone  the implicit timezone in the dynamic context, used when comparing
      * dates/times with and without timezone
@@ -222,7 +227,17 @@ public abstract class NumericValue extends AtomicValue
 
     /*@NotNull*/
     @Override
-    public final AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone) {
+    public final AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
+        return this;
+    }
+
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return this;
+    }
+
+    @Override
+    public XPathComparable getXPathComparable() {
         return this;
     }
 
@@ -241,20 +256,24 @@ public abstract class NumericValue extends AtomicValue
     // This is the default implementation. Subclasses of number avoid the conversion to double
     // when comparing with another number of the same type.
     @Override
-    public int compareTo(/*@NotNull*/ NumericValue other) {
-        double a = getDoubleValue();
-        double b = other.getDoubleValue();
-        // IntelliJ says this can be replaced with Double.compare(). But it can't. Double.compare()
-        // treats positive and negative zero as not equal; we want them treated as equal. XSLT3 test case
-        // boolean-014.  MHK 2020-02-17
-        //noinspection UseCompareMethod
-        if (a == b) {
-            return 0;
+    public int compareTo(/*@NotNull*/ XPathComparable other) {
+        if (other instanceof NumericValue) {
+            double a = getDoubleValue();
+            double b = ((NumericValue)other).getDoubleValue();
+            // IntelliJ says this can be replaced with Double.compare(). But it can't. Double.compare()
+            // treats positive and negative zero as not equal; we want them treated as equal. XSLT3 test case
+            // boolean-014.  MHK 2020-02-17
+            //noinspection UseCompareMethod
+            if (a == b) {
+                return 0;
+            }
+            if (a < b) {
+                return -1;
+            }
+            return +1;
+        } else {
+            throw new ClassCastException("Cannot compare numeric value to " + other.toString());
         }
-        if (a < b) {
-            return -1;
-        }
-        return +1;
     }
 
     /**
@@ -268,7 +287,7 @@ public abstract class NumericValue extends AtomicValue
 
     /**
      * The equals() function compares numeric equality among integers, decimals, floats, doubles, and
-     * their subtypes
+     * their subtypes.
      *
      * @param other the value to be compared with this one
      * @return true if the two values are numerically equal
@@ -299,7 +318,8 @@ public abstract class NumericValue extends AtomicValue
      * @return The result of casting the number to a string
      */
 
-    public String toString() {
+    @Override
+    public String show() {
         return getStringValue();
     }
 

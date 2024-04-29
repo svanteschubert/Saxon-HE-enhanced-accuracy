@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,15 +9,18 @@ package net.sf.saxon.query;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
+import net.sf.saxon.expr.UserFunctionCall;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 
 /**
  * This implementation of FunctionLibrary contains all the functions imported into a Query Module.
@@ -28,8 +31,8 @@ import java.util.List;
 public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionBinder {
 
     private transient QueryModule importingModule;
-    private XQueryFunctionLibrary baseLibrary;
-    private HashSet<String> namespaces = new HashSet<>(5);
+    private final XQueryFunctionLibrary baseLibrary;
+    private final HashSet<NamespaceUri> namespaces = new HashSet<>(5);
 
     /**
      * Create an imported function library
@@ -49,7 +52,7 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
      * @param namespace the imported namespace
      */
 
-    public void addImportedNamespace(String namespace) {
+    public void addImportedNamespace(NamespaceUri namespace) {
         namespaces.add(namespace);
     }
 
@@ -69,6 +72,8 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
      *                     example, the result of f(4) is expected to be the same as f(2+2). The actual expression is supplied
      *                     here to enable the binding mechanism to select the most efficient possible implementation (including
      *                     compile-time pre-evaluation where appropriate).</p>
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          The static context of the function call
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
@@ -79,9 +84,11 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
 
     /*@Nullable*/
     @Override
-    public Expression bind(/*@NotNull*/ SymbolicName.F symbolicName, Expression[] staticArgs, StaticContext env, List<String> reasons) {
+    public Expression bind(/*@NotNull*/ SymbolicName.F symbolicName, Expression[] staticArgs,
+                                        Map<StructuredQName, Integer> keywords, StaticContext env,
+                                        List<String> reasons) throws XPathException {
         final StructuredQName functionName = symbolicName.getComponentName();
-        final String uri = functionName.getURI();
+        final NamespaceUri uri = functionName.getNamespaceUri();
         RetainedStaticContext rsc = new RetainedStaticContext(env);
         for (Expression arg : staticArgs) {
             if (arg.getLocalRetainedStaticContext() == null) {
@@ -89,7 +96,7 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
             }
         }
         if (namespaces.contains(uri)) {
-            return baseLibrary.bind(symbolicName, staticArgs, env, reasons);
+            return baseLibrary.bind(symbolicName, staticArgs, null, env, reasons);
         } else {
             return null;
         }
@@ -104,12 +111,27 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
     /*@Nullable*/
     @Override
     public XQueryFunction getDeclaration(/*@NotNull*/ StructuredQName functionName, int staticArgs) {
-        String uri = functionName.getURI();
+        NamespaceUri uri = functionName.getNamespaceUri();
         if (namespaces.contains(uri)) {
             return baseLibrary.getDeclaration(functionName, staticArgs);
         } else {
             return null;
         }
+    }
+
+    /**
+     * Bind a function call using this XQuery function library, in the situation where
+     * it was not possible to bind it earlier, typically because it was encountered as a forwards
+     * reference.
+     *
+     * @param call     The unbound function call, which will include a non-null <code>UnboundFunctionCallDetails</code>
+     * @param reasons a list which can be populated with messages indicating why binding failed
+     * @return true if the function call is now bound; false if it remains unbound.
+     */
+
+    @Override
+    public boolean bindUnboundFunctionCall(UserFunctionCall call, List<String> reasons) {
+        return baseLibrary.bindUnboundFunctionCall(call, reasons);
     }
 
     /**
@@ -124,7 +146,7 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
     @Override
     public FunctionLibrary copy() {
         ImportedFunctionLibrary lib = new ImportedFunctionLibrary(importingModule, baseLibrary);
-        for (String ns : namespaces) {
+        for (NamespaceUri ns : namespaces) {
             lib.addImportedNamespace(ns);
         }
         return lib;
@@ -155,8 +177,8 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
      *          that is private
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
-        if (namespaces.contains(functionName.getComponentName().getURI())) {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
+        if (namespaces.contains(functionName.getComponentName().getNamespaceUri())) {
             return baseLibrary.getFunctionItem(functionName, staticContext);
         } else {
             return null;
@@ -168,11 +190,13 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
      * <p>This supports the function-available() function in XSLT.</p>
      *
      * @param functionName the qualified name of the function being called
+     * @param languageLevel the XPath language level times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
-        return namespaces.contains(functionName.getComponentName().getURI()) && baseLibrary.isAvailable(functionName);
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
+        return namespaces.contains(functionName.getComponentName().getNamespaceUri())
+                && baseLibrary.isAvailable(functionName, languageLevel);
     }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,15 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.Callable;
-import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.StringLiteral;
-import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.*;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.regex.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.StringValue;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.z.IntIterator;
 import net.sf.saxon.z.IntToIntHashMap;
 import net.sf.saxon.z.IntToIntMap;
 
@@ -37,7 +37,7 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
     @Override
     public Expression fixArguments(Expression... arguments) {
         if (arguments[1] instanceof StringLiteral && arguments[2] instanceof StringLiteral) {
-            staticMap = buildMap(((StringLiteral) arguments[1]).getValue(), ((StringLiteral) arguments[2]).getValue());
+            staticMap = buildMap(((StringLiteral) arguments[1]).getGroundedValue(), ((StringLiteral) arguments[2]).getGroundedValue());
         }
         return null;
     }
@@ -61,35 +61,26 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
      * @return the converted string
      */
 
-    public static CharSequence translate(StringValue sv0, StringValue sv1, StringValue sv2) {
-
-        // if any string contains surrogate pairs, expand everything to 32-bit characters
-        if (sv0.containsSurrogatePairs() || sv1.containsSurrogatePairs() || sv2.containsSurrogatePairs()) {
-            return translateUsingMap(sv0, buildMap(sv1, sv2));
-        }
+    public static StringValue translate(StringValue sv0, StringValue sv1, StringValue sv2) {
 
         // if the size of the strings is above some threshold, use a hash map to avoid O(n*m) performance
-        if (sv0.getStringLength() * sv1.getStringLength() > 1000) {
+        if (sv0.length() * sv1.length() > 1000) {
             // Cut-off point for building the map based on some simple measurements
             return translateUsingMap(sv0, buildMap(sv1, sv2));
         }
 
-        CharSequence cs0 = sv0.getStringValueCS();
-        CharSequence cs1 = sv1.getStringValueCS();
-        CharSequence cs2 = sv2.getStringValueCS();
 
-        String st1 = cs1.toString();
-        FastStringBuffer sb = new FastStringBuffer(cs0.length());
-        int s2len = cs2.length();
-        int s0len = cs0.length();
-        for (int i = 0; i < s0len; i++) {
-            char c = cs0.charAt(i);
-            int j = st1.indexOf(c);
+        UnicodeBuilder sb = new UnicodeBuilder(sv0.length32());
+        long s2len = sv2.length();
+        IntIterator iter = sv0.codePoints();
+        while (iter.hasNext()) {
+            int c = iter.next();
+            long j = sv1.getContent().indexOf(c, 0);
             if (j < s2len) {
-                sb.cat(j < 0 ? c : cs2.charAt(j));
+                sb.append(j < 0 ? c : sv2.getContent().codePointAt(j));
             }
         }
-        return sb;
+        return new StringValue(sb.toUnicodeString());
     }
 
     /**
@@ -101,14 +92,17 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
      */
 
     private static IntToIntMap buildMap(StringValue arg1, StringValue arg2) {
-        UnicodeString a1 = arg1.getUnicodeString();
-        UnicodeString a2 = arg2.getUnicodeString();
-        IntToIntMap map = new IntToIntHashMap(a1.uLength(), 0.5);
+        IntToIntMap map = new IntToIntHashMap(arg1.length32(), 0.5);
         // allow plenty of free space, it's better for lookups (though worse for iteration)
-        for (int i = 0; i < a1.uLength(); i++) {
-            if (!map.find(a1.uCharAt(i))) {
-                map.put(a1.uCharAt(i), i > a2.uLength() - 1 ? -1 : a2.uCharAt(i));
+        IntIterator iter = arg1.codePoints();
+        long arg2len = arg2.length();
+        long i=0;
+        while (iter.hasNext()) {
+            int ch = iter.next();
+            if (!map.contains(ch)) {
+                map.put(ch, i >= arg2len ? -1 : arg2.getContent().codePointAt(i));
             }
+            i++;
             // else no action: duplicate
         }
         return map;
@@ -124,23 +118,22 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
      * @return the translated character string
      */
 
-    public static CharSequence translateUsingMap(StringValue in, IntToIntMap map) {
-        UnicodeString us = in.getUnicodeString();
-        int len = us.uLength();
-        FastStringBuffer sb = new FastStringBuffer(len);
-        for (int i = 0; i < len; i++) {
-            int c = us.uCharAt(i);
+    public static StringValue translateUsingMap(StringValue in, IntToIntMap map) {
+        UnicodeBuilder builder = new UnicodeBuilder(in.length32());
+        IntIterator iter = in.codePoints();
+        while (iter.hasNext()) {
+            int c = iter.next();
             int newchar = map.get(c);
             if (newchar == Integer.MAX_VALUE) {
                 // character not in map, so is not to be translated
                 newchar = c;
             }
             if (newchar != -1) {
-                sb.appendWideChar(newchar);
+                builder.append(newchar);
             }
             // else no action, delete the character
         }
-        return sb;
+        return new StringValue(builder.toUnicodeString());
     }
 
     /**
@@ -158,17 +151,12 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
             return StringValue.EMPTY_STRING;
         }
         if (staticMap != null) {
-            return new StringValue(translateUsingMap(sv0, staticMap));
+            return translateUsingMap(sv0, staticMap);
         } else {
             StringValue sv1 = (StringValue) arguments[1].head();
             StringValue sv2 = (StringValue) arguments[2].head();
-            return new StringValue(translate(sv0, sv1, sv2));
+            return translate(sv0, sv1, sv2);
         }
-    }
-
-    @Override
-    public String getCompilerName() {
-        return "TranslateCompiler";
     }
 
     /**
@@ -185,5 +173,47 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
         return copy;
     }
 
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new TranslateFnElaborator();
+    }
+
+    public static class TranslateFnElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            final Translate fn = (Translate) fnc.getTargetFunction();
+            final ItemEvaluator arg0Eval = fnc.getArg(0).makeElaborator().elaborateForItem();
+            final ItemEvaluator arg1Eval = fnc.getArg(1).makeElaborator().elaborateForItem();
+            final ItemEvaluator arg2Eval = fnc.getArg(2).makeElaborator().elaborateForItem();
+            final IntToIntMap staticMap = fn.getStaticMap();
+
+            if (staticMap != null) {
+                return context -> {
+                    StringValue s0 = (StringValue)arg0Eval.eval(context);
+                    if (s0 == null || s0.isEmpty()) {
+                        return StringValue.EMPTY_STRING;
+                    }
+                    return translateUsingMap(s0, staticMap);
+                };
+            } else {
+                return context -> {
+                    StringValue s0 = (StringValue) arg0Eval.eval(context);
+                    if (s0 == null || s0.isEmpty()) {
+                        return StringValue.EMPTY_STRING;
+                    }
+                    StringValue s1 = (StringValue) arg1Eval.eval(context);
+                    StringValue s2 = (StringValue) arg2Eval.eval(context);
+                    return translate(s0, s1, s2);
+                };
+            }
+        }
+
+    }
 }
 

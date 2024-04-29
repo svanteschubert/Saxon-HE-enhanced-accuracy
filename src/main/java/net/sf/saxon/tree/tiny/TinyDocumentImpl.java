@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,12 +17,12 @@ import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.tree.iter.NodeListIterator;
 import net.sf.saxon.type.AnyType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.Untyped;
-import net.sf.saxon.value.UntypedAtomicValue;
+import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntHashMap;
 
 import java.util.ArrayList;
@@ -178,9 +178,9 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
      */
 
     @Override
-    public void generateId(/*@NotNull*/ FastStringBuffer buffer) {
-        buffer.cat('d');
-        buffer.append(Long.toString(getTreeInfo().getDocumentNumber()));
+    public void generateId(/*@NotNull*/ StringBuilder buffer) {
+        buffer.append('d');
+        buffer.append(getTreeInfo().getDocumentNumber());
     }
 
     /**
@@ -192,8 +192,8 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
 
     /*@NotNull*/
     @Override
-    public AtomicSequence atomize() throws XPathException {
-        return new UntypedAtomicValue(getStringValueCS());
+    public AtomicSequence atomize() {
+        return StringValue.makeUntypedAtomic(getUnicodeStringValue());
     }
 
     /**
@@ -214,7 +214,7 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
             list = makeElementList(fingerprint);
             elementList.put(fingerprint, list);
         }
-        return new net.sf.saxon.tree.iter.ListIterator.OfNodes(list);
+        return new NodeListIterator(list);
     }
 
     /**

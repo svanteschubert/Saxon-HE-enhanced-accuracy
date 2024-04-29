@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,20 +12,18 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.PreparedStylesheet;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.SequenceTool;
-import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.query.XQueryFunction;
 import net.sf.saxon.query.XQueryFunctionLibrary;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trace.TraceableComponent;
 import net.sf.saxon.trans.SymbolicName;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ManualIterator;
+import net.sf.saxon.tree.util.IndexedStack;
 import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
@@ -33,8 +31,11 @@ import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 /**
  * A compiled global variable in a stylesheet or query. <br>
@@ -52,13 +53,13 @@ public class GlobalVariable extends Actor
     private StructuredQName variableQName;
     private SequenceType requiredType;
 
-    private boolean indexed;
-    private boolean isPrivate = false;
-    private boolean isAssignable = false;
+    private boolean _indexed;
+    private boolean _isPrivate = false;
+    private boolean _isAssignable = false;
     private GlobalVariable originalVariable;
     private int binderySlotNumber;
-    private boolean isRequiredParam;
-    private boolean isStatic;
+    private boolean _isRequiredParam;
+    private boolean _isStatic;
 
     /**
      * Create a global variable
@@ -112,7 +113,7 @@ public class GlobalVariable extends Actor
      */
 
     public void setStatic(boolean declaredStatic) {
-        isStatic = declaredStatic;
+        _isStatic = declaredStatic;
     }
 
     /**
@@ -121,7 +122,7 @@ public class GlobalVariable extends Actor
      */
 
     public boolean isStatic() {
-        return this.isStatic;
+        return this._isStatic;
     }
 
     /**
@@ -226,7 +227,7 @@ public class GlobalVariable extends Actor
      */
 
     public boolean isPrivate() {
-        return isPrivate;
+        return _isPrivate;
     }
 
     /**
@@ -235,7 +236,7 @@ public class GlobalVariable extends Actor
      * @param b true if this variable is external
      */
     public void setPrivate(boolean b) {
-        isPrivate = b;
+        _isPrivate = b;
     }
 
     /**
@@ -245,7 +246,7 @@ public class GlobalVariable extends Actor
      */
 
     public void setAssignable(boolean assignable) {
-        isAssignable = assignable;
+        _isAssignable = assignable;
     }
 
     /**
@@ -256,7 +257,7 @@ public class GlobalVariable extends Actor
 
     @Override
     public final boolean isAssignable() {
-        return isAssignable;
+        return _isAssignable;
     }
 
 
@@ -285,20 +286,6 @@ public class GlobalVariable extends Actor
     }
 
     /**
-     * Get an iterator over all the properties available. The values returned by the iterator
-     * will be of type String, and each string can be supplied as input to the getProperty()
-     * method to retrieve the value of the property. The iterator may return properties whose
-     * value is null.
-     *
-     * @return an iterator over the properties.
-     */
-    @Override
-    public Iterator<String> getProperties() {
-        List<String> list = Collections.emptyList();
-        return list.iterator();
-    }
-
-    /**
      * Get the host language (XSLT, XQuery, XPath) used to implement the code in this container
      *
      * @return typically {@link HostLanguage#XSLT} or {@link HostLanguage#XQUERY}
@@ -313,7 +300,7 @@ public class GlobalVariable extends Actor
      */
 
     public void setIndexedVariable() {
-        indexed = true;
+        _indexed = true;
     }
 
     /**
@@ -323,7 +310,7 @@ public class GlobalVariable extends Actor
      */
 
     public boolean isIndexedVariable() {
-        return indexed;
+        return _indexed;
     }
 
     /**
@@ -364,7 +351,7 @@ public class GlobalVariable extends Actor
      * @return an iterator over the references: returns objects of class {@link VariableReference}
      */
 
-    public Iterator iterateReferences() {
+    public Iterator<BindingReference> iterateReferences() {
         return references.iterator();
     }
 
@@ -397,7 +384,7 @@ public class GlobalVariable extends Actor
      */
 
     public void setRequiredParam(boolean requiredParam) {
-        this.isRequiredParam = requiredParam;
+        this._isRequiredParam = requiredParam;
     }
 
     /**
@@ -407,7 +394,7 @@ public class GlobalVariable extends Actor
      */
 
     public boolean isRequiredParam() {
-        return this.isRequiredParam;
+        return this._isRequiredParam;
     }
 
     /**
@@ -437,7 +424,7 @@ public class GlobalVariable extends Actor
                 // now, we do a quick check. See test bug64
                 Affinity relation = th.relationship(select.getItemType(), type.getPrimaryType());
                 if (relation == Affinity.SAME_TYPE || relation == Affinity.SUBSUMED_BY) {
-                    constantValue = ((Literal) select).getValue();
+                    constantValue = ((Literal) select).getGroundedValue();
                     type = SequenceType.makeSequenceType(SequenceTool.getItemType(constantValue, th), SequenceTool.getCardinality(constantValue));
                 }
             }
@@ -470,7 +457,7 @@ public class GlobalVariable extends Actor
                 throw new XPathException(
                         "Initializing expression for global variable must not be an updating expression", "XUST0001");
             }
-            RoleDiagnostic role = new RoleDiagnostic(
+            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(
                     RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
             ContextItemStaticInfo cit = getConfiguration().makeContextItemStaticInfo(AnyItemType.getInstance(), true);
             Expression value2 = TypeChecker.strictTypeCheck(
@@ -492,7 +479,7 @@ public class GlobalVariable extends Actor
                     setRequiredType(SequenceType.makeSequenceType(itemType, cardinality));
                     GroundedValue constantValue = null;
                     if (value2 instanceof Literal) {
-                        constantValue = ((Literal) value2).getValue();
+                        constantValue = ((Literal) value2).getGroundedValue();
                     }
                     for (BindingReference reference : references) {
                         if (reference instanceof VariableReference) {
@@ -522,7 +509,7 @@ public class GlobalVariable extends Actor
      *          if cycles are found
      */
 
-    public void lookForCycles(Stack<Object> referees, XQueryFunctionLibrary globalFunctionLibrary) throws XPathException {
+    public void lookForCycles(IndexedStack<Object> referees, XQueryFunctionLibrary globalFunctionLibrary) throws XPathException {
         if (referees.contains(this)) {
             int s = referees.indexOf(this);
             referees.push(this);
@@ -537,12 +524,11 @@ public class GlobalVariable extends Actor
                     messageBuilder.append(" uses $").append(next.getVariableQName().getDisplayName());
                 } else if (referees.get(i + 1) instanceof XQueryFunction) {
                     XQueryFunction next = (XQueryFunction) referees.get(i + 1);
-                    messageBuilder.append(" calls ").append(next.getFunctionName().getDisplayName()).append("#").append(next.getNumberOfArguments()).append("()");
+                    messageBuilder.append(" calls ").append(next.getFunctionName().getDisplayName()).append("#").append(next.getNumberOfParameters()).append("()");
                 }
             }
             String message = messageBuilder.toString();
             message += '.';
-            XPathException err = new XPathException(message);
             String errorCode;
             if (getPackageData().isXSLT()) {
                 errorCode = "XTDE0640";
@@ -552,10 +538,7 @@ public class GlobalVariable extends Actor
             } else {
                 errorCode = "XQDY0054";
             }
-            err.setErrorCode(errorCode);
-            err.setIsStaticError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException(message, errorCode).asStaticError().withLocation(getLocation());
         }
         Expression select = getBody();
         if (select != null) {
@@ -590,7 +573,7 @@ public class GlobalVariable extends Actor
      */
 
     private static void lookForFunctionCycles(
-            XQueryFunction f, Stack<Object> referees, XQueryFunctionLibrary globalFunctionLibrary) throws XPathException {
+            XQueryFunction f, IndexedStack<Object> referees, XQueryFunctionLibrary globalFunctionLibrary) throws XPathException {
         Expression body = f.getBody();
         referees.push(f);
         List<Binding> list = new ArrayList<>(10);
@@ -612,6 +595,7 @@ public class GlobalVariable extends Actor
         referees.pop();
     }
 
+
     /**
      * Evaluate the variable. That is,
      * get the value of the select expression if present or the content
@@ -626,10 +610,10 @@ public class GlobalVariable extends Actor
         Expression select = getBody();
         if (select == null) {
             throw new AssertionError("*** No select expression for global variable $" +
-                    getVariableQName().getDisplayName());
+                    getVariableQName().getDisplayName() + "!!");
         } else if (select instanceof Literal) {
             // fast path for constant global variables
-            return ((Literal)select).getValue();
+            return ((Literal)select).getGroundedValue();
         } else {
             try {
                 Controller controller = context.getController();
@@ -655,15 +639,21 @@ public class GlobalVariable extends Actor
                 c2.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
                 c2.setCurrentOutputUri(null);
                 GroundedValue result;
-                if (indexed) {
+                if (_indexed) {
                     result = c2.getConfiguration().makeSequenceExtent(select, FilterExpression.FILTERED, c2);
                 } else {
-                    result = select.iterate(c2).materialize();
+                    result = ExpressionTool.eagerEvaluate(select, c2);
                 }
                 c2.setTemporaryOutputState(savedOutputState);
                 return result;
+            } catch (UncheckedXPathException unxe) {
+                XPathException xe = unxe.getXPathException();
+                if (!getVariableQName().hasURI(NamespaceUri.SAXON_GENERATED_VARIABLE)) {
+                    xe.setIsGlobalError(true);
+                }
+                throw xe;
             } catch (XPathException e) {
-                if (!getVariableQName().hasURI(NamespaceConstant.SAXON_GENERATED_VARIABLE)) {
+                if (!getVariableQName().hasURI(NamespaceUri.SAXON_GENERATED_VARIABLE)) {
                     e.setIsGlobalError(true);
                 }
                 throw e;
@@ -686,12 +676,20 @@ public class GlobalVariable extends Actor
         if (v != null) {
             return v;
         } else {
-            return actuallyEvaluate(context, null);
+            Component target = context.getCurrentComponent();  // Bug #6236
+            if (target == null) {
+                target = getDeclaringComponent();
+            }
+            return actuallyEvaluate(context, target);
         }
     }
 
     /**
      * Evaluate the variable
+     * @param context the XPath dynamic context
+     * @param target the component representing this variable (in the context of a package where it is used)
+     * @return the value of the variable
+     * @throws XPathException if evaluation of the variable fails with a dynamic error
      */
 
     public GroundedValue evaluateVariable(XPathContext context, Component target) throws XPathException {
@@ -743,7 +741,7 @@ public class GlobalVariable extends Actor
             }
 
             GroundedValue value = getSelectValue(context, target);
-            if (indexed) {
+            if (_indexed) {
                 value = controller.getConfiguration().obtainOptimizer().makeIndexedValue(value.iterate());
             }
             return b.saveGlobalVariableValue(this, value);
@@ -771,15 +769,14 @@ public class GlobalVariable extends Actor
      * on the context stack representing the evaluation of X. We don't set a dependency from X to Y if the value
      * of Y was already available in the Bindery; it's not needed, because in this case we know that evaluation
      * of Y is unproblematic, and can't lead to any circularities.
-     *  @param var     the global variable or parameter being evaluated
+     * @param var     the global variable or parameter being evaluated
      * @param context the dynamic evaluation context
+     * @throws XPathException if a cycle of dependencies is found
      */
 
     protected static void setDependencies(GlobalVariable var, XPathContext context) throws XPathException {
         Controller controller = context.getController();
-        if (!(context instanceof XPathContextMajor)) {
-            context = getMajorCaller(context);
-        }
+        context = context.getMajorContext();
         while (context != null) {
             do {
                 ContextOriginator origin = ((XPathContextMajor) context).getOrigin();
@@ -787,17 +784,13 @@ public class GlobalVariable extends Actor
                     controller.registerGlobalVariableDependency((GlobalVariable) origin, var);
                     return;
                 }
-                context = getMajorCaller(context);
+                context = context.getCaller();
+                if (context != null) {
+                    context = context.getMajorContext();
+                }
             } while (context != null);
         }
-    }
 
-    private static XPathContextMajor getMajorCaller(XPathContext context) {
-        XPathContext caller = context.getCaller();
-        while (!(caller == null || caller instanceof XPathContextMajor)) {
-            caller = caller.getCaller();
-        }
-        return (XPathContextMajor) caller;
     }
 
     /**
@@ -844,10 +837,11 @@ public class GlobalVariable extends Actor
 
     /**
      * Get a description of the variable for use in diagnostics
+     * @return a suitable description
      */
 
     public String getDescription() {
-        if (variableQName.hasURI(NamespaceConstant.SAXON_GENERATED_VARIABLE)) {
+        if (variableQName.hasURI(NamespaceUri.SAXON_GENERATED_VARIABLE)) {
             return "optimizer-generated global variable select=\"" + getBody().toShortString() + '"';
         } else {
             return "global variable " + getVariableQName().getDisplayName();
@@ -885,7 +879,7 @@ public class GlobalVariable extends Actor
         }
         if (getDeclaringComponent() != null) {
             Visibility vis = getDeclaringComponent().getVisibility();
-            if (vis != null) {
+            if (vis != Visibility.UNDEFINED) {
                 presenter.emitAttribute("visibility", vis.toString());
             }
         }
@@ -902,16 +896,16 @@ public class GlobalVariable extends Actor
 
     protected String getFlags() {
         String flags = "";
-        if (isAssignable) {
+        if (_isAssignable) {
             flags += "a";
         }
-        if (indexed) {
+        if (_indexed) {
             flags += "x";
         }
-        if (isRequiredParam) {
+        if (_isRequiredParam) {
             flags += "r";
         }
-        if (isStatic) {
+        if (_isStatic) {
             flags += "s";
         }
         return flags;

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,9 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.instruct.Block;
-import net.sf.saxon.expr.instruct.Message;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.expr.instruct.MessageInstr;
 import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
@@ -48,12 +48,12 @@ public final class XSLMessage extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String terminateAtt = null;
         String selectAtt = null;
@@ -76,7 +76,7 @@ public final class XSLMessage extends StyleElement {
                     errorCode = makeAttributeValueTemplate(errorCodeAtt, att);
                     break;
                 default:
-                    if (attName.hasURI(NamespaceConstant.SAXON) && attName.getLocalPart().equals("time")) {
+                    if (attName.hasURI(NamespaceUri.SAXON) && attName.getLocalPart().equals("time")) {
                         isExtensionAttributeAllowed(attName.getDisplayName());
                         boolean timed = processBooleanAttribute("saxon:time", value);
                         if (timed) {
@@ -131,13 +131,14 @@ public final class XSLMessage extends StyleElement {
 
         if (errorCode instanceof StringLiteral) {
             // resolve any QName prefix now
-            String code = ((StringLiteral) errorCode).getStringValue();
+            String code = ((StringLiteral) errorCode).stringify();
             if (code.contains(":") && !code.startsWith("Q{")) {
                 StructuredQName name = makeQName(code, null, "error-code");
                 errorCode = new StringLiteral(name.getEQName());
             }
         }
-        Message m = new Message(select, terminate, errorCode);
+        MessageInstr m = new MessageInstr(select, terminate, errorCode);
+        m.setLocation(saveLocation());
         m.setRetainedStaticContext(makeRetainedStaticContext());
         return m;
     }

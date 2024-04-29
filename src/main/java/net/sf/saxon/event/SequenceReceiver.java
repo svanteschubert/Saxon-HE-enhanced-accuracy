@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,15 +9,14 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringConstants;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.ExternalObject;
 
 /**
  * SequenceReceiver: this extension of the Receiver interface is used when processing
@@ -155,7 +154,7 @@ public abstract class SequenceReceiver implements Receiver {
 
     protected void flatten(ArrayItem array, Location locationId, int copyNamespaces) throws XPathException {
         for (Sequence member : array.members()) {
-            member.iterate().forEachOrFail(it -> append(it, locationId, copyNamespaces));
+            SequenceTool.supply(member.iterate(), (ItemConsumer<? super Item>) it -> append(it, locationId, copyNamespaces));
         }
     }
 
@@ -172,48 +171,57 @@ public abstract class SequenceReceiver implements Receiver {
 
     protected void decompose(Item item, Location locationId, int copyNamespaces) throws XPathException {
         if (item != null) {
-            if (item instanceof AtomicValue || item instanceof ExternalObject) {
-                if (previousAtomic) {
-                    characters(" ", locationId, ReceiverOption.NONE);
-                }
-                characters(item.getStringValueCS(), locationId, ReceiverOption.NONE);
-                previousAtomic = true;
-            } else if (item instanceof ArrayItem) {
-                flatten((ArrayItem)item, locationId, copyNamespaces);
-            } else if (item instanceof Function) {
-                String thing = item instanceof MapItem ? "map" : "function item";
-                String errorCode = getErrorCodeForDecomposingFunctionItems();
-                if (errorCode.startsWith("SENR")) {
-                    throw new XPathException("Cannot serialize a " + thing + " using this output method", errorCode, locationId);
-                } else {
-                    throw new XPathException("Cannot add a " + thing + " to an XDM node tree", errorCode, locationId);
-                }
-            } else {
-                NodeInfo node = (NodeInfo)item;
-                int kind = node.getNodeKind();
-                if (node instanceof Orphan && ((Orphan) node).isDisableOutputEscaping()) {
-                    // see test case doe-0801, -2 -3 - needed for output buffered within try/catch, xsl:fork etc
-                    characters(item.getStringValueCS(), locationId, ReceiverOption.DISABLE_ESCAPING);
-                    previousAtomic = false;
-                } else if (kind == Type.DOCUMENT) {
-                    startDocument(ReceiverOption.NONE); // needed to ensure that illegal namespaces or attributes in the content are caught
-                    for (NodeInfo child : node.children()) {
-                        append(child, locationId, copyNamespaces);
+            switch (item.getGenre()) {
+                case ATOMIC:
+                case EXTERNAL:
+                    if (previousAtomic) {
+                        characters(StringConstants.SINGLE_SPACE, locationId, ReceiverOption.NONE);
                     }
-                    previousAtomic = false;
-                    endDocument();
-                } else if (kind == Type.ATTRIBUTE || kind == Type.NAMESPACE) {
-                    String thing = kind == Type.ATTRIBUTE ? "an attribute" : "a namespace";
-                    throw new XPathException("Sequence normalization: Cannot process " + thing + " node", "SENR0001", locationId);
+                    characters(item.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
+                    previousAtomic = true;
+                    break;
+                case ARRAY:
+                    flatten((ArrayItem) item, locationId, copyNamespaces);
+                    break;
+                case MAP:
+                case FUNCTION:
+                    String thing = item instanceof MapItem ? "map" : "function item";
+                    String errorCode = getErrorCodeForDecomposingFunctionItems();
+                    if (errorCode.startsWith("SENR")) {
+                        throw new XPathException("Cannot serialize a " + thing + " using this output method", errorCode, locationId);
+                    } else {
+                        throw new XPathException("Cannot add a " + thing + " to an XDM node tree", errorCode, locationId);
+                    }
+                case NODE:
+                default:
+                    NodeInfo node = (NodeInfo) item;
+                    int kind = node.getNodeKind();
+                    if (node instanceof Orphan && ((Orphan) node).isDisableOutputEscaping()) {
+                        // see test case doe-0801, -2 -3 - needed for output buffered within try/catch, xsl:fork etc
+                        characters(item.getUnicodeStringValue(), locationId, ReceiverOption.DISABLE_ESCAPING);
+                        previousAtomic = false;
+                    } else if (kind == Type.DOCUMENT) {
+                        startDocument(ReceiverOption.NONE); // needed to ensure that illegal namespaces or attributes in the content are caught
+                        for (NodeInfo child : node.children()) {
+                            append(child, locationId, copyNamespaces);
+                        }
+                        previousAtomic = false;
+                        endDocument();
+                    } else if (kind == Type.ATTRIBUTE || kind == Type.NAMESPACE) {
+                        String description = kind == Type.ATTRIBUTE ? "attribute" : "namespace";
+                        throw new XPathException("Sequence normalization: Cannot process free-standing "
+                                                         + description + " node (" +
+                                node.getDisplayName() + ")", "SENR0001", locationId);
 
-                } else {
-                    int copyOptions = CopyOptions.TYPE_ANNOTATIONS;
-                    if (ReceiverOption.contains(copyNamespaces, ReceiverOption.ALL_NAMESPACES)) {
-                        copyOptions |= CopyOptions.ALL_NAMESPACES;
+                    } else {
+                        int copyOptions = CopyOptions.TYPE_ANNOTATIONS;
+                        if (ReceiverOption.contains(copyNamespaces, ReceiverOption.ALL_NAMESPACES)) {
+                            copyOptions |= CopyOptions.ALL_NAMESPACES;
+                        }
+                        ((NodeInfo) item).copy(this, copyOptions, locationId);
+                        previousAtomic = false;
                     }
-                    ((NodeInfo) item).copy(this, copyOptions, locationId);
-                    previousAtomic = false;
-                }
+                    break;
             }
         }
     }

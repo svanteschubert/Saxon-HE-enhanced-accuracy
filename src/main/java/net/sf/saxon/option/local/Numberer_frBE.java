@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,7 +15,6 @@ import net.sf.saxon.expr.number.AbstractNumberer;
  * activated for language="frBE"
  *
  * @author Luc Rochefort. Modified for fr-BE by Karel Goossens
- * @version 1.0
  */
 
 public class Numberer_frBE extends AbstractNumberer {
@@ -25,27 +24,27 @@ public class Numberer_frBE extends AbstractNumberer {
      */
     private static final long serialVersionUID = -222104830008011842L;
 
-    private static String[] frenchUnits = {
+    private static final String[] frenchUnits = {
             "", "Un", "Deux", "Trois", "Quatre", "Cinq", "Six", "Sept", "Huit", "Neuf", "Dix",
             "Onze", "Douze", "Treize", "Quatorze", "Quinze", "Seize", "Dix-sept", "Dix-huit", "Dix-neuf"};
 
-    private static String[] frenchTens = {
-            "", "Dix", "Vingt", "Trente", "Quarante", "Cinquante", "Soixante", "Soixante", "Quatre-vingt", "Quatre-vingt"};
+    private static final String[] frenchTens = {
+            "", "Dix", "Vingt", "Trente", "Quarante", "Cinquante", "Soixante", "Septante", "Quatre-vingt", "Nonante"};
 
-    private static String[] frenchOrdinalUnits = {
+    private static final String[] frenchOrdinalUnits = {
             "", "Premier", "Deuxi\u00e8me", "Troisi\u00e8me", "Quatri\u00e8me", "Cinqui\u00e8me",
             "Sixi\u00e8me", "Septi\u00e8me", "Huiti\u00e8me", "Neuvi\u00e8me", "Dixi\u00e8me", "Onzi\u00e8me",
             "Douzi\u00e8me", "Treizi\u00e8me", "Quatorzi\u00e8me", "Quinzi\u00e8me", "Seizi\u00e8me", "Dix-septi\u00e8me",
             "Dix-huiti\u00e8me", "Dix-neuvi\u00e8me"};
 
-    private static String[] frenchOrdinalTens = {
+    private static final String[] frenchOrdinalTens = {
             "", "Dixi\u00e8me", "Vingti\u00e8me", "Trenti\u00e8me", "Quaranti\u00e8me", "Cinquanti\u00e8me",
-            "Soixanti\u00e8me", "Soixante", "Quatre-vingti\u00e8me", "Quatre-vingt"};
+            "Soixanti\u00e8me", "Septanti\u00e8me", "Quatre-vingti\u00e8me", "Nonanti\u00e8me"};
 
-    private static String[] frenchDays = {
+    private static final String[] frenchDays = {
             "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"};
 
-    private static String[] frenchMonths = {
+    private static final String[] frenchMonths = {
             "Janvier", "F\u00e9vrier", "Mars", "Avril", "Mai", "Juin", "Juillet", "Ao\u00fbt", "Septembre", "Octobre", "Novembre", "D\u00e9cembre"};
 
     /*
@@ -70,7 +69,7 @@ public class Numberer_frBE extends AbstractNumberer {
       * @see net.sf.saxon.expr.number.Numberer_en#toWords(long)
       */
     @Override
-    public String toWords(long number) {
+    public String toWords(String cardinal, long number) {
         return toWords(number, true);
     }
 
@@ -80,8 +79,8 @@ public class Numberer_frBE extends AbstractNumberer {
       * @see net.sf.saxon.expr.number.Numberer_en#toWords(long, int)
       */
     @Override
-    public String toWords(long number, int wordCase) {
-        String s = toWords(number);
+    public String toWords(String cardinal, long number, int wordCase) {
+        String s = toWords(cardinal, number);
         if (wordCase == UPPER_CASE) {
             return s.toUpperCase();
         } else if (wordCase == LOWER_CASE) {
@@ -94,19 +93,19 @@ public class Numberer_frBE extends AbstractNumberer {
     private String toWords(long number, boolean terminal) {
         if (number == 0) {
             return "Z\u00e9ro";
-        } else if (number >= 1000000000000000000l) {
-            long rem = number % 1000000000000000000l;
-            long n = number / 1000000000000000000l;
+        } else if (number >= 1000000000000000000L) {
+            long rem = number % 1000000000000000000L;
+            long n = number / 1000000000000000000L;
             String s = (n == 1 ? "Un" : toWords(n, true));
             return s + " quintillion" + (n > 1 ? "s" : "") + (rem == 0 ? "" : " " + toWords(rem, LOWER_CASE, terminal));
-        } else if (number >= 1000000000000000l) {
-            long rem = number % 1000000000000000l;
-            long n = number / 1000000000000000l;
+        } else if (number >= 1000000000000000L) {
+            long rem = number % 1000000000000000L;
+            long n = number / 1000000000000000L;
             String s = (n == 1 ? "Un" : toWords(n, true));
             return s + " quatrillion" + (n > 1 ? "s" : "") + (rem == 0 ? "" : " " + toWords(rem, LOWER_CASE, terminal));
-        } else if (number >= 1000000000000l) {
-            long rem = number % 1000000000000l;
-            long n = number / 1000000000000l;
+        } else if (number >= 1000000000000L) {
+            long rem = number % 1000000000000L;
+            long n = number / 1000000000000L;
             String s = (n == 1 ? "Un" : toWords(n, true));
             return s + " trillion" + (n > 1 ? "s" : "") + (rem == 0 ? "" : " " + toWords(rem, LOWER_CASE, terminal));
         } else if (number >= 1000000000) {
@@ -134,9 +133,9 @@ public class Numberer_frBE extends AbstractNumberer {
                 return frenchUnits[(int) number];
             int rem = (int) (number % 10);
             int tens = (int) number / 10;
-            if (tens == 7 || tens == 9) {
-                rem += 10;
-            }
+//            if (tens == 7 || tens == 9) {
+//                rem += 10;
+//            }
             String link = (rem == 1 || rem == 11) ? ((tens == 8 || tens == 9) ? "-" : " et ") : "-";
 
             return frenchTens[tens] + (rem == 0 ? ((tens == 8 && terminal) ? "s" : "") : link) + (tens == 0 ? frenchUnits[rem] : frenchUnits[rem].toLowerCase());
@@ -172,15 +171,15 @@ public class Numberer_frBE extends AbstractNumberer {
         } else if (number < 100) {
             long mod10 = number % 10;
             long int10 = number / 10;
-            if (int10 == 7 || int10 == 9) {
-                int10 -= 1;
-                mod10 += 10;
-            }
+//            if (int10 == 7 || int10 == 9) {
+//                int10 -= 1;
+//                mod10 += 10;
+//            }
             if (mod10 == 0) {
                 ord = frenchOrdinalTens[(int) int10];
             } else {
                 String link = (mod10 == 1 || mod10 == 11) ? ((int10 == 8) ? "-" : " et ") : "-";
-                String prefix = toWords(int10 * 10);
+                String prefix = toWords("", int10 * 10);
                 if (int10 == 8) {
                     prefix = prefix.substring(0, prefix.length() - 1);
                 }
@@ -191,10 +190,10 @@ public class Numberer_frBE extends AbstractNumberer {
             String suffix = "i\u00e8me";
             long mod100 = number % 100;
             long int100 = number / 100;
-            if (int100 == 70 || int100 == 90) {
-                int100 -= 10;
-                mod100 += 100;
-            }
+//            if (int100 == 70 || int100 == 90) {
+//                int100 -= 10;
+//                mod100 += 100;
+//            }
 
             String prefix = toWords(int100 * 100, false);
             if (int100 % 10000 == 0) {

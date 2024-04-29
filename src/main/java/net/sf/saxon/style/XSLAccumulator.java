@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,7 +18,6 @@ import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.Optimizer;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.functions.AccumulatorFn;
 import net.sf.saxon.lib.Feature;
@@ -26,7 +25,10 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.pattern.Pattern;
-import net.sf.saxon.trans.*;
+import net.sf.saxon.trans.SimpleMode;
+import net.sf.saxon.trans.SymbolicName;
+import net.sf.saxon.trans.Visibility;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
@@ -36,6 +38,7 @@ import net.sf.saxon.value.Whitespace;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Handler for xsl:accumulator elements in a stylesheet (XSLT 3.0).
@@ -43,7 +46,7 @@ import java.util.List;
 
 public class XSLAccumulator extends StyleElement implements StylesheetComponent {
 
-    private Accumulator accumulator = new Accumulator();
+    private final Accumulator accumulator = new Accumulator();
     private SlotManager slotManager;
 
     /**
@@ -86,6 +89,7 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
      * references to this accumulator
      */
 
+    @SuppressWarnings("StatementWithEmptyBody")
     private void prepareSimpleAttributes() {
 
         for (AttributeInfo att : attributes()) {
@@ -99,7 +103,7 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
                 accumulator.setDeclaredStreamable(false);
                 boolean streamable = processStreamableAtt(value);
                 accumulator.setDeclaredStreamable(streamable);
-            } else if (attName.hasURI(NamespaceConstant.SAXON) && attName.getLocalPart().equals("trace")) {
+            } else if (attName.hasURI(NamespaceUri.SAXON) && attName.getLocalPart().equals("trace")) {
                 if (isExtensionAttributeAllowed(attName.getDisplayName())) {
                     accumulator.setTracing(processBooleanAttribute("saxon:trace", value));
                 }
@@ -110,14 +114,15 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
 
         if (accumulator.getAccumulatorName() == null) {
             reportAbsence("name");
+            // recovery: bug 5585
+            accumulator.setAccumulatorName(new StructuredQName("anon", NamespaceConstant.ANONYMOUS, "acc" + hashCode()));
         }
 
     }
 
+    @SuppressWarnings("StatementWithEmptyBody")
     @Override
-    public void prepareAttributes() {
-
-        //prepareSimpleAttributes();
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
@@ -134,9 +139,9 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
                     SequenceType requiredType = makeSequenceType(value);
                     accumulator.setType(requiredType);
                 } catch (XPathException e) {
-                    compileErrorInAttribute(e.getMessage(), e.getErrorCodeLocalPart(), "as");
+                    compileErrorInAttribute(e, "as");
                 }
-            } else if (attName.hasURI(NamespaceConstant.SAXON) && attName.getLocalPart().equals("trace")) {
+            } else if (attName.hasURI(NamespaceUri.SAXON) && attName.getLocalPart().equals("trace")) {
                 if (isExtensionAttributeAllowed(attName.getDisplayName())) {
                     accumulator.setTracing(processBooleanAttribute("saxon:trace", value));
                 }
@@ -172,10 +177,11 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
             Expression init = accumulator.getInitialValueExpression();
             ExpressionVisitor visitor = ExpressionVisitor.make(getStaticContext());
             init = init.typeCheck(visitor, config.getDefaultContextItemStaticInfo());
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:accumulator-rule/select", 0);
+            Supplier<RoleDiagnostic> role =
+                    () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:accumulator-rule/select", 0);
             init = config.getTypeChecker(false).staticTypeCheck(init, accumulator.getType(), role, visitor);
             init = init.optimize(visitor, config.getDefaultContextItemStaticInfo());
-            SlotManager stackFrameMap = slotManager;
+            SlotManager stackFrameMap = config.makeSlotManager();
             ExpressionTool.allocateSlots(init, 0, stackFrameMap);
             accumulator.setSlotManagerForInitialValueExpression(stackFrameMap);
             checkInitialStreamability(init);
@@ -192,15 +198,15 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
             Expression newValueExp = rule.getNewValueExpression(compilation, decl);
             ExpressionVisitor visitor = ExpressionVisitor.make(getStaticContext());
             newValueExp = newValueExp.typeCheck(visitor, config.makeContextItemStaticInfo(pattern.getItemType(), false));
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:accumulator-rule/select", 0);
+            Supplier<RoleDiagnostic> role =
+                    () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:accumulator-rule/select", 0);
             newValueExp = config.getTypeChecker(false).staticTypeCheck(newValueExp, accumulator.getType(), role, visitor);
             newValueExp = newValueExp.optimize(visitor, getConfiguration().makeContextItemStaticInfo(pattern.getItemType(), false));
-            SlotManager stackFrameMap = getConfiguration().makeSlotManager();
-            stackFrameMap.allocateSlotNumber(new StructuredQName("", "", "value"));
-            ExpressionTool.allocateSlots(newValueExp, 1, stackFrameMap);
+            slotManager.allocateSlotNumber(NamespaceUri.NULL.qName("value"), null);
+            ExpressionTool.allocateSlots(newValueExp, 1, slotManager);
             boolean isPreDescent = !rule.isPostDescent();
             SimpleMode mode = isPreDescent ? accumulator.getPreDescentRules() : accumulator.getPostDescentRules();
-            AccumulatorRule action = new AccumulatorRule(newValueExp, stackFrameMap, rule.isPostDescent());
+            AccumulatorRule action = new AccumulatorRule(newValueExp, slotManager, rule.isPostDescent());
             mode.addRule(pattern, action, decl.getModule(), decl.getModule().getPrecedence(), 1, position++, 0);
 
             checkRuleStreamability(rule, pattern, newValueExp);
@@ -212,10 +218,10 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
             ItemType itemType = pattern.getItemType();
             if (itemType instanceof NodeTest) {
                 if (!itemType.getUType().overlaps(UType.DOCUMENT.union(UType.CHILD_NODE_KINDS))) {
-                    rule.compileWarning("An accumulator rule that matches attribute or namespace nodes has no effect", "SXWN9999");
+                    rule.issueWarning("An accumulator rule that matches attribute or namespace nodes has no effect", "SXWN9999");
                 }
             } else if (itemType instanceof AtomicType) {
-                rule.compileWarning("An accumulator rule that matches atomic values has no effect", "SXWN9999");
+                rule.issueWarning("An accumulator rule that matches atomic values has no effect", "SXWN9999");
             }
 
             accumulator.addChildExpression(newValueExp);
@@ -237,9 +243,9 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
     public StructuredQName getObjectName() {
         StructuredQName qn = super.getObjectName();
         if (qn == null) {
-            String nameAtt = Whitespace.trim(getAttributeValue("", "name"));
+            String nameAtt = Whitespace.trim(getAttributeValue(NamespaceUri.NULL, "name"));
             if (nameAtt == null) {
-                return new StructuredQName("saxon", NamespaceConstant.SAXON, "badly-named-accumulator" + generateId());
+                return new StructuredQName("saxon", NamespaceUri.SAXON, "badly-named-accumulator" + generateId());
             }
             qn = makeQName(nameAtt, null, "name");
             setObjectName(qn);
@@ -323,28 +329,17 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
     }
 
 
-    /**
-     * Generate byte code if appropriate
-     * @param opt the optimizer
-     */
-    @Override
-    public void generateByteCode(Optimizer opt) {
-        // no action currently
+    private void checkInitialStreamability(Expression init) {
     }
 
-    private void checkInitialStreamability(Expression init) throws XPathException {
-        // Check streamability constraints
-    }
-
-    private void checkRuleStreamability(XSLAccumulatorRule rule, Pattern pattern, Expression newValueExp) throws XPathException {
-        // Check streamability constraints
+    private void checkRuleStreamability(XSLAccumulatorRule rule, Pattern pattern, Expression newValueExp) {
     }
 
     private void notStreamable(StyleElement rule, String message) {
         boolean fallback = getConfiguration().getBooleanProperty(Feature.STREAMING_FALLBACK);
         if (fallback) {
             message += ". Falling back to non-streaming implementation";
-            rule.compileWarning(message, "XTSE3430");
+            rule.issueWarning(message, "XTSE3430");
             rule.getCompilation().setFallbackToNonStreaming(true);
         } else {
             rule.compileError(message, "XTSE3430");

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,10 @@
 package net.sf.saxon.resource;
 
 
-import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.lib.RedirectHandler;
 import net.sf.saxon.lib.Resource;
 import net.sf.saxon.lib.ResourceFactory;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.Base64BinaryValue;
 
 import java.io.BufferedInputStream;
@@ -21,13 +20,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
 import java.net.URLConnection;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.*;
 
 /**
- * A binary resource that might appear in a resource collection.
+ * A binary resource that might appear in a resource collection. Currently limited to 2G octets.
  */
-
 
 public class BinaryResource implements Resource {
 
@@ -40,7 +40,7 @@ public class BinaryResource implements Resource {
      * ResourceFactory suitable for creating a BinaryResource
      */
 
-    public static final ResourceFactory FACTORY = (config, details) -> new BinaryResource(details);
+    public static final ResourceFactory FACTORY = (context, details) -> new BinaryResource(details);
 
     /**
      * Create a binary resource
@@ -56,15 +56,83 @@ public class BinaryResource implements Resource {
 
     /**
      * Create a binary resource supplying the actual content as a byte array
-     * @param href the URI of the resource
+     *
+     * @param href        the URI of the resource
      * @param contentType the media type
-     * @param content the actual content as a byte array
+     * @param content     the actual content as a byte array
      */
 
     public BinaryResource(String href, String contentType, byte[] content) {
         this.contentType = contentType;
         this.href = href;
         this.data = content;
+    }
+
+    @CSharpReplaceBody(code = "return Saxon.Impl.Helpers.StringUtils.encode(s, encoding);")
+    public static byte[] encode(String s, String encoding) throws XPathException {
+        CharsetEncoder encoder;
+        try {
+            encoder = Charset.forName(encoding).newEncoder();
+        } catch (Exception e) {
+            throw new XPathException("Unsupported encoding " + encoding);
+        }
+        encoder.onMalformedInput(CodingErrorAction.REPORT);
+
+        CharBuffer in = CharBuffer.wrap(s);
+        ByteBuffer out = null;
+        try {
+            out = encoder.encode(in);
+        } catch (MalformedInputException e) {
+            error("Malformed input in encoding:" + e);
+        } catch (UnmappableCharacterException e) {
+            error("Unmappable input in encoding:" + e);
+        } catch (CharacterCodingException e) {
+            error("Character code problem in encoding:" + e);
+        }
+        byte[] data = new byte[out.limit()];
+        System.arraycopy(out.array(), 0, data, 0, out.limit());
+        return data;
+    }
+
+    public static String decode(byte[] value, String encoding) throws XPathException {
+        return decode(value, 0, value.length, encoding);
+    }
+
+    @CSharpReplaceBody(code = "return Saxon.Impl.Helpers.StringUtils.decode(value, offset, len, encoding);")
+    public static String decode(byte[] value, int offset, int len, String encoding) throws XPathException {
+        CharsetDecoder decoder;
+        try {
+            decoder = Charset.forName(encoding).newDecoder();
+        } catch (Exception e) {
+            throw new XPathException("Unsupported encoding " + encoding);
+        }
+        decoder.onMalformedInput(CodingErrorAction.REPORT);
+        ByteBuffer in = ByteBuffer.wrap(value, offset, len);
+        char[] outChars = new char[len];
+        CharBuffer out = CharBuffer.wrap(outChars);
+        CoderResult res = decoder.decode(in, out, true);
+        if (res.isError()) {
+            if (res.isMalformed())
+                error("Malformed input found when decoding binary resource");
+            if (res.isUnmappable())
+                error("Unmappable input found when decoding binary resource");
+            error("Other error when decoding binary resource");
+        }
+        char[] resChars = new char[out.position()];
+        System.arraycopy(outChars, 0, resChars, 0, out.position());
+        return new String(resChars);
+    }
+
+    /**
+     * Throw an error
+     *
+     * @param message the error message
+     * @throws XPathException always
+     */
+
+    public static void error(String message)
+            throws XPathException {
+        throw new XPathException(message);
     }
 
     /**
@@ -104,7 +172,10 @@ public class BinaryResource implements Resource {
         try {
             raw = connection.getInputStream();
 
-            int contentLength = connection.getContentLength();
+            long contentLength = connection.getContentLengthLong();
+            if (contentLength > Integer.MAX_VALUE) {
+                throw new XPathException("Cannot handle binary resources longer than 2G octets");
+            }
             InputStream in = new BufferedInputStream(raw);
             if (contentLength < 0) {
                 // bug 4475
@@ -112,7 +183,7 @@ public class BinaryResource implements Resource {
                 in.close();
                 return result;
             } else {
-                byte[] data = new byte[contentLength];
+                byte[] data = new byte[(int)contentLength];
                 int bytesRead = 0;
                 int offset = 0;
                 while (offset < contentLength) {
@@ -163,7 +234,6 @@ public class BinaryResource implements Resource {
     /**
      * Get an XDM Item holding the contents of this resource.
      *
-     * @param context the XPath evaluation context
      * @return an item holding the contents of the resource. For a binary resource
      * the value will always be a {@link Base64BinaryValue}. This does not mean that the
      * content is actually encoded in Base64 internally; rather it means that when converted
@@ -172,7 +242,7 @@ public class BinaryResource implements Resource {
      */
 
     @Override
-    public Base64BinaryValue getItem(XPathContext context) throws XPathException {
+    public Base64BinaryValue getItem() throws XPathException {
         if (data != null) {
             return new Base64BinaryValue(data);
         } else if (connection != null) {
@@ -180,7 +250,7 @@ public class BinaryResource implements Resource {
             return new Base64BinaryValue(data);
         } else {
             try {
-                URLConnection connection = RedirectHandler.resolveConnection(new URI(href).toURL());
+                connection = ResourceLoader.urlConnection(new URI(href).toURL());
                 data = readBinaryFromConn(connection);
                 return new Base64BinaryValue(data);
             } catch (URISyntaxException | IOException e) {
@@ -201,5 +271,6 @@ public class BinaryResource implements Resource {
     public String getContentType() {
         return contentType;
     }
+
 
 }

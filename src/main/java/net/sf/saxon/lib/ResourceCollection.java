@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,14 +8,12 @@
 package net.sf.saxon.lib;
 
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.Iterator;
 
 /**
- * This interface defines a ResourceCollection. This is a counterpart to the JAXP
- * URIResolver, but is used to map the URI of collection into a sequence of Resource objects.
+ * This interface defines a ResourceCollection.
  * It is used to support the fn:collection() and fn:uri-collection() functions.
  * @since 9.7
  */
@@ -73,24 +71,6 @@ public interface ResourceCollection {
 
     boolean isStable(XPathContext context);
 
-
-    /**
-     * Supply information about the whitespace stripping rules that apply to this collection.
-     * This method will only be called when the collection() function is invoked from XSLT.
-     * (If in doubt, the implementation of this method should do nothing and return false.)
-     *
-     * @param rules the space-stripping rules that apply to this collection, derived from
-     *              the xsl:strip-space and xsl:preserve-space declarations in the stylesheet
-     *              package containing the call to the collection() function.
-     * @return true if the collection finder intends to take responsibility for whitespace
-     * stripping according to these rules; false if it wishes Saxon itself to post-process
-     * any returned XML documents to strip whitespace. Returning true may either indicate
-     * that the collection finder will strip whitespace before returning a document, or it
-     * may indicate that it does not wish the space stripping rules to be applied.
-     * @since 9.8
-     */
-
-    boolean stripWhitespace(SpaceStrippingRule rules);
 
 
 }

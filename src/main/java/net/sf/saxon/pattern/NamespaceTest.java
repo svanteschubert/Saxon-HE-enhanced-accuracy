@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,29 +8,27 @@
 package net.sf.saxon.pattern;
 
 import net.sf.saxon.om.*;
-import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.tree.tiny.NodeVectorTree;
 import net.sf.saxon.type.*;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 import net.sf.saxon.z.IntSet;
 
 import java.util.Optional;
-import java.util.function.IntPredicate;
 
 /**
  * NodeTest is an interface that enables a test of whether a node has a particular
  * name and type. A NamespaceTest matches the node type and the namespace URI.
- *
- * @author Michael H. Kay
  */
 
 public final class NamespaceTest extends NodeTest implements QNameTest {
 
-    private NamePool namePool;
-    private int nodeKind;
-    private UType uType;
-    private String uri;
+    private final NamePool namePool;
+    private final int nodeKind;
+    private final UType uType;
+    private final NamespaceUri uri;
 
-    public NamespaceTest(NamePool pool, int nodeKind, String uri) {
+    public NamespaceTest(NamePool pool, int nodeKind, NamespaceUri uri) {
         namePool = pool;
         this.nodeKind = nodeKind;
         this.uri = uri;
@@ -97,15 +95,15 @@ public final class NamespaceTest extends NodeTest implements QNameTest {
     }
 
     @Override
-    public IntPredicate getMatcher(final NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
         final byte[] nodeKindArray = tree.getNodeKindArray();
         final int[] nameCodeArray = tree.getNameCodeArray();
-        return nodeNr -> {
+        return IntPredicateLambda.of(nodeNr -> {
             int fp = nameCodeArray[nodeNr] & 0xfffff;
             return fp != -1 &&
                     (nodeKindArray[nodeNr]&0x0f) == nodeKind &&
                     uri.equals(namePool.getURI(fp));
-        };
+        });
     }
 
     /**
@@ -118,7 +116,7 @@ public final class NamespaceTest extends NodeTest implements QNameTest {
 
     @Override
     public boolean test(NodeInfo node) {
-        return node.getNodeKind() == nodeKind && node.getURI().equals(uri);
+        return node.getNodeKind() == nodeKind && node.getNamespaceUri().equals(uri);
     }
 
     /**
@@ -131,6 +129,18 @@ public final class NamespaceTest extends NodeTest implements QNameTest {
     @Override
     public boolean matches(StructuredQName qname) {
         return qname.hasURI(uri);
+    }
+
+    /**
+     * Test whether the QNameTest matches a given fingerprint
+     *
+     * @param namePool the name pool
+     * @param fp       the fingerprint of the QName to be matched
+     * @return true if the name matches, false if not
+     */
+    @Override
+    public boolean matchesFingerprint(NamePool namePool, int fp) {
+        return namePool.getURI(fp).equals(uri);
     }
 
     /**
@@ -160,7 +170,7 @@ public final class NamespaceTest extends NodeTest implements QNameTest {
      * @return the namespace URI matched by this NamespaceTest
      */
 
-    public String getNamespaceURI() {
+    public NamespaceUri getNamespaceURI() {
         return uri;
     }
 
@@ -204,21 +214,6 @@ public final class NamespaceTest extends NodeTest implements QNameTest {
     @Override
     public String exportQNameTest() {
         return "Q{" + uri + "}*";
-    }
-
-    /**
-     * Generate Javascript code to test if a name matches the test.
-     *
-     * @return JS code as a string. The generated code will be used
-     * as the body of a JS function in which the argument name "q" is an
-     * XdmQName object holding the name. The XdmQName object has properties
-     * uri and local.
-     * @param targetVersion the version of Saxon-JS being targeted
-     */
-
-    @Override
-    public String generateJavaScriptNameTest(int targetVersion) {
-        return "q.uri==='" + ExpressionPresenter.jsEscape(uri) + "'";
     }
 
     /**

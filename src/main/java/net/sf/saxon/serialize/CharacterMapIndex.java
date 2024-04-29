@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -99,7 +99,7 @@ public class CharacterMapIndex implements Iterable<CharacterMap> {
     public CharacterMapExpander makeCharacterMapExpander(
             String useMaps, Receiver next, SerializerFactory sf) throws XPathException {
         CharacterMapExpander characterMapExpander = null;
-        List<CharacterMap> characterMaps = new ArrayList<>(5);
+        List<CharacterMap> characterMaps = new ArrayList<CharacterMap>(5);
         StringTokenizer st = new StringTokenizer(useMaps, " \t\n\r", false);
         while (st.hasMoreTokens()) {
             String expandedName = st.nextToken();

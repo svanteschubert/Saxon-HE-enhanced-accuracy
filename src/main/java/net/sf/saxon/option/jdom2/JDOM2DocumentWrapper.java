@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,17 +8,20 @@
 package net.sf.saxon.option.jdom2;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.event.Receiver;
+import net.sf.saxon.lib.ActiveSource;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.GenericTreeInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import org.jdom2.Attribute;
 import org.jdom2.Document;
 import org.jdom2.Element;
 
 import java.util.HashMap;
-import java.util.List;
 
 /**
  * The tree information for a tree acting as a wrapper for a JDOM2 Document.
@@ -28,7 +31,7 @@ import java.util.List;
  */
 
 
-public class JDOM2DocumentWrapper extends GenericTreeInfo {
+public class JDOM2DocumentWrapper extends GenericTreeInfo implements ActiveSource {
 
     protected Configuration config;
     protected long documentNumber;
@@ -44,11 +47,18 @@ public class JDOM2DocumentWrapper extends GenericTreeInfo {
 
     public JDOM2DocumentWrapper(Document doc, Configuration config) {
         super(config);
-        if (!config.isLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION)) {
-            config.requireProfessionalLicense("JDOM2");
-        }
+        config.requireProfessionalLicense("JDOM2");
         setRootNode(wrap(doc));
         setSystemId(doc.getBaseURI());
+    }
+
+    /**
+     * Implement the ActiveSource interface
+     */
+
+    @Override
+    public void deliver(Receiver receiver, ParseOptions options) throws XPathException {
+        getRootNode().deliver(receiver, options);
     }
 
 
@@ -68,7 +78,7 @@ public class JDOM2DocumentWrapper extends GenericTreeInfo {
      * Get the element with a given ID, if any
      *
      * @param id        the required ID value
-     * @param getParent
+     * @param getParent true if requesting the parent element of an ID-valued element
      * @return the element node with the given ID if there is one, otherwise null.
      */
 
@@ -80,9 +90,7 @@ public class JDOM2DocumentWrapper extends GenericTreeInfo {
             NodeInfo node;
             while ((node = iter.next()) != null) {
                 Element element = (Element) ((JDOM2NodeWrapper) node).node;
-                List attributes = element.getAttributes();
-                for (Object attribute : attributes) {
-                    Attribute att = (Attribute) attribute;
+                for (Attribute att : element.getAttributes()) {
                     if (att.getAttributeType() == Attribute.ID_TYPE) {
                         idIndex.put(att.getValue(), element);
                     }

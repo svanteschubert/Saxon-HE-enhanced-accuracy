@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -115,17 +115,17 @@ public class Numberer_tr extends AbstractNumberer {
     }
 
     @Override
-    public String toWords(long l) {
+    public String toWords(String cardinal, long l) {
         return numberer(l, LOWER_CASE);
     }
 
     @Override
-    public String toWords(long l, int format) {
+    public String toWords(String cardinal, long l, int format) {
         return numberer(l, format);
     }
 
     @Override
-    public String toOrdinalWords(String string, long l, int format) {
+    public String toOrdinalWords(String str, long l, int format) {
         String number = numberer(l, format);
 
         String[] lookFor = {"sıfır", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan", "yüz", "kentilyon", "katrilyon", "trilyon", "milyar", "milyon", "bin"};
@@ -161,7 +161,7 @@ public class Numberer_tr extends AbstractNumberer {
             return "";
         }
 
-        StringBuffer ayAdi = new StringBuffer(abbreviate(aylar[ay - 1], max));
+        StringBuilder ayAdi = new StringBuilder(abbreviate(aylar[ay - 1], max));
         while (ayAdi.length() < min) {
             ayAdi.append(' ');
         }
@@ -186,36 +186,36 @@ public class Numberer_tr extends AbstractNumberer {
         return gunAdi.toString();
     }
 
-    private String abbreviate(String string, int max) {
-        if (string.length() <= max) {
-            return string;
+    private String abbreviate(String str, int max) {
+        if (str.length() <= max) {
+            return str;
         }
 
         // first try: camelBump the string -- no length to max comparison
-        string = camelBump(string);
-        if (string.length() <= max) {
-            return string;
+        str = camelBump(str);
+        if (str.length() <= max) {
+            return str;
         }
 
         // second try: remove vowels (except capitalized vowels -- they are the "bump"s) till length <= max
-        string = removeVowels(string, max);
-        if (string.length() <= max) {
-            return string;
+        str = removeVowels(str, max);
+        if (str.length() <= max) {
+            return str;
         }
 
         // third try: remove consonants (except capitalized consonants -- they are the "bump"s) till length <= max
-        string = removeConsonants(string, max);
-        if (string.length() <= max) {
-            return string;
+        str = removeConsonants(str, max);
+        if (str.length() <= max) {
+            return str;
         }
 
         // last ditch: remaining chars are capitalized, chop string after position=max
-        return string.substring(0, max);
+        return str.substring(0, max);
     }
 
-    public String camelBump(String string) {
+    public String camelBump(String str) {
         // CamelBump the words first thing
-        char[] chars = string.trim().toCharArray();
+        char[] chars = str.trim().toCharArray();
         // Capitalize every word and delete spaces
         char[] camelBump = new char[chars.length];
         int n = 0;
@@ -236,23 +236,23 @@ public class Numberer_tr extends AbstractNumberer {
             precedingSpace = false;
         }
 
-        string = new String(camelBump, 0, n);
+        str = new String(camelBump, 0, n);
 
-        return string;
+        return str;
     }
 
-    private String removeVowels(String string, int max) {
-        int diff = string.length() - max;
+    private String removeVowels(String str, int max) {
+        int diff = str.length() - max;
         String toRemove = "aeıioöuü";
         StringBuffer sb = new StringBuffer();
-        string = reverse(string);
-        for (int c = 0; c < string.length(); c++) {
+        str = reverse(str);
+        for (int c = 0; c < str.length(); c++) {
             if (diff <= 0) {
-                sb.append(string.charAt(c));
+                sb.append(str.charAt(c));
                 continue;
             }
-            if (toRemove.indexOf(string.charAt(c)) == -1) {
-                sb.append(string.charAt(c));
+            if (toRemove.indexOf(str.charAt(c)) == -1) {
+                sb.append(str.charAt(c));
             } else {
                 diff--;
             }
@@ -261,18 +261,18 @@ public class Numberer_tr extends AbstractNumberer {
         return reverse(sb.toString());
     }
 
-    private String removeConsonants(String string, int max) {
-        int diff = string.length() - max;
+    private String removeConsonants(String str, int max) {
+        int diff = str.length() - max;
         String toRemove = "bcçdfgğhjklmnprsştvyz";
         StringBuffer sb = new StringBuffer();
-        string = reverse(string);
-        for (int c = 0; c < string.length(); c++) {
+        str = reverse(str);
+        for (int c = 0; c < str.length(); c++) {
             if (diff <= 0) {
-                sb.append(string.charAt(c));
+                sb.append(str.charAt(c));
                 continue;
             }
-            if (toRemove.indexOf(string.charAt(c)) == -1) {
-                sb.append(string.charAt(c));
+            if (toRemove.indexOf(str.charAt(c)) == -1) {
+                sb.append(str.charAt(c));
             } else {
                 diff--;
             }
@@ -296,15 +296,15 @@ public class Numberer_tr extends AbstractNumberer {
 
         System.out.println("Running some tests...");
 
-        System.out.println(Long.MAX_VALUE + " (Long.MAX_VALUE) in words: '" + tn.toWords(Long.MAX_VALUE, TITLE_CASE) + "'");
-        System.out.println(4425408 + " in words: '" + tn.toWords(4425408, TITLE_CASE) + "'");
-        System.out.println(5323156550L + " in words: '" + tn.toWords(5323156550L, TITLE_CASE) + "'");
-        System.out.println(10101010101L + " in words: '" + tn.toWords(10101010101L, TITLE_CASE) + "'");
-        System.out.println(101010101010L + " in words: '" + tn.toWords(101010101010L, TITLE_CASE) + "'");
-        System.out.println(111111111111L + " in words: '" + tn.toWords(111111111111L, TITLE_CASE) + "'");
-        System.out.println(156156L + " in words: '" + tn.toWords(156156L, TITLE_CASE) + "'");
+        System.out.println(Long.MAX_VALUE + " (Long.MAX_VALUE) in words: '" + tn.toWords("", Long.MAX_VALUE, TITLE_CASE) + "'");
+        System.out.println(4425408 + " in words: '" + tn.toWords("", 4425408, TITLE_CASE) + "'");
+        System.out.println(5323156550L + " in words: '" + tn.toWords("", 5323156550L, TITLE_CASE) + "'");
+        System.out.println(10101010101L + " in words: '" + tn.toWords("", 10101010101L, TITLE_CASE) + "'");
+        System.out.println(101010101010L + " in words: '" + tn.toWords("", 101010101010L, TITLE_CASE) + "'");
+        System.out.println(111111111111L + " in words: '" + tn.toWords("", 111111111111L, TITLE_CASE) + "'");
+        System.out.println(156156L + " in words: '" + tn.toWords("", 156156L, TITLE_CASE) + "'");
 
-        System.out.println("");
+        System.out.println();
 
         System.out.println(Long.MAX_VALUE + " (Long.MAX_VALUE) in ordinal words: '" + tn.toOrdinalWords("", Long.MAX_VALUE, TITLE_CASE) + "'");
         System.out.println(4425408 + " in ordinal words: '" + tn.toOrdinalWords("", 4425408, TITLE_CASE) + "'");
@@ -314,7 +314,7 @@ public class Numberer_tr extends AbstractNumberer {
         System.out.println(111111111111L + " in ordinal words: '" + tn.toOrdinalWords("", 111111111111L, TITLE_CASE) + "'");
         System.out.println(156156L + " in ordinal words: '" + tn.toOrdinalWords("", 156156L, TITLE_CASE) + "'");
 
-        System.out.println("");
+        System.out.println();
 
         for (int month = 1; month <= 12; month++) {
             System.out.println("month " + month + " in 4 characters, minimum 5 characters wide result: '" + tn.monthName(month, 5, 4) + "'");
@@ -322,7 +322,7 @@ public class Numberer_tr extends AbstractNumberer {
             System.out.println("month " + month + " in 10 characters, minimum 10 characters wide result: '" + tn.monthName(month, 10, 10) + "'");
         }
 
-        System.out.println("");
+        System.out.println();
 
         for (int day = 1; day <= 7; day++) {
             System.out.println("day " + day + " in 4 characters, minimum 5 characters wide result: '" + tn.dayName(day, 5, 4) + "'");
@@ -330,7 +330,7 @@ public class Numberer_tr extends AbstractNumberer {
             System.out.println("day " + day + " in 10 characters, minimum 10 characters wide result: '" + tn.dayName(day, 10, 10) + "'");
         }
 
-        System.out.println("");
+        System.out.println();
 
         System.out.println("abbreviating 156156 in (lower case) words to 18 characters: '" + tn.abbreviate(tn.numberer(156156L, LOWER_CASE), 18) + "'");
         System.out.println("abbreviating 156156 in (upper case) words to 18 characters: '" + tn.abbreviate(tn.numberer(156156L, UPPER_CASE), 18) + "'");

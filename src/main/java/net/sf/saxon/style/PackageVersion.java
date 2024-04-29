@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.om.NameChecker;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,9 +24,6 @@ public class PackageVersion implements Comparable<PackageVersion> {
     public List<Integer> parts;
     public String suffix;
 
-    /**
-     *
-     */
     public static PackageVersion ZERO = new PackageVersion(new int[]{0});
     public static PackageVersion ONE = new PackageVersion(new int[]{1});
     public static PackageVersion MAX_VALUE = new PackageVersion(new int[]{Integer.MAX_VALUE});
@@ -37,7 +35,7 @@ public class PackageVersion implements Comparable<PackageVersion> {
      * @param values the sequence of integer components
      */
     public PackageVersion(int[] values) {
-        parts = new ArrayList<Integer>(values.length);
+        parts = new ArrayList<>(values.length);
         for (int value : values) {
             parts.add(value);
         }
@@ -62,10 +60,10 @@ public class PackageVersion implements Comparable<PackageVersion> {
      *
      * @param s The input string describing the package version according to the grammar given at:
      *          <a href="http://www.w3.org/TR/xslt-30/#package-versions">http://www.w3.org/TR/xslt-30/#package-versions</a>
-     * @throws XPathException
+     * @throws XPathException if the syntax of the package version is incorrect
      */
     public PackageVersion(String s) throws XPathException {
-        parts = new ArrayList<Integer>();
+        parts = new ArrayList<>();
         String original = s;
         if (s.contains("-")) {
             int i = s.indexOf('-');
@@ -78,6 +76,7 @@ public class PackageVersion implements Comparable<PackageVersion> {
         if (s.equals("")) {
             throw new XPathException("No numeric component of package-version: " + original, "XTSE0020");
         }
+
         if (s.startsWith(".")) {
             throw new XPathException("The package-version cannot start with '.'", "XTSE0020");
         }
@@ -85,20 +84,25 @@ public class PackageVersion implements Comparable<PackageVersion> {
             throw new XPathException("The package-version cannot end with '.'", "XTSE0020");
         }
         for (String p : s.trim().split("\\.")) {
-            try {
-                parts.add(Integer.valueOf(p));
-            } catch (NumberFormatException e) {
-                throw new XPathException("Error in package-version: " + e.getMessage(), "XTSE0020");
-            }
+             parts.add(parseInteger(p));
         }
         trimTrailingZeroes();
+    }
+
+    @CSharpReplaceBody(code="try{return System.Int32.Parse(s);} catch (Exception e) {throw new Saxon.Hej.trans.XPathException(\"Error in package-version: \" + e.Message, \"XTSE0020\");}")
+    public static int parseInteger(String s) throws XPathException {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            throw new XPathException("Error in package-version: " + e.getMessage(), "XTSE0020");
+        }
     }
 
     @Override
     public boolean equals(Object o) {
         if (o instanceof PackageVersion) {
             PackageVersion p = (PackageVersion) o;
-            if (parts.equals(p.parts)) {
+            if (equalParts(parts, p.parts)) {
                 if (suffix != null) {
                     return suffix.equals(p.suffix);
                 } else {
@@ -107,6 +111,27 @@ public class PackageVersion implements Comparable<PackageVersion> {
             }
         }
         return false;
+    }
+
+    @CSharpReplaceBody(code="return a.SequenceEqual(b);")
+    private static boolean equalParts(List<Integer> a, List<Integer> b) {
+        return a.equals(b);
+    }
+
+    /**
+     * Returns a hash code value for the object.
+     * @return a hash code value for this object.
+     */
+    @Override
+    public int hashCode() {
+        int h = 772211;
+        for (int p : parts) {
+            h = (h<<3) ^ p;
+        }
+        if (suffix != null) {
+            h = (h << 3) ^ suffix.hashCode();
+        }
+        return h;
     }
 
     /**
@@ -125,7 +150,7 @@ public class PackageVersion implements Comparable<PackageVersion> {
 
     @Override
     public int compareTo(PackageVersion o) {
-        PackageVersion pv = (PackageVersion) o;
+        PackageVersion pv = o;
         List<Integer> p = pv.parts;
         int extent = parts.size() - p.size();
         int len = Math.min(parts.size(), p.size());
@@ -183,4 +208,4 @@ public class PackageVersion implements Comparable<PackageVersion> {
     }
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

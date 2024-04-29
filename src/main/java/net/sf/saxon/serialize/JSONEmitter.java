@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,22 +7,21 @@
 
 package net.sf.saxon.serialize;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.ma.json.JsonReceiver;
 import net.sf.saxon.serialize.charcode.CharacterSet;
-import net.sf.saxon.serialize.codenorm.Normalizer;
+import net.sf.saxon.serialize.charcode.UTF8CharacterSet;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.UnicodeWriter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
-import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.IntegerValue;
-import net.sf.saxon.value.NumericValue;
+import net.sf.saxon.value.*;
 
 import javax.xml.transform.OutputKeys;
-import javax.xml.transform.stream.StreamResult;
 import java.io.IOException;
-import java.io.Writer;
+import java.text.Normalizer;
 import java.util.Properties;
 import java.util.Stack;
 
@@ -31,15 +30,16 @@ import java.util.Stack;
  * as input a sequence of event-based calls such as startArray, endArray, startMap, endMap,
  * and generates the lexical JSON output.
  *
- * @author Michael H. Kay
  */
 
 public class JSONEmitter {
 
-    private ExpandedStreamResult result;
+    //private final ExpandedStreamResult result;
 
-    private Writer writer;
-    private Normalizer normalizer;
+    private Configuration config;
+    private UnicodeWriter writer;
+    private boolean normalize;
+    private Normalizer.Form normalizationForm;
     private CharacterMap characterMap;
     private Properties outputProperties;
     private CharacterSet characterSet;
@@ -49,13 +49,16 @@ public class JSONEmitter {
     private boolean first = true;
     private boolean afterKey = false;
     private int level;
-    private Stack<Boolean> oneLinerStack = new Stack<>();
+    private final Stack<Boolean> oneLinerStack = new Stack<>();
+    private boolean mustClose = true;
+    private boolean escapeSolidus = true;
 
     private boolean unfailing = false;
 
-    public JSONEmitter(PipelineConfiguration pipe, StreamResult result, Properties outputProperties) throws XPathException {
+    public JSONEmitter(PipelineConfiguration pipe, UnicodeWriter writer, Properties outputProperties)  {
+        config = pipe.getConfiguration();
         setOutputProperties(outputProperties);
-        this.result = new ExpandedStreamResult(pipe.getConfiguration(), result, outputProperties);
+        this.writer = writer;
     }
 
     /**
@@ -71,6 +74,9 @@ public class JSONEmitter {
         }
         if ("yes".equals(details.getProperty(SaxonOutputKeys.UNFAILING))) {
             unfailing = true;
+        }
+        if ("no".equals(details.getProperty(SaxonOutputKeys.ESCAPE_SOLIDUS))) {
+            escapeSolidus = false;
         }
         String max = details.getProperty(SaxonOutputKeys.LINE_LENGTH);
         if (max != null) {
@@ -88,6 +94,22 @@ public class JSONEmitter {
                 // ignore the error.
             }
         }
+        String encoding = details.getProperty(OutputKeys.ENCODING);
+        try {
+            characterSet = config.getCharacterSetFactory().getCharacterSet(encoding);
+        } catch (XPathException e) {
+            characterSet = UTF8CharacterSet.getInstance();
+        }
+
+    }
+
+    /**
+     * Say whether the output must be closed on completion
+     *
+     * @param mustClose true if the output must be closed
+     */
+    public void setMustClose(boolean mustClose) {
+        this.mustClose = mustClose;
     }
 
     /**
@@ -103,11 +125,12 @@ public class JSONEmitter {
     /**
      * Set the Unicode normalizer to be used for normalizing strings.
      *
-     * @param normalizer the normalizer to be used
+     * @param form the normalization form to be used (default is no normalization)
      */
 
-    public void setNormalizer(Normalizer normalizer) {
-        this.normalizer = normalizer;
+    public void setNormalizationForm(Normalizer.Form form) {
+        this.normalize = true;
+        this.normalizationForm = form;
     }
 
     /**
@@ -128,11 +151,12 @@ public class JSONEmitter {
      */
 
     public void writeKey(String key) throws XPathException {
+        boolean oneLiner = oneLinerStack.peek();
         conditionalComma(false);
         emit('"');
         emit(escape(key));
         emit("\":");
-        if (isIndenting) {
+        if (isIndenting && !oneLiner) {
             emit(" ");
         }
         afterKey = true;
@@ -151,7 +175,10 @@ public class JSONEmitter {
             emit("null");
         } else if (item instanceof NumericValue) {
             NumericValue num = (NumericValue)item;
-            if (num.isNaN()) {
+            if (item instanceof DecimalValue) {
+                // Avoid exponential notation
+                emit(num.getUnicodeStringValue());
+            } else if (num.isNaN()) {
                 if (unfailing) {
                     emit("NaN");
                 } else {
@@ -163,15 +190,21 @@ public class JSONEmitter {
                 } else {
                     throw new XPathException("JSON has no way of representing Infinity", "SERE0020");
                 }
-            } else if (item instanceof IntegerValue) {
-                // " Implementations MAY serialize the numeric value using any
-                //   lexical representation of a JSON number defined in [RFC 7159]. "
-                // This avoids exponential notation for integers such as 1123456.
-                emit(num.longValue() + "");
-            } else if (num.isWholeNumber() && !num.isNegativeZero() && num.abs().compareTo(1_000_000_000_000_000_000L) < 0) {
-                emit(num.longValue() + "");
+            } else if (num.isNegativeZero()) {
+                emit("-0");
             } else {
-                emit(num.getStringValue());
+                double val = num.getDoubleValue();
+                double abs = Math.abs(val);
+                // Avoid exponential notation except in extremis
+                emit(FloatingPointConverter.convertDouble(val, abs >= 1e18 || abs < 1e-18));
+//                if (num.isWholeNumber() && abs < 1e18) {
+//                    emit(num.longValue() + "");
+//                } else if (abs < 1e18 && abs > 1e-18) {
+//                    // Avoid exponential notation except in extremis
+//                    emit(Converter.DoubleToDecimal.INSTANCE.convert(num).asAtomic().getUnicodeStringValue());
+//                } else {
+//                    emit(num.getUnicodeStringValue());
+//                }
             }
         } else if (item instanceof BooleanValue) {
             emit(item.getStringValue());
@@ -181,6 +214,21 @@ public class JSONEmitter {
             emit('"');
         }
     }
+
+    /**
+     * Append a singleton string value to the output
+     *
+     * @param str the string value to be appended
+     * @throws XPathException if the operation fails
+     */
+
+    public void writeStringValue(String str) throws XPathException {
+        conditionalComma(false);
+        emit('"');
+        emit(escape(str));
+        emit('"');
+    }
+
 
     /**
      * Output the start of an array. This call must be followed by the members of the
@@ -228,15 +276,11 @@ public class JSONEmitter {
     private void emitOpen(char bracket, boolean oneLiner) throws XPathException {
         conditionalComma(true);
         oneLinerStack.push(oneLiner);
-//        if (isIndenting) {
-//            emit(' ');
-//        }
         emit(bracket);
         first = true;
         if (isIndenting && oneLiner) {
             emit(' ');
         }
-
     }
 
     private void emitClose(char bracket, int level) throws XPathException {
@@ -245,7 +289,7 @@ public class JSONEmitter {
             if (oneLiner) {
                 emit(' ');
             } else {
-                indent(level-1);
+                indent(level - 1);
             }
         }
         emit(bracket);
@@ -253,14 +297,17 @@ public class JSONEmitter {
 
     }
 
-
     private void conditionalComma(boolean opening) throws XPathException {
         boolean wasFirst = first;
-        boolean actuallyIndenting = isIndenting && level != 0 && !oneLinerStack.peek();
+        boolean oneLiner = !oneLinerStack.isEmpty() && oneLinerStack.peek();
+        boolean actuallyIndenting = isIndenting && level != 0 && !oneLiner;
         if (first) {
             first = false;
         } else if (!afterKey) {
             emit(',');
+            if (oneLiner && isIndenting) {
+                emit(' ');
+            }
         }
         if ((wasFirst && afterKey)) {
             emit(' ');
@@ -280,22 +327,21 @@ public class JSONEmitter {
         }
     }
 
-    private CharSequence escape(CharSequence cs) throws XPathException {
+    private String escape(String cs) throws XPathException {
         if (characterMap != null) {
-            FastStringBuffer out = new FastStringBuffer(cs.length());
-            cs = characterMap.map(cs, true);
-            String s = cs.toString();
+            StringBuilder out = new StringBuilder(cs.length());
+            String s = characterMap.map(StringView.of(cs).tidy(), true).toString();
             int prev = 0;
             while (true) {
-                int start = s.indexOf(0, prev);
+                int start = s.indexOf((char)0, prev);
                 if (start >= 0) {
-                    out.cat(simpleEscape(s.substring(prev, start)));
-                    int end = s.indexOf(0, start + 1);
-                    out.append(s.substring(start + 1, end));
+                    out.append(simpleEscape(s.substring(prev, start)));
+                    int end = s.indexOf((char)0, start + 1);
+                    out.append(s, start + 1, end);
                     prev = end + 1;
                 } else {
-                    out.cat(simpleEscape(s.substring(prev)));
-                    return out;
+                    out.append(simpleEscape(s.substring(prev)));
+                    return out.toString();
                 }
             }
         } else {
@@ -303,33 +349,46 @@ public class JSONEmitter {
         }
     }
 
-    private CharSequence simpleEscape(CharSequence cs) throws XPathException {
-        if (normalizer != null) {
-            cs = normalizer.normalize(cs);
+    private String simpleEscape(String cs) throws XPathException {
+        if (normalize) {
+            cs = Normalizer.normalize(cs, normalizationForm);
         }
-        return JsonReceiver.escape(cs, false,
+        return JsonReceiver.escape(cs, false, !escapeSolidus,
                                    c -> c < 31 || (c >= 127 && c <= 159) || !characterSet.inCharset(c));
     }
 
-    private void emit(CharSequence s) throws XPathException {
-        if (writer == null) {
-            writer = result.obtainWriter();
-            characterSet = result.getCharacterSet();
-        }
+    private void emit(String s) throws XPathException {
+        assert writer != null;
         try {
-            writer.append(s);
+            writer.write(s);
+        } catch (IOException e) {
+            throw new XPathException(e);
+        }
+    }
+
+    private void emit(UnicodeString s) throws XPathException {
+        assert writer != null;
+        try {
+            writer.write(s);
         } catch (IOException e) {
             throw new XPathException(e);
         }
     }
 
     private void emit(char c) throws XPathException {
-        emit(c + "");
+        assert writer != null;
+        try {
+            writer.writeCodePoint(c);
+        } catch (IOException e) {
+            throw new XPathException(e);
+        }
     }
 
 
     /**
      * End of the document.
+     *
+     * @throws XPathException if any error occurs
      */
 
     public void close() throws XPathException {
@@ -338,9 +397,13 @@ public class JSONEmitter {
         }
         if (writer != null) {
             try {
-                writer.close();
+                if (mustClose) {
+                    writer.close();
+                } else {
+                    writer.flush();
+                }
             } catch (IOException e) {
-                // no action
+                throw new XPathException(e);
             }
         }
     }

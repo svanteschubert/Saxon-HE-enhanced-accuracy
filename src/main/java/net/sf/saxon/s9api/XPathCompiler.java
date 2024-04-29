@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,22 +10,22 @@ package net.sf.saxon.s9api;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.parser.OptimizerOptions;
+import net.sf.saxon.expr.sort.LFUCache;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.sxpath.IndependentContext;
 import net.sf.saxon.sxpath.XPathEvaluator;
 import net.sf.saxon.sxpath.XPathExpression;
 import net.sf.saxon.sxpath.XPathVariable;
 import net.sf.saxon.trans.*;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.SequenceType;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * An {@code XPathCompiler} object allows XPath queries to be compiled. The compiler holds information that
@@ -51,14 +51,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * @since 9.0
  */
 
+@CSharpModifiers(code = {"internal"})
 public class XPathCompiler {
 
-    private Processor processor;
-    private XPathEvaluator evaluator;
-    private IndependentContext env;
+    private final Processor processor;
+    private final XPathEvaluator evaluator;
+    private final IndependentContext env;
     private ItemType requiredContextItemType;
 
-    private Map<String, XPathExecutable> cache = null;
+    private LFUCache<String, XPathExecutable> cache = null;
 
     /**
      * Protected constructor
@@ -150,14 +151,14 @@ public class XPathCompiler {
     }
 
     /**
-     * Say whether an XPath 2.0, XPath 3.0 or XPath 3.1 processor is required.
+     * Say whether an XPath 2.0, XPath 3.0, XPath 3.1 or XPath 4.0 processor is required.
      *
-     * @param value One of the values 1.0, 2.0, 3.0, 3.05, 3.1.
+     * @param value One of the values 1.0, 2.0, 3.0, 3.05, 3.1, 4.0.
      *              <p>Setting the option to 1.0 requests an XPath 2.0 processor running in 1.0 compatibility mode;
      *              this is equivalent to setting the language version to 2.0 and backwards compatibility mode to true.
      *              Requesting "3.05" gives XPath 3.0 plus the extensions defined in the XSLT 3.0 specification
      *              (map types and map constructors).</p>
-     * @throws IllegalArgumentException if the version is not numerically equal to 1.0, 2.0, 3.0, 3.05, or 3.1.
+     * @throws IllegalArgumentException if the version is not numerically equal to 1.0, 2.0, 3.0, 3.05, 3.1, or 4.0.
      * @since 9.3
      */
 
@@ -175,6 +176,8 @@ public class XPathCompiler {
             version = 30;
         } else if ("3.1".equals(value)) {
             version = 31;
+        } else if ("4.0".equals(value)) {
+            version = 40;
         } else {
             throw new IllegalArgumentException("XPath version");
         }
@@ -183,9 +186,9 @@ public class XPathCompiler {
     }
 
     /**
-     * Ask whether an XPath 2.0, XPath 3.0 or XPath 3.1 processor is being used
+     * Ask whether an XPath 2.0, XPath 3.0, XPath 3.1 or XPath 4.0 processor is being used
      *
-     * @return version: "2.0", "3.0" or "3.1"
+     * @return version: "2.0", "3.0", "3.1" or "4.0"
      * @since 9.3
      */
 
@@ -196,6 +199,8 @@ public class XPathCompiler {
             return "3.0";
         } else if (env.getXPathVersion() == 31) {
             return "3.1";
+        } else if (env.getXPathVersion() == 40) {
+            return "4.0";
         } else {
             throw new IllegalStateException("Unknown XPath version " + env.getXPathVersion());
         }
@@ -238,8 +243,26 @@ public class XPathCompiler {
         try {
             return new URI(env.getStaticBaseURI());
         } catch (URISyntaxException err) {
-            throw new IllegalStateException(err);
+            throw new IllegalStateException("Invalid base URI for XPath: " + env.getStaticBaseURI());
         }
+    }
+
+    /**
+     * Set the policy for matching unprefixed element names in XPath expressions
+     * @param policy the policy to be used
+     */
+
+    public void setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy policy) {
+        env.setUnprefixedElementMatchingPolicy(policy);
+    }
+
+    /**
+     * Get the policy for matching unprefixed element names in XPath expressions
+     * @return the policy being used
+     */
+
+    public UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy()  {
+        return env.getUnprefixedElementMatchingPolicy();
     }
 
     /**
@@ -253,8 +276,8 @@ public class XPathCompiler {
      */
 
     public void setWarningHandler(ErrorReporter reporter) {
-        env.setWarningHandler((message, location) -> {
-            reporter.report(new XmlProcessingIncident(message, SaxonErrorCode.SXWN9000, location).asWarning());
+        env.setWarningHandler((message, code, location) -> {
+            reporter.report(new XmlProcessingIncident(message, code, location).asWarning());
         });
     }
 
@@ -275,7 +298,7 @@ public class XPathCompiler {
         if (cache != null) {
             cache.clear();
         }
-        env.declareNamespace(prefix, uri);
+        env.declareNamespace(prefix, NamespaceUri.of(uri));
     }
 
     /**
@@ -297,7 +320,7 @@ public class XPathCompiler {
         if (cache != null) {
             cache.clear();
         }
-        env.getImportedSchemaNamespaces().add(uri);
+        env.getImportedSchemaNamespaces().add(NamespaceUri.of(uri));
         env.setSchemaAware(true);
     }
 
@@ -347,7 +370,7 @@ public class XPathCompiler {
         if (cache != null) {
             cache.clear();
         }
-        env.declareVariable(qname.getNamespaceURI(), qname.getLocalName());
+        env.declareVariable(qname.getNamespaceUri(), qname.getLocalName());
     }
 
     /**
@@ -367,7 +390,7 @@ public class XPathCompiler {
         if (cache != null) {
             cache.clear();
         }
-        XPathVariable var = env.declareVariable(qname.getNamespaceURI(), qname.getLocalName());
+        XPathVariable var = env.declareVariable(qname.getNamespaceUri(), qname.getLocalName());
         var.setRequiredType(
                 SequenceType.makeSequenceType(
                         itemType.getUnderlyingItemType(), occurrences.getCardinality()));
@@ -441,9 +464,9 @@ public class XPathCompiler {
         env.setDefaultCollationName(uri);
     }
 
-
     /**
-     * Say whether the compiler should maintain a cache of compiled expressions.
+     * Say whether the compiler should maintain a cache of compiled expressions. The initial
+     * default value is false.
      *
      * @param caching if set to true, caching of compiled expressions is enabled.
      *                If set to false, any existing cache is cleared, and future compiled expressions
@@ -458,7 +481,7 @@ public class XPathCompiler {
     public void setCaching(boolean caching) {
         if (caching) {
             if (cache == null) {
-                cache = new ConcurrentHashMap<>();
+                cache = new LFUCache<>(100, true);
             }
         } else {
             cache = null;
@@ -519,14 +542,12 @@ public class XPathCompiler {
     public XPathExecutable compile(String source) throws SaxonApiException {
         Objects.requireNonNull(source);
         if (cache != null) {
-            synchronized(this) {
-                XPathExecutable expr = cache.get(source);
-                if (expr == null) {
-                    expr = internalCompile(source);
-                    cache.put(source, expr);
-                }
-                return expr;
+            XPathExecutable expr = cache.get(source);
+            if (expr == null) {
+                expr = internalCompile(source);
+                cache.put(source, expr);
             }
+            return expr;
         } else {
             return internalCompile(source);
         }
@@ -546,8 +567,7 @@ public class XPathCompiler {
             eval = new XPathEvaluator(processor.getUnderlyingConfiguration());
             ic = new IndependentContext(env);
             eval.setStaticContext(ic);
-            for (Iterator iter = env.iterateExternalVariables(); iter.hasNext(); ) {
-                XPathVariable var = (XPathVariable) iter.next();
+            for (XPathVariable var : env.getExternalVariables()) {
                 XPathVariable var2 = ic.declareVariable(var.getVariableQName());
                 var2.setRequiredType(var.getRequiredType());
             }
@@ -556,6 +576,8 @@ public class XPathCompiler {
             XPathExpression cexp = eval.createExpression(source);
             return new XPathExecutable(cexp, processor, ic);
         } catch (XPathException e) {
+            throw new SaxonApiException(e);
+        } catch (UncheckedXPathException e) {
             throw new SaxonApiException(e);
         }
     }
@@ -572,12 +594,19 @@ public class XPathCompiler {
      * <code>for (XdmItem item : xpath.evaluate("//x", doc) {...}</code>
      * @throws SaxonApiException if any static error is detected while analyzing the expression,
      *                           or if any dynamic error is detected while evaluating it.
-     * @since 9.3
+     * @since 9.3. Changed in 11.0 to use FastCompilation (i.e., to suppress most optimizations)
      */
 
     public XdmValue evaluate(String expression, /*@Nullable*/ XdmItem contextItem) throws SaxonApiException {
         Objects.requireNonNull(expression);
+        boolean oldFastCompileOption = isFastCompilation();
+        if (!isCaching()) {
+            setFastCompilation(true);
+        }
         XPathSelector selector = compile(expression).load();
+        if (!isCaching()) {
+            setFastCompilation(oldFastCompileOption);
+        }
         if (contextItem != null) {
             selector.setContextItem(contextItem);
         }
@@ -598,12 +627,19 @@ public class XPathCompiler {
      * any items after the first are ignored.
      * @throws SaxonApiException if any static error is detected while analyzing the expression,
      *                           or if any dynamic error is detected while evaluating it.
-     * @since 9.3
+     * @since 9.3. Changed in 11.0 to use FastCompilation (i.e., to suppress most optimizations)
      */
 
     public XdmItem evaluateSingle(String expression, XdmItem contextItem) throws SaxonApiException {
         Objects.requireNonNull(expression);
+        boolean oldFastCompileOption = isFastCompilation();
+        if (!isCaching()) {
+            setFastCompilation(true);
+        }
         XPathSelector selector = compile(expression).load();
+        if (!isCaching()) {
+            setFastCompilation(oldFastCompileOption);
+        }
         if (contextItem != null) {
             selector.setContextItem(contextItem);
         }
@@ -655,6 +691,9 @@ public class XPathCompiler {
      * @since 9.4
      */
     public void setDecimalFormatProperty(QName format, String property, String value) throws SaxonApiException {
+        Objects.requireNonNull(format);
+        Objects.requireNonNull(property);
+        Objects.requireNonNull(value);
         DecimalFormatManager dfm = env.getDecimalFormatManager();
         if (dfm == null) {
             dfm = new DecimalFormatManager(HostLanguage.XPATH, env.getXPathVersion());

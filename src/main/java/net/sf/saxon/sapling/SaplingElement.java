@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,13 +13,15 @@ import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.ma.trie.ImmutableHashTrieMap;
 import net.sf.saxon.ma.trie.ImmutableList;
 import net.sf.saxon.ma.trie.ImmutableMap;
-import net.sf.saxon.ma.trie.Tuple2;
+import net.sf.saxon.ma.trie.TrieKVP;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.Untyped;
@@ -54,10 +56,15 @@ import java.util.Objects;
 
 public class SaplingElement extends SaplingNode {
 
-    private StructuredQName nodeName;
-    private ImmutableList<SaplingNode> reversedChildren = ImmutableList.empty();
-    private ImmutableMap<StructuredQName, String> attributes = ImmutableHashTrieMap.empty();
+    private final StructuredQName nodeName;
+    private ImmutableList<SaplingNode> reversedChildren;
+    private ImmutableMap<StructuredQName, String> attributes = emptyAttributes();
     private NamespaceMap namespaces = NamespaceMap.emptyMap();
+
+    @CSharpReplaceBody(code="return System.Collections.Immutable.ImmutableDictionary<Saxon.Hej.om.StructuredQName, string>.Empty;")
+    private static ImmutableMap<StructuredQName, String> emptyAttributes() {
+        return ImmutableHashTrieMap.empty();
+    }
 
     /**
      * Create an empty element, in no namespace
@@ -67,7 +74,8 @@ public class SaplingElement extends SaplingNode {
 
     public SaplingElement(String name) {
         Objects.requireNonNull(name);
-        nodeName = StructuredQName.fromEQName(name);
+        reversedChildren = emptyNodeList();
+        nodeName = StructuredQName.fromEQName((name));
     }
 
     /**
@@ -80,18 +88,20 @@ public class SaplingElement extends SaplingNode {
 
     public SaplingElement(QName name) {
         Objects.requireNonNull(name);
+        reversedChildren = emptyNodeList();
         nodeName = name.getStructuredQName();
-        if (nodeName.hasURI("")) {
+        if (nodeName.hasURI(NamespaceUri.NULL)) {
             if (!nodeName.getPrefix().isEmpty()) {
                 throw new IllegalArgumentException("No namespace URI for prefixed element name: " + name);
             }
         } else {
-            namespaces = NamespaceMap.of(nodeName.getPrefix(), nodeName.getURI());
+            namespaces = NamespaceMap.of(nodeName.getPrefix(), nodeName.getNamespaceUri());
         }
     }
 
     private SaplingElement(StructuredQName name) {
         this.nodeName = name;
+        reversedChildren = emptyNodeList();
     }
 
     @Override
@@ -169,7 +179,7 @@ public class SaplingElement extends SaplingNode {
      */
 
     public SaplingElement withAttr(String name, String value) {
-        return withAttribute(new StructuredQName("", "", name), value);
+        return withAttribute(new StructuredQName("", NamespaceUri.NULL, name), value);
     }
 
     /**
@@ -187,10 +197,10 @@ public class SaplingElement extends SaplingNode {
 
     public SaplingElement withAttr(QName name, String value) {
         StructuredQName attName = name.getStructuredQName();
-        if (attName.getPrefix().isEmpty() && !attName.getURI().isEmpty()) {
+        if (attName.getPrefix().isEmpty() && !attName.hasURI(NamespaceUri.NULL)) {
             throw new IllegalArgumentException("An attribute whose name is in a namespace must have a prefix");
         }
-        withNamespace(attName.getPrefix(), attName.getURI());
+        withNamespace(attName.getPrefix(), attName.getNamespaceUri().toString());
         return withAttribute(attName, value);
     }
 
@@ -218,33 +228,35 @@ public class SaplingElement extends SaplingNode {
                 throw new IllegalArgumentException("Cannot bind non-empty prefix to empty URI");
             }
         }
-        String existingURI = namespaces.getURI(prefix);
+        NamespaceUri existingURI = namespaces.getNamespaceUri(prefix);
+        NamespaceUri newURI = NamespaceUri.of(uri);
         if (existingURI != null) {
-            if (existingURI.equals(uri)) {
+            if (existingURI.equals(newURI)) {
                 return this;
             } else {
                 throw new IllegalStateException("Inconsistent namespace bindings for prefix '" + prefix + "'");
             }
         }
         SaplingElement e2 = copy();
-        e2.namespaces = namespaces.put(prefix, uri);
+        e2.namespaces = namespaces.put(prefix, newURI);
         return e2;
     }
 
     @Override
-    protected void sendTo(Receiver receiver) throws XPathException {
+    public void deliver(Receiver receiver, ParseOptions options) throws XPathException {
         final Configuration config = receiver.getPipelineConfiguration().getConfiguration();
         final NamePool namePool = config.getNamePool();
         NamespaceMap ns = namespaces;
-        if (!nodeName.getURI().isEmpty()) {
-            ns = ns.put(nodeName.getPrefix(), nodeName.getURI());
+        if (!nodeName.hasURI(NamespaceUri.NULL)) {
+            ns = ns.put(nodeName.getPrefix(), nodeName.getNamespaceUri());
         }
         AttributeMap atts = EmptyAttributeMap.getInstance();
-        for (Tuple2<StructuredQName, String> attribute : attributes) {
-            atts = atts.put(new AttributeInfo(new FingerprintedQName(attribute._1, namePool), BuiltInAtomicType.UNTYPED_ATOMIC,
-                              attribute._2, Loc.NONE, ReceiverOption.NONE));
-            if (!attribute._1.getURI().isEmpty()) {
-                ns = ns.put(attribute._1.getPrefix(), attribute._1.getURI());
+        for (TrieKVP<StructuredQName, String> attribute : attributes) {
+            StructuredQName qName = attribute.getKey();
+            atts = atts.put(new AttributeInfo(new FingerprintedQName(qName, namePool), BuiltInAtomicType.UNTYPED_ATOMIC,
+                                              attribute.getValue(), Loc.NONE, ReceiverOption.NONE));
+            if (!qName.hasURI(NamespaceUri.NULL)) {
+                ns = ns.put(qName.getPrefix(), qName.getNamespaceUri());
             }
         }
         receiver.startElement(new FingerprintedQName(nodeName, namePool), Untyped.getInstance(),
@@ -253,7 +265,7 @@ public class SaplingElement extends SaplingNode {
 
         ImmutableList<SaplingNode> children = reversedChildren.reverse();
         for (SaplingNode node : children) {
-            node.sendTo(receiver);
+            node.deliver(receiver, null);
         }
         receiver.endElement();
     }
@@ -273,7 +285,7 @@ public class SaplingElement extends SaplingNode {
         TreeModel treeModel = config.getParseOptions().getModel();
         Builder builder = treeModel.makeBuilder(pipe);
         builder.open();
-        sendTo(builder);
+        deliver(builder, null);
         builder.close();
         return builder.getCurrentRoot();
     }

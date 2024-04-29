@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,11 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.Callable;
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.StaticProperty;
+import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NameTest;
 import net.sf.saxon.trans.XPathException;
@@ -17,7 +19,6 @@ import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.QNameValue;
-import net.sf.saxon.om.ZeroOrOne;
 import net.sf.saxon.value.StringValue;
 
 /**
@@ -53,7 +54,7 @@ public class Error extends SystemFunction implements Callable {
             qname = errorCode;
         }
         if (qname == null) {
-            qname = new QNameValue("err", NamespaceConstant.ERR,
+            qname = new QNameValue("err", NamespaceUri.ERR,
                     getArity() == 1 ? "FOTY0004" : "FOER0000",
                     BuiltInAtomicType.QNAME, false);
         }
@@ -63,23 +64,33 @@ public class Error extends SystemFunction implements Callable {
         } else {
             description = "Error signalled by application call on error()";
         }
-        XPathException e = new UserDefinedXPathException(description);
-        e.setErrorCodeQName(qname.getStructuredQName());
-        e.setXPathContext(context);
+        XPathException e = new UserDefinedXPathException(description)
+                .withErrorCode(qname.getStructuredQName())
+                .withXPathContext(context);
         if (getArity() > 2 && errObject != null) {
-            Sequence errorObject = errObject.materialize();
-            if (errorObject instanceof ZeroOrOne) {
-                Item root = ((ZeroOrOne) errorObject).head();
+            GroundedValue errorObject = SequenceTool.toGroundedValue(errObject);
+            if (errorObject.getLength() == 1) {
+                Item root = errorObject.head();
                 if ((root instanceof NodeInfo) && ((NodeInfo) root).getNodeKind() == Type.DOCUMENT) {
                     AxisIterator iter = ((NodeInfo) root).iterateAxis(AxisInfo.CHILD,
-                            new NameTest(Type.ELEMENT, "", "error", context.getConfiguration().getNamePool()));
+                            new NameTest(Type.ELEMENT, NamespaceUri.NULL, "error", context.getConfiguration().getNamePool()));
                     NodeInfo errorElement = iter.next();
                     if (errorElement != null) {
-                        String module = errorElement.getAttributeValue("", "module");
-                        String lineVal = errorElement.getAttributeValue("", "line");
-                        int line = lineVal == null ? -1 : Integer.parseInt(lineVal);
-                        String columnVal = errorElement.getAttributeValue("", "column");
-                        int col = columnVal == null ? -1 : Integer.parseInt(columnVal);
+                        String module = errorElement.getAttributeValue(NamespaceUri.NULL, "module");
+                        String lineVal = errorElement.getAttributeValue(NamespaceUri.NULL, "line");
+                        int line;
+                        try {
+                            line = lineVal == null ? -1 : Integer.parseInt(lineVal);
+                        } catch (NumberFormatException ex) {
+                            line = -1;
+                        }
+                        String columnVal = errorElement.getAttributeValue(NamespaceUri.NULL, "column");
+                        int col;
+                        try {
+                            col = columnVal == null ? -1 : Integer.parseInt(columnVal);
+                        } catch (NumberFormatException ex) {
+                            col = -1;
+                        }
                         Loc locator = new Loc(module, line, col);
                         e.setLocator(locator);
                     }
@@ -105,7 +116,7 @@ public class Error extends SystemFunction implements Callable {
                 // than complaining specifically about the missing error code
                 QNameValue arg0 = (QNameValue)arguments[0].head();
                 if (arg0 == null) {
-                    arg0 = new QNameValue("err", NamespaceConstant.ERR, "FOER0000");
+                    arg0 = new QNameValue("err", NamespaceUri.ERR, "FOER0000");
                 }
                 return error(context, arg0, null, null);
             case 2:

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -55,7 +55,7 @@ public class SingletonAttributeMap extends AttributeInfo implements AttributeMap
     }
 
     @Override
-    public AttributeInfo get(String uri, String local) {
+    public AttributeInfo get(NamespaceUri uri, String local) {
         return getNodeName().getLocalPart().equals(local) && getNodeName().hasURI(uri) ? this : null;
     }
 
@@ -78,7 +78,11 @@ public class SingletonAttributeMap extends AttributeInfo implements AttributeMap
 
     @Override
     public AttributeMap remove(NodeName name) {
-        return name.equals(getNodeName()) ? EmptyAttributeMap.getInstance() : this;
+        if (name.equals(getNodeName())) {
+            return EmptyAttributeMap.getInstance();
+        } else {
+            return this;
+        }
     }
 
     @Override
@@ -92,8 +96,8 @@ public class SingletonAttributeMap extends AttributeInfo implements AttributeMap
     }
 
     @Override
-    public List<AttributeInfo> asList() {
-        List<AttributeInfo> list = new ArrayList<>(1);
+    public ArrayList<AttributeInfo> asList() {
+        ArrayList<AttributeInfo> list = new ArrayList<>(1);
         list.add(this);
         return list;
     }

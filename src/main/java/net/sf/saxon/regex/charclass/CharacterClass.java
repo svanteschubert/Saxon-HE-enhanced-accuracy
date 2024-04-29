@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,8 @@
 
 package net.sf.saxon.regex.charclass;
 
+import net.sf.saxon.z.IntPredicateProxy;
 import net.sf.saxon.z.IntSet;
-
-import java.util.function.IntPredicate;
 
 /**
  * A character class represents a set of characters for regex matching purposes. It extends IntPredicate,
@@ -19,7 +18,14 @@ import java.util.function.IntPredicate;
  * optimizing regular expressions.
  */
 
-public interface CharacterClass extends IntPredicate {
+public interface CharacterClass extends IntPredicateProxy {
+
+    /**
+     * Test whether a particular codepoint is a member of the character class
+     * @param value the codepoint to be tested
+     * @return true if it matches
+     */
+    boolean test(int value);
 
     /**
      * Ask whether this character class is known to be disjoint with another character class

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,15 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.functions.hof.FunctionLiteral;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.ConversionRules;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
@@ -22,6 +25,19 @@ import net.sf.saxon.value.*;
  * Implementation of the fn:sum function
  */
 public class Sum extends FoldingFunction {
+
+    @Override
+    public Expression makeFunctionCall(Expression... arguments) {
+        Expression[] newArgs = new Expression[2];
+        newArgs[0] = arguments[0];
+        if (arguments.length < 2 || arguments[1] instanceof DefaultedArgumentExpression) {
+            newArgs[1] = FunctionLiteral.makeLiteral(Int64Value.ZERO);
+            setArity(2);
+        } else {
+            newArgs[1] = arguments[1];
+        }
+        return super.makeFunctionCall(newArgs);
+    }
 
     /*@NotNull*/
     @Override
@@ -80,11 +96,10 @@ public class Sum extends FoldingFunction {
     public static AtomicValue total(SequenceIterator in, XPathContext context, Location locator) throws XPathException {
         try {
             SumFold fold = new SumFold(context, null);
-            in.forEachOrFail(fold::processItem);
+            SequenceTool.supply(in, (ItemConsumer<? super Item>) fold::processItem);
             return (AtomicValue)fold.result().head();
         } catch (XPathException e) {
-            e.maybeSetLocation(locator);
-            throw e;
+            throw e.maybeWithLocation(locator).maybeWithContext(context);
         }
     }
 
@@ -92,13 +107,13 @@ public class Sum extends FoldingFunction {
      * Implementation of Fold class to do the summation in push mode
      */
 
-    private static class SumFold implements Fold {
-        private XPathContext context;
-        private AtomicValue zeroValue; // null means empty sequence
+    public static class SumFold implements Fold {
+        private final XPathContext context;
+        private final AtomicValue zeroValue; // null means empty sequence
         private AtomicValue data;
         private boolean atStart = true;
-        private ConversionRules rules;
-        private StringConverter toDouble;
+        private final ConversionRules rules;
+        private final StringConverter toDouble;
 
         public SumFold(XPathContext context, AtomicValue zeroValue) {
             this.context = context;
@@ -118,55 +133,45 @@ public class Sum extends FoldingFunction {
             AtomicValue next = (AtomicValue)item;
             if (atStart) {
                 atStart = false;
-                if (next instanceof UntypedAtomicValue) {
+                if (next.isUntypedAtomic()) {
                     data = toDouble.convert(next).asAtomic();
                     return;
                 } else if (next instanceof NumericValue || next instanceof DayTimeDurationValue || next instanceof YearMonthDurationValue) {
                     data = next;
                     return;
                 } else {
-                    XPathException err = new XPathException(
+                    throw new XPathException(
                         "Input to sum() contains a value of type " +
                                 next.getPrimitiveType().getDisplayName() +
-                                " which is neither numeric, nor a duration");
-                    err.setXPathContext(context);
-                    err.setErrorCode("FORG0006");
-                    throw err;
+                                " which is neither numeric, nor a duration")
+                            .withXPathContext(context).withErrorCode("FORG0006");
                 }
             }
 
             if (data instanceof NumericValue) {
-                if (next instanceof UntypedAtomicValue) {
+                if (next.isUntypedAtomic()) {
                     next = toDouble.convert(next).asAtomic();
                 } else if (!(next instanceof NumericValue)) {
-                    XPathException err = new XPathException("Input to sum() contains a mix of numeric and non-numeric values");
-                    err.setXPathContext(context);
-                    err.setErrorCode("FORG0006");
-                    throw err;
+                    throw new XPathException("Input to sum() contains a mix of numeric and non-numeric values")
+                            .withXPathContext(context).withErrorCode("FORG0006");
                 }
                 data = ArithmeticExpression.compute(data, Calculator.PLUS, next, context);
             } else if (data instanceof DurationValue) {
                 if (!((data instanceof DayTimeDurationValue) || (data instanceof YearMonthDurationValue))) {
-                    XPathException err = new XPathException("Input to sum() contains a duration that is neither a dayTimeDuration nor a yearMonthDuration");
-                    err.setXPathContext(context);
-                    err.setErrorCode("FORG0006");
-                    throw err;
+                    throw new XPathException("Input to sum() contains a duration that is neither a dayTimeDuration nor a yearMonthDuration")
+                        .withXPathContext(context).withErrorCode("FORG0006");
                 }
                 if (!(next instanceof DurationValue)) {
-                    XPathException err = new XPathException("Input to sum() contains a mix of duration and non-duration values");
-                    err.setXPathContext(context);
-                    err.setErrorCode("FORG0006");
-                    throw err;
+                    throw new XPathException("Input to sum() contains a mix of duration and non-duration values")
+                            .withXPathContext(context).withErrorCode("FORG0006");
                 }
                 data = ((DurationValue) data).add((DurationValue) next);
             } else {
-                XPathException err = new XPathException(
+                throw new XPathException(
                         "Input to sum() contains a value of type " +
                                 data.getPrimitiveType().getDisplayName() +
-                                " which is neither numeric, nor a duration");
-                err.setXPathContext(context);
-                err.setErrorCode("FORG0006");
-                throw err;
+                                " which is neither numeric, nor a duration")
+                        .withXPathContext(context).withErrorCode("FORG0006");
             }
         }
 
@@ -190,17 +195,43 @@ public class Sum extends FoldingFunction {
         @Override
         public Sequence result() {
             if (atStart) {
-                return zeroValue == null ? EmptySequence.getInstance() : zeroValue;
+                return SequenceTool.itemOrEmpty(zeroValue);
             } else {
                 return data;
             }
         }
     }
 
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
     @Override
-    public String getCompilerName() {
-        return "SumCompiler";
+    public Elaborator getElaborator() {
+        return new SumFnElaborator();
     }
 
+    public static class SumFnElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            PullEvaluator puller = fnc.getArg(0).makeElaborator().elaborateForPull();
+            boolean defaultSecondArg = fnc.getArity() < 2 || fnc.getArg(1) instanceof DefaultedArgumentExpression;
+            ItemEvaluator zero = defaultSecondArg
+                    ? context -> Int64Value.ZERO
+                    : fnc.getArg(1).makeElaborator().elaborateForItem();
+            return context -> {
+                SumFold fold = new SumFold(context, (AtomicValue)zero.eval(context));
+                SequenceIterator iter = puller.iterate(context);
+                for (Item it; (it = iter.next()) != null; ) {
+                    fold.processItem(it);
+                }
+                return fold.result().head();
+            };
+        }
+
+
+    }
 }
 

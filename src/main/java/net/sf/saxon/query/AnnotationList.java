@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.query;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.FunctionAnnotationHandler;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
 
@@ -22,7 +23,7 @@ import java.util.*;
 public class AnnotationList implements Iterable<Annotation> {
 
 
-    private List<Annotation> list;
+    private final List<Annotation> list;
 
     /**
      * An empty annotation list
@@ -46,14 +47,15 @@ public class AnnotationList implements Iterable<Annotation> {
 
     /**
      * Check an annotation list for internal consistency (e.g. rules that %public and %private cannot coexist)
+     * @param config the Saxon configuration
      * @param where the context where the list appears: one of "DF" (declare function), "DV" (declare variable),
-     *              "IF" (inline function declaration), "FT" (function test)
+     *              "IF" (inline function declaration), "FT" (function test), "DI" (declare item-type)
      * @throws XPathException if the annotation list is not internally consistent
      */
 
     public void check(Configuration config, String where) throws XPathException {
-        Map<String, List<Annotation>> map = groupByNamespace();
-        for (Map.Entry<String, List<Annotation>> entry : map.entrySet()) {
+        Map<NamespaceUri, List<Annotation>> map = groupByNamespace();
+        for (Map.Entry<NamespaceUri, List<Annotation>> entry : map.entrySet()) {
             FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(entry.getKey());
             if (handler != null) {
                 handler.check(new AnnotationList(entry.getValue()), where);
@@ -61,10 +63,10 @@ public class AnnotationList implements Iterable<Annotation> {
         }
     }
 
-    private Map<String, List<Annotation>> groupByNamespace() {
-        Map<String, List<Annotation>> result = new HashMap<>();
+    private Map<NamespaceUri, List<Annotation>> groupByNamespace() {
+        Map<NamespaceUri, List<Annotation>> result = new HashMap<>();
         for (Annotation ann : list) {
-            String ns = ann.getAnnotationQName().getURI();
+            NamespaceUri ns = ann.getAnnotationQName().getNamespaceUri();
             if (result.containsKey(ns)) {
                 result.get(ns).add(ann);
             } else {
@@ -83,7 +85,7 @@ public class AnnotationList implements Iterable<Annotation> {
      * annotation names have the required namespace
      */
 
-    public AnnotationList filterByNamespace(String ns) {
+    public AnnotationList filterByNamespace(NamespaceUri ns) {
         List<Annotation> out = new ArrayList<>();
         for (Annotation ann : list) {
             if (ann.getAnnotationQName().hasURI(ns)) {

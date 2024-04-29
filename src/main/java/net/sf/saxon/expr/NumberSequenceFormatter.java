@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.instruct.NumberInstruction;
 import net.sf.saxon.expr.number.NumberFormatter;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
@@ -18,6 +19,8 @@ import net.sf.saxon.functions.Number_1;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.Numberer;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
@@ -42,12 +45,12 @@ public class NumberSequenceFormatter extends Expression {
     private Operand groupSeparatorOp;
     private Operand letterValueOp;
     private Operand ordinalOp;
-    private Operand startAtOp;
+    private final Operand startAtOp;
     private Operand langOp;
 
     private NumberFormatter formatter = null;
     private Numberer numberer = null;
-    private boolean backwardsCompatible;
+    private final boolean backwardsCompatible;
 
     /**
      * Construct a NumberSequenceFormatter
@@ -106,7 +109,7 @@ public class NumberSequenceFormatter extends Expression {
 
         if (formatter == null && format instanceof StringLiteral) {
             this.formatter = new NumberFormatter();
-            this.formatter.prepare(((StringLiteral)format).getStringValue());
+            this.formatter.prepare(((StringLiteral)format).stringify());
         }
     }
 
@@ -132,9 +135,9 @@ public class NumberSequenceFormatter extends Expression {
             numberer = config.makeNumberer(null, null);
         } else {
             if (langOp.getChildExpression() instanceof StringLiteral) {
-                String language = ((StringLiteral) langOp.getChildExpression()).getStringValue();
+                String language = ((StringLiteral) langOp.getChildExpression()).stringify();
                 if (!language.isEmpty()) {
-                    ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(language);
+                    ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(StringView.tidy(language));
                     if (vf != null) {
                         langOp.setChildExpression(new StringLiteral(StringValue.EMPTY_STRING));
                         throw new XPathException("The lang attribute must be a valid language code", "XTDE0030");
@@ -208,7 +211,7 @@ public class NumberSequenceFormatter extends Expression {
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -227,131 +230,7 @@ public class NumberSequenceFormatter extends Expression {
 
     @Override
     public StringValue evaluateItem(XPathContext context) throws XPathException {
-        long value = -1;
-        List<Object> vec = new ArrayList<>(4);    // a list whose items may be of type either Long or
-                                                  // BigInteger or the string to be output (e.g. "NaN")
-        final ConversionRules rules = context.getConfiguration().getConversionRules();
-        String startAv = startAtOp.getChildExpression().evaluateAsString(context).toString();
-        List<Integer> startValues = parseStartAtValue(startAv);
-
-
-        SequenceIterator iter = valueOp.getChildExpression().iterate(context);
-        AtomicValue val;
-        int pos = 0;
-        while ((val = (AtomicValue)iter.next()) != null) {
-            if (backwardsCompatible && !vec.isEmpty()) {
-                break;
-            }
-            int startValue = startValues.size() > pos ? startValues.get(pos) : startValues.get(startValues.size()-1);
-            pos++;
-            try {
-                NumericValue num;
-                if (val instanceof NumericValue) {
-                    num = (NumericValue) val;
-                } else {
-                    num = Number_1.convert(val, context.getConfiguration());
-                }
-                if (num.isNaN()) {
-                    throw new XPathException("NaN");  // thrown to be caught
-                }
-                num = num.round(0);
-                if (num.compareTo(Int64Value.MAX_LONG) > 0) {
-                    BigInteger bi = ((BigIntegerValue) Converter.convert(num, BuiltInAtomicType.INTEGER, rules).asAtomic()).asBigInteger();
-                    if (startValue != 1) {
-                        bi = bi.add(BigInteger.valueOf(startValue - 1));
-                    }
-                    vec.add(bi);
-                } else {
-                    if (num.compareTo(Int64Value.ZERO) < 0) {
-                        throw new XPathException("The numbers to be formatted must not be negative");
-                        // thrown to be caught
-                    }
-                    long i = ((NumericValue) Converter.convert(num, BuiltInAtomicType.INTEGER, rules).asAtomic()).longValue();
-                    i += startValue - 1;
-                    vec.add(i);
-                }
-            } catch (XPathException err) {
-                if (backwardsCompatible) {
-                    vec.add("NaN");
-                } else {
-                    vec.add(val.getStringValue());
-                    XPathException e = new XPathException("Cannot convert supplied value to an integer. " + err.getMessage());
-                    e.setErrorCode("XTDE0980");
-                    e.setLocation(getLocation());
-                    e.setXPathContext(context);
-                    throw e;
-                }
-            }
-        }
-        if (backwardsCompatible && vec.isEmpty()) {
-            vec.add("NaN");
-        }
-
-        int gpsize = 0;
-        String gpseparator = "";
-        String letterVal;
-        String ordinalVal = null;
-
-        if (groupSizeOp != null) {
-            String g = groupSizeOp.getChildExpression().evaluateAsString(context).toString();
-            try {
-                gpsize = Integer.parseInt(g);
-            } catch (NumberFormatException err) {
-                XPathException e = new XPathException("grouping-size must be numeric");
-                e.setXPathContext(context);
-                e.setErrorCode("XTDE0030");
-                e.setLocation(getLocation());
-                throw e;
-            }
-        }
-
-        if (groupSeparatorOp != null) {
-            gpseparator = groupSeparatorOp.getChildExpression().evaluateAsString(context).toString();
-        }
-
-        if (ordinalOp != null) {
-            ordinalVal = ordinalOp.getChildExpression().evaluateAsString(context).toString();
-        }
-
-        // Use the numberer decided at compile time if possible; otherwise try to get it from
-        // a table of numberers indexed by language; if not there, load the relevant class and
-        // add it to the table.
-        Numberer numb = numberer;
-        if (numb == null) {
-            if (langOp == null) {
-                numb = context.getConfiguration().makeNumberer(null, null);
-            } else {
-                String language = langOp.getChildExpression().evaluateAsString(context).toString();
-                ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(language);
-                if (vf != null) {
-                    throw new XPathException("The lang attribute of xsl:number must be a valid language code", "XTDE0030");
-                }
-                numb = context.getConfiguration().makeNumberer(language, null);
-            }
-        }
-
-        if (letterValueOp == null) {
-            letterVal = "";
-        } else {
-            letterVal = letterValueOp.getChildExpression().evaluateAsString(context).toString();
-            if (!("alphabetic".equals(letterVal) || "traditional".equals(letterVal))) {
-                XPathException e = new XPathException("letter-value must be \"traditional\" or \"alphabetic\"");
-                e.setXPathContext(context);
-                e.setErrorCode("XTDE0030");
-                e.setLocation(getLocation());
-                throw e;
-            }
-        }
-
-        NumberFormatter nf;
-        if (formatter == null) {              // format not known until run-time
-            nf = new NumberFormatter();
-            nf.prepare(formatOp.getChildExpression().evaluateAsString(context).toString());
-        } else {
-            nf = formatter;
-        }
-
-        CharSequence s = nf.format(vec, gpsize, gpseparator, letterVal, ordinalVal, numb);
+        UnicodeString s = makeElaborator().elaborateForUnicodeString(true).eval(context);
         return new StringValue(s);
     }
 
@@ -363,17 +242,14 @@ public class NumberSequenceFormatter extends Expression {
                 int n = Integer.parseInt(tok);
                 list.add(n);
             } catch (NumberFormatException err) {
-                XPathException e = new XPathException("Invalid start-at value: non-integer component {" + tok + "}");
-                e.setErrorCode("XTDE0030");
-                e.setLocation(getLocation());
-                throw e;
+                throw new XPathException("Invalid start-at value: non-integer component {" + tok + "}")
+                        .withErrorCode("XTDE0030")
+                        .withLocation(getLocation());
             }
         }
         if (list.isEmpty()) {
-            XPathException e = new XPathException("Invalid start-at value: no numeric components found");
-            e.setErrorCode("XTDE0030");
-            e.setLocation(getLocation());
-            throw e;
+            throw new XPathException("Invalid start-at value: no numeric components found")
+                    .withErrorCode("XTDE0030").withLocation(getLocation());
         }
         return list;
     }
@@ -422,6 +298,164 @@ public class NumberSequenceFormatter extends Expression {
             groupSizeOp.getChildExpression().export(out);
         }
         out.endElement();
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new NumberSequenceFormatterElaborator();
+    }
+
+    private static class NumberSequenceFormatterElaborator extends StringElaborator {
+
+        @Override
+        public UnicodeStringEvaluator elaborateForUnicodeString(boolean zeroLengthWhenAbsent) {
+
+            NumberSequenceFormatter expr = (NumberSequenceFormatter) getExpression();
+            StringEvaluator startAtEvaluator = expr.startAtOp.getChildExpression().makeElaborator().elaborateForString(true);
+            PullEvaluator valueEvaluator = expr.valueOp.getChildExpression().makeElaborator().elaborateForPull();
+            StringEvaluator groupSizeEvaluator = expr.groupSizeOp == null ? null :
+                    expr.groupSizeOp.getChildExpression().makeElaborator().elaborateForString(true);
+            StringEvaluator groupSeparatorEvaluator = expr.groupSeparatorOp == null ? null :
+                    expr.groupSeparatorOp.getChildExpression().makeElaborator().elaborateForString(true);
+            StringEvaluator langEvaluator = expr.langOp == null ? null :
+                    expr.langOp.getChildExpression().makeElaborator().elaborateForString(true);
+            StringEvaluator ordinalEvaluator = expr.ordinalOp == null ? null :
+                    expr.ordinalOp.getChildExpression().makeElaborator().elaborateForString(true);
+            StringEvaluator letterValueEvaluator = expr.letterValueOp == null ? null :
+                    expr.letterValueOp.getChildExpression().makeElaborator().elaborateForString(true);
+            StringEvaluator formatEvaluator = expr.formatter != null ? null :
+                    expr.formatOp.getChildExpression().makeElaborator().elaborateForString(true);
+
+            return context -> {
+                List<Object> vec = new ArrayList<>(4);    // a list whose items may be of type either Long or
+                // BigInteger or the string to be output (e.g. "NaN")
+                final ConversionRules rules = context.getConfiguration().getConversionRules();
+                String startAv = startAtEvaluator.eval(context);
+                List<Integer> startValues = expr.parseStartAtValue(startAv);
+
+
+                SequenceIterator iter = valueEvaluator.iterate(context);
+                AtomicValue val;
+                int pos = 0;
+                while ((val = (AtomicValue) iter.next()) != null) {
+                    if (expr.backwardsCompatible && !vec.isEmpty()) {
+                        break;
+                    }
+                    int startValue = startValues.size() > pos ? startValues.get(pos) : startValues.get(startValues.size() - 1);
+                    pos++;
+                    try {
+                        NumericValue num;
+                        if (val instanceof NumericValue) {
+                            num = (NumericValue) val;
+                        } else {
+                            num = Number_1.convert(val, context.getConfiguration());
+                        }
+                        if (num.isNaN()) {
+                            throw new XPathException("NaN");  // thrown to be caught
+                        }
+                        num = num.round(0);
+                        if (num.compareTo(Int64Value.MAX_LONG) > 0) {
+                            BigInteger bi = ((BigIntegerValue) Converter.convert(num, BuiltInAtomicType.INTEGER, rules).asAtomic()).asBigInteger();
+                            if (startValue != 1) {
+                                bi = bi.add(BigInteger.valueOf(startValue - 1));
+                            }
+                            vec.add(bi);
+                        } else {
+                            if (num.compareTo(Int64Value.ZERO) < 0) {
+                                throw new XPathException("The numbers to be formatted must not be negative");
+                                // thrown to be caught
+                            }
+                            long i = ((NumericValue) Converter.convert(num, BuiltInAtomicType.INTEGER, rules).asAtomic()).longValue();
+                            i += startValue - 1;
+                            vec.add(i);
+                        }
+                    } catch (XPathException err) {
+                        if (expr.backwardsCompatible) {
+                            vec.add("NaN");
+                        } else {
+                            vec.add(val.getUnicodeStringValue());
+                            throw new XPathException("Cannot convert supplied value to an integer. " + err.getMessage())
+                                    .withErrorCode("XTDE0980")
+                                    .withLocation(expr.getLocation())
+                                    .withXPathContext(context);
+                        }
+                    }
+                }
+                if (expr.backwardsCompatible && vec.isEmpty()) {
+                    vec.add("NaN");
+                }
+
+                int gpsize = 0;
+                String gpseparator = "";
+                String letterVal;
+                String ordinalVal = null;
+
+                if (groupSizeEvaluator != null) {
+                    String g = groupSizeEvaluator.eval(context);
+                    try {
+                        gpsize = Integer.parseInt(g);
+                    } catch (NumberFormatException err) {
+                        throw new XPathException("grouping-size must be numeric")
+                                .withXPathContext(context)
+                                .withErrorCode("XTDE0030")
+                                .withLocation(expr.getLocation());
+                    }
+                }
+
+                if (groupSeparatorEvaluator != null) {
+                    gpseparator = groupSeparatorEvaluator.eval(context);
+                }
+
+                if (ordinalEvaluator != null) {
+                    ordinalVal = ordinalEvaluator.eval(context);
+                }
+
+                // Use the numberer decided at compile time if possible; otherwise try to get it from
+                // a table of numberers indexed by language; if not there, load the relevant class and
+                // add it to the table.
+                Numberer numb = expr.numberer;
+                if (numb == null) {
+                    if (langEvaluator == null) {
+                        numb = context.getConfiguration().makeNumberer(null, null);
+                    } else {
+                        String language = langEvaluator.eval(context);
+                        ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(StringView.tidy(language));
+                        if (vf != null) {
+                            throw new XPathException("The lang attribute of xsl:number must be a valid language code", "XTDE0030");
+                        }
+                        numb = context.getConfiguration().makeNumberer(language, null);
+                    }
+                }
+
+                if (letterValueEvaluator == null) {
+                    letterVal = "";
+                } else {
+                    letterVal = letterValueEvaluator.eval(context).toString();
+                    if (!("alphabetic".equals(letterVal) || "traditional".equals(letterVal))) {
+                        throw new XPathException("letter-value must be \"traditional\" or \"alphabetic\"")
+                                .withXPathContext(context)
+                                .withErrorCode("XTDE0030")
+                                .withLocation(expr.getLocation());
+                    }
+                }
+
+                NumberFormatter nf;
+                if (expr.formatter == null) {              // format not known until run-time
+                    nf = new NumberFormatter();
+                    assert formatEvaluator != null;
+                    nf.prepare(formatEvaluator.eval(context));
+                } else {
+                    nf = expr.formatter;
+                }
+
+                return nf.format(vec, gpsize, gpseparator, letterVal, ordinalVal, numb);
+            };
+        }
     }
 }
 

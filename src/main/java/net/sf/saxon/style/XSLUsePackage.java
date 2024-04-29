@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.instruct.GlobalContextRequirement;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.pattern.NodeSelector;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.packages.PackageDetails;
 import net.sf.saxon.trans.rules.RuleManager;
@@ -40,7 +41,7 @@ public class XSLUsePackage extends StyleElement {
     void findUsedPackage(CompilerInfo info) throws XPathException {
         if (usedPackage == null) {
             if (nameAtt == null) {
-                nameAtt = Whitespace.trim(getAttributeValue("", "name"));
+                nameAtt = Whitespace.trim(getAttributeValue(NamespaceUri.NULL, "name"));
             }
             if (nameAtt == null) {
                 reportAbsence("name");
@@ -105,7 +106,7 @@ public class XSLUsePackage extends StyleElement {
             if (f.equals("name")) {
                 nameAtt = Whitespace.trim(att.getValue());
             } else if (f.equals("package-version")) {
-                ranges = Whitespace.trim(att.getValue()).replaceAll("\\\\", "");
+                ranges = Whitespace.trim(att.getValue()).replace("\\", "");
             } else {
                 checkUnknownAttribute(attName);
             }
@@ -209,13 +210,14 @@ public class XSLUsePackage extends StyleElement {
             return; // error already reported
         }
         for (NodeInfo override : children(XSLOverride.class::isInstance)) {
-            for (NodeInfo overridingDeclaration : override.children(StylesheetComponent.class::isInstance)) {
+            for (NodeInfo overridingDeclaration : override.children(NodeSelector.of(StylesheetComponent.class::isInstance))) {
                 ComponentDeclaration decl = new ComponentDeclaration(module, (StyleElement) overridingDeclaration);
                 topLevel.add(decl);
                 SymbolicName name = ((StylesheetComponent) overridingDeclaration).getSymbolicName();
                 if (name != null) {
                     overrides.add(name);
-                } else if (overridingDeclaration instanceof XSLTemplate && overridingDeclaration.getAttributeValue("", "match") != null) {
+                } else if (overridingDeclaration instanceof XSLTemplate &&
+                        overridingDeclaration.getAttributeValue(NamespaceUri.NULL, "match") != null) {
                     StructuredQName[] modeNames = ((XSLTemplate)overridingDeclaration).getModeNames();
                     for (StructuredQName m : modeNames) {
                         overrides.add(new SymbolicName(StandardNames.XSL_MODE, m));
@@ -273,10 +275,11 @@ public class XSLUsePackage extends StyleElement {
                 AxisIterator overridings = override.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
                 NodeInfo overridingDeclaration;
                 while ((overridingDeclaration = overridings.next()) != null) {
-                    if (overridingDeclaration instanceof XSLTemplate && overridingDeclaration.getAttributeValue("", "match") != null) {
+                    if (overridingDeclaration instanceof XSLTemplate &&
+                            overridingDeclaration.getAttributeValue(NamespaceUri.NULL, "match") != null) {
                         StructuredQName[] modeNames = ((XSLTemplate) overridingDeclaration).getModeNames();
                         for (StructuredQName modeName : modeNames) {
-                            if (modeName.equals(Mode.OMNI_MODE)) {
+                            if (modeName.equals(Mode.OMNI_MODE_NAME)) {
                                 ((StyleElement) overridingDeclaration).compileError(
                                         "The mode name #all must not appear in an overriding template rule", "XTSE3440");
                                 continue;

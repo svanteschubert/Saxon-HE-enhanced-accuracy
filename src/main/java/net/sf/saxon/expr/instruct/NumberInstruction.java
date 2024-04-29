@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,14 @@
 package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.pattern.Pattern;
@@ -23,6 +26,7 @@ import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
@@ -45,9 +49,9 @@ public class NumberInstruction extends Expression {
     public static final int SIMPLE = 3;
     public static final String[] LEVEL_NAMES = new String[]{"single", "multi", "any", "simple"};
 
-    private Operand selectOp;
+    private final Operand selectOp;
 
-    private int level;
+    private final int level;
     private Operand countOp;
     private Operand fromOp;
     private boolean hasVariablesInPatterns = false;
@@ -172,7 +176,7 @@ public class NumberInstruction extends Expression {
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         switch (level) {
             case SIMPLE:
             case SINGLE:
@@ -227,42 +231,61 @@ public class NumberInstruction extends Expression {
         return this;
     }
 
+    /**
+     * Compute the required node number as a sequence of integers
+     * @param context supplies the context for evaluation
+     * @return a SequenceIterator of {@link IntegerValue} values
+     * @throws XPathException if a failure occurs
+     */
+
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        List<IntegerValue> vec = new ArrayList<>(1);
         NodeInfo source = (NodeInfo) selectOp.getChildExpression().evaluateItem(context);
+        return getPlaceMarker(source, context);
+    }
 
+    /**
+     * Get the "place marker" of a node (as described in the XSLT 3.0 specification): this is a sequence
+     * of integers
+     * @param source the node whose place marker is required
+     * @param context the XPath evaluation context
+     * @return an iterator over the integers making up the place marker
+     * @throws XPathException if things go wrong
+     */
+
+    private SequenceIterator getPlaceMarker(NodeInfo source, XPathContext context) throws XPathException {
+        List<AtomicValue> numbers = new ArrayList<>(1);
         switch (level) {
             case SIMPLE: {
                 long value = Navigator.getNumberSimple(source, context);
                 if (value != 0) {
-                    vec.add(Int64Value.makeIntegerValue(value));
+                    numbers.add(Int64Value.makeIntegerValue(value));
                 }
                 break;
             }
             case SINGLE: {
                 long value = Navigator.getNumberSingle(source, getCount(), getFrom(), context);
                 if (value != 0) {
-                    vec.add(Int64Value.makeIntegerValue(value));
+                    numbers.add(Int64Value.makeIntegerValue(value));
                 }
                 break;
             }
             case ANY: {
                 long value = Navigator.getNumberAny(this, source, getCount(), getFrom(), context, hasVariablesInPatterns);
                 if (value != 0) {
-                    vec.add(Int64Value.makeIntegerValue(value));
+                    numbers.add(Int64Value.makeIntegerValue(value));
                 }
                 break;
             }
             case MULTI: {
                 for (long n : Navigator.getNumberMulti(source, getCount(), getFrom(), context)) {
-                    vec.add(Int64Value.makeIntegerValue(n));
+                    numbers.add(Int64Value.makeIntegerValue(n));
                 }
                 break;
             }
         }
 
-        return new ListIterator<>(vec);
+        return new ListIterator.Of<>(numbers);
     }
 
     @Override
@@ -290,6 +313,28 @@ public class NumberInstruction extends Expression {
             getFrom().export(out);
         }
         out.endElement();
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new NumberInstructionElaborator();
+    }
+
+    private static class NumberInstructionElaborator extends PullElaborator {
+        @Override
+        public PullEvaluator elaborateForPull() {
+            NumberInstruction expr = (NumberInstruction) getExpression();
+            ItemEvaluator sourceEval = expr.selectOp.getChildExpression().makeElaborator().elaborateForItem();
+            return context -> {
+                NodeInfo source = (NodeInfo)sourceEval.eval(context);
+                return expr.getPlaceMarker(source, context);
+            };
+        }
     }
 }
 

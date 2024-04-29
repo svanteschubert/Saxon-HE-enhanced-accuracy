@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.sort.DocumentOrderIterator;
 import net.sf.saxon.expr.sort.LocalOrderComparer;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.Type;
@@ -64,8 +65,8 @@ public abstract class SuperId extends SystemFunction {
      * @throws XPathException if an error occurs
      */
 
-    public static SequenceIterator getIdSingle(TreeInfo doc, String idrefs, int operation) throws XPathException {
-        if (Whitespace.containsWhitespace(idrefs)) {
+    public static SequenceIterator getIdSingle(TreeInfo doc, UnicodeString idrefs, int operation) throws XPathException {
+        if (Whitespace.containsWhitespace(idrefs.codePoints())) {
             Whitespace.Tokenizer tokens = new Whitespace.Tokenizer(idrefs);
             IdMappingFunction map = new IdMappingFunction();
             map.document = doc;
@@ -73,7 +74,7 @@ public abstract class SuperId extends SystemFunction {
             SequenceIterator result = new MappingIterator(tokens, map);
             return new DocumentOrderIterator(result, LocalOrderComparer.getInstance());
         } else {
-            return SingletonIterator.makeIterator(doc.selectID(idrefs, operation == ELEMENT_WITH_ID));
+            return SingletonIterator.makeIterator(doc.selectID(idrefs.toString(), operation == ELEMENT_WITH_ID));
         }
     }
 
@@ -118,7 +119,7 @@ public abstract class SuperId extends SystemFunction {
         TreeInfo doc = arg1.getTreeInfo();
         SequenceIterator result;
         if (arguments[0] instanceof AtomicValue) {
-            result = getIdSingle(doc, ((AtomicValue)arguments[0]).getStringValue(), getOp());
+            result = getIdSingle(doc, ((AtomicValue)arguments[0]).getUnicodeStringValue(), getOp());
         } else {
             SequenceIterator idrefs = arguments[0].iterate();
             result = getIdMultiple(doc, idrefs, getOp());
@@ -129,22 +130,21 @@ public abstract class SuperId extends SystemFunction {
     private static class IdMappingFunction implements MappingFunction {
 
         public TreeInfo document;
-        private int operation;
+        public int operation;
 
         /**
          * Evaluate the function for a single string value
          * (implements the MappingFunction interface)
          */
 
-        @Override
         public SequenceIterator map(Item item) {
 
-            String idrefs = Whitespace.trim(item.getStringValueCS());
+            UnicodeString idrefs = Whitespace.trim(item.getUnicodeStringValue());
 
             // If this value contains a space, we need to break it up into its
             // separate tokens; if not, we can process it directly
 
-            if (Whitespace.containsWhitespace(idrefs)) {
+            if (Whitespace.containsWhitespace(idrefs.codePoints())) {
                 Whitespace.Tokenizer tokens = new Whitespace.Tokenizer(idrefs);
                 IdMappingFunction submap = new IdMappingFunction();
                 submap.document = document;
@@ -152,7 +152,7 @@ public abstract class SuperId extends SystemFunction {
                 return new MappingIterator(tokens, submap);
 
             } else {
-                return SingletonIterator.makeIterator(document.selectID(idrefs, operation == ELEMENT_WITH_ID));
+                return SingletonIterator.makeIterator(document.selectID(idrefs.toString(), operation == ELEMENT_WITH_ID));
             }
         }
     }

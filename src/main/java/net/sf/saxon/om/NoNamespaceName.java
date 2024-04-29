@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,7 @@ package net.sf.saxon.om;
  */
 public final class NoNamespaceName implements NodeName {
 
-    private String localName;
+    private final String localName;
     private int nameCode = -1;
 
     public NoNamespaceName(String localName) {
@@ -40,8 +40,8 @@ public final class NoNamespaceName implements NodeName {
      * @return the URI. Returns the empty string to represent the no-namespace
      */
     @Override
-    public String getURI() {
-        return "";
+    public NamespaceUri getNamespaceUri() {
+        return NamespaceUri.NULL;
     }
 
     /**
@@ -71,7 +71,7 @@ public final class NoNamespaceName implements NodeName {
      */
     @Override
     public StructuredQName getStructuredQName() {
-        return new StructuredQName("", "", getLocalPart());
+        return new StructuredQName("", NamespaceUri.NULL, getLocalPart());
     }
 
     /**
@@ -81,7 +81,7 @@ public final class NoNamespaceName implements NodeName {
      * @return true if the name is in the specified namespace
      */
     @Override
-    public boolean hasURI(String ns) {
+    public boolean hasURI(NamespaceUri ns) {
         return ns.isEmpty();
     }
 
@@ -127,7 +127,7 @@ public final class NoNamespaceName implements NodeName {
     @Override
     public int obtainFingerprint(NamePool namePool) {
         if (nameCode == -1) {
-            return nameCode = namePool.allocateFingerprint("", localName);
+            return nameCode = namePool.allocateFingerprint(NamespaceUri.NULL, localName);
         } else {
             return nameCode;
         }
@@ -138,7 +138,7 @@ public final class NoNamespaceName implements NodeName {
      */
     @Override
     public int hashCode() {
-        return StructuredQName.computeHashCode("", localName);
+        return StructuredQName.computeHashCode(NamespaceUri.NULL, localName);
     }
 
     /**
@@ -148,7 +148,7 @@ public final class NoNamespaceName implements NodeName {
     public boolean equals(/*@NotNull*/ Object obj) {
         return obj instanceof NodeName &&
                 ((NodeName) obj).getLocalPart().equals(localName) &&
-                ((NodeName) obj).hasURI("");
+                ((NodeName) obj).hasURI(NamespaceUri.NULL);
     }
 
     @Override
@@ -162,7 +162,7 @@ public final class NoNamespaceName implements NodeName {
      * they are in the same timezone.
      *
      * @param other the value to compare with
-     * @return true if the two values are indentical, false otherwise
+     * @return true if the two values are identical, false otherwise
      */
     @Override
     public boolean isIdentical(IdentityComparable other) {

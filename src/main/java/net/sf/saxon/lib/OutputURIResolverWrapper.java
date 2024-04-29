@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,7 +30,7 @@ import java.util.List;
 
 public class OutputURIResolverWrapper implements ResultDocumentResolver {
 
-    private OutputURIResolver outputURIResolver;
+    private final OutputURIResolver outputURIResolver;
 
     public OutputURIResolverWrapper(OutputURIResolver resolver) {
         this.outputURIResolver = resolver;
@@ -43,7 +43,7 @@ public class OutputURIResolverWrapper implements ResultDocumentResolver {
      * @param href the effective value of the href attribute
      * @param baseUri the base output URI of the transformation (typically, the
      *                destination of the principal output
-     * @param properties
+     * @param properties the serialization properties to be applied
      * @return a new instance of the {@code ResultDocumentInstance} class;
      * which Saxon will then call for further information.
      */

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,13 @@
 
 package net.sf.saxon.option.dom4j;
 
-import net.sf.saxon.om.AxisInfo;
-import net.sf.saxon.om.NamespaceBinding;
-import net.sf.saxon.om.NamespaceMap;
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.SteppingNavigator;
 import net.sf.saxon.tree.util.SteppingNode;
@@ -25,20 +25,17 @@ import org.dom4j.*;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
-import java.util.function.Predicate;
 
 /**
  * A node in the XML parse tree representing an XML element, character content, or attribute.
  * <p>This is the implementation of the NodeInfo interface used as a wrapper for DOM4J nodes.</p>
- *
- * @author Michael H. Kay
  */
 
 // History: this started life as the NodeWrapper for JDOM nodes; it was then modified by the
 // Orbeon team to act as a wrapper for DOM4J nodes, and was shipped with the Orbeon product;
 // it has now been absorbed back into Saxon.
 
-public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCountingNode, SteppingNode<DOM4JNodeWrapper> {
+public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCountingNode, SteppingNode {
 
     protected Node node;
     protected short nodeKind;
@@ -192,27 +189,27 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
     }
 
     @Override
-    public CharSequence getStringValueCS() {
+    public UnicodeString getUnicodeStringValue() {
         return getStringValue(node);
     }
 
-    private static String getStringValue(Node node) {
+    private static UnicodeString getStringValue(Node node) {
 
-        Short nodeType = node.getNodeType();
+        short nodeType = node.getNodeType();
         switch (nodeType) {
             case Node.ELEMENT_NODE:
             case Node.DOCUMENT_NODE:
-                return node.getStringValue();
+                return StringView.tidy(node.getStringValue());
             case Node.ATTRIBUTE_NODE:
             case Node.TEXT_NODE:
             case Node.CDATA_SECTION_NODE:
             case Node.COMMENT_NODE:
             case Node.PROCESSING_INSTRUCTION_NODE:
-                return node.getText();
+                return StringView.tidy(node.getText());
             case Node.NAMESPACE_NODE:
-                return ((Namespace) node).getURI();
+                return StringView.tidy(((Namespace) node).getURI());
             default:
-                return "";
+                return EmptyUnicodeString.getInstance();
         }
     }
 
@@ -269,14 +266,14 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
      */
 
     @Override
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         switch (nodeKind) {
             case Type.ELEMENT:
-                return ((Element) node).getNamespaceURI();
+                return NamespaceUri.of(((Element) node).getNamespaceURI());
             case Type.ATTRIBUTE:
-                return ((Attribute) node).getNamespaceURI();
+                return NamespaceUri.of(((Attribute) node).getNamespaceURI());
             default:
-                return "";
+                return NamespaceUri.NULL;
         }
     }
 
@@ -353,14 +350,14 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
 //                    break;
                 {
                     final DOM4JNodeWrapper parent = getParent();
-                    final List children;
+                    final List<Node> children;
                     if (parent.getNodeKind() == Type.DOCUMENT) {
-                        children = ((Document) parent.node).content();
+                        children = (List<Node>)((Document) parent.node).content();
                     } else {
                         // Beware: dom4j content() contains Namespace nodes (which is broken)!
-                        children = ((Element) parent.node).content();
+                        children = (List<Node>)((Element) parent.node).content();
                     }
-                    for (final Object n : children) {
+                    for (Node n : children) {
                         if (n == node) {
                             index = ix;
                             return index;
@@ -509,14 +506,14 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
 //        }
 //    }
     @Override
-    protected AxisIterator iterateAttributes(Predicate<? super NodeInfo> nodeTest) {
+    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
         return new Navigator.AxisFilter(
                 new AttributeEnumeration(this),
                 nodeTest);
     }
 
     @Override
-    protected AxisIterator iterateChildren(Predicate<? super NodeInfo> nodeTest) {
+    protected AxisIterator iterateChildren(NodeTest nodeTest) {
         if (hasChildNodes()) {
             return new Navigator.AxisFilter(
                     new ChildEnumeration(this, true, true),
@@ -527,20 +524,20 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
     }
 
     @Override
-    protected AxisIterator iterateSiblings(Predicate<? super NodeInfo> nodeTest, boolean forwards) {
+    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
         return new Navigator.AxisFilter(
                 new ChildEnumeration(this, false, forwards),
                 nodeTest);
     }
 
     @Override
-    protected AxisIterator iterateDescendants(Predicate<? super NodeInfo> nodeTest, boolean includeSelf) {
+    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
         if (includeSelf) {
-            return new SteppingNavigator.DescendantAxisIterator<>(this, true, nodeTest);
+            return new SteppingNavigator.DescendantAxisIterator(this, true, nodeTest);
 
         } else {
             if (hasChildNodes()) {
-                return new SteppingNavigator.DescendantAxisIterator<>(this, false, nodeTest);
+                return new SteppingNavigator.DescendantAxisIterator(this, false, nodeTest);
             } else {
                 return EmptyIterator.ofNodes();
             }
@@ -559,11 +556,12 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
      * @since 9.4
      */
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
+        String uriString = uri.toString();
         if (nodeKind == Type.ELEMENT) {
             for (Object o : ((Element) node).attributes()) {
                 Attribute att = (Attribute) o;
-                if (att.getName().equals(local) && att.getNamespaceURI().equals(uri)) {
+                if (att.getName().equals(local) && att.getNamespaceURI().equals(uriString)) {
                     return att.getValue();
                 }
             }
@@ -610,7 +608,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
      */
 
     @Override
-    public void generateId(FastStringBuffer buffer) {
+    public void generateId(StringBuilder buffer) {
         Navigator.appendSequentialKey(this, buffer, true);
         //buffer.append(Navigator.getSequentialKey(this));
     }
@@ -657,14 +655,14 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
     }
 
     @Override
-    public DOM4JNodeWrapper getSuccessorElement(DOM4JNodeWrapper anchor, String uri, String local) {
-        Node stop = anchor == null ? null : anchor.node;
+    public SteppingNode getSuccessorElement(SteppingNode anchor, NamespaceUri uri, String local) {
+        Node stop = anchor == null ? null : ((DOM4JNodeWrapper)anchor).node;
         Node next = node;
         do {
             next = getFollowingNode(next, stop, (DOM4JNodeWrapper) treeInfo.getRootNode());
         } while (next != null &&
                 !(next.getNodeType() == Node.ELEMENT_NODE &&
-                        (uri == null || uri.equals(((Element) next).getNamespaceURI())) &&
+                        (uri == null || uri.toString().equals(((Element) next).getNamespaceURI())) &&
                         (local == null || local.equals(next.getName()))));
         if (next == null) {
             return null;
@@ -723,7 +721,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
 
         private final Iterator<Attribute> atts;
         private int ix = 0;
-        private DOM4JNodeWrapper start;
+        private final DOM4JNodeWrapper start;
 
         AttributeEnumeration(DOM4JNodeWrapper start) {
             this.start = start;
@@ -752,12 +750,12 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
 
     private final class ChildEnumeration implements AxisIterator {
 
-        private DOM4JNodeWrapper start;
-        private DOM4JNodeWrapper commonParent;
-        private ListIterator<Node> children;
+        private final DOM4JNodeWrapper start;
+        private final DOM4JNodeWrapper commonParent;
+        private final ListIterator<Node> children;
         private int ix = 0;
-        private boolean downwards;  // iterate children of start node (not siblings)
-        private boolean forwards;   // iterate in document order (not reverse order)
+        private final boolean downwards;  // iterate children of start node (not siblings)
+        private final boolean forwards;   // iterate in document order (not reverse order)
 
         public ChildEnumeration(DOM4JNodeWrapper start,
                                 boolean downwards, boolean forwards) {
@@ -896,7 +894,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
                     final String prefix = namespace.getPrefix();
                     final String uri = namespace.getURI();
 
-                    result[n++] = new NamespaceBinding(prefix, uri);
+                    result[n++] = new NamespaceBinding(prefix, NamespaceUri.of(uri));
                 }
                 if (count < result.length) {
                     result[count] = null;
@@ -932,10 +930,10 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
                 Namespace ns = elem.getNamespace();
                 String prefix = ns.getPrefix();
                 String uri = ns.getURI();
-                nsMap = nsMap.bind(prefix, uri);
+                nsMap = nsMap.bind(prefix, NamespaceUri.of(uri));
                 if (!addl.isEmpty()) {
                     for (Namespace ns2 : addl) {
-                        nsMap = nsMap.bind(ns2.getPrefix(), ns2.getURI());
+                        nsMap = nsMap.bind(ns2.getPrefix(), NamespaceUri.of(ns2.getURI()));
                     }
                 }
                 return inScopeNamespaces = nsMap;

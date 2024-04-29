@@ -41,22 +41,13 @@ public class ForEachFn extends SystemFunction {
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         return SequenceTool.toLazySequence(
-                evalMap((Function) arguments[1].head(), arguments[0].iterate(), context));
+                evalMap((FunctionItem) arguments[1].head(), arguments[0].iterate(), context));
     }
 
-    private SequenceIterator evalMap(final Function function, SequenceIterator base, final XPathContext context) {
-        MappingFunction map = new MappingFunction() {
-            private final Sequence[] args = new Sequence[1];
-
-            @Override
-            public SequenceIterator map(Item item) throws XPathException {
-                args[0] = item;
-                return dynamicCall(function, context, args).iterate();
-            }
-        };
-        return new MappingIterator(base, map);
+    private SequenceIterator evalMap(final FunctionItem function, SequenceIterator base, final XPathContext context) {
+        return MappingIterator.map(base, item -> dynamicCall(function, context, new Sequence[]{item}).iterate());
     }
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

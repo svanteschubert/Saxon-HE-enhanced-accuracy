@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,15 +8,17 @@
 
 package net.sf.saxon.event;
 
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
 
 /**
- * An <tt>EventMonitor</tt> is a filter that passes all events down the pipeline unchanged,
+ * An <code>EventMonitor</code> is a filter that passes all events down the pipeline unchanged,
  * keeping a note of whether any data has passed through the filter. At any stage it is possible
  * to ask whether any data has been written.
  * @since 9.9
@@ -51,14 +53,14 @@ public class EventMonitor extends Outputter {
     }
 
     @Override
-    public void attribute(NodeName name, SimpleType type, CharSequence value,
-                             Location location, int properties) throws XPathException {
+    public void attribute(NodeName name, SimpleType type, String value,
+                          Location location, int properties) throws XPathException {
         written = true;
         next.attribute(name, type, value, location, properties);
     }
 
     @Override
-    public void namespace(String prefix, String uri, int properties) throws XPathException {
+    public void namespace(String prefix, NamespaceUri uri, int properties) throws XPathException {
         written = true;
         next.namespace(prefix, uri, properties);
     }
@@ -70,19 +72,19 @@ public class EventMonitor extends Outputter {
     }
 
     @Override
-    public void characters(CharSequence chars, Location location, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location location, int properties) throws XPathException {
         written = true;
         next.characters(chars, location, properties);
     }
 
     @Override
-    public void processingInstruction(String name, CharSequence data, Location location, int properties) throws XPathException {
+    public void processingInstruction(String name, UnicodeString data, Location location, int properties) throws XPathException {
         written = true;
         next.processingInstruction(name, data, location, properties);
     }
 
     @Override
-    public void comment(CharSequence content, Location location, int properties) throws XPathException {
+    public void comment(UnicodeString content, Location location, int properties) throws XPathException {
         written = true;
         next.comment(content, location, properties);
     }

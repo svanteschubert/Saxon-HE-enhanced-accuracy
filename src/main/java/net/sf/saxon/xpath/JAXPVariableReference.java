@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.xpath;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
@@ -33,12 +34,14 @@ import javax.xml.xpath.XPathVariableResolver;
 
 public class JAXPVariableReference extends Expression implements Callable {
 
-    private StructuredQName name;
-    private XPathVariableResolver resolver;
+    private final StructuredQName name;
+    private final XPathVariableResolver resolver;
 
 
     /**
      * Create the expression
+     * @param name the name of the expression
+     * @param resolver the JAXP XPathVariableResolver
      */
 
     public JAXPVariableReference(StructuredQName name, XPathVariableResolver resolver) {
@@ -63,7 +66,7 @@ public class JAXPVariableReference extends Expression implements Callable {
      * Create a clone copy of this expression
      *
      * @return a copy of this expression
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     /*@NotNull*/
@@ -87,7 +90,7 @@ public class JAXPVariableReference extends Expression implements Callable {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
@@ -98,7 +101,7 @@ public class JAXPVariableReference extends Expression implements Callable {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return StaticProperty.NO_NODES_NEWLY_CREATED;
     }
 
@@ -122,7 +125,7 @@ public class JAXPVariableReference extends Expression implements Callable {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return name.hashCode();
     }
 
@@ -169,5 +172,29 @@ public class JAXPVariableReference extends Expression implements Callable {
         destination.endElement();
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new CallableElaborator();
+    }
+
+    public static class CallableElaborator extends PullElaborator {
+
+//        @Override
+//        public SequenceEvaluator eagerly() {
+//            Callable expr = (Callable)getExpression();
+//            return context -> expr.call(context, null).materialize();
+//        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            Callable expr = (Callable) getExpression();
+            return context -> expr.call(context, null).iterate();
+        }
+    }
 }
 

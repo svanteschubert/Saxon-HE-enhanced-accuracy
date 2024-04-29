@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -43,6 +43,8 @@ public interface PendingUpdateList {
      * @param node       (the first argument of put())
      * @param uri        (the second argument of put())
      * @param originator the originating put() expression, for diagnostics
+     * @throws XPathException in the event of an error, for example two documents with
+     * the same URI
      */
 
     void addPutAction(NodeInfo node, String uri, Expression originator) throws XPathException;

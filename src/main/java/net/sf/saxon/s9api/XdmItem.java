@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,8 @@ package net.sf.saxon.s9api;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.s9api.streams.XdmStream;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.AtomicValue;
 
 import java.util.Map;
@@ -19,22 +21,19 @@ import java.util.stream.Stream;
  * The class XdmItem represents an item in a sequence, as defined by the XDM data model.
  * An item may be an atomic value, a node, a function item (including maps and arrays), or an external object.
  * <p>An item is a member of a sequence, but it can also be considered as a sequence
- * (of length one) in its own right. <tt>XdmItem</tt> is a subtype of <tt>XdmValue</tt> because every
+ * (of length one) in its own right. <code>XdmItem</code> is a subtype of <code>XdmValue</code> because every
  * Item in the XDM data model is also a value.</p>
  * <p>It cannot be assumed that every sequence of length one will be represented by
- * an <tt>XdmItem</tt>. It is quite possible for an <tt>XdmValue</tt> that is not an <tt>XdmItem</tt> to hold
+ * an <code>XdmItem</code>. It is quite possible for an <code>XdmValue</code> that is not an <code>XdmItem</code> to hold
  * a singleton sequence.</p>
  * <p>Saxon provides a number of concrete subclasses of <code>XdmItem</code>, namely {@link XdmAtomicValue},
  * {@link XdmNode}, {@link XdmFunctionItem} and {@link XdmExternalObject}. Users must not attempt to create
  * additional subclasses.</p>
  */
 
+@CSharpModifiers(code = {"abstract", "internal"})
 public abstract class XdmItem extends XdmValue {
 
-    // internal protected constructor
-
-    protected XdmItem() {
-    }
 
     /**
      * Construct an XdmItem as a wrapper around an existing Saxon Item object
@@ -46,8 +45,7 @@ public abstract class XdmItem extends XdmValue {
      */
 
     public XdmItem(Item item) {
-        super();
-        setValue(item);
+        super(item);
     }
 
     // internal factory mathod to wrap an Item
@@ -92,6 +90,21 @@ public abstract class XdmItem extends XdmValue {
 
     public String getStringValue() {
         return getUnderlyingValue().getStringValue();
+    }
+
+    /**
+     * Get the string value of the item. For a node, this gets the string value
+     * of the node. For an atomic value, it has the same effect as casting the value
+     * to a string. In all cases the result is the same as applying the XPath string()
+     * function.
+     * <p>The string returned is the same as the result of {@link #getStringValue()},
+     * but represented as an instance of {@link UnicodeString}.</p>
+     *
+     * @return the result of converting the item to a string.
+     */
+
+    public UnicodeString getUnicodeStringValue() {
+        return getUnderlyingValue().getUnicodeStringValue();
     }
 
     /**

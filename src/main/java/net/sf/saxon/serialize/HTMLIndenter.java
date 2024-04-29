@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,12 +11,17 @@ import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.om.*;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.SaxonOutputKeys;
+import net.sf.saxon.om.AttributeMap;
+import net.sf.saxon.om.FingerprintedQName;
+import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.IndentWhitespace;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.tiny.CharSlice;
 import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.z.IntIterator;
 
 import java.util.*;
 
@@ -27,7 +32,6 @@ import java.util.*;
  * The character data is never added when within an inline element.
  * The string used for indentation defaults to three spaces
  *
- * @author Michael Kay
  */
 
 
@@ -195,10 +199,10 @@ public class HTMLIndenter extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         int withinSuppressed = level == 0 ? 0 : (propertyStack[level - 1] & IS_SUPPRESSED);
         if (inFormattedTag ||
-                withinSuppressed > 0 ||
+                withinSuppressed>0 ||
                 ReceiverOption.contains(properties, ReceiverOption.USE_NULL_MARKERS) ||
                 ReceiverOption.contains(properties, ReceiverOption.DISABLE_ESCAPING)) {
             // don't split the text if in a tag such as <pre>, or if the text contains the result of
@@ -206,20 +210,25 @@ public class HTMLIndenter extends ProxyReceiver {
             nextReceiver.characters(chars, locationId, properties);
         } else {
             // otherwise try to split long lines into multiple lines
+            UnicodeString t = chars.tidy();
             int lastNL = 0;
-            for (int i = 0; i < chars.length(); i++) {
-                if (chars.charAt(i) == '\n' || (i - lastNL > getLineLength() && chars.charAt(i) == ' ')) {
+            IntIterator iter = t.codePoints();
+            int i = 0;
+            while (iter.hasNext()) {
+                int ch = iter.next();
+                if (ch == '\n' || (i - lastNL > getLineLength() && ch == ' ')) {
                     sameLine = false;
-                    nextReceiver.characters(chars.subSequence(lastNL, i), locationId, properties);
+                    nextReceiver.characters(t.substring(lastNL, i), locationId, properties);
                     indent();
                     lastNL = i + 1;
-                    while (lastNL < chars.length() && chars.charAt(lastNL) == ' ') {
+                    while (lastNL < t.length() && t.codePointAt(lastNL) == ' ') {
                         lastNL++;
                     }
                 }
+                i++;
             }
-            if (lastNL < chars.length()) {
-                nextReceiver.characters(chars.subSequence(lastNL, chars.length()), locationId, properties);
+            if (lastNL < t.length()) {
+                nextReceiver.characters(t.substring(lastNL, t.length()), locationId, properties);
             }
         }
         afterInline = false;
@@ -231,7 +240,7 @@ public class HTMLIndenter extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (afterEndElement && level != 0 && (propertyStack[level - 1] & IS_INLINE) == 0) {
             indent();
         }
@@ -244,7 +253,7 @@ public class HTMLIndenter extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (afterEndElement && level != 0 && (propertyStack[level - 1] & IS_INLINE) == 0) {
             indent();
         }
@@ -270,17 +279,19 @@ public class HTMLIndenter extends ProxyReceiver {
 
     private void indent() throws XPathException {
         int spaces = level * getIndentation();
-        if (spaces + 1 >= indentChars.length) {
-            int increment = 5 * getIndentation();
-            if (spaces + 1 > indentChars.length + increment) {
-                increment += spaces + 1;
-            }
-            char[] c2 = new char[indentChars.length + increment];
-            System.arraycopy(indentChars, 0, c2, 0, indentChars.length);
-            Arrays.fill(c2, indentChars.length, c2.length, ' ');
-            indentChars = c2;
-        }
-        nextReceiver.characters(new CharSlice(indentChars, 0, spaces + 1),
+//        if (spaces + 1 >= indentChars.length) {
+//            int increment = 5 * getIndentation();
+//            if (spaces + 1 > indentChars.length + increment) {
+//                increment += spaces + 1;
+//            }
+//            char[] c2 = new char[indentChars.length + increment];
+//            System.arraycopy(indentChars, 0, c2, 0, indentChars.length);
+//            Arrays.fill(c2, indentChars.length, c2.length, ' ');
+//            indentChars = c2;
+//        }
+//        nextReceiver.characters(new Twine16(indentChars, 0, spaces + 1),
+//                                Loc.NONE, ReceiverOption.NONE);
+        nextReceiver.characters(IndentWhitespace.of(1, spaces),
                                 Loc.NONE, ReceiverOption.NONE);
         sameLine = false;
     }

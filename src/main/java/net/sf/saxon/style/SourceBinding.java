@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,13 +13,14 @@ import net.sf.saxon.expr.instruct.GlobalVariable;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.instruct.ValueOf;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.s9api.XmlProcessingError;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingException;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.ItemType;
@@ -33,6 +34,7 @@ import net.sf.saxon.value.Whitespace;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static net.sf.saxon.style.SourceBinding.BindingProperty.SELECT;
 
@@ -43,7 +45,7 @@ import static net.sf.saxon.style.SourceBinding.BindingProperty.SELECT;
 
 public class SourceBinding {
 
-    private StyleElement sourceElement;
+    private final StyleElement sourceElement;
     private StructuredQName name;
     private Expression select = null;
     private SequenceType declaredType = null;
@@ -54,14 +56,16 @@ public class SourceBinding {
 
     //private int properties;
 
+    @CSharpSimpleEnum(flags=true)
     public enum BindingProperty {
         PRIVATE, GLOBAL, PARAM, TUNNEL, REQUIRED, IMPLICITLY_REQUIRED, ASSIGNABLE,
-        SELECT, AS, DISALLOWS_CONTENT, STATIC, VISIBILITY, IMPLICITLY_DECLARED};
+        SELECT, AS, DISALLOWS_CONTENT, STATIC, VISIBILITY, IMPLICITLY_DECLARED}
 
+    @SuppressWarnings("FieldMayBeFinal")
     private EnumSet<BindingProperty> properties = EnumSet.noneOf(BindingProperty.class);
 
     // List of VariableReference objects that reference this XSLVariableDeclaration
-    private List<BindingReference> references = new ArrayList<>(10);
+    private final List<BindingReference> references = new ArrayList<>(10);
 
     public SourceBinding(StyleElement sourceElement) {
         this.sourceElement = sourceElement;
@@ -105,7 +109,7 @@ public class SourceBinding {
                 staticAtt = Whitespace.trim(att.getValue());
             } else if (f.equals("visibility") && permittedAttributes.contains(BindingProperty.VISIBILITY)) {
                 visibilityAtt = Whitespace.trim(att.getValue());
-            } else if (NamespaceConstant.SAXON.equals(attName.getURI())) {
+            } else if (NamespaceUri.SAXON.equals(attName.getNamespaceUri())) {
                 if (sourceElement.isExtensionAttributeAllowed(attName.getDisplayName())) {
                     if (attName.getLocalPart().equals("assignable") && permittedAttributes.contains(BindingProperty.ASSIGNABLE)) {
                         assignableAtt = Whitespace.trim(att.getValue());
@@ -210,7 +214,7 @@ public class SourceBinding {
                 String tunnelAtt = Whitespace.trim(att.getValue());
                 boolean tunnel = sourceElement.processBooleanAttribute("tunnel", tunnelAtt);
                 setProperty(BindingProperty.TUNNEL, tunnel);
-            } else if (NamespaceConstant.SAXON.equals(attName.getURI())) {
+            } else if (NamespaceUri.SAXON.equals(attName.getNamespaceUri())) {
                 if (attName.getLocalPart().equals("as")) {
                     extraAsAtt = att.getValue();
                 }
@@ -233,7 +237,7 @@ public class SourceBinding {
             try {
                 declaredType = sourceElement.makeSequenceType(asAtt);
             } catch (XPathException e) {
-                sourceElement.compileErrorInAttribute(e.getMessage(), e.getErrorCodeLocalPart(), "as");
+                sourceElement.compileErrorInAttribute(e.getMessage(), e.showErrorCode(), "as");
             }
         }
 
@@ -242,7 +246,7 @@ public class SourceBinding {
             try {
                 extraResultType = sourceElement.makeExtendedSequenceType(extraAsAtt);
             } catch (XPathException e) {
-                sourceElement.compileErrorInAttribute(e.getMessage(), e.getErrorCodeLocalPart(), "saxon:as");
+                sourceElement.compileErrorInAttribute(e.getMessage(), e.showErrorCode(), "saxon:as");
                 extraResultType = SequenceType.ANY_SEQUENCE;
             }
             if (asAtt != null) {
@@ -317,7 +321,7 @@ public class SourceBinding {
      */
 
     private StructuredQName errorName() {
-        return new StructuredQName("saxon", NamespaceConstant.SAXON, "error-variable-name");
+        return new StructuredQName("saxon", NamespaceUri.SAXON, "error-variable-name");
     }
 
     /**
@@ -411,10 +415,12 @@ public class SourceBinding {
                             category = RoleDiagnostic.PARAM;
                             errorCode = "XTTE0590";
                         }
-                        RoleDiagnostic role = new RoleDiagnostic(category, name.getDisplayName(), 0);
-                        //role.setSourceLocator(new ExpressionLocation(this));
-                        role.setErrorCode(errorCode);
-                        select = sourceElement.getConfiguration().getTypeChecker(false).staticTypeCheck(select, required, role, sourceElement.makeExpressionVisitor());
+                        final int selectedCategory = category;
+                        final String selectedErrorCode = errorCode;
+                        Supplier<RoleDiagnostic> role =
+                                () -> new RoleDiagnostic(selectedCategory, name.getDisplayName(), 0, selectedErrorCode);
+                        select = sourceElement.getConfiguration().getTypeChecker(false).staticTypeCheck(
+                                select, required, role, sourceElement.makeExpressionVisitor());
                     } else {
                         // do the check later
                     }
@@ -436,7 +442,7 @@ public class SourceBinding {
 
     public StructuredQName getVariableQName() {
         if (name == null) {
-            processVariableName(sourceElement.getAttributeValue("", "name"));
+            processVariableName(sourceElement.getAttributeValue(NamespaceUri.NULL, "name"));
         }
         return name;
     }
@@ -507,9 +513,9 @@ public class SourceBinding {
                     b = Literal.makeEmptySequence();
                 }
                 boolean textonly = UType.TEXT.subsumes(b.getItemType().getUType());
-                String constant = null;  // bug 3748
+                UnicodeString constant = null;  // bug 3748
                 if (textonly && b instanceof ValueOf && ((ValueOf) b).getSelect() instanceof StringLiteral) {
-                    constant = ((StringLiteral) ((ValueOf) b).getSelect()).getStringValue();
+                    constant = ((StringLiteral) ((ValueOf) b).getSelect()).getString();
                 }
                 DocumentInstr doc = new DocumentInstr(textonly, constant);
                 doc.setContentExpression(b);
@@ -521,9 +527,8 @@ public class SourceBinding {
                     select = Literal.makeEmptySequence();
                 }
                 try {
-                    RoleDiagnostic role =
-                            new RoleDiagnostic(RoleDiagnostic.VARIABLE, name.getDisplayName(), 0);
-                    role.setErrorCode("XTTE0570");
+                    Supplier<RoleDiagnostic> role =
+                            () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, name.getDisplayName(), 0, "XTTE0570");
                     select = select.simplify();
                     select = sourceElement.getConfiguration().getTypeChecker(false).staticTypeCheck(
                             select, declaredType, role, sourceElement.makeExpressionVisitor());
@@ -546,7 +551,7 @@ public class SourceBinding {
     public SequenceType getDeclaredType() {
         if (declaredType == null) {
             // may be handling a forwards reference - see hof-038
-            String asAtt = sourceElement.getAttributeValue("", "as");
+            String asAtt = sourceElement.getAttributeValue(NamespaceUri.NULL, "as");
             if (asAtt == null) {
                 return null;
             } else {
@@ -650,7 +655,7 @@ public class SourceBinding {
                     // now, we do a quick check. See test bug64
                     Affinity relation = th.relationship(select.getItemType(), type.getPrimaryType());
                     if (relation == Affinity.SAME_TYPE || relation == Affinity.SUBSUMED_BY) {
-                        constantValue = ((Literal) select).getValue();
+                        constantValue = ((Literal) select).getGroundedValue();
                     }
                 }
             }
@@ -666,8 +671,7 @@ public class SourceBinding {
 
     public void fixupReferences(GlobalVariable compiledGlobalVariable) {
         final SequenceType type = getInferredType(true);
-        final TypeHierarchy th = sourceElement.getConfiguration().getTypeHierarchy();
-        GroundedValue constantValue = null;
+        //GroundedValue constantValue = null;
         int properties = 0;
         if (!hasProperty(BindingProperty.ASSIGNABLE) && !hasProperty(BindingProperty.PARAM) && !(visibility == Visibility.PUBLIC || visibility == Visibility.ABSTRACT)) {
             /*if (select instanceof Literal) {

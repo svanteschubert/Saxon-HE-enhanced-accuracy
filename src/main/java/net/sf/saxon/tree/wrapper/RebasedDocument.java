@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,17 @@
 
 package net.sf.saxon.tree.wrapper;
 
+import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.GenericTreeInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.TreeInfo;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import java.util.function.Function;
 
 
 /**
- * A <tt>RebasedDocument</tt> represents a view of a real Document in which all nodes are mapped to a different
+ * A <code>RebasedDocument</code> represents a view of a real Document in which all nodes are mapped to a different
  * base URI and/or system ID using supplied mapping functions.
  *
  * <p>It is possible to map either base URIs or system IDs or both.</p>
@@ -31,9 +33,9 @@ import java.util.function.Function;
 
 public class RebasedDocument extends GenericTreeInfo {
 
-    private TreeInfo underlyingTree;
-    private Function<NodeInfo, String> baseUriMapper;
-    private Function<NodeInfo, String> systemIdMapper;
+    private final TreeInfo underlyingTree;
+    private final Function<NodeInfo, String> baseUriMapper;
+    private final Function<NodeInfo, String> systemIdMapper;
 
 
     /**
@@ -56,6 +58,7 @@ public class RebasedDocument extends GenericTreeInfo {
     /**
      * Create a wrapped node within this document
      * @param node the node to be wrapped - must be a node in the base document
+     * @return the wrapped node
      */
 
     public RebasedNode wrap(NodeInfo node) {
@@ -74,8 +77,14 @@ public class RebasedDocument extends GenericTreeInfo {
      * @return true if the document contains elements whose type is other than UNTYPED
      */
     @Override
+    @CSharpModifiers(code = {"public", "override"})
     public boolean isTyped() {
         return underlyingTree.isTyped();
+    }
+
+    @Override
+    public Durability getDurability() {
+        return underlyingTree.getDurability();
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,6 @@ import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.instruct.ResultDocument;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
@@ -53,6 +52,7 @@ public class XSLResultDocument extends StyleElement {
         fans.add("doctype-public");
         fans.add("doctype-system");
         fans.add("encoding");
+        fans.add("escape-solidus");
         fans.add("escape-uri-attributes");
         fans.add("html-version");
         fans.add("include-content-type");
@@ -74,6 +74,7 @@ public class XSLResultDocument extends StyleElement {
         fans.add(SaxonOutputKeys.CHARACTER_REPRESENTATION);
         fans.add(SaxonOutputKeys.DOUBLE_SPACE);
         fans.add(SaxonOutputKeys.INDENT_SPACES);
+        fans.add(SaxonOutputKeys.INTERNAL_DTD_SUBSET);
         fans.add(SaxonOutputKeys.LINE_LENGTH);
         fans.add(SaxonOutputKeys.NEWLINE);
         fans.add(SaxonOutputKeys.NEXT_IN_CHAIN);
@@ -90,7 +91,7 @@ public class XSLResultDocument extends StyleElement {
     private Expression formatExpression;     // used when format is an AVT
     private int validationAction = Validation.STRIP;
     private SchemaType schemaType = null;
-    private Map<StructuredQName, Expression> serializationAttributes = new HashMap<>(10);
+    private final Map<StructuredQName, Expression> serializationAttributes = new HashMap<>(10);
     private boolean async = true;
 
     /**
@@ -111,12 +112,12 @@ public class XSLResultDocument extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         String formatAttribute = null;
         String hrefAttribute = null;
         String validationAtt = null;
@@ -147,14 +148,17 @@ public class XSLResultDocument extends StyleElement {
                 if (!f.equals(SaxonOutputKeys.ITEM_SEPARATOR) && !f.equals(SaxonOutputKeys.NEWLINE)) {
                     val = Whitespace.trim(value);
                 }
+                if (f.equals(SaxonOutputKeys.ESCAPE_SOLIDUS)) {
+                    requireXslt40Attribute(f);
+                }
                 Expression exp = makeAttributeValueTemplate(val, att);
                 serializationAttributes.put(name, exp);
-            } else if (name.getLocalPart().equals("asynchronous") && name.hasURI(NamespaceConstant.SAXON)) {
+            } else if (name.getLocalPart().equals("asynchronous") && name.hasURI(NamespaceUri.SAXON)) {
                 async = processBooleanAttribute("saxon:asynchronous", value);
                 if (getCompilation().getCompilerInfo().isCompileWithTracing()) {
                     async = false;
                 } else if (!"EE".equals(getConfiguration().getEditionCode())) {
-                    compileWarning("saxon:asynchronous - ignored when not running Saxon-EE",
+                    issueWarning("saxon:asynchronous - ignored when not running Saxon-EE",
                             SaxonErrorCode.SXWN9013);
                     async = false;
                 }
@@ -165,7 +169,7 @@ public class XSLResultDocument extends StyleElement {
 
         if (formatAttribute != null) {
             if (formatExpression instanceof StringLiteral) {
-                formatQName = makeQName(((StringLiteral) formatExpression).getStringValue(), "XTDE1460", "format");
+                formatQName = makeQName(((StringLiteral) formatExpression).stringify(), "XTDE1460", "format");
                 formatExpression = null;
             } else {
                 getPrincipalStylesheetModule().setNeedsDynamicOutputProperties(true);
@@ -191,7 +195,7 @@ public class XSLResultDocument extends StyleElement {
 
         if (useCharacterMapsAtt != null) {
             String s = XSLOutput.prepareCharacterMaps(this, useCharacterMapsAtt, new Properties());
-            serializationAttributes.put(new StructuredQName("", "", "use-character-maps"),
+            serializationAttributes.put(new StructuredQName("", NamespaceUri.NULL, "use-character-maps"),
                     new StringLiteral(s));
         }
     }
@@ -216,8 +220,8 @@ public class XSLResultDocument extends StyleElement {
 
     }
 
-    public static StructuredQName METHOD = new StructuredQName("", "", "method");
-    public static StructuredQName BUILD_TREE = new StructuredQName("", "", "build-tree");
+    public static StructuredQName METHOD = NamespaceUri.NULL.qName("method");
+    public static StructuredQName BUILD_TREE = new StructuredQName("", NamespaceUri.NULL, "build-tree");
 
     /*@Nullable*/
     @Override
@@ -230,9 +234,9 @@ public class XSLResultDocument extends StyleElement {
         AxisIterator ai = iterateAxis(AxisInfo.ANCESTOR);
         NodeInfo node;
         while ((node = ai.next()) != null) {
-            if (node instanceof XSLGeneralVariable || node instanceof XSLFunction) {
+            if (node instanceof XSLGeneralVariable || (node instanceof XSLFunction && !((XSLFunction) node).isUpdating())) {
                 issueWarning("An xsl:result-document instruction inside " + node.getDisplayName() +
-                        " will always fail at run-time", this);
+                        " will always fail at run-time", "XTDE1480");
                 return new ErrorExpression("Call to xsl:result-document while in temporary output state", "XTDE1480", false);
             }
         }
@@ -260,9 +264,9 @@ public class XSLResultDocument extends StyleElement {
             AxisIterator kids = iterateAxis(AxisInfo.CHILD);
             NodeInfo first = kids.next();
             if (first instanceof LiteralResultElement) {
-                if (first.getURI().equals(NamespaceConstant.XHTML) && first.getLocalPart().equals("html")) {
+                if (first.getNamespaceUri().equals(NamespaceUri.XHTML) && first.getLocalPart().equals("html")) {
                     method = "xhtml";
-                } else if (first.getLocalPart().equalsIgnoreCase("html") && first.getURI().isEmpty()) {
+                } else if (first.getLocalPart().equalsIgnoreCase("html") && first.getNamespaceUri().isEmpty()) {
                     method = "html";
                 } else {
                     method = "xml";
@@ -278,9 +282,9 @@ public class XSLResultDocument extends StyleElement {
         for (StructuredQName property : serializationAttributes.keySet()) {
             Expression exp = serializationAttributes.get(property);
             if (exp instanceof StringLiteral) {
-                String s = ((StringLiteral) exp).getStringValue();
+                String s = ((StringLiteral) exp).stringify();
                 String lname = property.getLocalPart();
-                String uri = property.getURI();
+                NamespaceUri uri = property.getNamespaceUri();
                 try {
 
                     ResultDocument.setSerializationProperty(localProps, uri, lname, s,
@@ -290,11 +294,10 @@ public class XSLResultDocument extends StyleElement {
                         method = s;
                     }
                 } catch (XPathException e) {
-                    if (NamespaceConstant.SAXON.equals(e.getErrorCodeNamespace())) {
+                    if (e.getErrorCodeQName().hasURI(NamespaceUri.SAXON)) {
                         compileWarning(e.getMessage(), e.getErrorCodeQName());
                     } else {
-                        e.setErrorCode("XTSE0020");
-                        compileError(e);
+                        compileError(e.withErrorCode("XTSE0020"));
                     }
                 }
             }
@@ -319,6 +322,7 @@ public class XSLResultDocument extends StyleElement {
         }
         inst.setContentExpression(content);
         inst.setAsynchronous(async);
+        inst.setLocation(saveLocation());
         return inst;
     }
 

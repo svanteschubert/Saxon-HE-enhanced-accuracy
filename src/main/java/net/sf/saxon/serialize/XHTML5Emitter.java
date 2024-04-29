@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,11 @@
 
 package net.sf.saxon.serialize;
 
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringConstants;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.Whitespace;
 
@@ -29,7 +31,7 @@ import java.util.Set;
 
 public class XHTML5Emitter extends XMLEmitter {
 
-    private static String[] html5ElementNames = {
+    private static final String[] html5ElementNames = {
             "a", "abbr", "address", "area", "article", "aside", "audio",
             "b", "base", "bdi", "bdo", "blockquote", "body", "br", "button",
             "canvas", "caption", "cite", "code", "col", "colgroup", /*"command",*/
@@ -53,11 +55,11 @@ public class XHTML5Emitter extends XMLEmitter {
             "wbr"
     };
 
-    static Set<String> html5Elements = new HashSet<String>(128);
+    static Set<String> html5Elements = new HashSet<>(128);
 
-    static Set<String> emptyTags5 = new HashSet<String>(31);
+    static Set<String> emptyTags5 = new HashSet<>(31);
 
-    private static String[] emptyTagNames5 = {
+    private static final String[] emptyTagNames5 = {
             "area", "base", "br", "col", /*"command",*/ "embed", "hr", "img", "input", "keygen", "link", "meta", "param",
             "source", "track", "wbr"
     };
@@ -70,8 +72,8 @@ public class XHTML5Emitter extends XMLEmitter {
 
 
     private boolean isRecognizedHtmlElement(NodeName name) {
-        return name.hasURI(NamespaceConstant.XHTML) ||
-                name.hasURI("") && html5Elements.contains(name.getLocalPart().toLowerCase());
+        return name.hasURI(NamespaceUri.XHTML) ||
+                name.hasURI(NamespaceUri.NULL) && html5Elements.contains(name.getLocalPart().toLowerCase());
 
     }
 
@@ -90,7 +92,9 @@ public class XHTML5Emitter extends XMLEmitter {
         if (systemId == null &&
                 isRecognizedHtmlElement(name) && name.getLocalPart().toLowerCase().equals("html")) {
             try {
-                writer.write("<!DOCTYPE " + displayName + ">");
+                writer.writeAscii(DOCTYPE);
+                writer.write(displayName);
+                writer.writeCodePoint('>');
             } catch (IOException e) {
                 throw new XPathException(e);
             }
@@ -109,11 +113,13 @@ public class XHTML5Emitter extends XMLEmitter {
      */
 
     @Override
-    protected String emptyElementTagCloser(String displayName, /*@NotNull*/ NodeName name) {
+    protected void writeEmptyElementTagCloser(String displayName, /*@NotNull*/ NodeName name) throws IOException {
         if (isRecognizedHtmlElement(name) && emptyTags5.contains(name.getLocalPart())) {
-            return "/>";
+            writer.writeAscii(StringConstants.EMPTY_TAG_END);
         } else {
-            return "></" + displayName + '>';
+            writer.writeAscii(StringConstants.EMPTY_TAG_MIDDLE);
+            writer.write(displayName);
+            writer.writeCodePoint('>');
         }
     }
 
@@ -121,8 +127,9 @@ public class XHTML5Emitter extends XMLEmitter {
      * Character data.
      */
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (!started && Whitespace.isWhite(chars)) {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        //noinspection StatementWithEmptyBody
+        if (!started && Whitespace.isAllWhite(chars)) {
             // Ignore whitespace before the first start tag. This isn't explicit in the spec, but
             // we would otherwise need to buffer such whitespace, because we need to output a DOCTYPE
             // declaration based on the content of the first element tag.

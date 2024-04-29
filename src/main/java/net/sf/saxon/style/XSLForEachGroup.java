@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,13 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
+import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.instruct.ForEachGroup;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.expr.parser.TypeChecker;
+import net.sf.saxon.expr.sort.CodepointCollator;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.AttributeInfo;
@@ -22,11 +24,13 @@ import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.function.Supplier;
 
 /**
  * Handler for xsl:for-each-group elements in stylesheet. This is a new instruction
@@ -38,6 +42,7 @@ public final class XSLForEachGroup extends StyleElement {
     /*@Nullable*/ private Expression select = null;
     private Expression groupBy = null;
     private Expression groupAdjacent = null;
+    private Expression splitWhen = null;
     private Pattern starting = null;
     private Pattern ending = null;
     private Expression collationName;
@@ -70,18 +75,18 @@ public final class XSLForEachGroup extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
-        String selectAtt = null;
         String groupByAtt = null;
         String groupAdjacentAtt = null;
         String startingAtt = null;
         String endingAtt = null;
+        String splitWhenAtt = null;
         String collationAtt = null;
 
         for (AttributeInfo att : attributes()) {
@@ -90,9 +95,16 @@ public final class XSLForEachGroup extends StyleElement {
             String value = att.getValue();
             switch (f) {
                 case "select":
-                    selectAtt = value;
-                    select = makeExpression(selectAtt, att);
+                    select = makeExpression(value, att);
                     break;
+//                case "array":
+//                    requireXslt40("array");
+//                    select = arrayToSequence(makeExpression(value, att));
+//                    break;
+//                case "map":
+//                    requireXslt40("map");
+//                    select = mapToSequence(makeExpression(value, att));
+//                    break;
                 case "group-by":
                     groupByAtt = value;
                     groupBy = makeExpression(groupByAtt, att);
@@ -107,15 +119,27 @@ public final class XSLForEachGroup extends StyleElement {
                 case "group-ending-with":
                     endingAtt = value;
                     break;
+                case "break-when":
+                    // TODO: drop this, it was renamed split-when
+                    if (requireXslt40Attribute("break-when")) {
+                        splitWhenAtt = "function($group as item()*, $next as item()) as Q{http://www.w3.org/2001/XMLSchema}boolean " +
+                                "{ Q{http://www.w3.org/2005/xpath-functions}boolean(" + value + ") }";
+                        //System.err.println(breakWhenAtt);
+                        splitWhen = makeExpression(splitWhenAtt, att);
+                    }
+                    break;
+                case "split-when":
+                    // 4.0 extension
+                    if (requireXslt40Attribute("split-when")) {
+                        splitWhenAtt = "function($group as item()*, $next as item()) as Q{http://www.w3.org/2001/XMLSchema}boolean " +
+                                "{ Q{http://www.w3.org/2005/xpath-functions}boolean(" + value + ") }";
+                        //System.err.println(breakWhenAtt);
+                        splitWhen = makeExpression(splitWhenAtt, att);
+                    }
+                    break;
                 case "collation":
                     collationAtt = Whitespace.trim(value);
                     collationName = makeAttributeValueTemplate(collationAtt, att);
-                    break;
-                case "bind-group":
-                    compileError("The bind-group attribute has been dropped from the XSLT 3.0 specification", "XTSE0090");
-                    break;
-                case "bind-grouping-key":
-                    compileError("The bind-grouping-key attribute has been dropped from the XSLT 3.0 specification", "XTSE0090");
                     break;
                 case "composite":
                     composite = processBooleanAttribute("composite", value);
@@ -126,18 +150,19 @@ public final class XSLForEachGroup extends StyleElement {
             }
         }
 
-        if (selectAtt == null) {
+        if (select == null) {
+            select = Literal.makeEmptySequence();
             reportAbsence("select");
-            select = Literal.makeEmptySequence(); // for error recovery
         }
 
         int c = (groupByAtt == null ? 0 : 1) +
                 (groupAdjacentAtt == null ? 0 : 1) +
                 (startingAtt == null ? 0 : 1) +
-                (endingAtt == null ? 0 : 1);
+                (endingAtt == null ? 0 : 1) +
+                (splitWhenAtt == null ? 0 : 1);
         if (c != 1) {
             compileError("Exactly one of the attributes group-by, group-adjacent, group-starting-with, " +
-                    "and group-ending-with must be specified", "XTSE1080");
+                    "and group-ending-with must be specified", "XTSE1080"); //TODO: add break-when when it becomes mainstream
         }
 
         if (startingAtt != null) {
@@ -153,7 +178,7 @@ public final class XSLForEachGroup extends StyleElement {
                 compileError("A collation may be specified only if group-by or group-adjacent is specified", "XTSE1090");
             } else {
                 if (collationName instanceof StringLiteral) {
-                    String collation = ((StringLiteral) collationName).getStringValue();
+                    String collation = ((StringLiteral) collationName).stringify();
                     URI collationURI;
                     try {
                         collationURI = new URI(collation);
@@ -191,7 +216,7 @@ public final class XSLForEachGroup extends StyleElement {
         if (groupBy != null) {
             groupBy = typeCheck("group-by", groupBy);
             try {
-                RoleDiagnostic role =
+                Supplier<RoleDiagnostic> role = () ->
                         new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/group-by", 0);
                 groupBy = tc.staticTypeCheck(groupBy, SequenceType.ATOMIC_SEQUENCE, role, visitor);
             } catch (XPathException err) {
@@ -200,25 +225,36 @@ public final class XSLForEachGroup extends StyleElement {
         } else if (groupAdjacent != null) {
             groupAdjacent = typeCheck("group-adjacent", groupAdjacent);
             try {
-                RoleDiagnostic role =
-                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/group-adjacent", 0);
-                role.setErrorCode("XTTE1100");
+                Supplier<RoleDiagnostic> role = () ->
+                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/group-adjacent", 0, "XTTE1100");
                 groupAdjacent = tc.staticTypeCheck(groupAdjacent,
                         composite ? SequenceType.ATOMIC_SEQUENCE : SequenceType.SINGLE_ATOMIC,
                                                    role, visitor);
             } catch (XPathException err) {
                 compileError(err);
             }
+        } else if (splitWhen != null) {
+            splitWhen = typeCheck("break-when", splitWhen);
+            try {
+                SpecificFunctionType breakWhenType = new SpecificFunctionType(
+                        new SequenceType[]{SequenceType.ANY_SEQUENCE, SequenceType.SINGLE_ITEM}, SequenceType.SINGLE_BOOLEAN);
+                Supplier<RoleDiagnostic> role = () ->
+                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/break-when", 0, "XTTE1100");
+                splitWhen = tc.staticTypeCheck(splitWhen,
+                                               SequenceType.makeSequenceType(breakWhenType, StaticProperty.EXACTLY_ONE),
+                                               role, visitor);
+            } catch (XPathException err) {
+                compileError(err);
+            }
         }
 
-        starting = typeCheck("starting", starting);
-        ending = typeCheck("ending", ending);
+        starting = typeCheck("group-starting-with", starting);
+        ending = typeCheck("group-ending-with", ending);
 
         if ((starting != null || ending != null) && visitor.getStaticContext().getXPathVersion() < 30) {
             try {
-                RoleDiagnostic role =
-                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/select", 0);
-                role.setErrorCode("XTTE1120");
+                Supplier<RoleDiagnostic> role = () ->
+                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/select", 0, "XTTE1120");
                 select = tc.staticTypeCheck(select, SequenceType.NODE_SEQUENCE, role, visitor);
             } catch (XPathException err) {
                 String prefix = starting != null ?
@@ -228,7 +264,7 @@ public final class XSLForEachGroup extends StyleElement {
             }
         }
         if (!hasChildNodes()) {
-            compileWarning("An empty xsl:for-each-group instruction has no effect", SaxonErrorCode.SXWN9009);
+            issueWarning("An empty xsl:for-each-group instruction has no effect", SaxonErrorCode.SXWN9009);
         }
 
     }
@@ -239,14 +275,20 @@ public final class XSLForEachGroup extends StyleElement {
         StringCollator collator = null;
         if (collationName instanceof StringLiteral) {
             // if the collation name is constant, then we've already resolved it against the base URI
-            final String uri = ((StringLiteral) collationName).getStringValue();
-            collator = findCollation(uri, getBaseURI());
+            final String uri = ((StringLiteral) collationName).stringify();
+            try {
+                collator = findCollation(uri, getBaseURI());
+            } catch (XPathException err) {
+                compileError("Failed to load collation " + uri + ": " + err.getMessage(), "XTDE1110");
+                collator = CodepointCollator.getInstance();     // for recovery paths
+            }
             if (collator == null) {
-                compileError("The collation name '" + collationName + "' has not been defined", "XTDE1110");
+                compileError("The collation name '" + uri + "' has not been defined", "XTDE1110");
+                collator = CodepointCollator.getInstance();
             }
         }
 
-        byte algorithm = 0;
+        byte algorithm = ForEachGroup.GROUP_BY;
         Expression key = null;
         if (groupBy != null) {
             algorithm = ForEachGroup.GROUP_BY;
@@ -260,6 +302,9 @@ public final class XSLForEachGroup extends StyleElement {
         } else if (ending != null) {
             algorithm = ForEachGroup.GROUP_ENDING;
             key = ending;
+        } else if (splitWhen != null) {
+            algorithm = ForEachGroup.GROUP_SPLIT_WHEN;
+            key = splitWhen;
         }
 
         Expression action = compileSequenceConstructor(compilation, decl, true);
@@ -278,6 +323,7 @@ public final class XSLForEachGroup extends StyleElement {
                 makeSortKeys(compilation, decl));
             instr.setIsInFork(getParent().getFingerprint() == StandardNames.XSL_FORK);
             instr.setComposite(composite);
+            instr.setLocation(saveLocation());
             return instr;
         } catch (XPathException e) {
             compileError(e);

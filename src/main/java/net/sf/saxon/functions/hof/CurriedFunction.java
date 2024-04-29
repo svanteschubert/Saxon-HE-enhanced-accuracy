@@ -12,7 +12,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.functions.AbstractFunction;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.AnnotationList;
@@ -23,6 +23,7 @@ import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * A function obtained by currying another function, that is, the result of calling
@@ -30,8 +31,8 @@ import java.util.Arrays;
  */
 public class CurriedFunction extends AbstractFunction {
 
-    private Function targetFunction;
-    private Sequence[] boundValues;
+    private final FunctionItem targetFunction;
+    private final Sequence[] boundValues;
     private FunctionItemType functionType;
 
     /**
@@ -42,8 +43,8 @@ public class CurriedFunction extends AbstractFunction {
      *                       unbound values (placeholders) by null
      */
 
-    public CurriedFunction(Function targetFunction, Sequence[] boundValues) {
-        this.targetFunction = targetFunction;
+    public CurriedFunction(FunctionItem targetFunction, Sequence[] boundValues) {
+        this.targetFunction = Objects.requireNonNull(targetFunction);
         this.boundValues = boundValues;
     }
 
@@ -143,7 +144,7 @@ public class CurriedFunction extends AbstractFunction {
      * @param context the XPath dynamic evaluation context
      * @param args    the actual arguments to be supplied
      * @return the result of invoking the function
-     * @throws net.sf.saxon.trans.XPathException
+     * @throws net.sf.saxon.trans.XPathException if the function reports a dynamic error
      *
      */
 

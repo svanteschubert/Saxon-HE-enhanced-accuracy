@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,11 +10,9 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.NameChecker;
-import net.sf.saxon.om.QNameParser;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.expr.parser.RetainedStaticContext;
+import net.sf.saxon.om.*;
+import net.sf.saxon.str.StringTool;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
@@ -54,7 +52,7 @@ public class FunctionAvailable extends SystemFunction {
         // for calls with fixed arguments is done during the optimization phase, which makes the full static context available.
 
         if (arguments[0] instanceof Literal && (arguments.length == 1 || arguments[1] instanceof Literal)) {
-            String lexicalQName = ((Literal) arguments[0]).getValue().getStringValue();
+            String lexicalQName = ((StringLiteral) arguments[0]).stringify();
             StaticContext env = visitor.getStaticContext();
             boolean b = false;
 
@@ -74,7 +72,7 @@ public class FunctionAvailable extends SystemFunction {
 
             for (int i = minArity; i <= maxArity; i++) {
                 SymbolicName.F sn = new SymbolicName.F(functionName, i);
-                if (env.getFunctionLibrary().isAvailable(sn)) {
+                if (env.getFunctionLibrary().isAvailable(sn, env.getXPathVersion())) {
                     b = true;
                     break;
                 }
@@ -86,10 +84,10 @@ public class FunctionAvailable extends SystemFunction {
         }
     }
 
-    private boolean isFunctionAvailable(String lexicalName, String edition, int arity, XPathContext context) throws XPathException {
+    private boolean isFunctionAvailable(String lexicalName, RetainedStaticContext rsc, int arity, XPathContext context) throws XPathException {
         if (arity == -1) {
             for (int i = 0; i < 20; i++) {
-                if (isFunctionAvailable(lexicalName, edition, i, context)) {
+                if (isFunctionAvailable(lexicalName, rsc, i, context)) {
                     return true;
                 }
             }
@@ -97,19 +95,16 @@ public class FunctionAvailable extends SystemFunction {
         }
         StructuredQName qName;
         try {
-            if (NameChecker.isValidNCName(lexicalName)) {
+            if (NameChecker.isValidNCName(StringTool.codePoints(lexicalName))) {
                 // we're in XSLT, where the default namespace for functions can't be changed
-                String uri = NamespaceConstant.FN;
-                qName = new StructuredQName("", uri, lexicalName);
+                qName = new StructuredQName("", NamespaceUri.FN, lexicalName);
             } else {
                 qName = StructuredQName.fromLexicalQName(lexicalName,
                         false, true,
                         getRetainedStaticContext());
             }
         } catch (XPathException e) {
-            e.setErrorCode("XTDE1400");
-            e.setXPathContext(context);
-            throw e;
+            throw e.withErrorCode("XTDE1400").withXPathContext(context);
         }
 
         final FunctionLibrary lib = context.getController().getExecutable().getFunctionLibrary();
@@ -122,10 +117,10 @@ public class FunctionAvailable extends SystemFunction {
 //                if (((details.applicability & BuiltInFunctionSet.HOF) != 0) && ("HE".equals(edition) || "JS".equals(edition))) {
 //                    return false;
 //                }
-//                // TODO: some further functions are not available in Saxon-JS
+//                // TODO: some further functions are not available in SaxonJS
 //            }
 //        }
-        return lib.isAvailable(sn);
+        return lib.isAvailable(sn, rsc.getPackageData().getHostLanguageVersion());
     }
 
     /**
@@ -145,7 +140,7 @@ public class FunctionAvailable extends SystemFunction {
             arity = (int) ((NumericValue) arguments[1].head()).longValue();
         }
         return BooleanValue.get(
-                isFunctionAvailable(lexicalQName, getRetainedStaticContext().getPackageData().getTargetEdition(), arity, context));
+                isFunctionAvailable(lexicalQName, getRetainedStaticContext(), arity, context));
     }
 }
 

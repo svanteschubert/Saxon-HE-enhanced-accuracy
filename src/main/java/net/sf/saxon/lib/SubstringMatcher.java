@@ -1,11 +1,13 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.lib;
+
+import net.sf.saxon.str.UnicodeString;
 
 /**
  * This interface is implemented by a collation that is capable of supporting
@@ -25,7 +27,7 @@ public interface SubstringMatcher extends StringCollator {
      * @return true iff s1 contains s2
      */
 
-    boolean contains(String s1, String s2);
+    boolean contains(UnicodeString s1, UnicodeString s2);
 
     /**
      * Test whether one string starts with another, according to the rules
@@ -36,7 +38,7 @@ public interface SubstringMatcher extends StringCollator {
      * @return true iff s1 starts with s2
      */
 
-    boolean startsWith(String s1, String s2);
+    boolean startsWith(UnicodeString s1, UnicodeString s2);
 
     /**
      * Test whether one string ends with another, according to the rules
@@ -47,7 +49,7 @@ public interface SubstringMatcher extends StringCollator {
      * @return true iff s1 ends with s2
      */
 
-    boolean endsWith(String s1, String s2);
+    boolean endsWith(UnicodeString s1, UnicodeString s2);
 
     /**
      * Return the part of a string before a given substring, according to the rules
@@ -58,7 +60,7 @@ public interface SubstringMatcher extends StringCollator {
      * @return the part of s1 that precedes the first occurrence of s2
      */
 
-    String substringBefore(String s1, String s2);
+    UnicodeString substringBefore(UnicodeString s1, UnicodeString s2);
 
     /**
      * Return the part of a string after a given substring, according to the rules
@@ -69,7 +71,7 @@ public interface SubstringMatcher extends StringCollator {
      * @return the part of s1 that follows the first occurrence of s2
      */
 
-    String substringAfter(String s1, String s2);
+    UnicodeString substringAfter(UnicodeString s1, UnicodeString s2);
 
 }
 

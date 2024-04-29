@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,7 @@ import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.instruct.Choose;
-import net.sf.saxon.expr.instruct.Message;
+import net.sf.saxon.expr.instruct.MessageInstr;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeName;
@@ -48,12 +48,12 @@ public final class XSLAssert extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String testAtt = null;
         String selectAtt = null;
@@ -117,13 +117,13 @@ public final class XSLAssert extends StyleElement {
             }
             if (errorCode instanceof StringLiteral) {
                 // resolve any QName prefix now
-                String code = ((StringLiteral) errorCode).getStringValue();
+                String code = ((StringLiteral) errorCode).stringify();
                 if (code.contains(":") && !code.startsWith("Q{")) {
                     StructuredQName name = makeQName(code, null, "error-code");
                     errorCode = new StringLiteral(name.getEQName());
                 }
             }
-            Message msg = new Message(select, new StringLiteral("yes"), errorCode);
+            MessageInstr msg = new MessageInstr(select, new StringLiteral("yes"), errorCode);
             msg.setIsAssert(true);
             if (!(errorCode instanceof StringLiteral)) {
                 // evaluation of the error code may need the namespace context

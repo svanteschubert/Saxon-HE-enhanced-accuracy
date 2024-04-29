@@ -13,7 +13,7 @@ import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.AbstractFunction;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.FunctionItemType;
@@ -35,7 +35,7 @@ public class FunctionLiteral extends Literal {
      * @param value     the value of this literal
      */
 
-    public FunctionLiteral(Function value) {
+    public FunctionLiteral(FunctionItem value) {
         super(value);
     }
 
@@ -46,24 +46,21 @@ public class FunctionLiteral extends Literal {
      */
 
     @Override
-    public Function getValue() {
-        return (Function) super.getValue();
+    public FunctionItem getGroundedValue() {
+        return (FunctionItem) super.getGroundedValue();
     }
 
 
     /**
      * Simplify an expression
-     *
-     *
-     *
      * @return for a Value, this always returns the value unchanged
      */
 
     /*@NotNull*/
     @Override
     public Expression simplify() throws XPathException {
-        if (getValue() instanceof AbstractFunction) {
-            ((AbstractFunction) getValue()).simplify();
+        if (getGroundedValue() instanceof AbstractFunction) {
+            ((AbstractFunction) getGroundedValue()).simplify();
         }
         return this;
     }
@@ -77,8 +74,8 @@ public class FunctionLiteral extends Literal {
     /*@NotNull*/
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
-        if (getValue() instanceof AbstractFunction) {
-            ((AbstractFunction) getValue()).typeCheck(visitor, contextInfo);
+        if (getGroundedValue() instanceof AbstractFunction) {
+            ((AbstractFunction) getGroundedValue()).typeCheck(visitor, contextInfo);
         }
         return this;
     }
@@ -92,7 +89,7 @@ public class FunctionLiteral extends Literal {
     /*@NotNull*/
     @Override
     public FunctionItemType getItemType() {
-        return getValue().getFunctionItemType();
+        return getGroundedValue().getFunctionItemType();
     }
 
     /**
@@ -100,7 +97,7 @@ public class FunctionLiteral extends Literal {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -113,8 +110,8 @@ public class FunctionLiteral extends Literal {
 
 
     @Override
-    public int computeSpecialProperties() {
-        return StaticProperty.NO_NODES_NEWLY_CREATED;
+    protected int computeSpecialProperties() {
+        return StaticProperty.NO_NODES_NEWLY_CREATED | StaticProperty.COMPUTED_FUNCTION;
     }
 
     /**
@@ -132,13 +129,13 @@ public class FunctionLiteral extends Literal {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables to be re-bound
      */
 
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        FunctionLiteral fl2 = new FunctionLiteral(getValue());
+        FunctionLiteral fl2 = new FunctionLiteral(getGroundedValue());
         ExpressionTool.copyLocationInfo(this, fl2);
         return fl2;
     }
@@ -164,7 +161,7 @@ public class FunctionLiteral extends Literal {
      */
 
     public boolean equals(Object obj) {
-        return obj instanceof FunctionLiteral && ((FunctionLiteral) obj).getValue() == getValue();
+        return obj instanceof FunctionLiteral && ((FunctionLiteral) obj).getGroundedValue() == getGroundedValue();
 
     }
 
@@ -173,8 +170,8 @@ public class FunctionLiteral extends Literal {
      */
 
     @Override
-    public int computeHashCode() {
-        return getValue().hashCode();
+    protected int computeHashCode() {
+        return getGroundedValue().hashCode();
     }
 
     /**
@@ -197,7 +194,7 @@ public class FunctionLiteral extends Literal {
 
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
-        Function f = getValue();
+        FunctionItem f = getGroundedValue();
         if (f instanceof UserFunction) {
             new UserFunctionReference((UserFunction) f).export(out);
         } else {
@@ -207,4 +204,4 @@ public class FunctionLiteral extends Literal {
 
 }
 
-// Copyright (c) 2009-2020 Saxonica Limited
+// Copyright (c) 2009-2023 Saxonica Limited

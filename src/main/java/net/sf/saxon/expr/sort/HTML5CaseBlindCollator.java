@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,8 +10,8 @@ package net.sf.saxon.expr.sort;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.lib.SubstringMatcher;
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.*;
+import net.sf.saxon.z.IntIterator;
 
 
 /**
@@ -22,7 +22,7 @@ import net.sf.saxon.tree.util.FastStringBuffer;
 
 public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher {
 
-    private static HTML5CaseBlindCollator theInstance = new HTML5CaseBlindCollator();
+    private static final HTML5CaseBlindCollator theInstance = new HTML5CaseBlindCollator();
 
     public static HTML5CaseBlindCollator getInstance() {
         return theInstance;
@@ -43,17 +43,19 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      *
      * @return &lt;0 if a&lt;b, 0 if a=b, &gt;0 if a&gt;b
      * @throws ClassCastException if the objects are of the wrong type for this Comparer
+     * @param a the first string
+     * @param b the second string
      */
 
     @Override
-    public int compareStrings(CharSequence a, CharSequence b) {
+    public int compareStrings(UnicodeString a, UnicodeString b) {
         // Note that Java does UTF-16 code unit comparison, which is not the same as Unicode codepoint comparison
         // except in the "equals" case. So we have to do a character-by-character comparison
         return compareCS(a, b);
     }
 
     /**
-     * Compare two CharSequence objects. This is hand-coded to avoid converting the objects into
+     * Compare two UnicodeString objects. This is hand-coded to avoid converting the objects into
      * Strings.
      *
      * @return &lt;0 if a&lt;b, 0 if a=b, &gt;0 if a&gt;b
@@ -61,11 +63,11 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @SuppressWarnings("Duplicates")
-    private int compareCS(CharSequence a, CharSequence b) {
-        int alen = a.length();
-        int blen = b.length();
-        int i = 0;
-        int j = 0;
+    private int compareCS(UnicodeString a, UnicodeString b) {
+        long alen = a.length();
+        long blen = b.length();
+        long i = 0;
+        long j = 0;
         while (true) {
             if (i == alen) {
                 if (j == blen) {
@@ -77,10 +79,8 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
             if (j == blen) {
                 return +1;
             }
-            // The spec doesn't define ordering rules for this collation, so we use the order of UTF16 code units
-            // rather than analyzing surrogate pairs
-            int nexta = (int) a.charAt(i++);
-            int nextb = (int) b.charAt(j++);
+            int nexta = a.codePointAt(i++);
+            int nextb = b.codePointAt(j++);
             if (nexta >= 'a' && nexta <= 'z') {
                 nexta += 'A' - 'a';
             }
@@ -106,7 +106,7 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @Override
-    public boolean comparesEqual(CharSequence s1, CharSequence s2) {
+    public boolean comparesEqual(UnicodeString s1, UnicodeString s2) {
         return compareCS(s1, s2) == 0;
     }
 
@@ -120,8 +120,8 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @Override
-    public boolean contains(String s1, String s2) {
-        return normalize(s1).contains(normalize(s2));
+    public boolean contains(UnicodeString s1, UnicodeString s2) {
+        return normalize(s1).indexOf(normalize(s2), 0) >= 0;
     }
 
     /**
@@ -134,8 +134,8 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @Override
-    public boolean endsWith(String s1, String s2) {
-        return normalize(s1).endsWith(normalize(s2));
+    public boolean endsWith(UnicodeString s1, UnicodeString s2) {
+        return normalize(s1).hasSubstring(normalize(s2), s1.length() - s2.length());
     }
 
     /**
@@ -148,8 +148,8 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @Override
-    public boolean startsWith(String s1, String s2) {
-        return normalize(s1).startsWith(normalize(s2));
+    public boolean startsWith(UnicodeString s1, UnicodeString s2) {
+        return normalize(s1).hasSubstring(normalize(s2), 0);
     }
 
     /**
@@ -162,12 +162,12 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @Override
-    public String substringAfter(String s1, String s2) {
-        int i = normalize(s1).indexOf(normalize(s2));
+    public UnicodeString substringAfter(UnicodeString s1, UnicodeString s2) {
+        long i = normalize(s1).indexOf(normalize(s2), 0);
         if (i < 0) {
-            return "";
+            return EmptyUnicodeString.getInstance();
         }
-        return s1.substring(i + s2.length());
+        return s1.substring(i + s2.length(), s1.length());
     }
 
     /**
@@ -180,12 +180,12 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @Override
-    public String substringBefore(/*@NotNull*/ String s1, String s2) {
-        int j = normalize(s1).indexOf(normalize(s2));
+    public UnicodeString substringBefore(/*@NotNull*/ UnicodeString s1, UnicodeString s2) {
+        long j = normalize(s1).indexOf(normalize(s2), 0);
         if (j < 0) {
-            return "";
+            return EmptyUnicodeString.getInstance();
         }
-        return s1.substring(0, j);
+        return s1.prefix(j);
     }
 
     /**
@@ -196,25 +196,26 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     @Override
-    public AtomicMatchKey getCollationKey(CharSequence s) {
-        return UnicodeString.makeUnicodeString(normalize(s));
+    public AtomicMatchKey getCollationKey(UnicodeString s) {
+        return normalize(s);
     }
 
     /**
      * Normalize the strings prior to comparison for substring-comparison operations
      */
 
-    private String normalize(CharSequence cs) {
-        FastStringBuffer fsb = new FastStringBuffer(cs.length());
-        for (int i=0; i<cs.length(); i++) {
-            char c = cs.charAt(i);
+    private UnicodeString normalize(UnicodeString cs) {
+        UnicodeBuilder sb = new UnicodeBuilder(cs.length32());
+        IntIterator iter = cs.codePoints();
+        while (iter.hasNext()) {
+            int c = iter.next();
             if ('a' <= c && c <= 'z') {
-                fsb.cat((char)(c + 'A' - 'a'));
+                sb.append((char)(c + 'A' - 'a'));
             } else {
-                fsb.cat(c);
+                sb.append(c);
             }
         }
-        return fsb.toString();
+        return sb.toUnicodeString();
     }
 }
 

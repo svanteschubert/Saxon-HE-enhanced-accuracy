@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,28 +21,28 @@ import net.sf.saxon.expr.number.AbstractNumberer;
  *         at the start of a sentence, hence there is the problem."</p>
  * @see <a href="http://woordenlijst.org/leidraad/6/9/#r6n">http://woordenlijst.org/leidraad/6/9/#r6n</a>
  * @see <a href="http://taaladvies.net/taal/advies/popup.php?id=88">http://taaladvies.net/taal/advies/popup.php?id=88</a>
- * @see <a href="http://www.vlaanderen.be/servlet/Satellite?c=Page&cid=1120536021990&amp;pagename=taaltelefoon%2FPage%2FHomePageMIN">http://www.vlaanderen.be/servlet/Satellite?c=Page&cid=1120536021990&pagename=taaltelefoon%2FPage%2FHomePageMIN</a>
+ * @see <a href="http://www.vlaanderen.be/servlet/Satellite?c=Page&cid=1120536021990&amp;pagename=taaltelefoon%2FPage%2FHomePageMIN">http://www.vlaanderen.be/servlet/Satellite?c=Page&amp;cid=1120536021990&amp;pagename=taaltelefoon%2FPage%2FHomePageMIN</a>
  */
 
 public class Numberer_nl extends AbstractNumberer {
 
     private static final long serialVersionUID = 1L;
 
-    private static String[] dutchOrdinalUnits = {
+    private static final String[] dutchOrdinalUnits = {
             "", "Eenste", "Tweede", "Derde", "Vierde", "Vijfde", "Zesde", "Zevende", "Achtste", "Negende",
             "Tiende", "Elfde ", "Twaalfde", "Dertiende", "Veertiende", "Vijftiende", "Zestiende",
             "Zeventiende", "Achtiende", "Negentiende"};
 
-    private static String[] dutchOrdinalTens = {
+    private static final String[] dutchOrdinalTens = {
             "", "Tiende", "Twintigste", "Dertigste", "Veertigste", "Vijftigste",
             "Zestigste", "Zeventigste", "Tachtigste", "Negentigste"};
 
-    private static String[] dutchUnits = {
+    private static final String[] dutchUnits = {
             "", "Een", "Twee", "Drie", "Vier", "Vijf", "Zes", "Zeven", "Acht", "Negen",
             "Tien", "Elf", "Twaalf", "Dertien", "Veertien", "Vijftien", "Zestien",
             "Zeventien", "Achtien", "Negentien"};
 
-    private static String[] dutchTens = {
+    private static final String[] dutchTens = {
             "", "Tien", "Twintig", "Dertig", "Veertig", "Vijftig",
             "Zestig", "Zeventig", "Tachtig", "Negentig"};
 
@@ -64,23 +64,23 @@ public class Numberer_nl extends AbstractNumberer {
         } else if (number >= 1000000000) {
 
             long rem = number % 1000000000;
-            s = toWords(number / 1000000000) + " Miljard" +
+            s = toWords("", number / 1000000000) + " Miljard" +
                     (rem == 0 ? "" : (rem < 100 ? " en " : " ") +
                             toOrdinalWords(ordinalParam, rem, wordCase));
         } else if (number >= 1000000) {
 
             long rem = number % 1000000;
-            s = toWords(number / 1000000) + " Miljoen" +
+            s = toWords("", number / 1000000) + " Miljoen" +
                     (rem == 0 ? "" : (rem < 100 ? " en " : " ") +
                             toOrdinalWords(ordinalParam, rem, wordCase));
         } else if (number >= 1000) {
 
             long rem = number % 1000;
-            s = (number / 1000 == 1 ? "" : toWords(number / 1000)) + "Duizend" + " " +
+            s = (number / 1000 == 1 ? "" : toWords("", number / 1000)) + "Duizend" + " " +
                     toOrdinalWords(ordinalParam, rem, wordCase);
         } else if (number >= 100) {
             long rem = number % 100;
-            s = (number / 100 == 1 ? "" : toWords(number / 100)) + "Honderd" + toOrdinalWords(ordinalParam, rem, wordCase);
+            s = (number / 100 == 1 ? "" : toWords("", number / 100)) + "Honderd" + toOrdinalWords(ordinalParam, rem, wordCase);
         } else {
             if (number < 20) {
                 s = dutchOrdinalUnits[(int) number];
@@ -103,22 +103,22 @@ public class Numberer_nl extends AbstractNumberer {
     }
 
     @Override
-    public String toWords(long number) {
+    public String toWords(String cardinal, long number) {
         if (number >= 1000000000) {
             long rem = number % 1000000000;
-            return toWords(number / 1000000000) + " Miljard" +
-                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(rem));
+            return toWords(cardinal, number / 1000000000) + " Miljard" +
+                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(cardinal, rem));
         } else if (number >= 1000000) {
             long rem = number % 1000000;
-            return toWords(number / 1000000) + " Miljoen" +
-                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(rem));
+            return toWords(cardinal, number / 1000000) + " Miljoen" +
+                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(cardinal, rem));
         } else if (number >= 1000) {
             long rem = number % 1000;
-            return (number / 1000 == 1 ? "" : toWords(number / 1000)) + "Duizend" +
-                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(rem));
+            return (number / 1000 == 1 ? "" : toWords(cardinal, number / 1000)) + "Duizend" +
+                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(cardinal, rem));
         } else if (number >= 100) {
             long rem = number % 100;
-            return (number / 100 == 1 ? "" : toWords(number / 100)) + "Honderd" + toWords(rem);
+            return (number / 100 == 1 ? "" : toWords(cardinal, number / 100)) + "Honderd" + toWords(cardinal, rem);
         } else {
             if (number < 20) {
                 return dutchUnits[(int) number];
@@ -136,12 +136,12 @@ public class Numberer_nl extends AbstractNumberer {
     }
 
     @Override
-    public String toWords(long number, int wordCase) {
+    public String toWords(String cardinal, long number, int wordCase) {
         String s;
         if (number == 0) {
             s = "nul";
         } else {
-            s = toWords(number);
+            s = toWords(cardinal, number);
         }
         if (wordCase == UPPER_CASE) {
             return s.toUpperCase();
@@ -153,7 +153,7 @@ public class Numberer_nl extends AbstractNumberer {
     }
 
 
-    private static String[] dutchMonths = {
+    private static final String[] dutchMonths = {
             "Januari", "Februari", "Maart", "April", "Mei", "Juni",
             "Juli", "Augustus", "September", "Oktober", "November", "December"
     };
@@ -212,15 +212,15 @@ public class Numberer_nl extends AbstractNumberer {
         return name;
     }
 
-    private static String[] dutchDays = {
+    private static final String[] dutchDays = {
             "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"
     };
 
-    private static String[] dutchDayAbbreviations = {
+    private static final String[] dutchDayAbbreviations = {
             "Ma", "Di", "Woe", "Do", "Vrij", "Zat", "Zon"
     };
 
-    private static int[] minUniqueDayLength = {
+    private static final int[] minUniqueDayLength = {
             1, 2, 1, 2, 1, 2, 2
     };
 
@@ -247,6 +247,7 @@ public class Numberer_nl extends AbstractNumberer {
                     break;
                 default:
                     s = "v.m.";
+                    break;
             }
         } else {
             switch (maxWidth) {
@@ -259,6 +260,7 @@ public class Numberer_nl extends AbstractNumberer {
                     break;
                 default:
                     s = "n.m.";
+                    break;
             }
         }
         return s;

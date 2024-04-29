@@ -9,21 +9,24 @@ package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.FunctionAnnotationHandler;
-import net.sf.saxon.om.Function;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.*;
 import net.sf.saxon.query.Annotation;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.FunctionItemType;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.type.UType;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -35,8 +38,9 @@ import net.sf.saxon.value.SequenceType;
 
 public final class FunctionSequenceCoercer extends UnaryExpression {
 
-    private SpecificFunctionType requiredItemType;
-    private RoleDiagnostic role;
+    private final SpecificFunctionType requiredItemType;
+    private final Supplier<RoleDiagnostic> roleSupplier;
+    private final boolean allow40;
 
     /**
      * Constructor
@@ -46,10 +50,11 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
      */
 
     public FunctionSequenceCoercer(Expression sequence, SpecificFunctionType requiredItemType,
-                                   RoleDiagnostic role) {
+                                   Supplier<RoleDiagnostic> role, boolean allow40) {
         super(sequence);
         this.requiredItemType = requiredItemType;
-        this.role = role;
+        this.roleSupplier = role;
+        this.allow40 = allow40;
         ExpressionTool.copyLocationInfo(sequence, this);
     }
 
@@ -66,13 +71,17 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     /*@NotNull*/
     @Override
     public Expression simplify() throws XPathException {
-        setBaseExpression(getBaseExpression().simplify());
-        if (getBaseExpression() instanceof Literal) {
-            GroundedValue val =
-                    iterate(new EarlyEvaluationContext(getConfiguration())).materialize();
-            return Literal.makeLiteral(val, this);
+        try {
+            setBaseExpression(getBaseExpression().simplify());
+            if (getBaseExpression() instanceof Literal) {
+                GroundedValue val =
+                        SequenceTool.toGroundedValue(iterate(new EarlyEvaluationContext(getConfiguration())));
+                return Literal.makeLiteral(val, this);
+            }
+            return this;
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
-        return this;
     }
 
     /**
@@ -98,7 +107,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NO_NODES_NEWLY_CREATED;
     }
@@ -113,7 +122,8 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        FunctionSequenceCoercer fsc2 = new FunctionSequenceCoercer(getBaseExpression().copy(rebindings), requiredItemType, role);
+        FunctionSequenceCoercer fsc2 = new FunctionSequenceCoercer(
+                getBaseExpression().copy(rebindings), requiredItemType, roleSupplier, allow40);
         ExpressionTool.copyLocationInfo(this, fsc2);
         return fsc2;
     }
@@ -138,9 +148,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(final XPathContext context) throws XPathException {
-        SequenceIterator base = getBaseExpression().iterate(context);
-        Coercer coercer = new Coercer(requiredItemType, context.getConfiguration(), getLocation());
-        return new ItemMappingIterator(base, coercer, true);
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
@@ -149,23 +157,8 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
 
     /*@Nullable*/
     @Override
-    public Function evaluateItem(XPathContext context) throws XPathException {
-        Item item = getBaseExpression().evaluateItem(context);
-        if (item == null) {
-            return null;
-        }
-        if (!(item instanceof Function)) {
-            UType itemType = UType.getUType(item);
-            throw new XPathException(role.composeErrorMessage(requiredItemType, itemType), "XPTY0004");
-        }
-        try {
-            checkAnnotations((Function)item, requiredItemType, context.getConfiguration());
-        } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            err.maybeSetContext(context);
-            throw err;
-        }
-        return new CoercedFunction((Function)item, requiredItemType);
+    public FunctionItem evaluateItem(XPathContext context) throws XPathException {
+        return (FunctionItem)makeElaborator().elaborateForItem().eval(context);
     }
 
 
@@ -187,15 +180,15 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality();
     }
 
     /**
      * @return the role locator
      */
-    public RoleDiagnostic getRole() {
-        return role;
+    public RoleDiagnostic getRoleSupplier() {
+        return roleSupplier.get();
     }
 
     /**
@@ -208,7 +201,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     }
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode() ^ requiredItemType.hashCode();
     }
 
@@ -228,14 +221,27 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
         destination.startElement("fnCoercer", this);
         SequenceType st = SequenceType.makeSequenceType(requiredItemType, StaticProperty.EXACTLY_ONE);
         destination.emitAttribute("to", st.toAlphaCode());
-        destination.emitAttribute("diag", role.save());
+        destination.emitAttribute("diag", roleSupplier.get().save());
+        if (allow40) {
+            destination.emitAttribute("flags", "4");
+        }
         getBaseExpression().export(destination);
         destination.endElement();
     }
 
-    private static void checkAnnotations(Function item, FunctionItemType requiredItemType, Configuration config) throws XPathException {
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new FunctionSequenceCoercerElaborator();
+    }
+
+    private static void checkAnnotations(FunctionItem item, FunctionItemType requiredItemType, Configuration config) throws XPathException {
         for (Annotation ann : requiredItemType.getAnnotationAssertions()) {
-            FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(ann.getAnnotationQName().getURI());
+            FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(ann.getAnnotationQName().getNamespaceUri());
             if (handler != null && !handler.satisfiesAssertion(ann, item.getAnnotations())) {
                 throw new XPathException(
                         "Supplied function does not satisfy the annotation assertions of the required function type", "XPTY0004");
@@ -245,33 +251,60 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
 
     public static class Coercer implements ItemMappingFunction {
 
-        private SpecificFunctionType requiredItemType;
-        private Configuration config;
-        private Location locator;
+        private final SpecificFunctionType requiredItemType;
+        private final Configuration config;
+        private final Location locator;
+        private final boolean allow40;
 
-        public Coercer(SpecificFunctionType requiredItemType, Configuration config, Location locator) {
+        public Coercer(SpecificFunctionType requiredItemType, Configuration config, Location locator, boolean allow40) {
             this.requiredItemType = requiredItemType;
             this.config = config;
             this.locator = locator;
+            this.allow40 = allow40;
         }
 
-        @Override
-        public Function mapItem(Item item) throws XPathException {
-            if (!(item instanceof Function)) {
+        public FunctionItem mapItem(Item item) throws XPathException {
+            if (!(item instanceof FunctionItem)) {
                 throw new XPathException(
-                        "Function coercion attempted on an item which is not a function", "XPTY0004", locator);
+                        "Function coercion attempted on an item (" + item.toShortString() + ") which is not a function", "XPTY0004", locator);
             }
             try {
-                checkAnnotations((Function)item, requiredItemType, config);
-                return new CoercedFunction((Function)item, requiredItemType);
+                checkAnnotations((FunctionItem)item, requiredItemType, config);
+                return new CoercedFunction((FunctionItem)item, requiredItemType, allow40);
             } catch (XPathException err) {
-                err.maybeSetLocation(locator);
-                throw err;
+                throw err.maybeWithLocation(locator);
             }
         }
 
 
     }
+
+    private static class FunctionSequenceCoercerElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            FunctionSequenceCoercer expr = (FunctionSequenceCoercer) getExpression();
+            PullEvaluator base = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            Coercer coercer = new Coercer(
+                    expr.requiredItemType, expr.getConfiguration(), expr.getLocation(), expr.allow40);
+            return context -> new ItemMappingIterator(base.iterate(context), coercer, true);
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            FunctionSequenceCoercer expr = (FunctionSequenceCoercer) getExpression();
+            ItemEvaluator base = expr.getBaseExpression().makeElaborator().elaborateForItem();
+            Coercer coercer = new Coercer(
+                    expr.requiredItemType, expr.getConfiguration(), expr.getLocation(), expr.allow40);
+            return context -> {
+                Item item = base.eval(context);
+                if (item == null) {
+                    return null;
+                }
+                return coercer.mapItem(item);
+            };
+        }
+    }
 }
 
-// Copyright (c) 2009-2020 Saxonica Limited
+// Copyright (c) 2009-2023 Saxonica Limited

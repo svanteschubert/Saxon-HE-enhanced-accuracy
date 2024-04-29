@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.tree.wrapper;
 
+import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.GenericTreeInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.TreeInfo;
@@ -35,17 +36,26 @@ public class TypeStrippedDocument extends GenericTreeInfo {
 
     /**
      * Create a wrapped node within this document
+     * @param node the node to be wrapped
+     * @return the wrapped node
      */
 
     public TypeStrippedNode wrap(NodeInfo node) {
         return TypeStrippedNode.makeWrapper(node, this, null);
     }
 
+    @Override
+    public Durability getDurability() {
+        return underlyingTree.getDurability();
+    }
+
     /**
      * Get the element with a given ID, if any
      *
      * @param id        the required ID value
-     * @param getParent
+     * @param getParent true if running the element-with-id() function rather than the id()
+     *                  function; the difference is that in the case of an element of type xs:ID, the parent of
+     *                  the element should be returned, not the element itself.
      * @return the element with the given ID value, or null if there is none.
      */
 

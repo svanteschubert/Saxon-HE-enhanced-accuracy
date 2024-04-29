@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,19 +10,23 @@ package net.sf.saxon.regex;
 //import net.sf.saxon.expr.regexj.Matcher;
 //import net.sf.saxon.expr.regexj.Pattern;
 
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.value.StringValue;
 
-import java.util.function.Function;
+import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
  * An implementation of RegularExpression that calls the JDK regular expression library directly.
- * This can be invoked by appending ";j" to the flags attribute/argument
+ * This can be invoked by appending ";j" to the flags attribute/argument.
+ *
+ * <p>Note that in SaxonCS, this class is emulated by code that invokes the .NET
+ * regex engine, which has different rules. In this case the ";n" flag activates this option.</p>
  */
 public class JavaRegularExpression implements RegularExpression {
 
@@ -38,13 +42,16 @@ public class JavaRegularExpression implements RegularExpression {
      * @param flags     the user-specified flags (prior to any semicolon)
      */
 
-    public JavaRegularExpression(CharSequence javaRegex, String flags) throws XPathException {
+    public JavaRegularExpression(UnicodeString javaRegex, String flags) throws XPathException {
         this.flagBits = setFlags(flags);
         this.javaRegex = javaRegex.toString();
         try {
-            pattern = Pattern.compile(this.javaRegex, flagBits & (~(Pattern.COMMENTS)));
+            // The Java COMMENTS option does more than the XPath "x" option. However,
+            // on .NET, the "x" option can be emulated accurately.
+            flagBits = flagBits & (~(Pattern.COMMENTS));
+            pattern = Pattern.compile(this.javaRegex, flagBits);
         } catch (PatternSyntaxException e) {
-            throw new XPathException("Incorrect syntax for Java regular expression", e);
+            throw new XPathException("Incorrect syntax for native regular expression: " + e.getMessage(), "FORX0002");
         }
     }
 
@@ -73,10 +80,11 @@ public class JavaRegularExpression implements RegularExpression {
      * analyze-string instruction. The resulting RegexIterator provides both the matching and
      * non-matching substrings, and allows them to be distinguished. It also provides access
      * to matched subgroups.
+     * @param input the string to which the regular expression is to be applied
      */
 
     @Override
-    public RegexIterator analyze(CharSequence input) {
+    public RegexIterator analyze(UnicodeString input) {
         return new JRegexIterator(input.toString(), pattern);
     }
 
@@ -88,8 +96,8 @@ public class JavaRegularExpression implements RegularExpression {
      */
 
     @Override
-    public boolean containsMatch(CharSequence input) {
-        return pattern.matcher(input).find();
+    public boolean containsMatch(UnicodeString input) {
+        return pattern.matcher(input.toString()).find();
     }
 
     /**
@@ -100,8 +108,8 @@ public class JavaRegularExpression implements RegularExpression {
      */
 
     @Override
-    public boolean matches(CharSequence input) {
-        return pattern.matcher(input).matches();
+    public boolean matches(UnicodeString input) {
+        return pattern.matcher(input.toString()).matches();
     }
 
     /**
@@ -116,10 +124,10 @@ public class JavaRegularExpression implements RegularExpression {
      */
 
     @Override
-    public CharSequence replace(CharSequence input, CharSequence replacement) throws XPathException {
-        Matcher matcher = pattern.matcher(input);
+    public UnicodeString replace(UnicodeString input, UnicodeString replacement) throws XPathException {
+        Matcher matcher = pattern.matcher(input.toString());
         try {
-            return matcher.replaceAll(replacement.toString());
+            return StringView.tidy(matcher.replaceAll(replacement.toString()));
         } catch (IndexOutOfBoundsException e) {
             throw new XPathException(e.getMessage(), "FORX0004");
         }
@@ -136,8 +144,8 @@ public class JavaRegularExpression implements RegularExpression {
      * @throws XPathException if the replacement string is invalid
      */
     @Override
-    public CharSequence replaceWith(CharSequence input, Function<CharSequence, CharSequence> replacement) throws XPathException {
-        throw new XPathException("saxon:replace-with() is not supported with the Java regex engine");
+    public UnicodeString replaceWith(UnicodeString input, BiFunction<UnicodeString, UnicodeString[], UnicodeString> replacement) throws XPathException {
+        throw new XPathException("fn:replace#5 is not supported with the Java regex engine");
     }
 
     /**
@@ -148,11 +156,11 @@ public class JavaRegularExpression implements RegularExpression {
      */
 
     @Override
-    public AtomicIterator<StringValue> tokenize(CharSequence input) {
-        if (input.length() == 0) {
+    public AtomicIterator tokenize(UnicodeString input) {
+        if (input.isEmpty()) {
             return EmptyIterator.ofAtomic();
         }
-        return new JTokenIterator(input, pattern);
+        return new JTokenIterator(input.toString(), pattern);
     }
 
     /**
@@ -203,9 +211,7 @@ public class JavaRegularExpression implements RegularExpression {
                     flags |= Pattern.CANON_EQ;
                     break;
                 default:
-                    XPathException err = new XPathException("Invalid character '" + c + "' in regular expression flags");
-                    err.setErrorCode("FORX0001");
-                    throw err;
+                    throw new XPathException("Invalid character '" + c + "' in regular expression flags", "FORX0001");
             }
         }
         return flags;
@@ -244,6 +250,16 @@ public class JavaRegularExpression implements RegularExpression {
             flags += 'c';
         }
         return flags;
+    }
+
+    /**
+     * Ask whether the regular expression is using platform-native syntax (Java or .NET), or XPath syntax
+     *
+     * @return true if using platform-native syntax
+     */
+    @Override
+    public boolean isPlatformNative() {
+        return true;
     }
 }
 

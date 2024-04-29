@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -107,7 +107,8 @@ public class XSLAccept extends XSLAcceptExpose {
     protected void checkCompatibility(SymbolicName name, Visibility declared, Visibility exposed) {
         if (!isCompatible(declared, exposed)) {
             String code = "XTSE3040";
-            compileError("The " + name + " is declared as " + declared.show() + " and cannot be accepted as " + exposed.show(), code);
+            compileError("The " + name + " is declared as " + Err.describeVisibility(declared)
+                                 + " and cannot be accepted as " + Err.describeVisibility(exposed), code);
         }
     }
 
@@ -124,6 +125,8 @@ public class XSLAccept extends XSLAcceptExpose {
             case FINAL:
                 return exposed == Visibility.PRIVATE ||
                         exposed == Visibility.FINAL || exposed == Visibility.HIDDEN;
+            case UNDEFINED:
+                return true;
             default:
                 return false;
         }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.z;
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 
 /**
  * A hash table that maps int keys to int values.
@@ -93,7 +93,7 @@ public class IntToIntHashMap implements IntToIntMap {
      * @return true if the key is mapped
      */
     @Override
-    public boolean find(int key) {
+    public boolean contains(int key) {
         return _filled[indexOf(key)];
     }
 
@@ -178,7 +178,7 @@ public class IntToIntHashMap implements IntToIntMap {
     /*@NotNull*/
     @Override
     public IntIterator keyIterator() {
-        return new IntToIntHashMapKeyIterator();
+        return new IntToIntHashMapKeyIterator(this);
     }
 
 
@@ -187,7 +187,7 @@ public class IntToIntHashMap implements IntToIntMap {
 
     private static final int NBIT = 30; // NMAX = 2^NBIT
     private static final int NMAX = 1 << NBIT; // maximum number of keys mapped
-    private double _factor; // 0.0 <= _factor <= 1.0
+    private final double _factor; // 0.0 <= _factor <= 1.0
     private int _defaultValue = Integer.MAX_VALUE;
     private int _nmax; // 0 <= _nmax = 2^nbit <= 2^NBIT = NMAX
     private int _n; // 0 <= _n <= _nmax <= NMAX
@@ -273,7 +273,7 @@ public class IntToIntHashMap implements IntToIntMap {
     @Override
     public String toString() {
         // For diagnostics
-        FastStringBuffer buffer = new FastStringBuffer(256);
+        StringBuilder buffer = new StringBuilder(256);
         buffer.append("{");
         IntIterator keys = keyIterator();
         int count = 0;
@@ -294,18 +294,20 @@ public class IntToIntHashMap implements IntToIntMap {
     /**
      * Iterator over keys
      */
-    private class IntToIntHashMapKeyIterator implements IntIterator {
+    private static class IntToIntHashMapKeyIterator implements IntIterator {
 
+        private final IntToIntHashMap map;
         private int i = 0;
 
-        public IntToIntHashMapKeyIterator() {
+        public IntToIntHashMapKeyIterator(IntToIntHashMap map) {
+            this.map = map;
             i = 0;
         }
 
         @Override
         public boolean hasNext() {
-            while (i < _key.length) {
-                if (_filled[i]) {
+            while (i < map._key.length) {
+                if (map._filled[i]) {
                     return true;
                 } else {
                     i++;
@@ -316,7 +318,7 @@ public class IntToIntHashMap implements IntToIntMap {
 
         @Override
         public int next() {
-            return _key[i++];
+            return map._key[i++];
         }
     }
 

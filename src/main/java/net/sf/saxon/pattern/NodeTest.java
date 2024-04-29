@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,17 +9,19 @@ package net.sf.saxon.pattern;
 
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.om.*;
+import net.sf.saxon.trans.Err;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.tiny.NodeVectorTree;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 import net.sf.saxon.z.IntSet;
 import net.sf.saxon.z.IntUniversalSet;
 
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.IntPredicate;
-import java.util.function.Predicate;
 
 /**
  * A NodeTest is a simple kind of pattern that enables a context-free test of whether
@@ -28,12 +30,12 @@ import java.util.function.Predicate;
  * test (used, e.g. for "@comment()").
  * <p>As well as being used to support XSLT pattern matching, NodeTests act as predicates in
  * axis steps, and also act as item types for type matching.</p>
- * <p>For use in user-written application calling {@link NodeInfo#iterateAxis(int, Predicate)},
+ * <p>For use in user-written application calling {@link NodeInfo#iterateAxis},
  * it is possible to write a user-defined subclass of <code>NodeTest</code> that implements
  * a single method, {@link #matches(int, NodeName, SchemaType)}</p>
  */
 
-public abstract class NodeTest implements Predicate<NodeInfo>, ItemType.WithSequenceTypeCache {
+public abstract class NodeTest implements NodePredicate, ItemTypeWithSequenceTypeCache {
 
     private SequenceType _one;
     private SequenceType _oneOrMore;
@@ -205,8 +207,9 @@ public abstract class NodeTest implements Predicate<NodeInfo>, ItemType.WithSequ
      * matches the node test.
      */
 
-    public IntPredicate getMatcher(final NodeVectorTree tree) {
-        return nodeNr -> test(tree.getNode(nodeNr));
+    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
+        return IntPredicateLambda.of(nodeNr -> tree.getNodeKind(nodeNr) != Type.PARENT_POINTER
+                                               && test(tree.getNode(nodeNr)));
     }
 
     /**
@@ -238,7 +241,6 @@ public abstract class NodeTest implements Predicate<NodeInfo>, ItemType.WithSequ
      * @return true if the node test is satisfied by the supplied node, false otherwise
      */
 
-    @Override
     public boolean test(/*@NotNull*/ NodeInfo node) {
         return matches(node.getNodeKind(), NameOfNode.makeName(node), node.getSchemaType());
     }
@@ -250,6 +252,7 @@ public abstract class NodeTest implements Predicate<NodeInfo>, ItemType.WithSequ
      * @return the type annotation that all nodes matching this NodeTest must satisfy
      */
 
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public SchemaType getContentType() {
         Set<PrimitiveUType> m = getUType().decompose();
         Iterator<PrimitiveUType> it = m.iterator();
@@ -389,7 +392,7 @@ public abstract class NodeTest implements Predicate<NodeInfo>, ItemType.WithSequ
             }
             return Optional.empty();
         } else {
-            return Optional.of("The supplied value is " + item.getGenre().getDescription());
+            return Optional.of("The supplied value is " + Err.describeGenre(item.getGenre()));
         }
     }
 

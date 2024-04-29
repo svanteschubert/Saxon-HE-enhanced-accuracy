@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,8 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.instruct.DocumentInstr;
-import net.sf.saxon.expr.instruct.TailCall;
-import net.sf.saxon.expr.instruct.TailCallReturner;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -22,7 +21,9 @@ import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 
 /**
@@ -30,13 +31,12 @@ import java.util.function.BiConsumer;
  * also for XSLT local variables.
  */
 
-public class LetExpression extends Assignation implements TailCallReturner {
+public class LetExpression extends Assignation {
 
-    //private int evaluationMode = ExpressionTool.UNDECIDED;
-    private Evaluator evaluator = null;
+    private SequenceEvaluator evaluator = null;
     private boolean needsEagerEvaluation = false;
     private boolean needsLazyEvaluation = false;
-    private boolean isInstruction;
+    private boolean _isInstruction;
 
     /**
      * Create a LetExpression
@@ -54,7 +54,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
      */
 
     public void setInstruction(boolean inst) {
-        isInstruction = inst;
+        _isInstruction = inst;
     }
 
     /**
@@ -66,7 +66,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
 
     @Override
     public boolean isInstruction() {
-        return isInstruction;
+        return _isInstruction;
     }
 
 
@@ -109,6 +109,15 @@ public class LetExpression extends Assignation implements TailCallReturner {
         return needsLazyEvaluation;
     }
 
+    public boolean isNeedsEagerEvaluation() {
+        return needsEagerEvaluation;
+    }
+
+    @Override
+    public boolean supportsLazyEvaluation() {
+        return !needsEagerEvaluation;
+    }
+
     /**
      * Ask whether the expression can be lifted out of a loop, assuming it has no dependencies
      * on the controlling variable/focus of the loop
@@ -123,10 +132,6 @@ public class LetExpression extends Assignation implements TailCallReturner {
     public void resetLocalStaticProperties() {
         super.resetLocalStaticProperties();
         references = new ArrayList<>(); // bug 3233
-        if (evaluator == Evaluator.VARIABLE && !(getSequence() instanceof VariableReference)) {
-            evaluator = null;
-            setEvaluator();
-        }
     }
 
     /**
@@ -144,15 +149,20 @@ public class LetExpression extends Assignation implements TailCallReturner {
 
         getSequenceOp().typeCheck(visitor, contextInfo);
 
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
-        //role.setSourceLocator(this);
-        setSequence(TypeChecker.strictTypeCheck(
-                getSequence(), requiredType, role, visitor.getStaticContext()));
+        Supplier<RoleDiagnostic> role =
+                () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
+        if (visitor.getStaticContext().getXPathVersion() == 40) {
+            TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
+            setSequence(tc.staticTypeCheck(getSequence(), requiredType, role, visitor));
+        } else {
+            setSequence(TypeChecker.strictTypeCheck(
+                    getSequence(), requiredType, role, visitor.getStaticContext()));
+        }
         final ItemType actualItemType = getSequence().getItemType();
 
         refineTypeInformation(actualItemType,
                               getSequence().getCardinality(),
-                              getSequence() instanceof Literal ? ((Literal) getSequence()).getValue() : null,
+                              getSequence() instanceof Literal ? ((Literal) getSequence()).getGroundedValue() : null,
                               getSequence().getSpecialProperties(), this);
 
         getActionOp().typeCheck(visitor, contextInfo);
@@ -180,7 +190,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
      *
      * @param req                 the required type
      * @param backwardsCompatible true if backwards compatibility mode applies
-     * @param role                the role of the expression in relation to the required type
+     * @param roleSupplier                the role of the expression in relation to the required type
      * @param visitor             an expression visitor
      * @return the expression after type checking (perhaps augmented with dynamic type checking code)
      * @throws XPathException if failures occur, for example if the static type of one branch of the conditional
@@ -190,10 +200,10 @@ public class LetExpression extends Assignation implements TailCallReturner {
     @Override
     public Expression staticTypeCheck(SequenceType req,
                                       boolean backwardsCompatible,
-                                      RoleDiagnostic role, ExpressionVisitor visitor)
+                                      Supplier<RoleDiagnostic> roleSupplier, ExpressionVisitor visitor)
             throws XPathException {
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(backwardsCompatible);
-        setAction(tc.staticTypeCheck(getAction(), req, role, visitor));
+        setAction(tc.staticTypeCheck(getAction(), req, roleSupplier, visitor));
         return this;
     }
 
@@ -280,7 +290,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
             // of references.
 
             boolean considerRemoval = ((references != null && references.size() < 2) || getSequence() instanceof VariableReference) &&
-                    !isIndexedVariable && !hasLoopingReference && !needsEagerEvaluation;
+                    !indexedVariable && !hasLoopingReference && !needsEagerEvaluation;
 
             if (considerRemoval) {
                 verifyReferences();
@@ -346,7 +356,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
         while (tries++ < 5) {
             Expression seq0 = getSequence();
             getSequenceOp().optimize(visitor, contextItemType);
-            if (getSequence() instanceof Literal && !isIndexedVariable && opt.isOptionSet(OptimizerOptions.INLINE_VARIABLES)) {
+            if (getSequence() instanceof Literal && !indexedVariable && opt.isOptionSet(OptimizerOptions.INLINE_VARIABLES)) {
                 return optimize(visitor, contextItemType);
             }
             if (seq0 == getSequence()) {
@@ -361,7 +371,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
             if (act0 == getAction()) {
                 break;
             }
-            if (!isIndexedVariable && !needsEagerEvaluation) {
+            if (!indexedVariable && !needsEagerEvaluation) {
                 verifyReferences();
                 if (references != null && references.size() < 2) {
                     if (references.isEmpty()) {
@@ -380,17 +390,22 @@ public class LetExpression extends Assignation implements TailCallReturner {
 
         // Don't use lazy evaluation for a variable that is referenced inside the "try" part of a contained try catch (XSLT3 test try-031)
 
-        setEvaluator();
+        //setEvaluator();
         return this;
     }
 
     public void setEvaluator() {
-        if (needsEagerEvaluation) {
-            setEvaluator(ExpressionTool.eagerEvaluator(getSequence()));
-        } else if (isIndexedVariable()) {
-            setEvaluator(Evaluator.MAKE_INDEXED_VARIABLE);
+        if (isIndexedVariable()) {
+            PullEvaluator pullEval = getSequence().makeElaborator().elaborateForPull();
+            setEvaluator(new IndexedVariableEvaluator(pullEval));
+        } else if (needsEagerEvaluation || !getSequence().supportsLazyEvaluation()) {
+            setEvaluator(getSequence().makeElaborator().eagerly());
+        } else if (needsLazyEvaluation) {
+            setEvaluator(getSequence().makeElaborator().lazily(getNominalReferenceCount() > 1, needsLazyEvaluation));
         } else if (evaluator == null) {
-            setEvaluator(ExpressionTool.lazyEvaluator(getSequence(), getNominalReferenceCount() > 1));
+            setEvaluator(new LearningEvaluator(
+                    getSequence(),
+                    getSequence().makeElaborator().lazily(getNominalReferenceCount() > 1, false)));
         }
     }
 
@@ -434,7 +449,15 @@ public class LetExpression extends Assignation implements TailCallReturner {
      */
 
     private boolean allReferencesAreFlattened() {
-        return references != null && references.stream().allMatch(VariableReference::isFlattened);
+        if (references != null) {
+            for (VariableReference ref : references) {
+                if (!ref.isFlattened()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -533,16 +556,22 @@ public class LetExpression extends Assignation implements TailCallReturner {
      *
      * @param context the dynamic evaluation context
      * @return the result of evaluating the expression that is bound to the variable
+     * @throws XPathException if evaluation of the variable fails
      */
 
     public Sequence eval(XPathContext context) throws XPathException {
         if (evaluator == null) {
-            setEvaluator(ExpressionTool.lazyEvaluator(getSequence(), getNominalReferenceCount() > 1));
+            if (needsEagerEvaluation) {
+                setEvaluator(getSequence().makeElaborator().eagerly());
+            } else {
+                setEvaluator(new LearningEvaluator(
+                        getSequence(), getSequence().makeElaborator().lazily(getNominalReferenceCount() > 1, false)));
+            }
         }
         try {
             int savedOutputState = context.getTemporaryOutputState();
             context.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
-            Sequence result = evaluator.evaluate(getSequence(), context);
+            Sequence result = evaluator.evaluate(context);
             context.setTemporaryOutputState(savedOutputState);
             return result;
         } catch (ClassCastException e) {
@@ -550,7 +579,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
             assert false;
             int savedOutputState = context.getTemporaryOutputState();
             context.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
-            Sequence result = Evaluator.EAGER_SEQUENCE.evaluate(getSequence(), context);
+            Sequence result = ExpressionTool.eagerEvaluate(getSequence(), context);
             context.setTemporaryOutputState(savedOutputState);
             return result;
         }
@@ -562,18 +591,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        // minimize stack consumption by evaluating nested LET expressions iteratively
-        LetExpression let = this;
-        while (true) {
-            Sequence val = let.eval(context);
-            context.setLocalVariable(let.getLocalSlotNumber(), val);
-            if (let.getAction() instanceof LetExpression) {
-                let = (LetExpression) let.getAction();
-            } else {
-                break;
-            }
-        }
-        return let.getAction().evaluateItem(context);
+        return makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -611,18 +629,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        // minimize stack consumption by evaluating nested LET expressions iteratively
-        LetExpression let = this;
-        while (true) {
-            Sequence val = let.eval(context);
-            context.setLocalVariable(let.getLocalSlotNumber(), val);
-            if (let.getAction() instanceof LetExpression) {
-                let = (LetExpression) let.getAction();
-            } else {
-                break;
-            }
-        }
-        let.getAction().process(output, context);
+        dispatchTailCall(makeElaborator().elaborateForPush().processLeavingTail(output, context));
     }
 
 
@@ -659,7 +666,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getAction().getCardinality();
     }
 
@@ -670,7 +677,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int props = getAction().getSpecialProperties();
         int seqProps = getSequence().getSpecialProperties();
         if ((seqProps & StaticProperty.NO_NODES_NEWLY_CREATED) == 0) {
@@ -701,7 +708,7 @@ public class LetExpression extends Assignation implements TailCallReturner {
     public Expression copy(RebindingMap rebindings) {
         LetExpression let = new LetExpression();
         rebindings.put(this, let);
-        let.isIndexedVariable = isIndexedVariable;
+        let.indexedVariable = indexedVariable;
         let.hasLoopingReference = hasLoopingReference;
         let.setNeedsEagerEvaluation(needsEagerEvaluation);
         let.setNeedsLazyEvaluation(needsLazyEvaluation);
@@ -713,66 +720,6 @@ public class LetExpression extends Assignation implements TailCallReturner {
         Expression newAction = getAction().copy(rebindings);
         let.setAction(newAction);
         return let;
-    }
-
-    /**
-     * ProcessLeavingTail: called to do the real work of this instruction.
-     * The results of the instruction are written
-     * to the current Receiver, which can be obtained via the Controller.
-     *
-     *
-     * @param output the destination for the result
-     * @param context The dynamic context of the transformation, giving access to the current node,
-     *                the current variables, etc.
-     * @return null if the instruction has completed execution; or a TailCall indicating
-     *         a function call or template call that is delegated to the caller, to be made after the stack has
-     *         been unwound so as to save stack space.
-     */
-
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        // minimize stack consumption by evaluating nested LET expressions iteratively
-        LetExpression let = this;
-        while (true) {
-            Sequence val = let.eval(context);
-            context.setLocalVariable(let.getLocalSlotNumber(), val);
-            if (let.getAction() instanceof LetExpression) {
-                let = (LetExpression) let.getAction();
-            } else {
-                break;
-            }
-        }
-        if (let.getAction() instanceof TailCallReturner) {
-            return ((TailCallReturner) let.getAction()).processLeavingTail(output, context);
-        } else {
-            let.getAction().process(output, context);
-            return null;
-        }
-    }
-
-    /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     */
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        // minimize stack consumption by evaluating nested LET expressions iteratively
-        LetExpression let = this;
-        while (true) {
-            Sequence val = let.eval(context);
-            context.setLocalVariable(let.getLocalSlotNumber(), val);
-            if (let.getAction() instanceof LetExpression) {
-                let = (LetExpression) let.getAction();
-            } else {
-                break;
-            }
-        }
-        let.getAction().evaluatePendingUpdates(context, pul);
     }
 
 
@@ -815,27 +762,249 @@ public class LetExpression extends Assignation implements TailCallReturner {
             out.emitAttribute("indexable", "true");
         }
         out.emitAttribute("slot", getLocalSlotNumber() + "");
-        if (evaluator == null) {
-            setEvaluator(ExpressionTool.lazyEvaluator(getSequence(), getNominalReferenceCount() > 1));
+        if (needsEagerEvaluation || needsLazyEvaluation) {
+            String flags = (needsEagerEvaluation ? "e" : "")
+                    + (needsLazyEvaluation ? "l" : "");
+            out.emitAttribute("flags", flags);
         }
-        out.emitAttribute("eval", getEvaluator().getEvaluationMode().getCode() + "");
         getSequence().export(out);
         getAction().export(out);
         out.endElement();
     }
 
-    public void setEvaluator(Evaluator evaluator) {
+    public void setEvaluator(SequenceEvaluator evaluator) {
         this.evaluator = evaluator;
     }
 
-    public void setEvaluationMode(EvaluationMode mode) {
-        this.evaluator = mode.getEvaluator();
-    }
-
-    public Evaluator getEvaluator() {
+    public SequenceEvaluator getEvaluator() {
         return evaluator;
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new LetExprElaborator();
+    }
+
+    /**
+     * Elaborator for a let expression (either {@code let $x := SELECT return ACTION} in XPath, or the
+     * equivalent sequence constructor using local {@code xsl:variable} declarations in XSLT).
+     *
+     * <p>The elaborator allows evaluation in pull, push, or singleton mode.</p>
+     */
+
+    public static class LetExprElaborator extends PullElaborator {
+
+
+        private SequenceEvaluator makeSequenceEvaluator(LetExpression let) {
+            if (let.evaluator != null) {
+                return let.evaluator;
+            }
+            let.setEvaluator();
+            return let.evaluator;
+        }
+
+        /**
+         * Return a function that evaluates the local variable in this let expression, and in all
+         * immediately-nested let expressions. This is done to reduce Java stack usage and the number
+         * of method/function calls
+         * @param start the initial let expression
+         * @param finalAction an output parameter; this is set to the the "return"
+         *        expression that follows the nested local variables.
+         * @return a function to evaluate all the variables. This is returned as an {@code ItemEvaluator} for
+         * convenience, but it is executed for its side-effects (setting variable values in the context
+         * stack frame) and always returns null.
+         */
+        private ItemEvaluator setAllVariables(LetExpression start, List<Expression> finalAction) {
+            List<LetExpression> setters = new ArrayList<>();
+            setters.add(start);
+            Expression next = start.getAction();
+            while (next instanceof LetExpression) {
+                setters.add((LetExpression)next);
+                next = ((LetExpression)next).getAction();
+            }
+            finalAction.add(next);
+            switch (setters.size()) {
+                // for a small number of local variables, unroll the loop
+                case 1: {
+                    LetExpression let = setters.get(0);
+                    SequenceEvaluator evaluator = makeSequenceEvaluator(let);
+                    int slot = setters.get(0).slotNumber;
+                    return context -> {
+                        context.setLocalVariable(slot, evaluator.evaluate(context));
+                        return null;
+                    };
+                }
+                case 2: {
+                    SequenceEvaluator evaluator0 = makeSequenceEvaluator(setters.get(0));
+                    int slot0 = setters.get(0).slotNumber;
+                    SequenceEvaluator evaluator1 = makeSequenceEvaluator(setters.get(1));
+                    int slot1 = setters.get(1).slotNumber;
+                    return context -> {
+                        context.setLocalVariable(slot0, evaluator0.evaluate(context));
+                        context.setLocalVariable(slot1, evaluator1.evaluate(context));
+                        return null;
+                    };
+                }
+                case 3: {
+                    SequenceEvaluator evaluator0 = makeSequenceEvaluator(setters.get(0));
+                    int slot0 = setters.get(0).slotNumber;
+                    SequenceEvaluator evaluator1 = makeSequenceEvaluator(setters.get(1));
+                    int slot1 = setters.get(1).slotNumber;
+                    SequenceEvaluator evaluator2 = makeSequenceEvaluator(setters.get(2));
+                    int slot2 = setters.get(2).slotNumber;
+                    return context -> {
+                        context.setLocalVariable(slot0, evaluator0.evaluate(context));
+                        context.setLocalVariable(slot1, evaluator1.evaluate(context));
+                        context.setLocalVariable(slot2, evaluator2.evaluate(context));
+                        return null;
+                    };
+                }
+                case 4: {
+                    SequenceEvaluator evaluator0 = makeSequenceEvaluator(setters.get(0));
+                    int slot0 = setters.get(0).slotNumber;
+                    SequenceEvaluator evaluator1 = makeSequenceEvaluator(setters.get(1));
+                    int slot1 = setters.get(1).slotNumber;
+                    SequenceEvaluator evaluator2 = makeSequenceEvaluator(setters.get(2));
+                    int slot2 = setters.get(2).slotNumber;
+                    SequenceEvaluator evaluator3 = makeSequenceEvaluator(setters.get(3));
+                    int slot3 = setters.get(3).slotNumber;
+                    return context -> {
+                        context.setLocalVariable(slot0, evaluator0.evaluate(context));
+                        context.setLocalVariable(slot1, evaluator1.evaluate(context));
+                        context.setLocalVariable(slot2, evaluator2.evaluate(context));
+                        context.setLocalVariable(slot3, evaluator3.evaluate(context));
+                        return null;
+                    };
+                }
+                default: {
+                    SequenceEvaluator[] evaluators = new SequenceEvaluator[setters.size()];
+                    int[] slots = new int[setters.size()];
+                    for (int i = 0; i < setters.size(); i++) {
+                        evaluators[i] = makeSequenceEvaluator(setters.get(i));
+                        slots[i] = setters.get(i).slotNumber;
+                    }
+                    return context -> {
+                        for (int i = 0; i < slots.length; i++) {
+                            context.setLocalVariable(slots[i], evaluators[i].evaluate(context));
+                        }
+                        return null;
+                    };
+                }
+
+            }
+
+        }
+
+        @Override
+        public SequenceEvaluator eagerly() {
+            final LetExpression expr = (LetExpression) getExpression();
+            if (expr.needsLazyEvaluation) {
+                return lazily(true, true);
+            }
+            final SequenceEvaluator selectEval = expr.getSequence().makeElaborator().eagerly();
+            final SequenceEvaluator actionEval = expr.getAction().makeElaborator().eagerly();
+            final int slot = expr.getLocalSlotNumber();
+            return new EagerLocalVariableEvaluator(slot, selectEval, actionEval);
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            final LetExpression expr = (LetExpression) getExpression();
+            final List<Expression> finalAction = new ArrayList<>(1);
+            final ItemEvaluator setter = setAllVariables(expr, finalAction);
+            final PullEvaluator actionPull = finalAction.get(0).makeElaborator().elaborateForPull();
+            return context -> {
+                int savedOutputState = context.getTemporaryOutputState();
+                context.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
+                setter.eval(context);
+                context.setTemporaryOutputState(savedOutputState);
+                return actionPull.iterate(context);
+            };
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            final LetExpression expr = (LetExpression) getExpression();
+            final List<Expression> finalAction = new ArrayList<>(1);
+            final ItemEvaluator setter = setAllVariables(expr, finalAction);
+            final PushEvaluator actionPush = finalAction.get(0).makeElaborator().elaborateForPush();
+            return (out, context) -> {
+                int savedOutputState = context.getTemporaryOutputState();
+                context.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
+                setter.eval(context);
+                context.setTemporaryOutputState(savedOutputState);
+                return actionPush.processLeavingTail(out, context);
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            final LetExpression expr = (LetExpression) getExpression();
+            final List<Expression> finalAction = new ArrayList<>(1);
+            final ItemEvaluator setter = setAllVariables(expr, finalAction);
+            final ItemEvaluator actionEval = finalAction.get(0).makeElaborator().elaborateForItem();
+            return context -> {
+                int savedOutputState = context.getTemporaryOutputState();
+                context.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
+                setter.eval(context);
+                context.setTemporaryOutputState(savedOutputState);
+                return actionEval.eval(context);
+            };
+        }
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            final LetExpression expr = (LetExpression) getExpression();
+            final List<Expression> finalAction = new ArrayList<>(1);
+            final ItemEvaluator setter = setAllVariables(expr, finalAction);
+            final UpdateEvaluator actionEval = finalAction.get(0).makeElaborator().elaborateForUpdate();
+            return (context, pul) -> {
+                int savedOutputState = context.getTemporaryOutputState();
+                context.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
+                setter.eval(context);
+                context.setTemporaryOutputState(savedOutputState);
+                actionEval.registerUpdates(context, pul);
+            };
+        }
+
+    }
+
+    private static class EagerLocalVariableEvaluator implements SequenceEvaluator {
+
+        private final int slot;
+        private final SequenceEvaluator selectEval;
+        private final SequenceEvaluator actionEval;
+
+        public EagerLocalVariableEvaluator(int slot, SequenceEvaluator selectEval, SequenceEvaluator actionEval) {
+            this.slot = slot;
+            this.selectEval = selectEval;
+            this.actionEval = actionEval;
+        }
+
+        /**
+         * Evaluate a construct to produce a value (which might be a lazily evaluated Sequence)
+         *
+         * @param context the evaluation context
+         * @return a Sequence (not necessarily grounded)
+         * @throws XPathException if a dynamic error occurs during the evaluation.
+         */
+        @Override
+        public Sequence evaluate(XPathContext context) throws XPathException {
+            int savedOutputState = context.getTemporaryOutputState();
+            context.setTemporaryOutputState(StandardNames.XSL_VARIABLE);
+            Sequence value = selectEval.evaluate(context);
+            context.setLocalVariable(slot, value);
+            context.setTemporaryOutputState(savedOutputState);
+            return actionEval.evaluate(context);
+        }
+
+    }
 
 }
 

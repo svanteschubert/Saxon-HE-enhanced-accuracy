@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,17 +30,14 @@ import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.wrapper.RebasedDocument;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.*;
-import org.xml.sax.InputSource;
 
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Source;
 import javax.xml.transform.TransformerException;
-import javax.xml.transform.sax.SAXSource;
 import javax.xml.transform.stream.StreamSource;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -58,7 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TransformFn extends SystemFunction implements Callable {
 
 
-    private static String[] transformOptionNames30 = new String[]{
+    private static final String[] transformOptionNames30 = new String[]{
             "package-name", "package-version", "package-node", "package-location", "static-params", "global-context-item",
             "template-params", "tunnel-params", "initial-function", "function-params"
     };
@@ -66,9 +63,9 @@ public class TransformFn extends SystemFunction implements Callable {
     private final static String dummyBaseOutputUriScheme = "dummy";
 
 
-    private boolean isTransformOptionName30(String string) {
+    private boolean isTransformOptionName30(String str) {
         for (String s : transformOptionNames30) {
-            if (s.equals(string)) {
+            if (s.equals(str)) {
                 return true;
             }
         }
@@ -121,23 +118,23 @@ public class TransformFn extends SystemFunction implements Callable {
      * options with recognized names and type-valid values.
      */
 
-    private void checkTransformOptions(Map<String, Sequence> options, XPathContext context, boolean isXslt30Processor) throws XPathException {
+    private void checkTransformOptions(Map<String, GroundedValue> options, XPathContext context, int languageVersion) throws XPathException {
         if (options.isEmpty()) {
             throw new XPathException("No transformation options supplied", "FOXT0002");
         }
 
         for (String keyName : options.keySet()) {
-            if (isTransformOptionName30(keyName) && !isXslt30Processor) {
+            if (isTransformOptionName30(keyName) && languageVersion < 30) {
                 throw new XPathException("The transform option " + keyName + " is only available when using an XSLT 3.0 processor", "FOXT0002");
             }
         }
     }
 
-    private String checkStylesheetMutualExclusion(Map<String, Sequence> map) throws XPathException {
+    private String checkStylesheetMutualExclusion(Map<String, GroundedValue> map) throws XPathException {
         return exactlyOneOf(map, "stylesheet-location", "stylesheet-node", "stylesheet-text");
     }
 
-    private String checkStylesheetMutualExclusion30(Map<String, Sequence> map) throws XPathException {
+    private String checkStylesheetMutualExclusion30(Map<String, GroundedValue> map) throws XPathException {
         String styleOption = exactlyOneOf(map, "stylesheet-location", "stylesheet-node", "stylesheet-text",
                                           "package-name", "package-node", "package-location");
         if (styleOption.equals("package-location")) {
@@ -146,7 +143,7 @@ public class TransformFn extends SystemFunction implements Callable {
         return styleOption;
     }
 
-    private String checkInvocationMutualExclusion(Map<String, Sequence> options) throws XPathException {
+    private String checkInvocationMutualExclusion(Map<String, GroundedValue> options) throws XPathException {
         return oneOf(options, "initial-mode", "initial-template");
     }
 
@@ -159,7 +156,7 @@ public class TransformFn extends SystemFunction implements Callable {
      * @throws XPathException if more than one of the keys is present
      */
 
-    private String oneOf(Map<String, Sequence> map, String... keys) throws XPathException {
+    private String oneOf(Map<String, GroundedValue> map, String... keys) throws XPathException {
         String found = null;
         for (String s : keys) {
             if (map.get(s) != null) {
@@ -184,7 +181,7 @@ public class TransformFn extends SystemFunction implements Callable {
      * @throws XPathException if none of the keys is present or if more than one of the keys is present
      */
 
-    private String exactlyOneOf(Map<String, Sequence> map, String... keys) throws XPathException {
+    private String exactlyOneOf(Map<String, GroundedValue> map, String... keys) throws XPathException {
         String found = oneOf(map, keys);
         if (found == null) {
             throw new XPathException("One of the following transform options must be present: " + enumerate(keys));
@@ -194,7 +191,7 @@ public class TransformFn extends SystemFunction implements Callable {
 
     private String enumerate(String... keys) {
         boolean first = true;
-        FastStringBuffer buffer = new FastStringBuffer(256);
+        StringBuilder buffer = new StringBuilder(256);
         for (String k : keys) {
             if (first) {
                 first = false;
@@ -206,7 +203,7 @@ public class TransformFn extends SystemFunction implements Callable {
         return buffer.toString();
     }
 
-    private String checkInvocationMutualExclusion30(Map<String, Sequence> map) throws XPathException {
+    private String checkInvocationMutualExclusion30(Map<String, GroundedValue> map) throws XPathException {
         return oneOf(map, "initial-mode", "initial-template", "initial-function");
     }
 
@@ -218,7 +215,7 @@ public class TransformFn extends SystemFunction implements Callable {
         if (value instanceof BooleanValue) {
             return ((BooleanValue)value).getBooleanValue();
         } else if (value instanceof StringValue) {
-            String s = Whitespace.normalizeWhitespace(value.getStringValue()).toString();
+            String s = Whitespace.normalizeWhitespace(value.getUnicodeStringValue()).toString();
             if (s.equals("yes") || s.equals("true") || s.equals("1")) {
                 return true;
             } else if (s.equals("no") || s.equals("false") || s.equals("0")) {
@@ -228,7 +225,7 @@ public class TransformFn extends SystemFunction implements Callable {
         throw new XPathException("Unrecognized boolean value " + value, "FOXT0002");
     }
 
-    private void setRequestedProperties(Map<String, Sequence> options, Processor processor) throws XPathException {
+    private void setRequestedProperties(Map<String, GroundedValue> options, Processor processor) throws XPathException {
         MapItem requestedProps = (MapItem) options.get("requested-properties").head();
         AtomicIterator optionIterator = requestedProps.keys();
         while (true) {
@@ -236,22 +233,23 @@ public class TransformFn extends SystemFunction implements Callable {
             if (option != null) {
                 StructuredQName optionName = ((QNameValue) option.head()).getStructuredQName();
                 AtomicValue value = (AtomicValue)requestedProps.get(option).head();
-                if (optionName.hasURI(NamespaceConstant.XSLT)) {
+                if (optionName.hasURI(NamespaceUri.XSLT)) {
                     String localName = optionName.getLocalPart();
+                    String val = value.getStringValue();
                     switch (localName) {
                         case "vendor-url":
-                            if (!(value.getStringValue().contains("saxonica.com") || value.getStringValue().equals("Saxonica"))) {
-                                unsuitable("vendor-url", value.getStringValue());
+                            if (!(val.contains("saxonica.com") || value.getStringValue().equals("Saxonica"))) {
+                                unsuitable("vendor-url", val);
                             }
                             break;
                         case "product-name":
-                            if (!value.getStringValue().equals("SAXON")) {
-                                unsuitable("vendor-url", value.getStringValue());
+                            if (!val.equals("SAXON")) {
+                                unsuitable("vendor-url", val);
                             }
                             break;
                         case "product-version":
-                            if (!Version.getProductVersion().startsWith(value.getStringValue())) {
-                                unsuitable("product-version", value.getStringValue());
+                            if (!Version.getProductVersion().startsWith(val)) {
+                                unsuitable("product-version", val);
                             }
                             break;
                         case "is-schema-aware": {
@@ -260,11 +258,11 @@ public class TransformFn extends SystemFunction implements Callable {
                                 if (processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
                                     processor.setConfigurationProperty(Feature.XSLT_SCHEMA_AWARE, true);
                                 } else {
-                                    unsuitable("is-schema-aware", value.getStringValue());
+                                    unsuitable("is-schema-aware", val);
                                 }
                             } else {
                                 if (processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
-                                    unsuitable("is-schema-aware", value.getStringValue());
+                                    unsuitable("is-schema-aware", val);
                                 }
                             }
                             break;
@@ -272,21 +270,21 @@ public class TransformFn extends SystemFunction implements Callable {
                         case "supports-serialization": {
                             boolean b = asBoolean(value);
                             if (!b) {
-                                unsuitable("supports-serialization", value.getStringValue());
+                                unsuitable("supports-serialization", val);
                             }
                             break;
                         }
                         case "supports-backwards-compatibility": {
                             boolean b = asBoolean(value);
                             if (!b) {
-                                unsuitable("supports-backwards-compatibility", value.getStringValue());
+                                unsuitable("supports-backwards-compatibility", val);
                             }
                             break;
                         }
                         case "supports-namespace-axis": {
                             boolean b = asBoolean(value);
                             if (!b) {
-                                unsuitable("supports-namespace-axis", value.getStringValue());
+                                unsuitable("supports-namespace-axis", val);
                             }
                             break;
                         }
@@ -294,7 +292,7 @@ public class TransformFn extends SystemFunction implements Callable {
                             boolean b = asBoolean(value);
                             if (b) {
                                 if (!processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
-                                    unsuitable("supports-streaming", value.getStringValue());
+                                    unsuitable("supports-streaming", val);
                                 }
                             } else {
                                 if (processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
@@ -313,29 +311,27 @@ public class TransformFn extends SystemFunction implements Callable {
                         case "supports-higher-order-functions": {
                             boolean b = asBoolean(value);
                             if (!b) {
-                                unsuitable("supports-higher-order-functions", value.getStringValue());
+                                unsuitable("supports-higher-order-functions", val);
                             }
                             break;
                         }
                         case "xpath-version": {
-                            String v = value.getStringValue();
                             try {
-                                if (Double.parseDouble(v) > 3.1) {
-                                    unsuitable("xpath-version", value.getStringValue());
+                                if (Double.parseDouble(val) > 3.1) {
+                                    unsuitable("xpath-version", val);
                                 }
                             } catch (NumberFormatException nfe) {
-                                unsuitable("xpath-version", value.getStringValue());
+                                unsuitable("xpath-version", val);
                             }
                             break;
                         }
                         case "xsd-version": {
-                            String v = value.getStringValue();
                             try {
-                                if (Double.parseDouble(v) > 1.1) {
-                                    unsuitable("xsd-version", value.getStringValue());
+                                if (Double.parseDouble(val) > 1.1) {
+                                    unsuitable("xsd-version", val);
                                 }
                             } catch (NumberFormatException nfe) {
-                                unsuitable("xsd-version", value.getStringValue());
+                                unsuitable("xsd-version", val);
                             }
                             break;
                         }
@@ -347,7 +343,7 @@ public class TransformFn extends SystemFunction implements Callable {
         }
     }
 
-    private void setStaticParams(Map<String, Sequence> options, XsltCompiler xsltCompiler, boolean allowTypedNodes) throws XPathException {
+    private void setStaticParams(Map<String, GroundedValue> options, XsltCompiler xsltCompiler, boolean allowTypedNodes) throws XPathException {
         MapItem staticParamsMap = (MapItem) options.get("static-params").head();
         AtomicIterator paramIterator = staticParamsMap.keys();
         while (true) {
@@ -369,27 +365,21 @@ public class TransformFn extends SystemFunction implements Callable {
         }
     }
 
-    private XsltExecutable getStylesheet(Map<String, Sequence> options, XsltCompiler xsltCompiler, String styleOptionStr, XPathContext context) throws XPathException {
+    private XsltExecutable getStylesheet(Map<String, GroundedValue> options, XsltCompiler xsltCompiler, String styleOptionStr, XPathContext context) throws XPathException {
         Item styleOptionItem = options.get(styleOptionStr).head();
         URI stylesheetBaseUri = null;
         Sequence seq;
         if ((seq = options.get("stylesheet-base-uri")) != null) {
-            StringValue styleBaseUri = (StringValue) seq.head();
-            stylesheetBaseUri = URI.create(styleBaseUri.getStringValue());
+            String styleBaseUri = seq.head().getStringValue();
+            stylesheetBaseUri = URI.create(styleBaseUri);
             if (!stylesheetBaseUri.isAbsolute()) {
                 URI staticBase = getRetainedStaticContext().getStaticBaseUri();
-                stylesheetBaseUri = staticBase.resolve(styleBaseUri.getStringValue());
+                stylesheetBaseUri = staticBase.resolve(styleBaseUri);
             }
         }
         final List<XmlProcessingError> compileErrors = new ArrayList<>();
         final ErrorReporter originalReporter = xsltCompiler.getErrorReporter();
-        xsltCompiler.setErrorReporter(error -> {
-            if (!error.isWarning()) {
-                compileErrors.add(error);
-            }
-            originalReporter.report(error);
-        });
-
+        xsltCompiler.setErrorReporter(new TransformErrorReporter(compileErrors, originalReporter));
         boolean cacheable = options.get("static-params") == null;
         if (options.get("cache") != null) {
             cacheable &= ((BooleanValue) options.get("cache").head()).getBooleanValue();
@@ -397,6 +387,7 @@ public class TransformFn extends SystemFunction implements Callable {
 
         StylesheetCache cache = context.getController().getStylesheetCache();
         XsltExecutable executable = null;
+        Configuration config = xsltCompiler.getProcessor().getUnderlyingConfiguration();
         switch (styleOptionStr) {
             case "stylesheet-location":
                 String stylesheetLocation = styleOptionItem.getStringValue();
@@ -404,15 +395,20 @@ public class TransformFn extends SystemFunction implements Callable {
                     executable = cache.getStylesheetByLocation(stylesheetLocation); // if stylesheet is already cached
                 }
                 if (executable == null) {
-                    Source style;
+                    Source style = null;
                     try {
                         String base = getStaticBaseUriString();
-                        style = xsltCompiler.getURIResolver().resolve(stylesheetLocation, base);
-                        // returns null when stylesheetLocation is relative, and (QT3TestDriver) TestURIResolver
-                        // is wrongly being used for URIResolver. Next step directs to correct URIResolver.
-                        if (style == null) {
-                            style = xsltCompiler.getProcessor().getUnderlyingConfiguration().getSystemURIResolver().resolve(stylesheetLocation, base);
-                        }
+                        ResourceRequest request = new ResourceRequest();
+                        request.baseUri = base;
+                        request.relativeUri = stylesheetLocation;
+                        request.uri = ResolveURI.makeAbsolute(stylesheetLocation, base).toString();
+                        request.nature = ResourceRequest.XSLT_NATURE;
+                        request.purpose = ResourceRequest.ANY_PURPOSE;
+                        style = request.resolve(xsltCompiler.getResourceResolver(),
+                                                config.getResourceResolver(),
+                                                new DirectResourceResolver(config));
+                    } catch (URISyntaxException e) {
+                        throw new XPathException("Failed to resolve stylesheet-location in fn:transform: " + e.getMessage());
                     } catch (TransformerException e) {
                         throw new XPathException(e);
                     }
@@ -450,7 +446,7 @@ public class TransformFn extends SystemFunction implements Callable {
                     executable = cache.getStylesheetByNode(stylesheetNode); // if stylesheet is already cached
                 }
                 if (executable == null) {
-                    Source source = stylesheetNode;
+                    Source source = stylesheetNode.asActiveSource();
                     if (stylesheetBaseUri != null) {
                         source = AugmentedSource.makeAugmentedSource(source);
                         source.setSystemId(stylesheetBaseUri.toASCIIString());
@@ -472,7 +468,7 @@ public class TransformFn extends SystemFunction implements Callable {
                 }
                 if (executable == null) {
                     StringReader sr = new StringReader(stylesheetText);
-                    SAXSource style = new SAXSource(new InputSource(sr));
+                    StreamSource style = new StreamSource(sr);
                     if (stylesheetBaseUri != null) {
                         style.setSystemId(stylesheetBaseUri.toASCIIString());
                     }
@@ -510,18 +506,33 @@ public class TransformFn extends SystemFunction implements Callable {
         return executable;
     }
 
+    private static class TransformErrorReporter implements ErrorReporter {
+
+        private final List<XmlProcessingError> compileErrors;
+        private final ErrorReporter originalReporter;
+
+        public TransformErrorReporter(List<XmlProcessingError> compileErrors, ErrorReporter originalReporter) {
+            this.compileErrors = compileErrors;
+            this.originalReporter = originalReporter;
+        }
+
+        @Override
+        public void report (XmlProcessingError error){
+            if (!error.isWarning()) {
+                compileErrors.add(error);
+            }
+            originalReporter.report(error);
+        }
+
+    }
+
     private XsltExecutable reportCompileError(SaxonApiException e, List<XmlProcessingError> compileErrors) throws XPathException {
         for (XmlProcessingError te : compileErrors) {
             // This is primarily so that the right error code is reported as required by the fn:transform spec
-//            if (te instanceof XPathException) {
-//                if (((XPathException) te).getErrorCodeLocalPart() == null) {
-//                    ((XPathException) te).setErrorCode("FOXT0002");
-//                }
-//                throw (XPathException)te;
-//            }
-            XPathException xe = XPathException.fromXmlProcessingError(te);
-            xe.maybeSetErrorCode("FOXT0002");
-            throw xe;
+            throw XPathException.fromXmlProcessingError(te)
+                    .maybeWithErrorCode("FOXT0002")
+                    .replacingErrorCode("SXXP0003", "FOXT0002");
+
         }
         if (e.getCause() instanceof XPathException) {
             throw (XPathException) e.getCause();
@@ -533,26 +544,27 @@ public class TransformFn extends SystemFunction implements Callable {
 
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        Map<String, Sequence> options = getDetails().optionDetails.processSuppliedOptions((MapItem) arguments[0].head(), context);
+        Map<String, GroundedValue> options = getDetails().optionDetails.processSuppliedOptions((MapItem) arguments[0].head(), context);
 
         Sequence vendorOptionsValue = options.get("vendor-options");
         MapItem vendorOptions = vendorOptionsValue == null ? null : (MapItem) vendorOptionsValue.head();
 
         Configuration targetConfig = context.getConfiguration();
         boolean allowTypedNodes = true;
+        boolean tracing = targetConfig.isTiming();
         int schemaValidation = Validation.DEFAULT;
 
         if (vendorOptions != null) {
-            Sequence optionValue = vendorOptions.get(new QNameValue("", NamespaceConstant.SAXON, "configuration"));
+            Sequence optionValue = vendorOptions.get(new QNameValue("", NamespaceUri.SAXON, "configuration"));
             if (optionValue != null) {
                 NodeInfo configFile = (NodeInfo) optionValue.head();
-                targetConfig = Configuration.readConfiguration(configFile, targetConfig);
+                targetConfig = Configuration.readConfiguration(configFile.asActiveSource(), targetConfig);
                 allowTypedNodes = false;
                 if (!context.getConfiguration().getBooleanProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS)) {
                     targetConfig.setBooleanProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS, false);
                 }
             }
-            optionValue = vendorOptions.get(new QNameValue("", NamespaceConstant.SAXON, "schema-validation"));
+            optionValue = vendorOptions.get(new QNameValue("", NamespaceUri.SAXON, "schema-validation"));
             if (optionValue != null) {
                 String valOption = optionValue.head().getStringValue();
                 schemaValidation = Validation.getCode(valOption);
@@ -560,15 +572,17 @@ public class TransformFn extends SystemFunction implements Callable {
         }
         Processor processor = new Processor(true);
         processor.setConfigurationProperty(Feature.CONFIGURATION, targetConfig);
-        boolean isXslt30Processor = true;
-        checkTransformOptions(options, context, isXslt30Processor);
-        boolean useXslt30Processor = isXslt30Processor;
+        int languageVersion = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+        checkTransformOptions(options, context, languageVersion);
+        boolean request40 = false;
         if (options.get("xslt-version") != null) {
-            BigDecimalValue xsltVersion = (BigDecimalValue) options.get("xslt-version").head();
-            if ((xsltVersion.compareTo(BigDecimalValue.THREE) >= 0 && !isXslt30Processor) || (xsltVersion.compareTo(BigDecimalValue.THREE) > 0 && isXslt30Processor)) {
-                throw new XPathException("The transform option xslt-version is higher than the XSLT version supported by this processor", "FOXT0002");
+            DecimalValue requestedVersion = ((DecimalValue) options.get("xslt-version").head());
+            if (requestedVersion.getDoubleValue() * 10 > languageVersion) {
+                throw new XPathException("The transform option xslt-version is higher than the language version supported by the calling transformation", "FOXT0002");
             }
-            useXslt30Processor = xsltVersion.compareTo(BigDecimalValue.THREE) == 0;
+            if (requestedVersion.getDoubleValue() == 4) {
+                 request40 = true;
+            }
         }
         String principalInput = oneOf(options, "source-node", "source-location", "initial-match-selection");
 
@@ -585,7 +599,7 @@ public class TransformFn extends SystemFunction implements Callable {
         if (!invocationName.equals("initial-template") && !invocationName.equals("initial-function") && principalInput == null) {
             //throw new XPathException("A transform must have at least one of the following options: source-node|initial-template|initial-function", "FOXT0002");
             invocationName = "initial-template";
-            options.put("initial-template", new QNameValue("", NamespaceConstant.XSLT, "initial-template"));
+            options.put("initial-template", new QNameValue("", NamespaceUri.XSLT, "initial-template"));
         }
         // if invocation option is initial-function, then check for function-params
         if (invocationName.equals("initial-function") && options.get("function-params") == null) {
@@ -603,9 +617,12 @@ public class TransformFn extends SystemFunction implements Callable {
         }
 
         XsltCompiler xsltCompiler = processor.newXsltCompiler();
-        xsltCompiler.setURIResolver(context.getURIResolver());
+        xsltCompiler.setResourceResolver(context.getResourceResolver());
         xsltCompiler.setJustInTimeCompilation(false);
         xsltCompiler.setErrorReporter(context.getErrorReporter());
+        if (request40) {
+            xsltCompiler.setXsltLanguageVersion("4.0");
+        }
 
         // Set static params on XsltCompiler before compiling stylesheet (XSLT 3.0 processing only)
         if (options.get("static-params") != null) {
@@ -631,7 +648,7 @@ public class TransformFn extends SystemFunction implements Callable {
         Map<QName, XdmValue> tunnelParams = new HashMap<>();
         QName initialFunction = null;
         XdmValue[] functionParams = null;
-        Function postProcessor = null;
+        FunctionItem postProcessor = null;
         String principalResultKey = "output";
 
         for (String name : options.keySet()) {
@@ -710,7 +727,7 @@ public class TransformFn extends SystemFunction implements Callable {
                     }
                     break;
                 case "post-process":
-                    postProcessor = (Function) head;
+                    postProcessor = (FunctionItem) head;
                     break;
             }
         }
@@ -745,6 +762,7 @@ public class TransformFn extends SystemFunction implements Callable {
             transformer.setBaseOutputURI(baseOutputUri);
             transformer.setInitialTemplateParameters(templateParams, false);
             transformer.setInitialTemplateParameters(tunnelParams, true);
+            transformer.setResourceResolver(context.getResourceResolver());
 
             if (schemaValidation == Validation.STRICT || schemaValidation == Validation.LAX) {
                 if (sourceNode != null) {
@@ -752,20 +770,27 @@ public class TransformFn extends SystemFunction implements Callable {
                 } else if (sourceLocation != null) {
                     try {
                         String base = getStaticBaseUriString();
-                        Source ss = xsltCompiler.getURIResolver().resolve(sourceLocation, base);
-                        if (ss == null) {
-                            ss = targetConfig.getURIResolver().resolve(sourceLocation, base);
-                            if (ss == null) {
-                                throw new XPathException("Cannot locate document at sourceLocation " + sourceLocation, "FOXT0003");
-                            }
+                        ResourceRequest rr = new ResourceRequest();
+                        rr.relativeUri = sourceLocation;
+                        rr.baseUri = base;
+                        rr.nature = ResourceRequest.XML_NATURE;
+                        rr.purpose = ResourceRequest.ANY_PURPOSE;
+                        try {
+                            rr.uri = ResolveURI.makeAbsolute(sourceLocation, base).toString();
+                        } catch (URISyntaxException err) {
+                            throw new XPathException("Unresolvable sourceLocation URI " + sourceLocation, "FOXT0003");
                         }
-                        ParseOptions parseOptions = new ParseOptions(targetConfig.getParseOptions());
-                        parseOptions.setSchemaValidationMode(schemaValidation);
+                        Source ss = rr.resolve(xsltCompiler.getResourceResolver(),
+                                               targetConfig.getResourceResolver(),
+                                               new DirectResourceResolver(targetConfig));
+                        ParseOptions parseOptions = targetConfig.getParseOptions()
+                                .withSchemaValidationMode(schemaValidation);
                         TreeInfo tree = targetConfig.buildDocumentTree(ss, parseOptions);
                         sourceNode = tree.getRootNode();
                         sourceLocation = null;
-                    } catch (TransformerException e) {
-                        throw XPathException.makeXPathException(e);
+                    } catch (XPathException e) {
+                        e.maybeSetErrorCode("FOXT0003");
+                        throw e;
                     }
                 }
                 if (globalContextItem instanceof XdmNode) {
@@ -779,6 +804,10 @@ public class TransformFn extends SystemFunction implements Callable {
             }
             if (globalContextItem != null) {
                 transformer.setGlobalContextItem(globalContextItem);
+            }
+            if (tracing) {
+                Object stylesheetId = options.get(styleOption);
+                targetConfig.getLogger().info("Calling fn:transform(" + (stylesheetId == null ? "" : stylesheetId.toString()) + ")");
             }
             if (initialTemplate != null) {
                 transformer.callTemplate(initialTemplate, destination);
@@ -805,6 +834,9 @@ public class TransformFn extends SystemFunction implements Callable {
                     transformer.applyTemplates(initialMatchSelection, destination);
                     result = deliverer.getPrimaryResult();
                 }
+            }
+            if (tracing) {
+                targetConfig.getLogger().info("Returning from fn:transform()");
             }
         } catch (SaxonApiException e) {
             XPathException e2;
@@ -874,14 +906,11 @@ public class TransformFn extends SystemFunction implements Callable {
     }
 
     private static NodeInfo validate(NodeInfo node, Configuration config, int validation) throws XPathException {
-        ParseOptions options = new ParseOptions(config.getParseOptions());
-        options.setSchemaValidationMode(validation);
-        return config.buildDocumentTree(node, options).getRootNode();
+        ParseOptions options = config.getParseOptions()
+                .withSchemaValidationMode(validation);
+        return config.buildDocumentTree(node.asActiveSource(), options).getRootNode();
     }
 
-    /**
-     * Deliverer is an abstraction of the common functionality of the various delivery formats
-     */
     /**
      * Deliverer is an abstraction of the common functionality of the various delivery formats
      */
@@ -891,7 +920,7 @@ public class TransformFn extends SystemFunction implements Callable {
         protected Xslt30Transformer transformer;
         protected String baseOutputUri;
         protected String principalResultKey;
-        protected Function postProcessor;
+        protected FunctionItem postProcessor;
         protected XPathContext context;
         protected HashTrieMap resultMap = new HashTrieMap();
 
@@ -954,7 +983,7 @@ public class TransformFn extends SystemFunction implements Callable {
          * @param context       the context used for evaluating the postprocessing function
          */
 
-        public void setPostProcessor(Function postProcessor, XPathContext context) {
+        public void setPostProcessor(FunctionItem postProcessor, XPathContext context) {
             this.postProcessor = postProcessor;
             this.context = context;
         }
@@ -1008,7 +1037,7 @@ public class TransformFn extends SystemFunction implements Callable {
         protected Serializer makeSerializer(Processor processor, MapItem serializationParamsMap) throws XPathException {
             Serializer serializer = processor.newSerializer();
             if (serializationParamsMap != null) {
-                AtomicIterator<?> paramIterator = serializationParamsMap.keys();
+                AtomicIterator paramIterator = serializationParamsMap.keys();
                 AtomicValue param;
                 while ((param = paramIterator.next()) != null) {
                     // See bug 29440/29443. For the time being, accept both the old and new forms of serialization params
@@ -1267,5 +1296,4 @@ public class TransformFn extends SystemFunction implements Callable {
             return resultMap;
         }
     }
-
 }

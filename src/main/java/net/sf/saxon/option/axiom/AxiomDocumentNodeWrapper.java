@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,10 @@ package net.sf.saxon.option.axiom;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.GenericTreeInfo;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.TreeInfo;
+import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.type.Type;
@@ -18,13 +20,11 @@ import org.apache.axiom.om.OMDocument;
 import org.apache.axiom.om.OMElement;
 import org.apache.axiom.om.OMNode;
 
-import java.util.function.Predicate;
-
 /**
  * The document node in an AXIOM tree
  */
 
-public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
+public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper {
 
     /**
      * Create a Saxon wrapper for an Axiom document node
@@ -36,9 +36,7 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
      */
     public AxiomDocumentNodeWrapper(OMDocument root, String baseURI, Configuration config) {
         super(root);
-        if (!config.isLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION)) {
-            config.requireProfessionalLicense("Axiom");
-        }
+        config.requireProfessionalLicense("AXIOM");
         treeInfo = new AxiomDocument(root, baseURI, config);
         ((GenericTreeInfo)treeInfo).setRootNode(this);
     }
@@ -47,17 +45,16 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
      * Create a Saxon wrapper for an Axiom document node(internal constructor used when the TreeInfo
      * already exists)
      *
-     * @param root     The Axiom root node
-     * @param baseURI  The base URI for all the nodes in the tree
-     * @param config   The configuration which defines the name pool used for all
-     *                 names in this tree
+     * @param root    The Axiom root node
+     * @param baseURI The base URI for all the nodes in the tree
+     * @param config  The configuration which defines the name pool used for all
+     *                names in this tree
      * @param treeInfo object containing information about the tree as a whole
      */
     AxiomDocumentNodeWrapper(OMDocument root, String baseURI, Configuration config, TreeInfo treeInfo) {
         super(root);
         this.treeInfo = treeInfo;
     }
-
 
     /**
      * Factory method to wrap an Axiom node with a wrapper that implements the
@@ -142,7 +139,7 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
      */
     @Override
     public String getBaseURI() {
-        return getTreeInfo().getSystemId();
+        return getTreeInfo().getRootNode().getBaseURI();
     }
 
     /**
@@ -161,7 +158,7 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
      */
     @Override
     public String getSystemId() {
-        return getTreeInfo().getSystemId();
+        return ((GenericTreeInfo)getTreeInfo()).getSystemId();
     }
 
     /**
@@ -221,8 +218,8 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
      */
 
     @Override
-    public String getURI() {
-        return "";
+    public NamespaceUri getNamespaceUri() {
+        return NamespaceUri.NULL;
     }
 
     /**
@@ -252,12 +249,12 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
     }
 
     @Override
-    protected AxisIterator iterateAttributes(Predicate<? super NodeInfo> nodeTest) {
+    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
         return EmptyIterator.ofNodes();
     }
 
     @Override
-    protected AxisIterator iterateSiblings(Predicate<? super NodeInfo> nodeTest, boolean forwards) {
+    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
         return EmptyIterator.ofNodes();
     }
 
@@ -280,10 +277,10 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
 
     protected static class FollowingSiblingIterator implements AxisIterator {
 
-        private OMNode start;
+        private final OMNode start;
         private OMNode currentOMNode;
-        private AxiomParentNodeWrapper commonParent;
-        private AxiomDocument docWrapper;
+        private final AxiomParentNodeWrapper commonParent;
+        private final AxiomDocument docWrapper;
 
         public FollowingSiblingIterator(OMNode start, AxiomParentNodeWrapper commonParent, AxiomDocument docWrapper) {
             this.start = start;
@@ -309,10 +306,10 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper  {
 
     protected static class PrecedingSiblingIterator implements AxisIterator {
 
-        private OMNode start;
+        private final OMNode start;
         private OMNode currentOMNode;
-        private AxiomParentNodeWrapper commonParent;
-        private AxiomDocument docWrapper;
+        private final AxiomParentNodeWrapper commonParent;
+        private final AxiomDocument docWrapper;
 
         public PrecedingSiblingIterator(OMNode start, AxiomParentNodeWrapper commonParent, AxiomDocument docWrapper) {
             this.start = start;

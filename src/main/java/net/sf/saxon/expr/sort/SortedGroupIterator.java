@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,11 +7,10 @@
 
 package net.sf.saxon.expr.sort;
 
-import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
-import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.Arrays;
@@ -43,14 +42,9 @@ public class SortedGroupIterator extends SortedIterator implements GroupIterator
 
     @Override
     protected void buildArray() throws XPathException {
-        int allocated;
-        if (base.getProperties().contains(Property.LAST_POSITION_FINDER)) {
-            allocated = ((LastPositionFinder) base).getLength();
-        } else {
-            allocated = 100;
-        }
+        int allocated = SequenceTool.supportsGetLength(base) ? SequenceTool.getLength(base) : 100;
 
-        values = new GroupToBeSorted[allocated];
+        values = new ObjectToBeSorted[allocated];
         count = 0;
 
         XPathContextMajor c2 = context.newContext();
@@ -74,7 +68,7 @@ public class SortedGroupIterator extends SortedIterator implements GroupIterator
             }
             gtbs.originalPosition = count++;
             gtbs.currentGroupingKey = groupIter.getCurrentGroupingKey();
-            gtbs.currentGroup = new MemoSequence(groupIter.iterateCurrentGroup());
+            gtbs.currentGroup = groupIter.currentGroup();
         }
     }
 
@@ -85,8 +79,8 @@ public class SortedGroupIterator extends SortedIterator implements GroupIterator
     }
 
     @Override
-    public SequenceIterator iterateCurrentGroup() throws XPathException {
-        return ((GroupToBeSorted) values[position - 1]).currentGroup.iterate();
+    public GroundedValue currentGroup() throws XPathException {
+        return ((GroupToBeSorted) values[position - 1]).currentGroup;
     }
 
 

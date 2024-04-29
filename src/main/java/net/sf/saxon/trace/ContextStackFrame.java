@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,15 +9,11 @@ package net.sf.saxon.trace;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.instruct.*;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.Logger;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.MapItem;
-import net.sf.saxon.om.Function;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.KeyDefinition;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.value.AtomicValue;
@@ -28,7 +24,7 @@ import net.sf.saxon.value.AtomicValue;
  */
 public abstract class ContextStackFrame {
 
-    private XPathContext context;
+    protected XPathContext context;
     private Location location;
     private Item contextItem;
     private Object container;
@@ -173,7 +169,6 @@ public abstract class ContextStackFrame {
      */
 
     public static class BuiltInTemplateRule extends ContextStackFrame {
-        private XPathContext context;
         public BuiltInTemplateRule(XPathContext context) {
             this.context = context;
         }
@@ -189,13 +184,13 @@ public abstract class ContextStackFrame {
                 diag = "map";
             } else if (contextItem instanceof ArrayItem) {
                 diag = "array";
-            } else if (contextItem instanceof Function) {
+            } else if (contextItem instanceof FunctionItem) {
                 diag = "function";
             } else {
                 diag = "item";
             }
             out.error("  in built-in template rule for " + diag + " in " +
-                              context.getCurrentMode().getActor().getModeTitle().toLowerCase());
+                              context.getCurrentMode().getActor().getModeTitle(false));
         }
     }
 
@@ -353,7 +348,7 @@ public abstract class ContextStackFrame {
                 return "key " + objectName;
             } else if (container instanceof GlobalVariable) {
                 StructuredQName qName = ((GlobalVariable) container).getVariableQName();
-                if (qName.hasURI(NamespaceConstant.SAXON_GENERATED_VARIABLE)) {
+                if (qName.hasURI(NamespaceUri.SAXON_GENERATED_VARIABLE)) {
                     return "optimizer-created global variable";
                 } else {
                     return "global variable $" + qName.getDisplayName();

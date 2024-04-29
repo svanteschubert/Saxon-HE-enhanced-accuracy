@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,7 +24,7 @@ public class XSLNamespace extends XSLLeafNodeConstructor {
     /*@Nullable*/ Expression name;
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         name = prepareAttributesNameAndSelect();
     }
 
@@ -59,7 +59,7 @@ public class XSLNamespace extends XSLLeafNodeConstructor {
                 // there is exactly one child node
                 if (firstChild.getNodeKind() == Type.TEXT) {
                     // it is a text node: optimize for this case
-                    select = new StringLiteral(firstChild.getStringValueCS());
+                    select = new StringLiteral(firstChild.getUnicodeStringValue());
                     select.setRetainedStaticContext(makeRetainedStaticContext());
                 }
             }
@@ -81,7 +81,7 @@ public class XSLNamespace extends XSLLeafNodeConstructor {
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
         NamespaceConstructor inst = new NamespaceConstructor(name);
         compileContent(exec, decl, inst, new StringLiteral(StringValue.SINGLE_SPACE));
-        return inst;
+        return inst.withLocation(saveLocation());
     }
 
 }

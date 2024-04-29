@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,19 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.regex.RegularExpression;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.value.SequenceExtent;
 import net.sf.saxon.value.StringValue;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -22,6 +31,20 @@ import net.sf.saxon.value.StringValue;
  */
 
 public class Replace extends RegexFunction  {
+
+    private int version = 20;
+
+    public static Replace make20() {
+        Replace rep = new Replace();
+        rep.version = 20;
+        return rep;
+    }
+
+    public static Replace make40() {
+        Replace rep = new Replace();
+        rep.version = 40;
+        return rep;
+    }
 
     private boolean replacementChecked = false;
 
@@ -40,10 +63,20 @@ public class Replace extends RegexFunction  {
      */
     @Override
     public Expression makeFunctionCall(Expression... arguments) {
-        boolean maybeQ = arguments.length == 4 && (!(arguments[3] instanceof StringLiteral) || ((StringLiteral) arguments[3]).getStringValue().contains("q"));
-        if (arguments[2] instanceof StringLiteral && !maybeQ) {
+        boolean doEarlyReplacementCheck = true;
+        if (arguments.length >= 4) {
+            if (arguments[3] instanceof StringLiteral) {
+                String flags = ((StringLiteral) arguments[3]).stringify();
+                if (flags.contains("q") || flags.contains(";")) {
+                    doEarlyReplacementCheck = false;
+                }
+            } else {
+                doEarlyReplacementCheck = false;
+            }
+        }
+        if (arguments[2] instanceof StringLiteral && doEarlyReplacementCheck) {
             // Do early checking of the replacement expression if known statically
-            String rep = ((StringLiteral) arguments[2]).getStringValue();
+            UnicodeString rep = ((StringLiteral) arguments[2]).getString();
             if (checkReplacement(rep) == null) {
                 replacementChecked = true;
             }
@@ -64,23 +97,66 @@ public class Replace extends RegexFunction  {
     public StringValue call(XPathContext context, Sequence[] arguments) throws XPathException {
 
         StringValue arg0 = (StringValue)arguments[0].head();
-        CharSequence input = arg0 == null ? "" : arg0.getStringValueCS();
+        UnicodeString input = arg0 == null ? EmptyUnicodeString.getInstance() : arg0.getUnicodeStringValue();
 
-        StringValue arg2 = (StringValue) arguments[2].head();
-        CharSequence replacement = arg2.getStringValueCS();
+        RegularExpression re = getRegularExpression(arguments, 1, 3);
 
-        RegularExpression re = getRegularExpression(arguments);
-        if (!re.getFlags().contains("q")) {
-            if (!replacementChecked) {
-                // if it is a string literal, the check was done at compile time
-                String msg = checkReplacement(replacement);
-                if (msg != null) {
-                    throw new XPathException(msg, "FORX0004", context);
-                }
+        Item replacementArg = arguments[2].head();
+        UnicodeString replacement = replacementArg == null ? null : replacementArg.getUnicodeStringValue();
+        if (replacement == null && version == 20) {
+            throw new XPathException("Third argument of fn:replace() must not be empty")
+                    .withErrorCode("XPTY0004")
+                    .asTypeError();
+        }
+        java.util.function.BiFunction<UnicodeString, UnicodeString[], UnicodeString> action = null;
+        if (arguments.length == 5) {
+            FunctionItem actionFn = (FunctionItem) arguments[4].head();
+            if (actionFn != null) {
+                action = (in, groups) -> {
+                    try {
+                        // cast to UnicodeString[] is needed for the transpiler
+                        List<Item> groupItems = new ArrayList<>(((UnicodeString[])groups).length);
+                        for (UnicodeString group : groups) {
+                            groupItems.add(new StringValue(group, BuiltInAtomicType.UNTYPED_ATOMIC));
+                        }
+                        Sequence result = actionFn.call(context,
+                                                        new Sequence[]{new StringValue(in, BuiltInAtomicType.UNTYPED_ATOMIC),
+                                                                SequenceExtent.makeSequenceExtent(groupItems)});
+                        Item resultItem = result.head();
+                        if (resultItem == null) {
+                            return EmptyUnicodeString.getInstance();
+                        } else {
+                            return resultItem.getUnicodeStringValue();
+                        }
+                    } catch (XPathException e) {
+                        throw new AssertionError(e);
+                    }
+                };
+            }
+
+//            RegularExpression re = getRegularExpression(arguments, 1, 3);
+//            return new StringValue(re.replaceWith(input.getUnicodeStringValue(), fn));
+        }
+
+        if (replacement != null && action != null) {
+            throw new XPathException("Cannot supply both a replacement string and a replacement action", "FORX0005");
+        }
+
+        if (replacement != null && !replacementChecked && !re.getFlags().contains("q") && !re.isPlatformNative()) {
+            // if it is a string literal, the check was done at compile time
+            String msg = checkReplacement(replacement);
+            if (msg != null) {
+                throw new XPathException(msg, "FORX0004", context);
             }
         }
-        CharSequence res = re.replace(input, replacement);
-        return StringValue.makeStringValue(res);
+
+        if (replacement != null) {
+            return new StringValue(re.replace(input, replacement));
+        } else if (action != null) {
+            return new StringValue(re.replaceWith(input, action));
+        } else {
+            return new StringValue(re.replace(input, EmptyUnicodeString.getInstance()));
+        }
     }
 
     /**
@@ -90,12 +166,13 @@ public class Replace extends RegexFunction  {
      * @return null if the string is OK, or an error message if not
      */
 
-    public static String checkReplacement(CharSequence rep) {
+    public static String checkReplacement(UnicodeString rep) {
         for (int i = 0; i < rep.length(); i++) {
-            char c = rep.charAt(i);
+            int c = rep.codePointAt(i);
             if (c == '$') {
                 if (i + 1 < rep.length()) {
-                    char next = rep.charAt(++i);
+                    int index = ++i;
+                    int next = rep.codePointAt(index);
                     if (next < '0' || next > '9') {
                         return "Invalid replacement string in replace(): $ sign must be followed by digit 0-9";
                     }
@@ -104,7 +181,8 @@ public class Replace extends RegexFunction  {
                 }
             } else if (c == '\\') {
                 if (i + 1 < rep.length()) {
-                    char next = rep.charAt(++i);
+                    int index = ++i;
+                    int next = rep.codePointAt(index);
                     if (next != '\\' && next != '$') {
                         return "Invalid replacement string in replace(): \\ character must be followed by \\ or $";
                     }

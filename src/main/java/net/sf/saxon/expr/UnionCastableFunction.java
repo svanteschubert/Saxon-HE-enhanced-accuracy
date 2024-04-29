@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -66,8 +66,7 @@ public class UnionCastableFunction extends UnionConstructorFunction {
         // This method does its own atomization so that it can distinguish between atomization
         // failures and casting failures
         int count = 0;
-        Item item;
-        while ((item = iter.next()) != null) {
+        for (Item item; (item = iter.next()) != null; ) {
             if (item instanceof NodeInfo) {
                 AtomicSequence atomizedValue = item.atomize();
                 int length = SequenceTool.getLength(atomizedValue);
@@ -131,6 +130,6 @@ public class UnionCastableFunction extends UnionConstructorFunction {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 
 

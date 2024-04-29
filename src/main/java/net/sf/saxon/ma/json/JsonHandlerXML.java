@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,42 +8,40 @@
 package net.sf.saxon.ma.json;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.Version;
 import net.sf.saxon.event.Builder;
 import net.sf.saxon.event.ComplexContentOutputter;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.lib.StandardEntityResolver;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
+import net.sf.saxon.value.AtomicValue;
 
-import javax.xml.transform.sax.SAXSource;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Stack;
+import javax.xml.transform.stream.StreamSource;
+import java.io.InputStream;
+import java.util.*;
 
 /**
  * Handler to generate an XML representation of JSON from a series of events
  */
 public class JsonHandlerXML extends JsonHandler {
 
-    private Outputter out;
-    private Builder builder;
+    private final Outputter out;
+    private final Builder builder;
 
     private Stack<String> keys;
-    private Stack<Boolean> inMap = new Stack<>();
+    private final Stack<Boolean> inMap = new Stack<>();
 
     private boolean allowAnyTopLevel;
     public boolean validate;
     private boolean checkForDuplicates;
 
     private static final String SCHEMA_URI = "http://www.w3.org/2005/xpath-functions.xsd";
-    private static final String JSON_NS = NamespaceConstant.FN;
+    private static final NamespaceUri JSON_NS = NamespaceUri.FN;
     public static final String PREFIX = "";
 
     private NamePool namePool;
@@ -57,13 +55,12 @@ public class JsonHandlerXML extends JsonHandler {
     private FingerprintedQName escapedQN;
     private FingerprintedQName escapedKeyQN;
 
-    private static final Untyped UNTYPED = Untyped.getInstance();
-    private static final AnySimpleType SIMPLE_TYPE = AnySimpleType.getInstance();
-    private static final BuiltInAtomicType BOOLEAN_TYPE = BuiltInAtomicType.BOOLEAN;
-    private static final BuiltInAtomicType STRING_TYPE = BuiltInAtomicType.STRING;
+    private static final SimpleType SIMPLE_TYPE = AnySimpleType.getInstance();
+    private static final SimpleType BOOLEAN_TYPE = BuiltInAtomicType.BOOLEAN;
+    private static final SimpleType STRING_TYPE = BuiltInAtomicType.STRING;
 
     public HashMap<String, SchemaType> types;
-    private Stack<HashSet<String>> mapKeys = new Stack<>();
+    private final Stack<HashSet<String>> mapKeys = new Stack<>();
 
 
     /**
@@ -73,7 +70,7 @@ public class JsonHandlerXML extends JsonHandler {
      * @return the QName
      */
     private FingerprintedQName qname(String s) {
-        FingerprintedQName fp = new FingerprintedQName("", "", s);
+        FingerprintedQName fp = new FingerprintedQName("", NamespaceUri.NULL, s);
         fp.obtainFingerprint(namePool);
         return fp;
     }
@@ -103,6 +100,7 @@ public class JsonHandlerXML extends JsonHandler {
         builder = context.getController().makeBuilder();
         builder.setSystemId(staticBaseUri);
         builder.setTiming(false);
+        builder.setDurability(Durability.TEMPORARY);
         out = new ComplexContentOutputter(builder);
         out.open();
         out.startDocument(ReceiverOption.NONE);
@@ -117,7 +115,7 @@ public class JsonHandlerXML extends JsonHandler {
      * @throws XPathException if anything goes wrong (for example, with getting schema information)
      */
     private void init(XPathContext context, int flags) throws XPathException {
-        keys = new Stack<String>();
+        keys = new Stack<>();
        /* This may not need to be a stack as there should only be at most one pre-selected key
        * However, the stack neatly indicates its empty state
        * */
@@ -145,18 +143,13 @@ public class JsonHandlerXML extends JsonHandler {
             // is valid. Instead, we just set type annotations "on trust", as if we were validating.
             // Currently this means we aren't detecting duplicate keys, which would cause validation to fail.
             // The spec needs clarification in this area.
+
             try {
                 Configuration config = context.getConfiguration();
                 //noinspection SynchronizationOnLocalVariableOrMethodParameter
                 synchronized (config) {
                     config.checkLicensedFeature(Configuration.LicenseFeature.SCHEMA_VALIDATION, "validation", -1);
-                    if (!config.isSchemaAvailable(JSON_NS)) {
-                        InputSource is = new StandardEntityResolver(config).resolveEntity(null, SCHEMA_URI);
-                        if (config.isTiming()) {
-                            config.getLogger().info("Loading a schema from resources for: " + JSON_NS);
-                        }
-                        config.addSchemaSource(new SAXSource(is));
-                    }
+                    loadSchema(config);
                 }
                 String[] typeNames = {"mapType", "arrayType", "stringType", "numberType", "booleanType", "nullType",
                     "mapWithinMapType", "arrayWithinMapType", "stringWithinMapType",
@@ -164,9 +157,20 @@ public class JsonHandlerXML extends JsonHandler {
                 for (String t : typeNames) {
                     setType(t, config.getSchemaType(new StructuredQName(PREFIX, JSON_NS, t)));
                 }
-            } catch (SchemaException | SAXException e) {
+            } catch (SchemaException e) {
                 throw new XPathException(e);
             }
+        }
+    }
+
+    private void loadSchema(Configuration config) throws SchemaException {
+        if (!config.isSchemaAvailable(JSON_NS)) {
+            List<String> messages = new ArrayList<>();
+            InputStream stream = Version.platform.locateResource("xpath-functions.scm", messages);
+            if (config.isTiming()) {
+                config.getLogger().info("Loading schema for: " + JSON_NS);
+            }
+            config.addSchemaSource(new StreamSource(stream, "classpath:xpath-functions.xsd"));
         }
     }
 
@@ -242,15 +246,15 @@ public class JsonHandlerXML extends JsonHandler {
      * @throws XPathException if a dynamic error occurs
      */
     private void startElement(FingerprintedQName qn, SchemaType st) throws XPathException {
-        out.startElement(qn, validate && st != null ? st : UNTYPED,
+        out.startElement(qn, validate && st != null ? st : Untyped.getInstance(),
                          Loc.NONE, ReceiverOption.NONE);
         if (isInMap()) {
             String k = keys.pop();
-            k = reEscape(k);
+            String uk = reEscape(k);
             if (escape) {
-                markAsEscaped(k, true);
+                markAsEscaped(uk, true);
             }
-            out.attribute(keyQN, validate ? STRING_TYPE : SIMPLE_TYPE, k,
+            out.attribute(keyQN, validate ? STRING_TYPE : SIMPLE_TYPE, uk,
                           Loc.NONE, ReceiverOption.NONE);
         }
     }
@@ -266,7 +270,7 @@ public class JsonHandlerXML extends JsonHandler {
      * @throws XPathException if a dynamic error occurs
      */
     private void characters(String s) throws XPathException {
-        out.characters(s, Loc.NONE, ReceiverOption.NONE);
+        out.characters(StringView.of(s), Loc.NONE, ReceiverOption.NONE);
     }
 
     /**
@@ -337,11 +341,11 @@ public class JsonHandlerXML extends JsonHandler {
      * Write a numeric value
      *
      * @param asString the string representation of the value
-     * @param asDouble the double representation of the value
+     * @param parsedValue the double representation of the value
      * @throws XPathException if a dynamic error occurs
      */
     @Override
-    public void writeNumeric(String asString, double asDouble) throws XPathException {
+    public void writeNumeric(String asString, AtomicValue parsedValue) throws XPathException {
         startElement(numberQN, isInMap() ? "numberWithinMapType" : "numberType");
         startContent();
         characters(asString);
@@ -358,18 +362,18 @@ public class JsonHandlerXML extends JsonHandler {
     @Override
     public void writeString(String val) throws XPathException {
         startElement(stringQN, isInMap() ? "stringWithinMapType" : "stringType");
-        CharSequence escaped = reEscape(val);
+        String escaped = reEscape(val);
         if (escape) {
             markAsEscaped(escaped, false);
         }
         startContent();
-        characters(escaped.toString());
+        characters(escaped);
         endElement();
     }
 
  @Override
-    protected void markAsEscaped(CharSequence escaped, boolean isKey) throws XPathException {
-        if (containsEscape(escaped.toString()) && escape) {
+    protected void markAsEscaped(String escaped, boolean isKey) throws XPathException {
+        if (containsEscape(escaped) && escape) {
             NodeName name = isKey ? escapedKeyQN : escapedQN;
             out.attribute(name, validate ? BOOLEAN_TYPE : SIMPLE_TYPE, "true",
                           Loc.NONE, ReceiverOption.NONE);
@@ -386,7 +390,7 @@ public class JsonHandlerXML extends JsonHandler {
     public void writeBoolean(boolean value) throws XPathException {
         startElement(booleanQN, isInMap() ? "booleanWithinMapType" : "booleanType");
         startContent();
-        characters(Boolean.toString(value));
+        characters(value ? "true" : "false");
         endElement();
     }
 
@@ -403,4 +407,4 @@ public class JsonHandlerXML extends JsonHandler {
     }
 }
 
-// Copyright (c) 2014-2020 Saxonica Limited
+// Copyright (c) 2014-2023 Saxonica Limited

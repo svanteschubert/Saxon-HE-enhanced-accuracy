@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,16 +7,19 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.MemoSequence;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.iter.GroundedIterator;
 import net.sf.saxon.value.NumericValue;
 
 /**
@@ -25,7 +28,7 @@ import net.sf.saxon.value.NumericValue;
  */
 public class SubscriptExpression extends SingleItemFilter {
 
-    private Operand subscriptOp;
+    private final Operand subscriptOp;
 
     /**
      * Construct a SubscriptExpression
@@ -125,20 +128,9 @@ public class SubscriptExpression extends SingleItemFilter {
     }
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return getBaseExpression().hashCode() ^ getSubscript().hashCode();
     }
-
-    /**
-     * Get the static cardinality: this implementation is appropriate for [1] and [last()] which will always
-     * return something if the input is non-empty
-     */
-
-    @Override
-    public int computeCardinality() {
-        return StaticProperty.ALLOWS_ZERO_OR_ONE;
-    }
-
 
     /**
      * Get the (partial) name of a class that supports streaming of this kind of expression
@@ -153,32 +145,37 @@ public class SubscriptExpression extends SingleItemFilter {
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        NumericValue index = (NumericValue) getSubscript().evaluateItem(context);
-        if (index == null) {
-            return null;
-        }
-        int intindex = index.asSubscript();
-        if (intindex != -1) {
-            Item item;
-            SequenceIterator iter = getBaseExpression().iterate(context);
-            if (intindex == 1) {
-                item = iter.next();
-            } else if (iter instanceof MemoSequence.ProgressiveIterator) {
-                MemoSequence mem = ((MemoSequence.ProgressiveIterator)iter).getMemoSequence();
-                item = mem.itemAt(intindex - 1);
-            } else if (iter.getProperties().contains(SequenceIterator.Property.GROUNDED)) {
-                GroundedValue value = iter.materialize();
-                item = value.itemAt(intindex - 1);
-            } else {
-                SequenceIterator tail = TailIterator.make(iter, intindex);
-                item = tail.next();
-                tail.close();
+        return makeElaborator().elaborateForItem().eval(context);
+    }
+
+    /**
+     * Get the item at a specified position within a SequenceIterator
+     * @param iter the SequenceIterator (which may be consumed by this operation)
+     * @param index the position (1-based) - must be positive
+     * @return the item at that position, or null if out of range
+     * @throws XPathException if a failure occurs evaluating the iterator
+     */
+
+    public static Item getItemAt(SequenceIterator iter, int index) throws XPathException {
+        Item item;
+        if (index == 1) {
+            item = iter.next();
+        } else if (iter instanceof MemoSequence.ProgressiveIterator) {
+            MemoSequence mem = ((MemoSequence.ProgressiveIterator) iter).getMemoSequence();
+            item = mem.itemAt(index - 1);
+        } else if (iter instanceof GroundedIterator && ((GroundedIterator) iter).isActuallyGrounded()) {
+            try {
+                GroundedValue value = SequenceTool.toGroundedValue(iter);
+                item = value.itemAt(index - 1);
+            } catch (UncheckedXPathException e) {
+                throw e.getXPathException();
             }
-            return item;
         } else {
-            // there is no item at the required position
-            return null;
+            SequenceIterator tail = TailIterator.make(iter, index);
+            item = tail.next();
+            tail.close();
         }
+        return item;
     }
 
     /**
@@ -236,5 +233,44 @@ public class SubscriptExpression extends SingleItemFilter {
     }
 
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new SubscriptExprElaborator();
+    }
+
+    /**
+     * An elaborator for a "subscript" expression, typically written as {@code X[$n]} where {@code $n} is an
+     * integer or a numeric expression.
+     */
+
+    public static class SubscriptExprElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final SubscriptExpression expr = (SubscriptExpression) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            final ItemEvaluator indexEval = expr.getSubscriptExpression().makeElaborator().elaborateForItem();
+            return context -> {
+                NumericValue index = (NumericValue) indexEval.eval(context);
+                if (index == null) {
+                    return null;
+                }
+                int intIndex = index.asSubscript();
+                if (intIndex != -1) {
+                    SequenceIterator iter = baseEval.iterate(context);
+                    return getItemAt(iter, intIndex);
+                } else {
+                    // there is no item at the required position
+                    return null;
+                }
+            };
+        }
+
+    }
 }
 

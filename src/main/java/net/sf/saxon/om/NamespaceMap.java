@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,8 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 
 import java.util.*;
 
@@ -27,11 +29,12 @@ import java.util.*;
 public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
 
     protected String[] prefixes;  // always sorted, for binary search
-    protected String[] uris;
+    protected NamespaceUri[] uris;
 
-    private static String[] emptyArray = new String[]{};
+    private static final String[] emptyArray = new String[]{};
+    private static final NamespaceUri[] emptyUriArray = new NamespaceUri[]{};
 
-    private static NamespaceMap EMPTY_MAP = new NamespaceMap();
+    private static final NamespaceMap EMPTY_MAP = new NamespaceMap();
 
     /**
      * Get a namespace map containing no namespace bindings
@@ -50,22 +53,22 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
      * @throws IllegalArgumentException for an invalid mapping or if the namespace URI is empty
      */
 
-    public static NamespaceMap of(String prefix, String uri) {
+    public static NamespaceMap of(String prefix, NamespaceUri uri) {
         NamespaceMap map = new NamespaceMap();
         if (map.isPointlessMapping(prefix, uri)) {
             return EMPTY_MAP;
         }
         map.prefixes = new String[]{prefix};
-        map.uris  = new String[]{uri};
+        map.uris  = new NamespaceUri[]{uri};
         return map;
     }
 
     protected NamespaceMap() {
         prefixes = emptyArray;
-        uris = emptyArray;
+        uris = emptyUriArray;
     }
 
-    protected NamespaceMap newInstance() {
+    protected NamespaceMap makeNamespaceMap() {
         return new NamespaceMap();
     }
 
@@ -81,19 +84,19 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
 
     public NamespaceMap(List<NamespaceBinding> bindings) {
         NamespaceBinding[] bindingArray = bindings.toArray(NamespaceBinding.EMPTY_ARRAY);
-        Arrays.sort(bindingArray, Comparator.comparing(NamespaceBinding::getPrefix));
+        sortByPrefix(bindingArray);
         boolean bindsXmlNamespace = false;
         prefixes = new String[bindingArray.length];
-        uris = new String[bindingArray.length];
+        uris = new NamespaceUri[bindingArray.length];
         for (int i=0; i<bindingArray.length; i++) {
             prefixes[i] = bindingArray[i].getPrefix();
-            uris[i] = bindingArray[i].getURI();
+            uris[i] = bindingArray[i].getNamespaceUri();
             if (prefixes[i].equals("xml")) {
                 bindsXmlNamespace = true;
-                if (!uris[i].equals(NamespaceConstant.XML)) {
+                if (!uris[i].equals(NamespaceUri.XML)) {
                     throw new IllegalArgumentException("Binds xml prefix to the wrong namespace");
                 }
-            } else if (uris[i].equals(NamespaceConstant.XML)) {
+            } else if (uris[i].equals(NamespaceUri.XML)) {
                 throw new IllegalArgumentException("Binds xml namespace to the wrong prefix");
             }
         }
@@ -102,18 +105,28 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
         }
     }
 
+    @CSharpReplaceBody(code="System.Array.Sort(bindingArray, (x, y) => System.String.Compare(x.getPrefix(), y.getPrefix(), System.StringComparison.Ordinal));")
+    private void sortByPrefix(NamespaceBinding[] bindingArray) {
+        Arrays.sort(bindingArray, Comparator.comparing(NamespaceBinding::getPrefix));
+    }
+
     /**
      * Create a NamespaceMap that captures all the information in a given NamespaceResolver
      *
      * @param resolver the NamespaceResolver
+     * @return the new NamespaceMap
      */
 
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public static NamespaceMap fromNamespaceResolver(NamespaceResolver resolver) {
+        if (resolver instanceof NamespaceMap) {
+            return (NamespaceMap)resolver;
+        }
         Iterator<String> iter = resolver.iteratePrefixes();
         List<NamespaceBinding> bindings = new ArrayList<>();
         while (iter.hasNext()) {
             String prefix = iter.next();
-            String uri = resolver.getURIForPrefix(prefix, true);
+            NamespaceUri uri = resolver.getURIForPrefix(prefix, true);
             bindings.add(new NamespaceBinding(prefix, uri));
         }
         return new NamespaceMap(bindings);
@@ -150,9 +163,9 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
      */
 
     @Override
-    public String getURI(String prefix) {
+    public NamespaceUri getNamespaceUri(String prefix) {
         if (prefix.equals("xml")) {
-            return NamespaceConstant.XML;
+            return NamespaceUri.XML;
         }
         int position = Arrays.binarySearch(prefixes, prefix);
         return position >= 0 ? uris[position] : null;
@@ -160,15 +173,15 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
 
     /**
      * Get the default namespace
-     * @return the namespace bound to the prefix "" if there is one, otherwise "".
+     * @return the namespace bound to the prefix "" if there is one, otherwise {@link NamespaceUri#NULL}.
      */
 
-    public String getDefaultNamespace() {
+    public NamespaceUri getDefaultNamespace() {
         // If the prefix "" is present, it will be the first in alphabetical order
         if (prefixes.length > 0 && prefixes[0].isEmpty()) {
             return uris[0];
         } else {
-            return "";
+            return NamespaceUri.NULL;
         }
     }
 
@@ -177,7 +190,7 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
      * to add a binding of the "xml" prefix to the XML namespace is silently ignored.
      * @param prefix the prefix whose entry is to be added or replaced. May be zero-length
      *               to represent the default namespace
-     * @param uri the URI to be associated with this prefix; if zero-length, any
+     * @param uri the URI to be associated with this prefix; if zero-length or null, any
      *            existing mapping for the prefix is removed.
      * @return a new map containing the added or replaced entry (or this map, unchanged,
      * if the prefix-uri mapping was already present in the old map).
@@ -185,9 +198,9 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
      * mapping for the "xml" prefix or URI.
      */
 
-    public NamespaceMap put(String prefix, String uri) {
+    public NamespaceMap put(String prefix, NamespaceUri uri) {
         if (uri == null) {
-            uri = "";
+            uri = NamespaceUri.NULL;
         }
         if (isPointlessMapping(prefix, uri)) {
             return this;
@@ -198,67 +211,82 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
             if (uris[position].equals(uri)) {
                 // No change
                 return this;
-            } else if (uri.isEmpty()) {
+            } else if (uri == NamespaceUri.NULL) {
                 // Delete the entry for the prefix
-                NamespaceMap n2 = newInstance();
-                n2.prefixes = new String[prefixes.length - 1];
-                System.arraycopy(prefixes, 0, n2.prefixes, 0, position);
-                System.arraycopy(prefixes, position + 1, n2.prefixes, position, prefixes.length - position - 1);
-                n2.uris = new String[uris.length - 1];
-                System.arraycopy(uris, 0, n2.uris, 0, position);
-                System.arraycopy(uris, position + 1, n2.uris, position, uris.length - position - 1);
+                NamespaceMap n2 = makeNamespaceMap();
+                if (prefixes.length > 1) {
+                    n2.prefixes = new String[prefixes.length - 1];
+                    System.arraycopy(prefixes, 0, n2.prefixes, 0, position);
+                    System.arraycopy(prefixes, position + 1, n2.prefixes, position, prefixes.length - position - 1);
+                    n2.uris = new NamespaceUri[uris.length - 1];
+                    System.arraycopy(uris, 0, n2.uris, 0, position);
+                    System.arraycopy(uris, position + 1, n2.uris, position, uris.length - position - 1);
+                }
                 return n2;
             } else {
                 // Replace the entry for the prefix
-                NamespaceMap n2 = newInstance();
+                NamespaceMap n2 = makeNamespaceMap();
                 n2.prefixes = Arrays.copyOf(prefixes, prefixes.length);
                 n2.uris = Arrays.copyOf(uris, uris.length);
                 n2.uris[position] = uri;
                 return n2;
             }
         } else {
+            return putNoExistingEntry(position, prefix, uri);
+        }
+    }
+
+    private NamespaceMap putNoExistingEntry(int position, String prefix, NamespaceUri uri)
+    {
+        if (prefixes.length == 0)
+        {
+            NamespaceMap n2 = makeNamespaceMap();
+            n2.prefixes = new String[]{prefix};
+            n2.uris = new NamespaceUri[]{uri};
+            return n2;
+        }
+        else
+        {
             // No existing entry for the prefix exists
             int insertionPoint = -position - 1;
             String[] p2 = new String[prefixes.length + 1];
-            String[] u2 = new String[uris.length + 1];
+            NamespaceUri[] u2 = new NamespaceUri[uris.length + 1];
             System.arraycopy(prefixes, 0, p2, 0, insertionPoint);
             System.arraycopy(uris, 0, u2, 0, insertionPoint);
             p2[insertionPoint] = prefix;
             u2[insertionPoint] = uri;
-            System.arraycopy(prefixes, insertionPoint, p2, insertionPoint+1, prefixes.length - insertionPoint);
-            System.arraycopy(uris, insertionPoint, u2, insertionPoint+1, prefixes.length - insertionPoint);
+            System.arraycopy(prefixes, insertionPoint, p2, insertionPoint + 1, prefixes.length - insertionPoint);
+            System.arraycopy(uris, insertionPoint, u2, insertionPoint + 1, prefixes.length - insertionPoint);
 
-            NamespaceMap n2 = newInstance();
+            NamespaceMap n2 = makeNamespaceMap();
             n2.prefixes = p2;
             n2.uris = u2;
             return n2;
         }
     }
 
-    private boolean isPointlessMapping(String prefix, String uri) {
+    private boolean isPointlessMapping(String prefix, NamespaceUri uri) {
         if (prefix.equals("xml")) {
-            if (!uri.equals(NamespaceConstant.XML)) {
+            if (!uri.equals(NamespaceUri.XML)) {
                 throw new IllegalArgumentException("Invalid URI for xml prefix");
             }
             return true;
-        } else if (uri.equals(NamespaceConstant.XML)) {
+        } else if (uri.equals(NamespaceUri.XML)) {
             throw new IllegalArgumentException("Invalid prefix for XML namespace");
         }
-//        if (uri.isEmpty() && !allowsNamespaceUndeclarations()) {
-//            throw new IllegalArgumentException("URI must not be zero-length");
-//        }
         return false;
     }
 
     /**
      * Add or remove a namespace binding
      * @param prefix the namespace prefix ("" for the default namespace)
-     * @param uri the namespace URI to which the prefix is bound; or "" to indicate that an existing
+     * @param uri the namespace URI to which the prefix is bound; or {@link NamespaceUri#NULL} to indicate that an existing
      *            binding for the prefix is to be removed
+     * @return a new map with the entry added or removed as appropriate (or this map, unchanged, as appropriate).
      */
 
-    public NamespaceMap bind(String prefix, String uri) {
-        if (uri.isEmpty()) {
+    public NamespaceMap bind(String prefix, NamespaceUri uri) {
+        if (uri == NamespaceUri.NULL) {
             return remove(prefix);
         } else {
             return put(prefix, uri);
@@ -276,13 +304,13 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
         int position = Arrays.binarySearch(prefixes, prefix);
         if (position >= 0) {
             String[] p2 = new String[prefixes.length - 1];
-            String[] u2 = new String[uris.length - 1];
+            NamespaceUri[] u2 = new NamespaceUri[uris.length - 1];
             System.arraycopy(prefixes, 0, p2, 0, position);
             System.arraycopy(uris, 0, u2, 0, position);
             System.arraycopy(prefixes, position+1, p2, position, prefixes.length - position - 1);
             System.arraycopy(uris, position+1, u2, position, uris.length - position - 1);
 
-            NamespaceMap n2 = newInstance();
+            NamespaceMap n2 = makeNamespaceMap();
             n2.prefixes = p2;
             n2.uris = u2;
             return n2;
@@ -299,62 +327,96 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
      * @return a new map, the result of the merge
      */
 
-    public NamespaceMap putAll(NamespaceMap delta) {
-        if (this == delta) {
+    public NamespaceMap putAll(NamespaceMap delta)
+    {
+        if (this == delta)
+        {
             return this;
-        } else if (isEmpty()) {
+        }
+        else if (isEmpty())
+        {
             return delta;
-        } else if (delta.isEmpty()) {
+        }
+        else if (delta.isEmpty())
+        {
             return this;
-        } else {
-            // Merge of two sorted arrays to produce a sorted array
-            String[] p1 = prefixes;
-            String[] u1 = uris;
-            String[] p2 = delta.prefixes;
-            String[] u2 = delta.uris;
-            List<String> p3 = new ArrayList<>(p1.length + p2.length);
-            List<String> u3 = new ArrayList<>(p1.length + p2.length);
-            int i1 = 0;
-            int i2 = 0;
-            while (true) {
-                int c = p1[i1].compareTo(p2[i2]);
-                if (c < 0) {
-                    p3.add(p1[i1]);
-                    u3.add(u1[i1]);
-                    if (++i1 >= p1.length) {
-                        break;
-                    }
-                } else if (c > 0) {
-                    p3.add(p2[i2]);
-                    u3.add(u2[i2]);
-                    if (++i2 >= p2.length) {
-                        break;
-                    }
-                } else { // c == 0
-                    p3.add(p2[i2]);
-                    u3.add(u2[i2]);
-                    i1++;
-                    i2++;
-                    if (i1 >= p1.length || i2 >= p2.length) {
-                        break;
-                    }
+        }
+        else
+        {
+            return mergePutAll(delta);
+        }
+    }
+
+    private NamespaceMap mergePutAll(NamespaceMap delta)
+    {
+        // Merge of two sorted arrays to produce a sorted array
+        String[] p1 = prefixes;
+        NamespaceUri[] u1 = uris;
+        String[] p2 = delta.prefixes;
+        NamespaceUri[] u2 = delta.uris;
+
+        int lengthSum = p1.length + p2.length;
+
+        String[] p3 = new String[lengthSum];
+        NamespaceUri[] u3 = new NamespaceUri[lengthSum];
+        int i1 = 0;
+        int i2 = 0;
+        int writePos = 0;
+        while (true)
+        {
+            int c = p1[i1].compareTo(p2[i2]);
+            if (c < 0)
+            {
+                p3[writePos] = p1[i1];
+                u3[writePos++] = u1[i1];
+                if (++i1 >= p1.length)
+                {
+                    break;
                 }
             }
-            while (i1 < p1.length) {
-                p3.add(p1[i1]);
-                u3.add(u1[i1]);
+            else if (c > 0)
+            {
+                p3[writePos] = p2[i2];
+                u3[writePos++] = u2[i2];
+                if (++i2 >= p2.length)
+                {
+                    break;
+                }
+            }
+            else
+            { // c == 0
+                p3[writePos] = p2[i2];
+                u3[writePos++] = u2[i2];
                 i1++;
-            }
-            while (i2 < p2.length) {
-                p3.add(p2[i2]);
-                u3.add(u2[i2]);
                 i2++;
+                if (i1 >= p1.length || i2 >= p2.length)
+                {
+                    break;
+                }
             }
-            NamespaceMap n2 = new NamespaceMap();
-            n2.prefixes = p3.toArray(new String[]{});
-            n2.uris = u3.toArray(new String[]{});
-            return n2;
         }
+        while (i1 < p1.length)
+        {
+            p3[writePos] = p1[i1];
+            u3[writePos++] = u1[i1];
+            i1++;
+        }
+        while (i2 < p2.length)
+        {
+            p3[writePos] = p2[i2];
+            u3[writePos++] = u2[i2];
+            i2++;
+        }
+
+        return createNewNamespaceMap(p3, u3, lengthSum, writePos);
+    }
+
+    private NamespaceMap createNewNamespaceMap(String[] p3, NamespaceUri[] u3, int lengthSum, int writePos)
+    {
+        NamespaceMap n2 = new NamespaceMap();
+        n2.prefixes = writePos == lengthSum ? p3 : Arrays.copyOf(p3, writePos);
+        n2.uris = writePos == lengthSum ? u3 : Arrays.copyOf(u3, writePos);
+        return n2;
     }
 
     public NamespaceMap addAll(NamespaceBindingSet namespaces) {
@@ -363,7 +425,7 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
         } else {
             NamespaceMap map = this;
             for (NamespaceBinding nb : namespaces) {
-                map = map.put(nb.getPrefix(), nb.getURI());
+                map = map.put(nb.getPrefix(), nb.getNamespaceUri());
             }
             return map;
         }
@@ -383,49 +445,49 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
         } else {
             // Merge of two sorted arrays to produce a sorted array
             String[] p1 = prefixes;
-            String[] u1 = uris;
+            NamespaceUri[] u1 = uris;
             String[] p2 = delta.prefixes;
-            String[] u2 = delta.uris;
-            List<String> prefixes = new ArrayList<>(p1.length + p2.length);
-            List<String> uris = new ArrayList<>(p1.length + p2.length);
+            NamespaceUri[] u2 = delta.uris;
+            List<String> prefixList = new ArrayList<>(p1.length + p2.length);
+            List<NamespaceUri> uriList = new ArrayList<>(p1.length + p2.length);
             int i1 = 0;
             int i2 = 0;
             while (i1 < p1.length && i2 < p2.length) {
                 int c = p1[i1].compareTo(p2[i2]);
                 if (c < 0) {
-                    prefixes.add(p1[i1]);
-                    uris.add(u1[i1]);
+                    prefixList.add(p1[i1]);
+                    uriList.add(u1[i1]);
                     i1++;
                 } else if (c > 0) {
-                    if (!u2[i2].isEmpty()) {
-                        prefixes.add(p2[i2]);
-                        uris.add(u2[i2]);
+                    if (u2[i2] != NamespaceUri.NULL) {
+                        prefixList.add(p2[i2]);
+                        uriList.add(u2[i2]);
                     }
                     i2++;
                 } else { // c == 0
-                    if (!u2[i2].isEmpty() || p2[i2].isEmpty()) {
-                        prefixes.add(p2[i2]);
-                        uris.add(u2[i2]);
+                    if (u2[i2] != NamespaceUri.NULL || p2[i2].isEmpty()) {
+                        prefixList.add(p2[i2]);
+                        uriList.add(u2[i2]);
                     }
                     i1++;
                     i2++;
                 }
             }
             while (i1 < p1.length) {
-                prefixes.add(p1[i1]);
-                uris.add(u1[i1]);
+                prefixList.add(p1[i1]);
+                uriList.add(u1[i1]);
                 i1++;
             }
             while (i2 < p2.length) {
-                if (!u2[i2].isEmpty()) {
-                    prefixes.add(p2[i2]);
-                    uris.add(u2[i2]);
+                if (u2[i2] != NamespaceUri.NULL) {
+                    prefixList.add(p2[i2]);
+                    uriList.add(u2[i2]);
                 }
                 i2++;
             }
             NamespaceMap n2 = new NamespaceMap();
-            n2.prefixes = prefixes.toArray(new String[]{});
-            n2.uris = uris.toArray(new String[]{});
+            n2.prefixes = prefixList.toArray(new String[]{});
+            n2.uris = uriList.toArray(new NamespaceUri[]{});
             return n2;
         }
     }
@@ -479,6 +541,7 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
      *                          (binding the prefix to the dummy URI "") will be included
      *                          in the result. If false, namespace undeclarations are included
      *                          in the result only for the default namespace (prefix = "").
+     * @return the array of namespace declarations and undeclarations
      */
 
     public NamespaceBinding[] getDifferences(NamespaceMap other, boolean addUndeclarations) {
@@ -505,7 +568,7 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
                 } else {
                     // prefix present in other map, absent from this: maybe add an undeclaration
                     if (addUndeclarations || other.prefixes[j].isEmpty()) {
-                        result.add(new NamespaceBinding(other.prefixes[j], ""));
+                        result.add(new NamespaceBinding(other.prefixes[j], NamespaceUri.NULL));
                     }
                     j++;
                 }
@@ -515,7 +578,7 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
                 i++;
             } else if (j < other.prefixes.length) {
                 // prefix present in other map, absent from this: add an undeclaration
-                result.add(new NamespaceBinding(other.prefixes[j], ""));
+                result.add(new NamespaceBinding(other.prefixes[j], NamespaceUri.NULL));
                 j++;
             } else {
                 return result.toArray(NamespaceBinding.EMPTY_ARRAY);
@@ -541,18 +604,18 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
 
 
     @Override
-    public String getURIForPrefix(String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
         if (prefix.equals("xml")) {
-            return NamespaceConstant.XML;
+            return NamespaceUri.XML;
         }
         if (prefix.equals("")) {
             if (useDefault) {
                 return getDefaultNamespace();
             } else {
-                return "";
+                return NamespaceUri.NULL;
             }
         }
-        return getURI(prefix);
+        return getNamespaceUri(prefix);
     }
 
     /**
@@ -579,14 +642,14 @@ public class NamespaceMap implements NamespaceBindingSet, NamespaceResolver {
         return prefixes;
     }
 
-    public String[] getURIsAsArray() {
+    public NamespaceUri[] getURIsAsArray() {
         return uris;
     }
 
     public String toString() {
         StringBuilder sb = new StringBuilder();
         for (NamespaceBinding nb : this) {
-            sb.append(nb.getPrefix()).append("=").append(nb.getURI()).append(" ");
+            sb.append(nb.getPrefix()).append("=").append(nb.getNamespaceUri()).append(" ");
         }
         return sb.toString();
     }

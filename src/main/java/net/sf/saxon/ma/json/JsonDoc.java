@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,14 +12,16 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.functions.UnparsedTextFunction;
 import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.EmptySequence;
+import net.sf.saxon.z.IntPredicateProxy;
 import net.sf.saxon.z.IntSetPredicate;
-
-import java.util.function.IntPredicate;
 
 import java.io.Reader;
 import java.net.URI;
@@ -50,7 +52,7 @@ public class JsonDoc extends SystemFunction  {
         String href = arg0.getStringValue();
 
         final Configuration config = context.getConfiguration();
-        IntPredicate checker = IntSetPredicate.ALWAYS_TRUE; // allow non-XML characters - bug 3911
+        IntPredicateProxy checker = IntSetPredicate.ALWAYS_TRUE; // allow non-XML characters - bug 3911
 
         // Use the URI machinery to validate and resolve the URIs
 
@@ -65,20 +67,21 @@ public class JsonDoc extends SystemFunction  {
             err.maybeSetErrorCode("FOUT1170");
             throw err;
         }
-        CharSequence content;
+        if (reader == null) {
+            throw new XPathException("Unable to resolve json-doc() URI " + absoluteURI, "FOUT1170");
+        }
+        UnicodeString content;
         try {
             content = UnparsedTextFunction.readFile(checker, reader);
         } catch (java.io.UnsupportedEncodingException encErr) {
-            XPathException e = new XPathException("Unknown encoding " + Err.wrap(encoding), encErr);
-            e.setErrorCode("FOUT1190");
-            throw e;
+            throw new XPathException("Unknown encoding " + Err.wrap(encoding), encErr).withErrorCode("FOUT1190");
         } catch (java.io.IOException ioErr) {
 //            System.err.println("ProxyHost: " + System.getProperty("http.proxyHost"));
 //            System.err.println("ProxyPort: " + System.getProperty("http.proxyPort"));
-            throw UnparsedTextFunction.handleIOError(absoluteURI, ioErr, context);
+            throw UnparsedTextFunction.handleIOError(absoluteURI, ioErr);
         }
 
-        Map<String, Sequence> checkedOptions;
+        Map<String, GroundedValue> checkedOptions;
         if (getArity() == 2) {
             MapItem options = (MapItem) arguments[1].head();
             checkedOptions = getDetails().optionDetails.processSuppliedOptions(options, context);
@@ -86,10 +89,10 @@ public class JsonDoc extends SystemFunction  {
             checkedOptions = ParseJsonFn.OPTION_DETAILS.getDefaultOptions();
         }
         Item result = ParseJsonFn.parse(content.toString(), checkedOptions, context);
-        return result == null ? EmptySequence.getInstance() : result;
+        return SequenceTool.itemOrEmpty(result);
     }
 
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,8 @@
 package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Component;
-import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.om.*;
-import net.sf.saxon.trans.Mode;
-import net.sf.saxon.trans.SymbolicName;
-import net.sf.saxon.trans.Visibility;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.*;
 import net.sf.saxon.type.Type;
 
 /**
@@ -22,7 +18,7 @@ import net.sf.saxon.type.Type;
 public class XSLOverride extends StyleElement {
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             checkUnknownAttribute(attName);
@@ -68,12 +64,11 @@ public class XSLOverride extends StyleElement {
                             }
                             StructuredQName[] modeNames = decl.getModeNames();
                             for (StructuredQName modeName : modeNames) {
-                                if (modeName.equals(Mode.OMNI_MODE)) {
+                                if (modeName.equals(Mode.OMNI_MODE_NAME)) {
                                     ((StyleElement) curr).compileError(
                                         "An overriding template rule must not specify mode=\"#all\"", "XTSE3440");
                                 } else if (modeName.equals(Mode.UNNAMED_MODE_NAME)) {
-                                    modeName = decl.getDefaultMode();
-                                    if (modeName.equals(Mode.UNNAMED_MODE_NAME)) {
+                                    if (decl.getDefaultMode().equals(Mode.UNNAMED_MODE_NAME)) {
                                         ((StyleElement) curr).compileError(
                                             "An overriding template rule must not belong to the unnamed mode", "XTSE3440");
                                     }
@@ -94,15 +89,16 @@ public class XSLOverride extends StyleElement {
                             return;
                         }
                         Visibility overriddenVis = overridden.getVisibility();
-                        if (overriddenVis == null) {
+                        if (overriddenVis == Visibility.UNDEFINED) {
                             overriddenVis = Visibility.PRIVATE;
                         }
                         if (overriddenVis == Visibility.FINAL || overriddenVis == Visibility.PRIVATE) {
                             ((StyleElement) curr).compileError(
                                     "The " + StandardNames.getLocalName(name.getComponentKind()) +
                                         " named " + name.getShortName()
-                                            + " in the used package cannot be overridden because its visibility is " + overriddenVis.show(),
-                                                               "XTSE3060");
+                                            + " in the used package cannot be overridden because its visibility is "
+                                            + Err.describeVisibility(overriddenVis),
+                                                                     "XTSE3060");
                             return;
                         }
                         procedure.checkCompatibility(overridden);
@@ -112,14 +108,4 @@ public class XSLOverride extends StyleElement {
         }
     }
 
-    /**
-     * Add a function library that recognizes the function call xsl:original, which is permitted
-     * within a function that overrides another
-     *
-     * @param list the function library list to which the new function library should be added
-     */
-
-    public void addXSLOverrideFunctionLibrary(FunctionLibraryList list){
-        list.addFunctionLibrary(XSLOriginalLibrary.getInstance());
-    }
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,8 @@
 
 package net.sf.saxon.expr.flwor;
 
-import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
 import net.sf.saxon.trans.XPathException;
 
 /**
@@ -19,9 +19,9 @@ import net.sf.saxon.trans.XPathException;
 public class WhereClausePull extends TuplePull {
 
     TuplePull base;
-    Expression predicate;
+    BooleanEvaluator predicate;
 
-    public WhereClausePull(TuplePull base, Expression predicate) {
+    public WhereClausePull(TuplePull base, BooleanEvaluator predicate) {
         this.base = base;
         this.predicate = predicate;
     }
@@ -38,7 +38,7 @@ public class WhereClausePull extends TuplePull {
     @Override
     public boolean nextTuple(XPathContext context) throws XPathException {
         while (base.nextTuple(context)) {
-            if (predicate.effectiveBooleanValue(context)) {
+            if (predicate.eval(context)) {
                 return true;
             }
         }

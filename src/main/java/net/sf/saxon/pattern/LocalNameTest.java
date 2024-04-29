@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,16 @@ package net.sf.saxon.pattern;
 import net.sf.saxon.om.*;
 import net.sf.saxon.tree.tiny.NodeVectorTree;
 import net.sf.saxon.tree.tiny.TinyTree;
-import net.sf.saxon.type.*;
+import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.type.Type;
+import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.type.UType;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 import net.sf.saxon.z.IntSet;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.IntPredicate;
 
 /**
  * NodeTest is an interface that enables a test of whether a node has a particular
@@ -25,10 +29,10 @@ import java.util.function.IntPredicate;
 
 public final class LocalNameTest extends NodeTest implements QNameTest {
 
-    private NamePool namePool;
-    private int nodeKind;
-    private String localName;
-    private UType uType;
+    private final NamePool namePool;
+    private final int nodeKind;
+    private final String localName;
+    private final UType uType;
 
     public LocalNameTest(NamePool pool, int nodeKind, String localName) {
         this.namePool = pool;
@@ -97,21 +101,21 @@ public final class LocalNameTest extends NodeTest implements QNameTest {
     }
 
     @Override
-    public IntPredicate getMatcher(final NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
         final byte[] nodeKindArray = tree.getNodeKindArray();
         final int[] nameCodeArray = tree.getNameCodeArray();
         if (nodeKind == Type.ELEMENT && tree instanceof TinyTree) {
              Map<String, IntSet> localNameIndex = ((TinyTree)tree).getLocalNameIndex();
              IntSet intSet = localNameIndex.get(localName);
              if (intSet == null) {
-                 return i -> false;
+                 return IntPredicateLambda.of(n -> false);
              } else {
-                 return nodeNr -> intSet.contains(nameCodeArray[nodeNr] & NamePool.FP_MASK)
-                         && (nodeKindArray[nodeNr] & 0x0f) == Type.ELEMENT;
+                 return IntPredicateLambda.of(nodeNr -> intSet.contains(nameCodeArray[nodeNr] & NamePool.FP_MASK)
+                         && (nodeKindArray[nodeNr] & 0x0f) == Type.ELEMENT);
              }
         } else {
-            return nodeNr -> (nodeKindArray[nodeNr] & 0x0f) == nodeKind &&
-                    localName.equals(namePool.getLocalName(nameCodeArray[nodeNr] & NamePool.FP_MASK));
+            return IntPredicateLambda.of(nodeNr -> (nodeKindArray[nodeNr] & 0x0f) == nodeKind &&
+                    localName.equals(namePool.getLocalName(nameCodeArray[nodeNr] & NamePool.FP_MASK)));
         }
     }
 
@@ -138,6 +142,18 @@ public final class LocalNameTest extends NodeTest implements QNameTest {
     @Override
     public boolean matches(StructuredQName qname) {
         return localName.equals(qname.getLocalPart());
+    }
+
+    /**
+     * Test whether the QNameTest matches a given fingerprint
+     *
+     * @param namePool the name pool
+     * @param fp       the fingerprint of the QName to be matched
+     * @return true if the name matches, false if not
+     */
+    @Override
+    public boolean matchesFingerprint(NamePool namePool, int fp) {
+        return namePool.getLocalName(fp).equals(localName);
     }
 
     /**
@@ -211,20 +227,6 @@ public final class LocalNameTest extends NodeTest implements QNameTest {
     @Override
     public String exportQNameTest() {
         return "*:" + localName;
-    }
-
-    /**
-     * Generate Javascript code to test if a name matches the test.
-     *
-     * @return JS code as a string. The generated code will be used
-     * as the body of a JS function in which the argument name "q" is an
-     * XdmQName object holding the name. The XdmQName object has properties
-     * uri and local.
-     * @param targetVersion the version of Saxon-JS being targeted
-     */
-    @Override
-    public String generateJavaScriptNameTest(int targetVersion) {
-        return "q.local==='" + localName + "'";
     }
 
     /**

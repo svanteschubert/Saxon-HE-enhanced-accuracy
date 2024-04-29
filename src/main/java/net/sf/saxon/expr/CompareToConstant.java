@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -77,7 +77,7 @@ public abstract class CompareToConstant extends UnaryExpression implements Compa
     }
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return StaticProperty.NO_NODES_NEWLY_CREATED;
     }
 
@@ -170,11 +170,12 @@ public abstract class CompareToConstant extends UnaryExpression implements Compa
 
     /**
      * Interpret the result of the comparison
-     * @param c -1, 0, or +1 depending how the operands compare
+     * @param operator the operator for example {@link Token#FEQ} or {@link Token#FLE}
+     * @param c -1, 0, or +1, depending on how the operands compare
      * @return true or false depending on the operator in use
      */
 
-    boolean interpretComparisonResult(int c) {
+    public static boolean interpretComparisonResult(int operator, int c) {
         switch (operator) {
             case Token.FEQ:
                 return c == 0;

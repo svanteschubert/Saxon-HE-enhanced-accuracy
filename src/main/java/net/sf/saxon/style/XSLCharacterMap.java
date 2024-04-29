@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -56,7 +56,7 @@ public class XSLCharacterMap extends StyleElement {
     public StructuredQName getCharacterMapName() {
         StructuredQName name = getObjectName();
         if (name == null) {
-            return makeQName(getAttributeValue("", "name"), null, "name");
+            return makeQName(getAttributeValue(NamespaceUri.NULL, "name"), null, "name");
         }
         return name;
     }
@@ -80,7 +80,7 @@ public class XSLCharacterMap extends StyleElement {
      */
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String name = null;
         use = null;
@@ -124,7 +124,7 @@ public class XSLCharacterMap extends StyleElement {
             if (!(child instanceof XSLOutputCharacter)) {
                 compileError("Only xsl:output-character is allowed within xsl:character-map", "XTSE0010");
             }
-        };
+        }
 
         // check that there isn't another character-map with the same name and import
         // precedence
@@ -152,7 +152,7 @@ public class XSLCharacterMap extends StyleElement {
                 String displayname = st.nextToken();
                 try {
                     String[] parts = NameChecker.getQNameParts(displayname);
-                    String uri = getURIForPrefix(parts[0], false);
+                    NamespaceUri uri = getURIForPrefix(parts[0], false);
                     if (uri == null) {
                         compileError("Undeclared namespace prefix " + Err.wrap(parts[0])
                                 + " in character map name", "XTSE0280");

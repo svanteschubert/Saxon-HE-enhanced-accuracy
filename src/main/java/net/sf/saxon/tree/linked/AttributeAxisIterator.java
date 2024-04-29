@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,9 @@ package net.sf.saxon.tree.linked;
 
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.LookaheadIterator;
-
-import java.util.EnumSet;
-import java.util.function.Predicate;
 
 /**
  * AttributeAxisIterator is an enumeration of all the attribute nodes of an Element.
@@ -22,8 +20,8 @@ import java.util.function.Predicate;
 final class AttributeAxisIterator implements AxisIterator, LookaheadIterator {
 
     private final ElementImpl element;
-    private final Predicate<? super NodeInfo> nodeTest;
-    /*@Nullable*/ private NodeInfo next;
+    private final NodeTest nodeTest;
+    /*@Nullable*/ private NodeInfo nextNode;
     private int index;
     private final int length;
 
@@ -35,7 +33,7 @@ final class AttributeAxisIterator implements AxisIterator, LookaheadIterator {
      * @param nodeTest: condition to be applied to the names of the attributes selected
      */
 
-    AttributeAxisIterator(ElementImpl node, Predicate<? super NodeInfo> nodeTest) {
+    AttributeAxisIterator(ElementImpl node, NodeTest nodeTest) {
         this.element = node;
         this.nodeTest = nodeTest;
 
@@ -45,6 +43,11 @@ final class AttributeAxisIterator implements AxisIterator, LookaheadIterator {
 
     }
 
+    @Override
+    public boolean supportsHasNext() {
+        return true;
+    }
+
     /**
      * Test if there are mode nodes still to come.
      * ("elements" is used here in the sense of the Java enumeration class, not in the XML sense)
@@ -52,7 +55,7 @@ final class AttributeAxisIterator implements AxisIterator, LookaheadIterator {
 
     @Override
     public boolean hasNext() {
-        return next != null;
+        return nextNode != null;
     }
 
     /**
@@ -62,10 +65,10 @@ final class AttributeAxisIterator implements AxisIterator, LookaheadIterator {
     /*@Nullable*/
     @Override
     public NodeInfo next() {
-        if (next == null) {
+        if (nextNode == null) {
             return null;
         } else {
-            NodeInfo current = next;
+            NodeInfo current = nextNode;
             advance();
             return current;
         }
@@ -78,16 +81,16 @@ final class AttributeAxisIterator implements AxisIterator, LookaheadIterator {
     private void advance() {
         while (true) {
             if (index >= length) {
-                next = null;
+                nextNode = null;
                 return;
             } else {
                 AttributeInfo info = element.attributes().itemAt(index);
                 if (info instanceof AttributeInfo.Deleted) {
                     index++;
                 } else {
-                    next = new AttributeImpl(element, index);
+                    nextNode = new AttributeImpl(element, index);
                     index++;
-                    if (nodeTest.test(next)) {
+                    if (nodeTest.test(nextNode)) {
                         return;
                     }
                 }
@@ -95,19 +98,5 @@ final class AttributeAxisIterator implements AxisIterator, LookaheadIterator {
         }
     }
 
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LOOKAHEAD);
-    }
 }
 

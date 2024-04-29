@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.s9api.XsltExecutable;
 
 import javax.xml.transform.Templates;
 import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
 import java.util.Properties;
 
 /**
@@ -19,10 +20,12 @@ import java.util.Properties;
  */
 public class TemplatesImpl implements Templates {
 
-    private XsltExecutable executable;
+    private final TransformerFactory factory;
+    private final XsltExecutable executable;
     private boolean forceStreaming;
 
-    public TemplatesImpl(XsltExecutable executable) {
+    public TemplatesImpl(TransformerFactory factory, XsltExecutable executable) {
+        this.factory = factory;
         this.executable = executable;
     }
 
@@ -33,11 +36,16 @@ public class TemplatesImpl implements Templates {
      */
     @Override
     public Transformer newTransformer() {
+        Transformer result;
         if (forceStreaming) {
-            return new StreamingTransformerImpl(executable, executable.load30());
+            result = new StreamingTransformerImpl(executable, executable.load30());
         } else {
-            return new TransformerImpl(executable, executable.load());
+            result = new TransformerImpl(executable, executable.load());
         }
+        if (factory.getURIResolver() != null) {
+            result.setURIResolver(factory.getURIResolver());
+        }
+        return result;
     }
 
     /**

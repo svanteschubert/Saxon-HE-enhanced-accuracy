@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.trans;
 
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.s9api.XsltExecutable;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,11 +18,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * A cache of the stylesheets (as XsltExecutables) used in calls to the fn:transform function, in a stylesheet or query.
  */
 
+@CSharpModifiers(code = {"internal"})
 public class StylesheetCache {
 
-    private Map<String, XsltExecutable> cacheByText = new ConcurrentHashMap<String, XsltExecutable>();
-    private Map<String, XsltExecutable> cacheByLocation = new ConcurrentHashMap<String, XsltExecutable>();
-    private Map<NodeInfo, XsltExecutable> cacheByNode = new ConcurrentHashMap<NodeInfo, XsltExecutable>();
+    private final Map<String, XsltExecutable> cacheByText = new ConcurrentHashMap<String, XsltExecutable>();
+    private final Map<String, XsltExecutable> cacheByLocation = new ConcurrentHashMap<String, XsltExecutable>();
+    private final Map<NodeInfo, XsltExecutable> cacheByNode = new ConcurrentHashMap<NodeInfo, XsltExecutable>();
 
     /**
      * Get the stylesheet (XsltExecutable) in the cache associated with the supplied stylesheet text string.

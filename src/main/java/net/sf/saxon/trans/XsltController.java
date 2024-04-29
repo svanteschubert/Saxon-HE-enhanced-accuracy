@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,10 +18,13 @@ import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Destination;
-import net.sf.saxon.serialize.Emitter;
+import net.sf.saxon.s9api.Message;
 import net.sf.saxon.serialize.MessageEmitter;
 import net.sf.saxon.serialize.PrincipalOutputGatekeeper;
 import net.sf.saxon.style.StylesheetPackage;
+import net.sf.saxon.trace.TemplateRuleTraceListener;
+import net.sf.saxon.transpile.CSharpInnerClass;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.tree.iter.SingletonIterator;
@@ -29,11 +32,13 @@ import net.sf.saxon.tree.wrapper.SpaceStrippedDocument;
 import net.sf.saxon.tree.wrapper.SpaceStrippedNode;
 import net.sf.saxon.tree.wrapper.TypeStrippedDocument;
 
-import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Source;
 import javax.xml.transform.sax.SAXSource;
-import javax.xml.transform.stream.StreamSource;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Stack;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -45,22 +50,27 @@ import java.util.function.Supplier;
 public class XsltController extends Controller {
 
     private final Map<StructuredQName, Integer> messageCounters = new HashMap<>();
-    private Receiver explicitMessageReceiver = null;
-    private Supplier<Receiver> messageFactory = () -> new NamespaceDifferencer(new MessageEmitter(), new Properties());
     private boolean assertionsEnabled = true;
     private ResultDocumentResolver resultDocumentResolver;
     private HashSet<DocumentKey> allOutputDestinations;
     private Component.M initialMode = null;
-    private Function initialFunction = null;
     private Map<StructuredQName, Sequence> initialTemplateParams;
     private Map<StructuredQName, Sequence> initialTemplateTunnelParams;
-    private Map<Long, Stack<AttributeSet>> attributeSetEvaluationStacks = new HashMap<>();
+    private final Map<Long, Stack<AttributeSet>> attributeSetEvaluationStacks = new HashMap<>();
     private AccumulatorManager accumulatorManager = new AccumulatorManager();
     private PrincipalOutputGatekeeper gatekeeper = null;
     private Destination principalDestination;
+    private TemplateRuleTraceListener templateRuleTraceListener = null;
+    private Consumer<Message> messageHandler;
 
     public XsltController(Configuration config, PreparedStylesheet pss) {
         super(config, pss);
+        initMessageHandler(config);
+    }
+
+    @CSharpReplaceBody(code="Saxon.Callbacks.StandardMessageHandler smh = new (config); setMessageHandler(message => smh.accept(message));")
+    private void initMessageHandler(Configuration config) {
+        messageHandler = new StandardMessageHandler(config);
     }
 
     /**
@@ -244,7 +254,7 @@ public class XsltController extends Controller {
      * @param uri A URI that is not available as an output destination
      */
 
-    public void addUnavailableOutputDestination(DocumentKey uri) {
+    public synchronized void addUnavailableOutputDestination(DocumentKey uri) {
         if (allOutputDestinations == null) {
             allOutputDestinations = new HashSet<>(20);
         }
@@ -258,7 +268,7 @@ public class XsltController extends Controller {
      * @param uri A URI that is being made available as an output destination
      */
 
-    public void removeUnavailableOutputDestination(DocumentKey uri) {
+    public synchronized void removeUnavailableOutputDestination(DocumentKey uri) {
         if (allOutputDestinations != null) {
             allOutputDestinations.remove(uri);
         }
@@ -275,7 +285,7 @@ public class XsltController extends Controller {
      * it may return different results for the same URI at different points in the transformation.
      */
 
-    public boolean isUnusedOutputDestination(DocumentKey uri) {
+    public synchronized boolean isUnusedOutputDestination(DocumentKey uri) {
         return allOutputDestinations == null || !allOutputDestinations.contains(uri);
     }
 
@@ -313,17 +323,41 @@ public class XsltController extends Controller {
     }
 
     /**
-     * Supply a factory function that is called every time xsl:message is executed; the factory function
-     * is responsible for creating a {@link Outputter} that receives the content of the message, and does
-     * what it will with it.
-     * @param messageReceiverFactory a factory function whose job it is to create a {@link Outputter} for
-     *                               xsl:message output; the function should supply a new {@code Receiver}
-     *                               each time it is called, because xsl:message calls may arise in different
-     *                               threads and the Receiver is unlikely to be thread-safe.
+     * Provide a user-supplied handler for {@code xsl:message} and {@code xsl:assert}
+     * output.
+     * <p>Note that the same message handler may be called to process messages
+     * emanating from multiple threads. The message handler must therefore
+     * be thread-safe; and the order in which messages are passed to the message
+     * handler is not always predictable.</p>
+     * @param handler a consumer of {@link Message} objects.
+     * @since 11. Replaces a variety of previous interfaces including
+     * {@code setMessageEmitter} and {@code setMessageFactory}.
      */
 
+    public void setMessageHandler(Consumer<Message> handler) {
+        messageHandler = handler;
+    }
+
+    /**
+     * Get the user-supplied or system-supplied handler for {@code xsl:message} and {@code xsl:assert}
+     * output.
+     * @return a consumer of {@link Message} objects.
+     * @since 11.
+     */
+
+    public Consumer<Message> getMessageHandler() {
+        return messageHandler;
+    }
+
+    /**
+     * Supply a factory function that is called every time xsl:message is executed.
+     * @param messageReceiverFactory a factory function whose job it is to create a {@link Outputter} for
+     *                               xsl:message output.
+     * @deprecated since Saxon 11. The method has no effect. Use {@link #setMessageHandler}
+     */
+    @Deprecated
     public void setMessageFactory(Supplier<Receiver> messageReceiverFactory) {
-        this.messageFactory = messageReceiverFactory;
+
     }
 
     /**
@@ -334,22 +368,11 @@ public class XsltController extends Controller {
      * @param name the full name of the class to be instantiated to provide a receiver for xsl:message output. The name must
      *             be the name of a class that implements the {@link Receiver} interface, and that has a zero-argument public
      *             constructor.
+     * @deprecated since Saxon 11. The method has no effect. Use {@link #setMessageHandler}
      */
-
+    @Deprecated
     public void setMessageReceiverClassName(String name) {
-        if (!name.equals(MessageEmitter.class.getName())) {
-            this.messageFactory = () -> {
-                try {
-                    Object messageReceiver = getConfiguration().getInstance(name, null);
-                    if (!(messageReceiver instanceof Receiver)) {
-                        throw new XPathException(name + " is not a Receiver");
-                    }
-                    return (Receiver) messageReceiver;
-                } catch (XPathException e) {
-                    throw new UncheckedXPathException(e);
-                }
-            };
-        }
+        // No actioin
     }
 
     /**
@@ -358,11 +381,13 @@ public class XsltController extends Controller {
      * is called to obtain a new Receiver each time an xsl:message instruction is evaluated.</p>
      *
      * @return The newly constructed message Receiver
+     * @deprecated since Saxon 11. The method returns null. Use {@link #setMessageHandler}
      */
 
     /*@NotNull*/
+    @Deprecated
     public Receiver makeMessageReceiver() {
-        return messageFactory.get();
+        return null;
     }
 
     /**
@@ -379,7 +404,7 @@ public class XsltController extends Controller {
      * <p>
      * It is not necessary to use this interface in order to change the destination
      * to which messages are written: that can be achieved by obtaining the standard
-     * message emitter and calling its {@link Emitter#setWriter} method.</p>
+     * message emitter and calling its {@link MessageEmitter#setWriter} method.</p>
      * <p>
      * Although any <code>Receiver</code> can be supplied as the destination for messages,
      * applications may find it convenient to implement a subclass of {@link SequenceWriter},
@@ -401,36 +426,11 @@ public class XsltController extends Controller {
      * @param receiver The receiver to receive xsl:message output.
      * @since 8.4; changed in 8.9 to supply a Receiver rather than an Emitter. Changed
      * in 9.9.0.2 so it is no longer supported in a configuration that allows multi-threading.
+     * @deprecated since Saxon 11. The method has no effect. Use {@link #setMessageHandler}
      */
-
+    @Deprecated
     public void setMessageEmitter(Receiver receiver) {
-        if (getConfiguration().getBooleanProperty(Feature.ALLOW_MULTITHREADING)) {
-            throw new IllegalStateException("XsltController#setMessageEmitter() is not supported for a configuration that allows multi-threading. Use setMessageFactory() instead");
-        }
-        final Receiver messageReceiver = explicitMessageReceiver = receiver;
-        receiver.setPipelineConfiguration(makePipelineConfiguration());
-        if (receiver instanceof Emitter && ((Emitter) receiver).getOutputProperties() == null) {
-            try {
-                Properties props = new Properties();
-                props.setProperty(OutputKeys.METHOD, "xml");
-                props.setProperty(OutputKeys.INDENT, "yes");
-                props.setProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
-                ((Emitter) receiver).setOutputProperties(props);
-            } catch (XPathException e) {
-                // no action
-            }
-        }
-        setMessageFactory(() -> new ProxyReceiver(messageReceiver) {
-            /**
-             * End of output. Note that closing this receiver also closes the rest of the
-             * pipeline.
-             */
-            @Override
-            public void close() {
-                //super.close();
-            }
-        });
-
+        // No action
     }
 
     /**
@@ -444,8 +444,9 @@ public class XsltController extends Controller {
      */
 
     /*@Nullable*/
+    @Deprecated
     public Receiver getMessageEmitter() {
-        return explicitMessageReceiver;
+        return null;
     }
 
     /**
@@ -459,9 +460,8 @@ public class XsltController extends Controller {
 
     public void incrementMessageCounter(StructuredQName code) {
         synchronized(messageCounters) {
-            Integer c = messageCounters.get(code);
-            int n = c == null ? 1 : c + 1;
-            messageCounters.put(code, n);
+            int n = messageCounters.getOrDefault(code, 0);
+            messageCounters.put(code, n+1);
         }
     }
 
@@ -475,6 +475,26 @@ public class XsltController extends Controller {
     public Map<StructuredQName, Integer> getMessageCounters() {
         synchronized(messageCounters) {
             return new HashMap<>(messageCounters);
+        }
+    }
+
+
+    /**
+     * Get the output URI resolver.
+     *
+     * @return the user-supplied URI resolver if there is one, or the
+     * system-defined one otherwise.
+     * @see #setOutputURIResolver
+     * @since 8.4. Retained for backwards compatibility in 9.9; superseded by
+     * {@link #getResultDocumentResolver()}
+     */
+
+    /*@Nullable*/
+    public OutputURIResolver getOutputURIResolver() {
+        if (resultDocumentResolver instanceof OutputURIResolverWrapper) {
+            return ((OutputURIResolverWrapper) resultDocumentResolver).getOutputURIResolver();
+        } else {
+            return getConfiguration().getOutputURIResolver();
         }
     }
 
@@ -502,31 +522,37 @@ public class XsltController extends Controller {
         setResultDocumentResolver(new OutputURIResolverWrapper(our));
     }
 
+    /**
+     * Get the resolver for URIs referring to secondary output documents.
+     * <p>XSLT 2.0 introduced the <code>xsl:result-document</code> instruction,
+     * allowing a transformation to have multiple result documents. JAXP does
+     * not support this capability.</p>
+     *
+     * @return An object that implements the ResultDocumentResolver interface, or null.
+     * The value is null (indicating that a system-supplied resolver will be used)
+     * unless an explicit value is set.
+     * @since 9.9.
+     */
+
     public ResultDocumentResolver getResultDocumentResolver() {
         return resultDocumentResolver;
     }
 
-    public void setResultDocumentResolver(ResultDocumentResolver resultDocumentResolver) {
-        this.resultDocumentResolver = resultDocumentResolver;
-    }
-
     /**
-     * Get the output URI resolver.
+     * Set the resolver for URIs referring to secondary output documents.
+     * <p>XSLT 2.0 introduced the <code>xsl:result-document</code> instruction,
+     * allowing a transformation to have multiple result documents. JAXP does
+     * not support this capability. This method allows an {@code ResultDocumentResolver}
+     * to be specified that takes responsibility for deciding the destination
+     * (and, if it wishes, the serialization properties) of secondary output files.</p>
      *
-     * @return the user-supplied URI resolver if there is one, or the
-     * system-defined one otherwise.
-     * @see #setOutputURIResolver
-     * @since 8.4. Retained for backwards compatibility in 9.9; superseded by
-     * {@link #getResultDocumentResolver()}
+     * @param resultDocumentResolver An object that implements the ResultDocumentResolver
+     *                 interface, or null.
+     * @since 9.9.
      */
 
-    /*@Nullable*/
-    public OutputURIResolver getOutputURIResolver() {
-        if (resultDocumentResolver instanceof OutputURIResolverWrapper) {
-            return ((OutputURIResolverWrapper) resultDocumentResolver).getOutputURIResolver();
-        } else {
-            return getConfiguration().getOutputURIResolver();
-        }
+    public void setResultDocumentResolver(ResultDocumentResolver resultDocumentResolver) {
+        this.resultDocumentResolver = resultDocumentResolver;
     }
 
     /**
@@ -546,6 +572,14 @@ public class XsltController extends Controller {
 
     public Destination getPrincipalDestination() {
         return principalDestination;
+    }
+
+    public TemplateRuleTraceListener getTemplateRuleTraceListener() {
+        return templateRuleTraceListener;
+    }
+
+    public void setTemplateRuleTraceListener(TemplateRuleTraceListener templateRuleTraceListener) {
+        this.templateRuleTraceListener = templateRuleTraceListener;
     }
 
 
@@ -582,11 +616,7 @@ public class XsltController extends Controller {
 
     @Override
     public void preEvaluateGlobals(XPathContext context) throws XPathException {
-//        if (getExecutable().getPackages().size() == 1) {
-//            openMessageEmitter();
-//            super.preEvaluateGlobals(context);
-//            closeMessageEmitter();
-//        }
+        //super.preEvaluateGlobals(context);
     }
 
     /**
@@ -609,7 +639,6 @@ public class XsltController extends Controller {
     public void applyTemplates(Sequence source, Receiver out) throws XPathException {
 
         checkReadiness();
-        openMessageEmitter();
 
         try {
             ComplexContentOutputter dest = prepareOutputReceiver(out);
@@ -617,8 +646,6 @@ public class XsltController extends Controller {
             XPathContextMajor initialContext = newXPathContext();
             initialContext.createThreadManager();
             initialContext.setOrigin(this);
-
-            boolean close = false;
 
             Mode mode = getInitialMode();
             if (mode == null) {
@@ -633,12 +660,6 @@ public class XsltController extends Controller {
             }
 
             warningIfStreamable(mode);
-
-            // Determine whether we need to close the output stream at the end. We
-            // do this if the Result object is a StreamResult and is supplied as a
-            // system ID, not as a Writer or OutputStream
-
-            boolean mustClose = false;
 
             // Process the source document by applying template rules to the initial context node
 
@@ -681,7 +702,6 @@ public class XsltController extends Controller {
             handleXPathException(err);
         } finally {
             inUse = false;
-            closeMessageEmitter();
             if (traceListener != null) {
                 traceListener.close();
             }
@@ -732,7 +752,7 @@ public class XsltController extends Controller {
     }
 
     private MappingFunction getInputPreprocessor(Mode finalMode) {
-        return item -> {
+        return SequenceMapper.of(item -> {
             if (item instanceof NodeInfo) {
                 NodeInfo node = (NodeInfo) item;
                 if (node.getConfiguration() == null) {
@@ -764,7 +784,7 @@ public class XsltController extends Controller {
                     SpaceStrippedDocument strippedDoc = new SpaceStrippedDocument(node.getTreeInfo(), spaceStrippingRule);
                     // Edge case: the item might itself be a whitespace text node that is stripped
                     if (!SpaceStrippedNode.isPreservedNode(node, strippedDoc, node.getParent())) {
-                        return EmptyIterator.emptyIterator();
+                        return EmptyIterator.getInstance();
                     }
                     node = strippedDoc.wrap(node);
                 }
@@ -776,13 +796,13 @@ public class XsltController extends Controller {
             } else {
                 return SingletonIterator.makeIterator(item);
             }
-        };
+        });
     }
 
     private void warningIfStreamable(Mode mode) {
         if (mode.isDeclaredStreamable()) {
-            warning((initialMode == null ? "" : getInitialMode().getModeTitle()) +
-                            " is streamable, but the input is not supplied as a stream", SaxonErrorCode.SXWN9000, Loc.NONE);
+            warning((initialMode == null ? "" : getInitialMode().getModeTitle(true)) +
+                            " is streamable, but the input is not supplied as a stream", SaxonErrorCode.SXWN9045, Loc.NONE);
         }
     }
 
@@ -807,7 +827,6 @@ public class XsltController extends Controller {
     public void callTemplate(StructuredQName initialTemplateName, Receiver out)
             throws XPathException {
         checkReadiness();
-        openMessageEmitter();
 
         try {
             ComplexContentOutputter dest = prepareOutputReceiver(out);
@@ -837,7 +856,8 @@ public class XsltController extends Controller {
                 throw new XPathException("Template " + initialTemplateName.getDisplayName() + " does not exist", "XTDE0040");
             }
             if (!pack.isImplicitPackage() && !(initialComponent.getVisibility() == Visibility.PUBLIC || initialComponent.getVisibility() == Visibility.FINAL)) {
-                throw new XPathException("Template " + initialTemplateName.getDisplayName() + " is " + initialComponent.getVisibility().show(), "XTDE0040");
+                throw new XPathException("Template " + initialTemplateName.getDisplayName()
+                                                 + " is " + Err.describeVisibility(initialComponent.getVisibility()), "XTDE0040");
             }
             NamedTemplate t = (NamedTemplate) initialComponent.getActor();
 
@@ -864,7 +884,6 @@ public class XsltController extends Controller {
             if (traceListener != null) {
                 traceListener.close();
             }
-            closeMessageEmitter();
             inUse = false;
         }
     }
@@ -873,8 +892,7 @@ public class XsltController extends Controller {
      * Perform a transformation by applying templates in a streamable mode to a streamable
      * input document.
      *
-     * @param source The input for the source tree. Must be (or resolve to) a StreamSource
-     *               or SAXSource.
+     * @param source The input for the source tree.
      * @param out    The destination for the result sequence. The events that are written to this
      *               {@code Receiver} will form a <em>regular event sequence</em>
      *               as defined in {@link RegularSequenceChecker}. This event sequence represents
@@ -889,7 +907,6 @@ public class XsltController extends Controller {
 
     public void applyStreamingTemplates(Source source, Receiver out) throws XPathException {
         checkReadiness();
-        openMessageEmitter();
 
         ComplexContentOutputter dest = prepareOutputReceiver(out);
 
@@ -911,9 +928,9 @@ public class XsltController extends Controller {
             if (s2 != null) {
                 underSource = s2;
             }
-            if (!(source instanceof SAXSource || source instanceof StreamSource || source instanceof EventSource)) {
-                throw new IllegalArgumentException("Streaming requires a SAXSource, StreamSource, or EventSource");
-            }
+//            if (!(source instanceof SAXSource || source instanceof StreamSource || source instanceof EventSource)) {
+//                throw new IllegalArgumentException("Streaming requires a SAXSource, StreamSource, or EventSource");
+//            }
             if (!initialMode.getActor().isDeclaredStreamable()) {
                 throw new IllegalArgumentException("Initial mode is not streamable");
             }
@@ -943,13 +960,13 @@ public class XsltController extends Controller {
                 despatcher = makeStripper(despatcher);
             }
             PipelineConfiguration pipe = despatcher.getPipelineConfiguration();
-            pipe.getParseOptions().setSchemaValidationMode(this.validationMode);
+            pipe.setParseOptions(pipe.getParseOptions().withSchemaValidationMode(this.validationMode));
             boolean verbose = getConfiguration().isTiming();
             if (verbose) {
                 getConfiguration().getLogger().info("Streaming " + source.getSystemId());
             }
             try {
-                Sender.send(source, despatcher, null);
+                Sender.send(underSource, despatcher, null);
             } catch (QuitParsingException e) {
                 if (verbose) {
                     getConfiguration().getLogger().info("Streaming " + source.getSystemId() + " : early exit");
@@ -994,12 +1011,12 @@ public class XsltController extends Controller {
      */
 
     /*@Nullable*/
+    @CSharpInnerClass(outer=true, extra="Saxon.Hej.@event.Outputter finalResult")
     public Receiver getStreamingReceiver(Mode mode, Receiver result)
             throws XPathException {
         // System.err.println("*** TransformDocument");
 
         checkReadiness();
-        openMessageEmitter();
 
         // Determine whether we need to close the output stream at the end. We
         // do this if the Result object is a StreamResult and is supplied as a
@@ -1035,27 +1052,11 @@ public class XsltController extends Controller {
                 if (traceListener != null) {
                     traceListener.close();
                 }
-                closeMessageEmitter();
                 finalResult.close();
                 inUse = false;
             }
         };
 
-    }
-
-    private void openMessageEmitter() throws XPathException {
-        if (explicitMessageReceiver != null) {
-            explicitMessageReceiver.open();
-            if (explicitMessageReceiver instanceof Emitter && ((Emitter) explicitMessageReceiver).getWriter() == null) {
-                ((Emitter) explicitMessageReceiver).setStreamResult(getConfiguration().getLogger().asStreamResult());
-            }
-        }
-    }
-
-    private void closeMessageEmitter() throws XPathException {
-        if (explicitMessageReceiver != null) {
-            explicitMessageReceiver.close();
-        }
     }
 
     /**
@@ -1066,7 +1067,8 @@ public class XsltController extends Controller {
 
     public synchronized Stack<AttributeSet> getAttributeSetEvaluationStack() {
         long thread = Thread.currentThread().getId();
-        return attributeSetEvaluationStacks.computeIfAbsent(thread, k -> new Stack<>());
+        //noinspection Convert2Diamond
+        return attributeSetEvaluationStacks.computeIfAbsent(thread, k -> new Stack<AttributeSet>());
     }
 
     public synchronized void releaseAttributeSetEvaluationStack() {

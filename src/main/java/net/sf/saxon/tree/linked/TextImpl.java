@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.tree.linked;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Type;
@@ -16,14 +17,13 @@ import net.sf.saxon.type.Type;
 /**
  * A node in the XML parse tree representing character content.
  *
- * @author Michael H. Kay
  */
 
 public class TextImpl extends NodeImpl {
 
-    private String content;
+    private UnicodeString content;
 
-    public TextImpl(String content) {
+    public TextImpl(UnicodeString content) {
         this.content = content;
     }
 
@@ -33,8 +33,8 @@ public class TextImpl extends NodeImpl {
      * @param content the new content to be appended
      */
 
-    public void appendStringValue(String content) {
-        this.content = this.content + content;
+    public void appendStringValue(UnicodeString content) {
+        this.content = this.content.concat(content);
     }
 
     /**
@@ -44,7 +44,7 @@ public class TextImpl extends NodeImpl {
      */
 
     @Override
-    public String getStringValue() {
+    public UnicodeString getUnicodeStringValue() {
         return content;
     }
 
@@ -76,11 +76,11 @@ public class TextImpl extends NodeImpl {
      */
 
     @Override
-    public void replaceStringValue(/*@NotNull*/ CharSequence stringValue) {
-        if (stringValue.length() == 0) {
+    public void replaceStringValue(UnicodeString stringValue) {
+        if (stringValue.isEmpty()) {
             delete();
         } else {
-            content = stringValue.toString();
+            content = stringValue;
         }
     }
 

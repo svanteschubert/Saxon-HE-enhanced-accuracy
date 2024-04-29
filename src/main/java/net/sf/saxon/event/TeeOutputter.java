@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -155,7 +156,7 @@ public class TeeOutputter extends SequenceReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         seq1.characters(chars, locationId, properties);
         seq2.characters(chars, locationId, properties);
     }
@@ -177,7 +178,7 @@ public class TeeOutputter extends SequenceReceiver {
      */
 
     @Override
-    public void processingInstruction(String name, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String name, UnicodeString data, Location locationId, int properties) throws XPathException {
         seq1.processingInstruction(name, data, locationId, properties);
         seq2.processingInstruction(name, data, locationId, properties);
     }
@@ -198,7 +199,7 @@ public class TeeOutputter extends SequenceReceiver {
      */
 
     @Override
-    public void comment(CharSequence content, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString content, Location locationId, int properties) throws XPathException {
         seq1.comment(content, locationId, properties);
         seq2.comment(content, locationId, properties);
     }

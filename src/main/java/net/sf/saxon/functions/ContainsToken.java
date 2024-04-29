@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,10 +12,9 @@ import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.UnfailingIterator;
 import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.Whitespace;
 
 /**
@@ -29,20 +28,18 @@ public class ContainsToken extends CollatingFunctionFixed  {
         return true;
     }
 
-    private static boolean containsToken(SequenceIterator arg0, StringValue arg1, StringCollator collator) throws XPathException {
+    private static boolean containsToken(SequenceIterator arg0, UnicodeString arg1, StringCollator collator) throws XPathException {
         if (arg1 == null) {
             return false;
         }
-        String search = Whitespace.trim(arg1.getPrimitiveStringValue().toString());
+        UnicodeString search = Whitespace.trim(arg1);
         if (search.isEmpty()) {
             return false;
         }
-        Item item;
-        while ((item = arg0.next()) != null) {
-            UnfailingIterator tokens = new Whitespace.Tokenizer(item.getStringValueCS());
-            Item token;
-            while ((token = tokens.next()) != null) {
-                if (collator.comparesEqual(search, token.getStringValue())) {
+        for (Item item; (item = arg0.next()) != null; ) {
+            SequenceIterator tokens = new Whitespace.Tokenizer(item.getUnicodeStringValue());
+            for (Item token; (token = tokens.next()) != null; ) {
+                if (collator.comparesEqual(search, token.getUnicodeStringValue())) {
                     tokens.close();
                     arg0.close();
                     return true;
@@ -64,7 +61,7 @@ public class ContainsToken extends CollatingFunctionFixed  {
     @Override
     public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
         return BooleanValue.get(
-            containsToken(arguments[0].iterate(), (StringValue) arguments[1].head(), getStringCollator()));
+            containsToken(arguments[0].iterate(), arguments[1].head().getUnicodeStringValue(), getStringCollator()));
 
     }
 

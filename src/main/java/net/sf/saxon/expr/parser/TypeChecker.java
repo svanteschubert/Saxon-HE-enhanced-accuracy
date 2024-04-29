@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,15 +11,23 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.ma.map.TupleType;
+import net.sf.saxon.ma.map.RecordType;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.trans.SaxonErrorCode;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
-import static net.sf.saxon.type.Affinity.*;
+
+import java.util.function.Supplier;
+
+import static net.sf.saxon.type.Affinity.DISJOINT;
+import static net.sf.saxon.type.Affinity.SAME_TYPE;
+import static net.sf.saxon.type.Affinity.SUBSUMED_BY;
+import static net.sf.saxon.type.Affinity.SUBSUMES;
 
 /**
  * This class provides Saxon's type checking capability. It contains a method,
@@ -55,7 +63,7 @@ public class TypeChecker {
      *
      * @param supplied            The expression to be type-checked
      * @param req                 The required type for the context in which the expression is used
-     * @param role                Information about the role of the subexpression within the
+     * @param roleSupplier                Information about the role of the subexpression within the
      *                            containing expression, used to provide useful error messages
      * @param visitor             An expression visitor
      * @return The original expression if it is type-safe, or the expression
@@ -66,14 +74,14 @@ public class TypeChecker {
 
     public Expression staticTypeCheck(Expression supplied,
                                       SequenceType req,
-                                      RoleDiagnostic role,
+                                      Supplier<RoleDiagnostic> roleSupplier,
                                       final ExpressionVisitor visitor)
             throws XPathException {
 
         // System.err.println("Static Type Check on expression (requiredType = " + req + "):"); supplied.display(10);
 
         if (supplied.implementsStaticTypeCheck()) {
-            return supplied.staticTypeCheck(req, false, role, visitor);
+            return supplied.staticTypeCheck(req, false, roleSupplier, visitor);
         }
 
         Expression exp = supplied;
@@ -81,10 +89,10 @@ public class TypeChecker {
         final Configuration config = env.getConfiguration();
         final TypeHierarchy th = config.getTypeHierarchy();
         final ContextItemStaticInfo defaultContextInfo = config.getDefaultContextItemStaticInfo();
+        final boolean allow40 = env.getXPathVersion() >= 40;
 
         final ItemType reqItemType = req.getPrimaryType();
         int reqCard = req.getCardinality();
-        boolean allowsMany = Cardinality.allowsMany(reqCard);
 
         ItemType suppliedItemType = null;
         // item type of the supplied expression: null means not yet calculated
@@ -113,23 +121,26 @@ public class TypeChecker {
             if (reqItemType == null || suppliedItemType == null) {
                 throw new NullPointerException();
             }
-            Affinity relation = th.relationship(reqItemType, suppliedItemType);
-            itemTypeOK = relation == Affinity.SAME_TYPE || relation == Affinity.SUBSUMES;
+            Affinity affinity = th.relationship(reqItemType, suppliedItemType);
+            itemTypeOK = affinity == Affinity.SAME_TYPE || affinity == Affinity.SUBSUMES;
         }
 
 
-        if (!itemTypeOK) {
-            // Now apply the conversions needed in 2.0 mode
+        if (reqItemType.isPlainType()) {
 
-            if (reqItemType.isPlainType()) {
+            if (!itemTypeOK) {
 
                 // rule 1: Atomize
                 if (!suppliedItemType.isPlainType() &&
                         !(suppliedCard == StaticProperty.EMPTY)) {
-                    if (!suppliedItemType.isAtomizable(th)) {
+                    boolean atomizable = suppliedItemType.isAtomizable(th);
+                    if (atomizable && (exp.getSpecialProperties() & StaticProperty.COMPUTED_FUNCTION) != 0) {
+                        atomizable = false; // in this case we know the function isn't going to be an array
+                    }
+                    if (!atomizable) {
                         String shortItemType;
-                        if (suppliedItemType instanceof TupleType) {
-                            shortItemType = "a tuple type";
+                        if (suppliedItemType instanceof RecordType) {
+                            shortItemType = "a record type";
                         } else if (suppliedItemType instanceof MapType) {
                             shortItemType = "a map type";
                         } else if (suppliedItemType instanceof FunctionItemType) {
@@ -139,18 +150,20 @@ public class TypeChecker {
                         } else {
                             shortItemType = suppliedItemType.toString();
                         }
-                        XPathException err = new XPathException(
+                        RoleDiagnostic role = roleSupplier.get();
+                        throw new XPathException(
                                 "An atomic value is required for the " + role.getMessage() +
-                                        ", but the supplied type is " + shortItemType + ", which cannot be atomized", "FOTY0013", supplied.getLocation());
-                        err.setIsTypeError(true);
-                        err.setFailingExpression(supplied);
-                        throw err;
+                                        ", but the supplied type is " + shortItemType + ", which cannot be atomized")
+                                .withErrorCode("FOTY0013")
+                                .withLocation(supplied.getLocation())
+                                .asTypeError()
+                                .withFailingExpression(supplied);
                     }
 
                     if (exp.getRetainedStaticContext() == null) {
                         exp.setRetainedStaticContextLocally(env.makeRetainedStaticContext());
                     }
-                    Expression cexp = Atomizer.makeAtomizer(exp, role);
+                    Expression cexp = Atomizer.makeAtomizer(exp, roleSupplier);
                     ExpressionTool.copyLocationInfo(exp, cexp);
                     exp = cexp;
                     cexp = exp.simplify();
@@ -160,43 +173,102 @@ public class TypeChecker {
                     suppliedCard = exp.getCardinality();
                     cardOK = Cardinality.subsumes(reqCard, suppliedCard);
                 }
+            }
 
-                // rule 2: convert untypedAtomic to the required type
+            // rule 2: convert untypedAtomic to the required type
 
-                //   2a: all supplied values are untyped atomic. Convert if necessary, and we're finished.
+            // The specification says we do untypedAtomic conversion first, then promotion. However, if the
+            // target type is one to which promotion applies, then we combine the two operations into one:
+            // the conversion functions that handle type promotion (for example from float to double) also
+            // handle conversion from untypedAtomic, so we only need to make one pass over the data.
+
+            // rule 3: type promotion (combined with untypedAtomic conversion)
+
+            if (reqItemType instanceof BuiltInAtomicType && ((BuiltInAtomicType) reqItemType).isPrimitiveType() && !itemTypeOK) {
+                int rt = ((BuiltInAtomicType) reqItemType).getFingerprint();
+                UType promotables = promotableTypes(rt, allow40);
+                if (suppliedItemType.getUType().intersection(promotables).equals(UType.VOID)) {
+                    // Promotion cannot succeed: raise a static type error
+                    RoleDiagnostic role = roleSupplier.get();
+                    throw new XPathException(
+                            "An item of type " + suppliedItemType +
+                                    " cannot be converted to " + reqItemType +
+                                    " as required for the " + role.getMessage())
+                            .withErrorCode(role.getErrorCode())
+                            .withLocation(supplied.getLocation())
+                            .withFailingExpression(supplied);
+                }
+                ConversionRules rules = config.getConversionRules();
+                Expression promoted = null;
+                Converter converter = makePromotingConverter(suppliedItemType, rt, rules, allow40);
+                if (converter != null) {
+                    promoted = makePromoter(exp, converter, (BuiltInAtomicType)reqItemType);
+                }
+
+                if (promoted != null) {
+                    if (promoted instanceof AtomicSequenceConverter) {
+                        ((AtomicSequenceConverter) promoted).setRoleDiagnostic(roleSupplier);
+                    }
+                    exp = promoted;
+                    try {
+                        exp = exp.simplify().typeCheck(visitor, defaultContextInfo);
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(exp.getLocation())
+                                .asStaticError()
+                                .withFailingExpression(supplied);
+                    }
+                    suppliedItemType = reqItemType;
+                    suppliedCard = -1;
+                    itemTypeOK = true;
+
+                }
+            }
+
+            if (!itemTypeOK) {
+
+                // Revisit rule 2 (conversion from untyped atomic) for target types that have not been handled by a Promoter
+
+                //   2b: all supplied values are untyped atomic. Convert if necessary, and we're finished.
 
                 if (suppliedItemType.equals(BuiltInAtomicType.UNTYPED_ATOMIC)
                         && !(reqItemType.equals(BuiltInAtomicType.UNTYPED_ATOMIC) || reqItemType.equals(BuiltInAtomicType.ANY_ATOMIC))) {
 
                     if (((PlainType) reqItemType).isNamespaceSensitive()) {
                         // See spec bug 11964
-                        XPathException err = new XPathException("An untyped atomic value cannot be converted to a QName or NOTATION as required for the " + role.getMessage(), "XPTY0117", supplied.getLocation());
-                        err.setIsTypeError(true);
-                        throw err;
+                        RoleDiagnostic role = roleSupplier.get();
+                        throw new XPathException(
+                                "An untyped atomic value cannot be converted to a QName or NOTATION as required for the " +
+                                        role.getMessage())
+                                .withErrorCode("XPTY0117")
+                                .withLocation(supplied.getLocation())
+                                .withFailingExpression(supplied);
                     }
                     UntypedSequenceConverter cexp = UntypedSequenceConverter.makeUntypedSequenceConverter(config, exp, (PlainType) reqItemType);
-                    cexp.setRoleDiagnostic(role);
+                    cexp.setRoleDiagnostic(roleSupplier);
                     ExpressionTool.copyLocationInfo(exp, cexp);
                     try {
                         if (exp instanceof Literal) {
-                            exp = Literal.makeLiteral(
-                                    cexp.iterate(visitor.makeDynamicContext()).materialize(), exp);
-                            ExpressionTool.copyLocationInfo(cexp, exp);
+                            try {
+                                exp = Literal.makeLiteral(
+                                        SequenceTool.toGroundedValue(cexp.iterate(visitor.makeDynamicContext())), exp);
+                                ExpressionTool.copyLocationInfo(cexp, exp);
+                            } catch (UncheckedXPathException e) {
+                                throw e.getXPathException();
+                            }
                         } else {
                             exp = cexp;
                         }
                     } catch (XPathException err) {
-                        err.maybeSetLocation(exp.getLocation());
-                        err.setFailingExpression(supplied);
-                        err.setErrorCode(role.getErrorCode());
-                        err.setIsStaticError(true);
-                        throw err;
+                        throw err.maybeWithLocation(exp.getLocation())
+                                .withFailingExpression(supplied)
+                                .maybeWithErrorCode(roleSupplier.get().getErrorCode())
+                                .asStaticError();
                     }
                     itemTypeOK = true;
                     suppliedItemType = reqItemType;
                 }
 
-                //   2b: some supplied values are untyped atomic. Convert these to the required type; but
+                //   2c: some supplied values are untyped atomic. Convert these to the required type; but
                 //   there may be other values in the sequence that won't convert and still need to be checked
 
                 if (suppliedItemType.equals(BuiltInAtomicType.ANY_ATOMIC)
@@ -208,121 +280,82 @@ public class TypeChecker {
                         conversion = UntypedSequenceConverter.makeUntypedSequenceRejector(config, exp, (PlainType) reqItemType);
                     } else {
                         UntypedSequenceConverter usc = UntypedSequenceConverter.makeUntypedSequenceConverter(config, exp, (PlainType) reqItemType);
-                        usc.setRoleDiagnostic(role);
+                        usc.setRoleDiagnostic(roleSupplier);
                         conversion = usc;
                     }
                     ExpressionTool.copyLocationInfo(exp, conversion);
                     try {
                         if (exp instanceof Literal) {
-                            exp = Literal.makeLiteral(
-                                    conversion.iterate(visitor.makeDynamicContext()).materialize(), exp);
-                            ExpressionTool.copyLocationInfo(supplied, exp);
+                            try {
+                                exp = Literal.makeLiteral(
+                                        SequenceTool.toGroundedValue(conversion.iterate(visitor.makeDynamicContext())), exp);
+                                ExpressionTool.copyLocationInfo(supplied, exp);
+                            } catch (UncheckedXPathException e) {
+                                throw e.getXPathException();
+                            }
                         } else {
                             exp = conversion;
                         }
                         suppliedItemType = exp.getItemType();
                     } catch (XPathException err) {
-                        err.maybeSetLocation(exp.getLocation());
-                        err.setIsStaticError(true);
-                        throw err;
+                        throw err.maybeWithLocation(exp.getLocation()).asStaticError();
                     }
                 }
+            }
 
-                // Rule 3a: numeric promotion decimal -> float -> double
+            // New 4.0 rule - relabelling (or "downcasting")
 
-                if (reqItemType instanceof AtomicType) {
-                    int rt = ((AtomicType) reqItemType).getFingerprint();
-                    if (rt == StandardNames.XS_DOUBLE &&
-                            th.relationship(suppliedItemType, NumericType.getInstance()) != DISJOINT) {
-                        Expression cexp = makePromoterToDouble(exp);
-                        if (cexp instanceof AtomicSequenceConverter) {
-                            ((AtomicSequenceConverter) cexp).setRoleDiagnostic(role);
-                        }
-                        ExpressionTool.copyLocationInfo(exp, cexp);
-                        exp = cexp;
-                        try {
-                            exp = exp.simplify().typeCheck(visitor, defaultContextInfo);
-                        } catch (XPathException err) {
-                            err.maybeSetLocation(exp.getLocation());
-                            err.setIsStaticError(true);
-                            throw err;
-                        }
-                        suppliedItemType = BuiltInAtomicType.DOUBLE;
-                        suppliedCard = -1;
-
-                    } else if (rt == StandardNames.XS_FLOAT &&
-                            th.relationship(suppliedItemType, NumericType.getInstance()) != DISJOINT &&
-                            !th.isSubType(suppliedItemType, BuiltInAtomicType.DOUBLE)) {
-                        Expression cexp = makePromoterToFloat(exp);
-                        if (cexp instanceof AtomicSequenceConverter) {
-                            ((AtomicSequenceConverter)cexp).setRoleDiagnostic(role);
-                        }
-                        ExpressionTool.copyLocationInfo(exp, cexp);
-                        exp = cexp;
-                        try {
-                            exp = exp.simplify().typeCheck(visitor, defaultContextInfo);
-                        } catch (XPathException err) {
-                            err.maybeSetLocation(exp.getLocation());
-                            err.setFailingExpression(supplied);
-                            err.setIsStaticError(true);
-                            throw err;
-                        }
-                        suppliedItemType = BuiltInAtomicType.FLOAT;
-                        suppliedCard = -1;
-
-                    }
-
-                    // Rule 3b: promotion from anyURI -> string
-
-                    if (rt == StandardNames.XS_STRING && th.isSubType(suppliedItemType, BuiltInAtomicType.ANY_URI)) {
-                        itemTypeOK = true;
-                        Expression cexp = makePromoterToString(exp);
-                        if (cexp instanceof AtomicSequenceConverter) {
-                            ((AtomicSequenceConverter) cexp).setRoleDiagnostic(role);
-                        }
-                        ExpressionTool.copyLocationInfo(exp, cexp);
-                        exp = cexp;
-                        try {
-                            exp = exp.simplify().typeCheck(visitor, defaultContextInfo);
-                        } catch (XPathException err) {
-                            err.maybeSetLocation(exp.getLocation());
-                            err.setFailingExpression(supplied);
-                            err.setIsStaticError(true);
-                            throw err;
-                        }
-                        suppliedItemType = BuiltInAtomicType.STRING;
-                        suppliedCard = -1;
-                    }
-                }
-
-            } else if (reqItemType instanceof FunctionItemType && !((FunctionItemType) reqItemType).isMapType()
-                    && !((FunctionItemType) reqItemType).isArrayType()) {
-                Affinity r = th.relationship(suppliedItemType, th.getGenericFunctionItemType());
-                if (r != DISJOINT) {
-                    if (!(suppliedItemType instanceof FunctionItemType)) {
-                        exp = new ItemChecker(exp, th.getGenericFunctionItemType(), role);
-                        suppliedItemType = th.getGenericFunctionItemType();
-                    }
-                    exp = makeFunctionSequenceCoercer(exp, (FunctionItemType) reqItemType, visitor, role);
+            if (!itemTypeOK && reqItemType.getBasicAlphaCode().length() > 2 && visitor.getStaticContext().getXPathVersion() >= 40) {
+                // allow down-conversion ("relabelling")
+                if (reqItemType.getUType().overlaps(suppliedItemType.getUType())) {
                     itemTypeOK = true;
+                    Expression cexp = makeDownCaster(exp, (AtomicType) reqItemType, config);
+                    if (cexp instanceof AtomicSequenceConverter) {
+                        ((AtomicSequenceConverter) cexp).setRoleDiagnostic(roleSupplier);
+                    }
+                    ExpressionTool.copyLocationInfo(exp, cexp);
+                    exp = cexp;
+                    try {
+                        exp = exp.simplify().typeCheck(visitor, defaultContextInfo);
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(exp.getLocation())
+                                .asStaticError()
+                                .withFailingExpression(supplied);
+                    }
+                    suppliedItemType = reqItemType;
                 }
 
-            } else if (reqItemType instanceof JavaExternalObjectType &&
-                    /*Sequence.class.isAssignableFrom(((JavaExternalObjectType) reqItemType).getJavaClass()) &&  */
-                    reqCard == StaticProperty.EXACTLY_ONE) {
+            }
+        // Function coercion
 
-                if (Sequence.class.isAssignableFrom(((JavaExternalObjectType) reqItemType).getJavaClass())) {
-                    // special case: allow an extension function to call an instance method on the implementation type of an XDM value
-                    // we leave the conversion to be sorted out at run-time
+        } else if (!itemTypeOK && reqItemType instanceof FunctionItemType && !((FunctionItemType) reqItemType).isMapType()
+                && !((FunctionItemType) reqItemType).isArrayType()) {
+            Affinity r = th.relationship(suppliedItemType, th.getGenericFunctionItemType());
+            if (r != DISJOINT) {
+                if (!(suppliedItemType instanceof FunctionItemType)) {
+                    exp = new ItemChecker(exp, th.getGenericFunctionItemType(), roleSupplier);
+                    suppliedItemType = th.getGenericFunctionItemType();
+                }
+                exp = makeFunctionSequenceCoercer(exp, (FunctionItemType) reqItemType, roleSupplier, allow40);
+                itemTypeOK = true;
+            }
+
+        // External object conversion
+
+        } else if (!itemTypeOK && reqItemType instanceof JavaExternalObjectType &&
+                /*Sequence.class.isAssignableFrom(((JavaExternalObjectType) reqItemType).getJavaClass()) &&  */
+                reqCard == StaticProperty.EXACTLY_ONE) {
+
+            if (Sequence.class.isAssignableFrom(((JavaExternalObjectType) reqItemType).getJavaClass())) {
+                // special case: allow an extension function to call an instance method on the implementation type of an XDM value
+                // we leave the conversion to be sorted out at run-time
+                itemTypeOK = true;
+            } else if (supplied instanceof FunctionCall) {
+                // adjust the required type of the Java extension function call
+                // this does nothing unless supplied is an instanceof JavaExtensionFunctionCall
+                if (((FunctionCall) supplied).adjustRequiredType((JavaExternalObjectType) reqItemType)) {
                     itemTypeOK = true;
-                } else if (supplied instanceof FunctionCall) {
-                    // adjust the required type of the Java extension function call
-                    // this does nothing unless supplied is an instanceof JavaExtensionFunctionCall
-                    if (((FunctionCall) supplied).adjustRequiredType((JavaExternalObjectType) reqItemType)) {
-                        itemTypeOK = true;
-                        cardOK = true;
-                    }
-
+                    cardOK = true;
                 }
 
             }
@@ -350,10 +383,12 @@ public class TypeChecker {
 
         // If the supplied value is () and () isn't allowed, fail now
         if (suppliedCard == StaticProperty.EMPTY && ((reqCard & StaticProperty.ALLOWS_ZERO) == 0)) {
-            XPathException err = new XPathException("An empty sequence is not allowed as the " + role.getMessage(), role.getErrorCode(), supplied.getLocation());
-            err.setIsTypeError(role.isTypeError());
-            err.setFailingExpression(supplied);
-            throw err;
+            RoleDiagnostic role = roleSupplier.get();
+            throw new XPathException("An empty sequence is not allowed as the " + role.getMessage())
+                    .withErrorCode(role.getErrorCode())
+                    .withLocation(supplied.getLocation())
+                    .asTypeErrorIf(role.isTypeError())
+                    .withFailingExpression(supplied);
         }
 
         // Try a static type check. We only throw it out if the call cannot possibly succeed, unless
@@ -368,19 +403,21 @@ public class TypeChecker {
         if (relation == DISJOINT) {
             // The item types may be disjoint, but if both the supplied and required types permit
             // an empty sequence, we can't raise a static error. Raise a warning instead.
+            RoleDiagnostic role = roleSupplier.get();
             if (Cardinality.allowsZero(suppliedCard) &&
                     Cardinality.allowsZero(reqCard)) {
                 if (suppliedCard != StaticProperty.EMPTY) {
                     String msg = role.composeErrorMessage(reqItemType, supplied, th);
                     msg += ". The expression can succeed only if the supplied value is an empty sequence.";
-                    visitor.issueWarning(msg, supplied.getLocation());
+                    visitor.issueWarning(msg, SaxonErrorCode.SXWN9026, supplied.getLocation());
                 }
             } else {
                 String msg = role.composeErrorMessage(reqItemType, supplied, th);
-                XPathException err = new XPathException(msg, role.getErrorCode(), supplied.getLocation());
-                err.setIsTypeError(role.isTypeError());
-                err.setFailingExpression(supplied);
-                throw err;
+                throw new XPathException(msg)
+                        .withErrorCode(role.getErrorCode())
+                        .withLocation(supplied.getLocation())
+                        .asTypeErrorIf(role.isTypeError())
+                        .withFailingExpression(supplied);
             }
         }
 
@@ -391,15 +428,18 @@ public class TypeChecker {
         if (!(relation == SAME_TYPE || relation == SUBSUMED_BY)) {
             if (exp instanceof Literal) {
                 // Try a more detailed check, since for maps, functions etc getItemType() can be imprecise
-                if (req.matches(((Literal) exp).getValue(), th)) {
+                if (req.matches(((Literal) exp).getGroundedValue(), th)) {
                     return exp;
                 }
+                RoleDiagnostic role = roleSupplier.get();
                 String msg = role.composeErrorMessage(reqItemType, supplied, th);
-                XPathException err = new XPathException(msg, role.getErrorCode(), supplied.getLocation());
-                err.setIsTypeError(role.isTypeError());
-                throw err;
+                throw new XPathException(msg)
+                        .withErrorCode(role.getErrorCode())
+                        .withLocation(supplied.getLocation())
+                        .asTypeErrorIf(role.isTypeError())
+                        .withFailingExpression(supplied);
             } else {
-                Expression cexp = new ItemChecker(exp, reqItemType, role);
+                Expression cexp = new ItemChecker(exp, reqItemType, roleSupplier);
                 ExpressionTool.copyLocationInfo(exp, cexp);
                 exp = cexp;
             }
@@ -407,20 +447,63 @@ public class TypeChecker {
 
         if (!cardOK) {
             if (exp instanceof Literal) {
-                XPathException err = new XPathException("Required cardinality of " + role.getMessage() +
-                                                                " is " + Cardinality.toString(reqCard) +
+                RoleDiagnostic role = roleSupplier.get();
+                throw new XPathException("Required cardinality of " + role.getMessage() +
+                                                                " is " + Cardinality.describe(reqCard) +
                                                                 "; supplied value has cardinality " +
-                                                                Cardinality.toString(suppliedCard), role.getErrorCode(), supplied.getLocation());
-                err.setIsTypeError(role.isTypeError());
-                throw err;
+                                                                Cardinality.describe(suppliedCard))
+                        .withErrorCode(role.getErrorCode())
+                        .withLocation(supplied.getLocation())
+                        .withFailingExpression(supplied)
+                        .asTypeErrorIf(role.isTypeError());
             } else {
-                Expression cexp = CardinalityChecker.makeCardinalityChecker(exp, reqCard, role);
+                Expression cexp = CardinalityChecker.makeCardinalityChecker(exp, reqCard, roleSupplier);
                 ExpressionTool.copyLocationInfo(exp, cexp);
                 exp = cexp;
             }
         }
 
         return exp;
+    }
+
+    /**
+     * Make an expression that performs type promotion on a supplied sequence
+     *
+     * @param suppliedItemType the inferred type of the supplied value
+     * @param requiredType     the required type, the target of promotion
+     * @param rules            the conversion rules
+     * @param allow40          true if XPath 4.0 is enabled
+     * @return the promoting converter, if available for the required type, or null.
+     * Note that promoting converters not only implement
+     * type promotion (for example from decimal to double) but also perform conversion of untypedAtomic values
+     * to the target type.
+     */
+    public static Converter makePromotingConverter(ItemType suppliedItemType, int requiredType, ConversionRules rules, boolean allow40) {
+        switch (requiredType) {
+            case StandardNames.XS_DOUBLE:
+                return new Converter.PromoterToDouble(rules);
+            case StandardNames.XS_FLOAT:
+                return new Converter.PromoterToFloat(rules);
+            case StandardNames.XS_STRING:
+                return new Converter.PromoterToString();
+            case StandardNames.XS_ANY_URI:
+                if (allow40) {
+                    return new Converter.PromoterToAnyURI();
+                }
+                break;
+            case StandardNames.XS_HEX_BINARY:
+                if (allow40) {
+                    return new Converter.PromoterToHexBinary();
+                }
+                break;
+            case StandardNames.XS_BASE64_BINARY:
+                if (allow40) {
+                    return new Converter.PromoterToBase64Binary();
+                }
+                break;
+
+        }
+        return null;
     }
 
     public Expression makeArithmeticExpression(Expression lhs, int operator, Expression rhs) {
@@ -436,10 +519,16 @@ public class TypeChecker {
     }
 
     private static Expression makeFunctionSequenceCoercer(
-            Expression exp, FunctionItemType reqItemType, ExpressionVisitor visitor, RoleDiagnostic role) throws XPathException {
-        // Apply function coercion as defined in XPath 3.0.
+            Expression exp,
+            FunctionItemType reqItemType,
+            Supplier<RoleDiagnostic> role,
+            boolean allow40) throws XPathException {
+        // Apply function coercion as defined in XPath 3.0 or 4.0
+        return reqItemType.makeFunctionSequenceCoercer(exp, role, allow40);
+    }
 
-        return reqItemType.makeFunctionSequenceCoercer(exp, role);
+    private Expression makeDownCaster(Expression exp, AtomicType reqItemType, Configuration config) {
+        return AtomicSequenceConverter.makeDownCaster(exp, reqItemType, config);
     }
 
     /**
@@ -450,7 +539,7 @@ public class TypeChecker {
      *
      * @param supplied The expression to be type-checked
      * @param req      The required type for the context in which the expression is used
-     * @param role     Information about the role of the subexpression within the
+     * @param roleSupplier     Information about the role of the subexpression within the
      *                 containing expression, used to provide useful error messages
      * @param env      The static context containing the types being checked. At present
      *                 this is used only to locate a NamePool
@@ -462,7 +551,7 @@ public class TypeChecker {
 
     public static Expression strictTypeCheck(Expression supplied,
                                              SequenceType req,
-                                             RoleDiagnostic role,
+                                             Supplier<RoleDiagnostic> roleSupplier,
                                              StaticContext env)
             throws XPathException {
 
@@ -493,8 +582,8 @@ public class TypeChecker {
         // NOTE: we don't currently do any static inference regarding the content type
         if (!itemTypeOK) {
             suppliedItemType = exp.getItemType();
-            Affinity relation = th.relationship(reqItemType, suppliedItemType);
-            itemTypeOK = relation == SAME_TYPE || relation == SUBSUMES;
+            Affinity affinity = th.relationship(reqItemType, suppliedItemType);
+            itemTypeOK = affinity == SAME_TYPE || affinity == SUBSUMES;
         }
 
         // If both the cardinality and item type are statically OK, return now.
@@ -526,7 +615,9 @@ public class TypeChecker {
         }
 
         if (suppliedCard == StaticProperty.EMPTY && ((reqCard & StaticProperty.ALLOWS_ZERO) == 0)) {
-            XPathException err = new XPathException("An empty sequence is not allowed as the " + role.getMessage(), role.getErrorCode(), supplied.getLocation());
+            RoleDiagnostic role = roleSupplier.get();
+            XPathException err = new XPathException(
+                    "An empty sequence is not allowed as the " + role.getMessage(), role.getErrorCode(), supplied.getLocation());
             err.setIsTypeError(role.isTypeError());
             throw err;
         }
@@ -540,14 +631,16 @@ public class TypeChecker {
             if (Cardinality.allowsZero(suppliedCard) &&
                     Cardinality.allowsZero(reqCard)) {
                 if (suppliedCard != StaticProperty.EMPTY) {
+                    RoleDiagnostic role = roleSupplier.get();
                     String msg = "Required item type of " + role.getMessage() +
                             " is " + reqItemType +
                             "; supplied value (" + supplied.toShortString() + ") has item type " +
                             suppliedItemType +
                             ". The expression can succeed only if the supplied value is an empty sequence.";
-                    env.issueWarning(msg, supplied.getLocation());
+                    env.issueWarning(msg, SaxonErrorCode.SXWN9026, supplied.getLocation());
                 }
             } else {
+                RoleDiagnostic role = roleSupplier.get();
                 String msg = role.composeErrorMessage(reqItemType, supplied, th);
                 XPathException err = new XPathException(msg, role.getErrorCode(), supplied.getLocation());
                 err.setIsTypeError(role.isTypeError());
@@ -560,21 +653,22 @@ public class TypeChecker {
         // the error now.
 
         if (!(relation == SAME_TYPE || relation == SUBSUMED_BY)) {
-            Expression cexp = new ItemChecker(exp, reqItemType, role);
+            Expression cexp = new ItemChecker(exp, reqItemType, roleSupplier);
             cexp.adoptChildExpression(exp);
             exp = cexp;
         }
 
         if (!cardOK) {
             if (exp instanceof Literal) {
+                RoleDiagnostic role = roleSupplier.get();
                 XPathException err = new XPathException("Required cardinality of " + role.getMessage() +
-                                                                " is " + Cardinality.toString(reqCard) +
+                                                                " is " + Cardinality.describe(reqCard) +
                                                                 "; supplied value has cardinality " +
-                                                                Cardinality.toString(suppliedCard), role.getErrorCode(), supplied.getLocation());
+                                                                Cardinality.describe(suppliedCard), role.getErrorCode(), supplied.getLocation());
                 err.setIsTypeError(role.isTypeError());
                 throw err;
             } else {
-                Expression cexp = CardinalityChecker.makeCardinalityChecker(exp, reqCard, role);
+                Expression cexp = CardinalityChecker.makeCardinalityChecker(exp, reqCard, roleSupplier);
                 cexp.adoptChildExpression(exp);
                 exp = cexp;
             }
@@ -596,44 +690,35 @@ public class TypeChecker {
 
     /*@Nullable*/
     public static XPathException testConformance(
-            Sequence val, SequenceType requiredType, XPathContext context)
-            throws XPathException {
+            Sequence val, SequenceType requiredType, XPathContext context) throws XPathException {
         ItemType reqItemType = requiredType.getPrimaryType();
         SequenceIterator iter = val.iterate();
         int count = 0;
-        Item item;
-        while ((item = iter.next()) != null) {
+        for (Item item; (item = iter.next()) != null; ) {
             count++;
             if (!reqItemType.matches(item, context.getConfiguration().getTypeHierarchy())) {
-                XPathException err = new XPathException("Required type is " + reqItemType +
-                                                                "; supplied value has type " + UType.getUType(val.materialize()));
-                err.setIsTypeError(true);
-                err.setErrorCode("XPTY0004");
-                return err;
+                return new XPathException("Required type is " + reqItemType +
+                                                                "; supplied value has type " + UType.getUType(val.materialize()))
+                        .asTypeError().withErrorCode("XPTY0004");
             }
         }
 
         int reqCardinality = requiredType.getCardinality();
         if (count == 0 && !Cardinality.allowsZero(reqCardinality)) {
-            XPathException err = new XPathException(
-                    "Required type does not allow empty sequence, but supplied value is empty");
-            err.setIsTypeError(true);
-            err.setErrorCode("XPTY0004");
-            return err;
+            return new XPathException(
+                    "Required type does not allow empty sequence, but supplied value is empty")
+                    .asTypeError().withErrorCode("XPTY0004");
         }
         if (count > 1 && !Cardinality.allowsMany(reqCardinality)) {
-            XPathException err = new XPathException(
-                    "Required type requires a singleton sequence; supplied value contains " + count + " items");
-            err.setIsTypeError(true);
-            err.setErrorCode("XPTY0004");
-            return err;
+            return new XPathException(
+                    "Required type requires a singleton sequence; supplied value contains " + count + " items")
+                    .asTypeError().withErrorCode("XPTY0004");
         }
         if (count > 0 && reqCardinality == StaticProperty.EMPTY) {
-            XPathException err = new XPathException(
-                    "Required type requires an empty sequence, but supplied value is non-empty");
-            err.setIsTypeError(true);
-            err.setErrorCode("XPTY0004");
-            return err;
+            return new XPathException(
+                    "Required type requires an empty sequence, but supplied value is non-empty")
+                    .asTypeError()
+                    .withErrorCode("XPTY0004");
         }
         return null;
     }
@@ -659,33 +744,19 @@ public class TypeChecker {
                 th.relationship(t, BuiltInAtomicType.UNTYPED_ATOMIC) == DISJOINT &&
                 th.relationship(t, NumericType.getInstance()) == DISJOINT &&
                 !(t instanceof JavaExternalObjectType)) {
-            XPathException err = new XPathException(
+            return new XPathException(
                     "Effective boolean value is defined only for sequences containing " +
-                            "booleans, strings, numbers, URIs, or nodes");
-            err.setErrorCode("FORG0006");
-            err.setIsTypeError(true);
-            return err;
+                            "booleans, strings, numbers, URIs, or nodes")
+                    .withErrorCode("FORG0006").asTypeError();
         }
         return null;
-    }
-
-    private static Expression makePromoterToDouble(Expression exp) {
-        return makePromoter(exp, new Converter.PromoterToDouble(), BuiltInAtomicType.DOUBLE);
-    }
-
-    private static Expression makePromoterToFloat(Expression exp) {
-        return makePromoter(exp, new Converter.PromoterToFloat(), BuiltInAtomicType.FLOAT);
-    }
-
-    private static Expression makePromoterToString(Expression exp) {
-        return makePromoter(exp, new Converter.ToStringConverter(), BuiltInAtomicType.STRING);
     }
 
     private static Expression makePromoter(Expression exp, Converter converter, BuiltInAtomicType type) {
         ConversionRules rules = exp.getConfiguration().getConversionRules();
         converter.setConversionRules(rules);
-        if (exp instanceof Literal && ((Literal) exp).getValue() instanceof AtomicValue) {
-            ConversionResult result = converter.convert((AtomicValue) ((Literal) exp).getValue());
+        if (exp instanceof Literal && ((Literal) exp).getGroundedValue() instanceof AtomicValue) {
+            ConversionResult result = converter.convert((AtomicValue) ((Literal) exp).getGroundedValue());
             if (result instanceof AtomicValue) {
                 Literal converted = Literal.makeLiteral((AtomicValue) result, exp);
                 ExpressionTool.copyLocationInfo(exp, converted);
@@ -696,6 +767,36 @@ public class TypeChecker {
         asc.setConverter(converter);
         ExpressionTool.copyLocationInfo(exp, asc);
         return asc;
+    }
+
+    private UType promotableTypes(int targetType, boolean allow40) {
+        if (allow40) {
+            switch (targetType) {
+                case StandardNames.XS_DOUBLE:
+                    return UType.UNTYPED_ATOMIC.union(UType.DECIMAL).union(UType.FLOAT).union(UType.DOUBLE);
+                case StandardNames.XS_FLOAT:
+                    return UType.UNTYPED_ATOMIC.union(UType.DECIMAL).union(UType.FLOAT);
+                case StandardNames.XS_ANY_URI:
+                case StandardNames.XS_STRING:
+                    return UType.UNTYPED_ATOMIC.union(UType.ANY_URI).union(UType.STRING);
+                case StandardNames.XS_HEX_BINARY:
+                case StandardNames.XS_BASE64_BINARY:
+                    return UType.UNTYPED_ATOMIC.union(UType.HEX_BINARY).union(UType.BASE64_BINARY);
+                default:
+                    return UType.UNTYPED_ATOMIC.union(UType.fromTypeCode(targetType));
+            }
+        } else {
+            switch (targetType) {
+                case StandardNames.XS_DOUBLE:
+                    return UType.UNTYPED_ATOMIC.union(UType.DECIMAL).union(UType.FLOAT).union(UType.DOUBLE);
+                case StandardNames.XS_FLOAT:
+                    return UType.UNTYPED_ATOMIC.union(UType.DECIMAL).union(UType.FLOAT);
+                case StandardNames.XS_STRING:
+                    return UType.UNTYPED_ATOMIC.union(UType.STRING).union(UType.ANY_URI);
+                default:
+                    return UType.UNTYPED_ATOMIC.union(UType.fromTypeCode(targetType));
+            }
+        }
     }
 
 }

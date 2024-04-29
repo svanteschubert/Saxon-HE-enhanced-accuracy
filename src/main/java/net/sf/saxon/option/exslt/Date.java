@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.str.BMPString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
@@ -25,7 +26,7 @@ import java.util.GregorianCalendar;
 
 /**
  * This class implements extension functions in the
- * http://exslt.org/dates-and-times namespace.
+ * {@code http://exslt.org/dates-and-times} namespace.
  */
 
 public final class Date {
@@ -51,8 +52,8 @@ public final class Date {
      * @throws XPathException if the context does not allow a date and time to be obtained
      */
 
-    public static String dateTime(XPathContext context) throws XPathException {
-        return context.getCurrentDateTime().getStringValue();
+    public static StringValue dateTime(XPathContext context) throws XPathException {
+        return new StringValue(context.getCurrentDateTime().getUnicodeStringValue());
     }
 
     /**
@@ -81,18 +82,18 @@ public final class Date {
      * @return the date part of the dateTime supplied, or "" if invalid
      */
 
-    public static String date(XPathContext context, String datetimeIn) {
+    public static String date(XPathContext context, StringValue datetimeIn) {
         ConversionRules rules = context.getConfiguration().getConversionRules();
         datetimeIn = nn(datetimeIn);
-        if (datetimeIn.indexOf('T') >= 0) {
-            ConversionResult cr = DateTimeValue.makeDateTimeValue(datetimeIn, rules);
+        if (datetimeIn.getContent().indexOf('T') >= 0) {
+            ConversionResult cr = DateTimeValue.makeDateTimeValue(datetimeIn.getUnicodeStringValue(), rules);
             if (cr instanceof ValidationFailure) {
                 return "";
             } else {
                 return ((DateTimeValue) cr).toDateValue().getStringValue();
             }
         } else {
-            ConversionResult cr = DateValue.makeDateValue(datetimeIn, rules);
+            ConversionResult cr = DateValue.makeDateValue(datetimeIn.getUnicodeStringValue(), rules);
             if (cr instanceof ValidationFailure) {
                 return "";
             } else {
@@ -122,17 +123,18 @@ public final class Date {
      * @return the time part of the string, or "" if invalid
      */
 
-    public static String time(XPathContext context, String dateTime) {
+    public static String time(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
-        if (dateTime.indexOf('T') >= 0) {
-            ConversionResult cr = DateTimeValue.makeDateTimeValue(dateTime, context.getConfiguration().getConversionRules());
+        if (dateTime.getContent().indexOf('T') >= 0) {
+            ConversionResult cr = DateTimeValue.makeDateTimeValue(dateTime.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof ValidationFailure) {
                 return "";
             } else {
                 return ((DateTimeValue) cr).toTimeValue().getStringValue();
             }
         } else {
-            ConversionResult cr = TimeValue.makeTimeValue(dateTime);
+            ConversionResult cr = TimeValue.makeTimeValue(dateTime.getUnicodeStringValue());
             if (cr instanceof ValidationFailure) {
                 return "";
             } else {
@@ -176,10 +178,11 @@ public final class Date {
      * @param datetimeIn the supplied date/time in ISO format
      * @return the year component of the supplied date time, or NaN if invalid
      */
-    public static double year(XPathContext context, String datetimeIn) {
+    public static double year(XPathContext context, StringValue datetimeIn) {
         datetimeIn = nn(datetimeIn);
         try {
-            ConversionResult cr = CalendarValue.makeCalendarValue(datetimeIn, context.getConfiguration().getConversionRules());
+            ConversionResult cr = CalendarValue.makeCalendarValue(datetimeIn.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof ValidationFailure) {
                 return Double.NaN;
             }
@@ -215,7 +218,7 @@ public final class Date {
      * @return true if the year is a leap year (false if not, or if input is invalid)
      */
 
-    public static boolean leapYear(XPathContext context, String dateTime) {
+    public static boolean leapYear(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         double year = year(context, dateTime);
         if (Double.isNaN(year)) {
@@ -246,10 +249,11 @@ public final class Date {
      * @return the month extracted from the dateTime
      */
 
-    public static double monthInYear(XPathContext context, String dateTime) {
+    public static double monthInYear(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         try {
-            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime, context.getConfiguration().getConversionRules());
+            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof ValidationFailure) {
                 return Double.NaN;
             }
@@ -285,7 +289,7 @@ public final class Date {
      * @return the English month name, for example "January", "February"
      */
 
-    public static String monthName(XPathContext context, String date) {
+    public static String monthName(XPathContext context, StringValue date) {
         date = nn(date);
         String[] months = {"January", "February", "March", "April", "May", "June",
                 "July", "August", "September", "October", "November", "December"};
@@ -316,7 +320,7 @@ public final class Date {
      * @return the English month abbreviation, for example "Jan", "Feb"
      */
 
-    public static String monthAbbreviation(XPathContext context, String date) {
+    public static String monthAbbreviation(XPathContext context, StringValue date) {
         date = nn(date);
         String[] months = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
@@ -348,10 +352,10 @@ public final class Date {
      * @return the ISO week number
      */
 
-    public static double weekInYear(XPathContext context, String dateTime) {
+    public static double weekInYear(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         int dayInYear = (int) dayInYear(context, dateTime);
-        String firstJan = dateTime.substring(0, 4) + "-01-01";
+        StringValue firstJan = new StringValue(new StringValue(dateTime.getContent().prefix(4)).getContent().concat(StringValue.bmp("-01-01").getContent()));
         int jan1day = ((int) dayInWeek(context, firstJan) + 5) % 7;
         int daysInFirstWeek = jan1day == 0 ? 0 : 7 - jan1day;
 
@@ -364,8 +368,8 @@ public final class Date {
                 return rawWeek;
             } else {
                 // week number should be 52 or 53: same as 31 Dec in previous year
-                int lastYear = Integer.parseInt(dateTime.substring(0, 4)) - 1;
-                String dec31 = lastYear + "-12-31";
+                int lastYear = Integer.parseInt((new StringValue(dateTime.getContent().prefix(4)).getStringValue())) - 1;
+                StringValue dec31 = StringValue.bmp(lastYear + "-12-31");
                 // assumes year > 999
                 return weekInYear(context, dec31);
             }
@@ -394,9 +398,9 @@ public final class Date {
      * @return the week number within the month
      */
 
-    public static double weekInMonth(XPathContext context, String dateTime) {
+    public static double weekInMonth(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
-        return (double) (int) ((dayInMonth(context, dateTime) - 1) / 7 + 1);
+        return (int) ((dayInMonth(context, dateTime) - 1) / 7 + 1);
     }
 
     /**
@@ -419,7 +423,7 @@ public final class Date {
      * @return the day number within the year, as a double
      */
 
-    public static double dayInYear(XPathContext context, String dateTime) {
+    public static double dayInYear(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         int month = (int) monthInYear(context, dateTime);
         int day = (int) dayInMonth(context, dateTime);
@@ -460,10 +464,11 @@ public final class Date {
      * @return the day number within the month, as a double
      */
 
-    public static double dayInMonth(XPathContext context, String dateTime) {
+    public static double dayInMonth(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         try {
-            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime, context.getConfiguration().getConversionRules());
+            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof ValidationFailure) {
                 return Double.NaN;
             }
@@ -496,11 +501,11 @@ public final class Date {
      *
      * @param context  the XPath dynamic context
      * @param dateTime must start with CCYY-MM-DD
-     * @return the the day-of-the-week in a month of a date as a number
+     * @return the day-of-the-week in a month of a date as a number
      *         (for example 3 for the 3rd Tuesday in May).
      */
 
-    public static double dayOfWeekInMonth(XPathContext context, String dateTime) {
+    public static double dayOfWeekInMonth(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         double dd = dayInMonth(context, dateTime);
         if (Double.isNaN(dd)) {
@@ -514,7 +519,7 @@ public final class Date {
      * (for example 3 for the 3rd Tuesday in May).
      *
      * @param context the XPath dynamic context
-     * @return the the day-of-the-week in a month of the current date as a number
+     * @return the day-of-the-week in a month of the current date as a number
      *         (for example 3 for the 3rd Tuesday in May).
      * @throws XPathException if the context does not allow a date/time to be established
      */
@@ -533,7 +538,7 @@ public final class Date {
      * @return the day of the week as a number
      */
 
-    public static double dayInWeek(XPathContext context, String dateTime) {
+    public static double dayInWeek(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         double yy = year(context, dateTime);
         double mm = monthInYear(context, dateTime);
@@ -573,7 +578,7 @@ public final class Date {
      * @return the English name of the day of the week
      */
 
-    public static String dayName(XPathContext context, String dateTime) {
+    public static String dayName(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         String[] days = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                 "Saturday"};
@@ -606,7 +611,7 @@ public final class Date {
      * @return the English day abbreviation
      */
 
-    public static String dayAbbreviation(XPathContext context, String dateTime) {
+    public static String dayAbbreviation(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         String[] days = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
         double d = dayInWeek(context, dateTime);
@@ -637,10 +642,11 @@ public final class Date {
      * @return the hour
      */
 
-    public static double hourInDay(XPathContext context, String dateTime) {
+    public static double hourInDay(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         try {
-            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime, context.getConfiguration().getConversionRules());
+            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof ValidationFailure) {
                 return Double.NaN;
             }
@@ -674,10 +680,11 @@ public final class Date {
      * @return the minute
      */
 
-    public static double minuteInHour(XPathContext context, String dateTime) {
+    public static double minuteInHour(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         try {
-            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime, context.getConfiguration().getConversionRules());
+            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof ValidationFailure) {
                 return Double.NaN;
             }
@@ -711,10 +718,11 @@ public final class Date {
      * @return the second
      */
 
-    public static double secondInMinute(XPathContext context, String dateTime) {
+    public static double secondInMinute(XPathContext context, StringValue dateTime) {
         dateTime = nn(dateTime);
         try {
-            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime, context.getConfiguration().getConversionRules());
+            ConversionResult cr = CalendarValue.makeCalendarValue(dateTime.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof ValidationFailure) {
                 return Double.NaN;
             }
@@ -764,10 +772,11 @@ public final class Date {
      * @return the result of the addition, as a string representing a dateTimeValue
      * @throws XPathException if the supplied date or duration is invalid
      */
-    public static String add(XPathContext context, String datetimeIn, String durationIn) throws XPathException {
+    public static String add(XPathContext context, StringValue datetimeIn, StringValue durationIn) throws XPathException {
         datetimeIn = nn(datetimeIn);
         durationIn = nn(durationIn);
-        ConversionResult cr0 = CalendarValue.makeCalendarValue(datetimeIn, context.getConfiguration().getConversionRules());
+        ConversionResult cr0 = CalendarValue.makeCalendarValue(datetimeIn.getUnicodeStringValue(),
+                                                               context.getConfiguration().getConversionRules());
         if (cr0 instanceof ValidationFailure) {
             return "";
         }
@@ -776,7 +785,7 @@ public final class Date {
             return "";
         }
         DateTimeValue v0 = cv0.toDateTime();
-        ConversionResult cr1 = DurationValue.makeDuration(durationIn);
+        ConversionResult cr1 = DurationValue.makeDuration(durationIn.getUnicodeStringValue());
         if (cr1 instanceof ValidationFailure) {
             return "";
         }
@@ -808,13 +817,13 @@ public final class Date {
      */
 
     public static String sum(SequenceIterator durations) throws XPathException {
-        DurationValue tot = (DurationValue) DurationValue.makeDuration("PT0S");
+        DurationValue tot = (DurationValue) DurationValue.makeDuration(BMPString.of("PT0S"));
         while (true) {
             Item it = durations.next();
             if (it == null) {
                 break;
             }
-            ConversionResult cr = DurationValue.makeDuration(it.getStringValueCS());
+            ConversionResult cr = DurationValue.makeDuration(it.getUnicodeStringValue());
             if (cr instanceof ValidationFailure) {
                 return "";
             }
@@ -843,11 +852,11 @@ public final class Date {
      *         total is inexpressible
      */
 
-    public String addDuration(String duration0, String duration1) {
+    public String addDuration(StringValue duration0, StringValue duration1) {
         duration0 = nn(duration0);
         duration1 = nn(duration1);
-        ConversionResult dv0 = DurationValue.makeDuration(duration0);
-        ConversionResult dv1 = DurationValue.makeDuration(duration1);
+        ConversionResult dv0 = DurationValue.makeDuration(duration0.getUnicodeStringValue());
+        ConversionResult dv1 = DurationValue.makeDuration(duration1.getUnicodeStringValue());
         if (dv0 instanceof ValidationFailure || dv1 instanceof ValidationFailure) {
             return "";
         }
@@ -919,13 +928,13 @@ public final class Date {
      *         difference is inexpressible
      */
 
-    public static String difference(XPathContext context, String dateLeftIn, String dateRightIn) {
+    public static String difference(XPathContext context, StringValue dateLeftIn, StringValue dateRightIn) {
         try {
             dateLeftIn = nn(dateLeftIn);
             dateRightIn = nn(dateRightIn);
             final ConversionRules rules = context.getConfiguration().getConversionRules();
-            ConversionResult op0 = CalendarValue.makeCalendarValue(dateLeftIn, rules);
-            ConversionResult op1 = CalendarValue.makeCalendarValue(dateRightIn, rules);
+            ConversionResult op0 = CalendarValue.makeCalendarValue(dateLeftIn.getUnicodeStringValue(), rules);
+            ConversionResult op1 = CalendarValue.makeCalendarValue(dateRightIn.getUnicodeStringValue(), rules);
             if (op0 instanceof ValidationFailure || op1 instanceof ValidationFailure) {
                 return "";
             }
@@ -1059,17 +1068,18 @@ public final class Date {
      * @param datetimeIn the input dateTime, date, yearMonth, or year as an ISO string
      * @return the number of seconds since 1 Jan 1970 (the "epoch" according to Java and Unix)
      */
-    public static double seconds(XPathContext context, String datetimeIn) {
+    public static double seconds(XPathContext context, StringValue datetimeIn) {
         try {
             datetimeIn = nn(datetimeIn);
-            ConversionResult cr = CalendarValue.makeCalendarValue(datetimeIn, context.getConfiguration().getConversionRules());
+            ConversionResult cr = CalendarValue.makeCalendarValue(datetimeIn.getUnicodeStringValue(),
+                                                                  context.getConfiguration().getConversionRules());
             if (cr instanceof DateTimeValue || cr instanceof DateValue ||
                     cr instanceof GYearValue || cr instanceof GYearMonthValue) {
                 DateTimeValue dateTime = ((CalendarValue) cr).toDateTime();
                 DayTimeDurationValue diff = dateTime.subtract(DateTimeValue.EPOCH, context);
                 return diff.getLengthInSeconds();
             }
-            cr = DurationValue.makeDuration(datetimeIn);
+            cr = DurationValue.makeDuration(datetimeIn.getUnicodeStringValue());
             if (cr instanceof DurationValue) {
                 DurationValue duration = (DurationValue) cr;
                 if (duration.getYears() != 0 || duration.getMonths() != 0) {
@@ -1092,8 +1102,8 @@ public final class Date {
      * @return zero-length string if input is null, else the input string unchanged.
      */
 
-    private static String nn(String in) {
-        return in == null ? "" : in;
+    private static StringValue nn(StringValue in) {
+        return in == null ? StringValue.EMPTY_STRING : in;
     }
 }
 

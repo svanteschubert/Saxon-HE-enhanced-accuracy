@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -31,7 +31,8 @@ public class ValidationParams extends HashMap<StructuredQName, Sequence> {
     public static void setValidationParams(Map<StructuredQName, XPathVariable> declaredParams, ValidationParams actualParams, XPathDynamicContext context) throws XPathException {
         for (StructuredQName p : declaredParams.keySet()) {
             XPathVariable var = declaredParams.get(p);
-            Sequence paramValue = actualParams.get(p);
+            @SuppressWarnings("RedundantCast")
+            Sequence paramValue = ((HashMap<StructuredQName, Sequence>)actualParams).get(p);
             if (paramValue != null) {
                 context.setVariable(var, paramValue);
             } else {

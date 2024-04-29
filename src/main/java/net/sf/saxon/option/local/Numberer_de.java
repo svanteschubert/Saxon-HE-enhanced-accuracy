@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.option.local;
 
 import net.sf.saxon.expr.number.AbstractNumberer;
-import net.sf.saxon.regex.LatinString;
+import net.sf.saxon.str.BMPString;
 
 /**
  * Class Numberer_de provides localization for format-date() and xsl:number with language = "de" (German)
@@ -38,45 +38,45 @@ public class Numberer_de extends AbstractNumberer {
      */
 
     @Override
-    public String toWords(long number) {
+    public String toWords(String cardinal, long number) {
         if (number >= 1000000000000000L) {
-            return format(number, new LatinString("1.000.000"), 3, ".", "", "");
+            return format(number, BMPString.of("1.000.000"), 3, ".", "", "", "");
         }
         if (number >= 1000000000000L) {
             long rem = number % 1000000000000L;
             long n = number / 1000000000000L;
-            String s = (n == 1 ? "Eine" : toWords(n));
+            String s = (n == 1 ? "Eine" : toWords(cardinal, n));
             return s + " Billion" +
-                    (rem == 0 ? "" : ' ' + toWords(rem));
+                    (rem == 0 ? "" : ' ' + toWords(cardinal, rem));
         } else if (number >= 1000000000) {
             long rem = number % 1000000000;
             long n = number / 1000000000;
-            String s = (n == 1 ? "Eine" : toWords(n));
+            String s = (n == 1 ? "Eine" : toWords(cardinal, n));
             return s + " Milliarde" +
-                    (rem == 0 ? "" : ' ' + toWords(rem));
+                    (rem == 0 ? "" : ' ' + toWords(cardinal, rem));
         } else if (number >= 1000000) {
             long rem = number % 1000000;
             long n = number / 1000000;
-            String s = (n == 1 ? "Eine" : toWords(n));
+            String s = (n == 1 ? "Eine" : toWords(cardinal, n));
             return s + " Million" +
                     (n == 1 ? "" : "en") +
-                    (rem == 0 ? "" : toWords(rem));
+                    (rem == 0 ? "" : toWords(cardinal, rem));
         } else if (number >= 1000) {
             long rem = number % 1000;
             long n = number / 1000;
-            String s = (n == 1 ? "Ein" : toWords(n));
-            return s + "tausend" + (rem == 0 ? "" : toWords(rem, LOWER_CASE));
+            String s = (n == 1 ? "Ein" : toWords(cardinal, n));
+            return s + "tausend" + (rem == 0 ? "" : toWords(cardinal, rem, LOWER_CASE));
         } else if (number >= 100) {
             long rem = number % 100;
             long n = number / 100;
-            String s = (n == 1 ? "Ein" : toWords(n));
-            return s + "hundert" + (rem == 0 ? "" : toWords(rem, LOWER_CASE));
+            String s = (n == 1 ? "Ein" : toWords(cardinal, n));
+            return s + "hundert" + (rem == 0 ? "" : toWords(cardinal, rem, LOWER_CASE));
         } else {
-            if (number < 20) return (number == 1 ? "Eins" : germanUnits[(int) number]);
+            if (number < 20) return number == 0 ? "Null" : (number == 1 ? "Eins" : germanUnits[(int) number]);
             int rem = (int) (number % 10);
             int tens = (int) number / 10;
             return (germanUnits[rem]) +
-                    (tens == 0 ? "" : (rem == 0 ? "" : "und") + germanTens[tens]);
+                    (rem == 0 ? "" : "und") + germanTens[tens];
 
         }
     }
@@ -86,12 +86,12 @@ public class Numberer_de extends AbstractNumberer {
         return "Null";
     }
 
-    private static String[] germanUnits = {
+    private static final String[] germanUnits = {
             "", "Ein", "Zwei", "Drei", "Vier", "F\u00fcnf", "Sechs", "Sieben", "Acht", "Neun",
-            "Zehn", "Elf", "Zw\u00f6lf", "Dreizehn", "Vierzehn", "F\u00fcnfzehn", "Sechszehn",
+            "Zehn", "Elf", "Zw\u00f6lf", "Dreizehn", "Vierzehn", "F\u00fcnfzehn", "Sechzehn",
             "Siebzehn", "Achtzehn", "Neunzehn"};
 
-    private static String[] germanTens = {
+    private static final String[] germanTens = {
             "", "Zehn", "Zwanzig", "Drei\u00dfig", "Vierzig", "F\u00fcnfzig",
             "Sechzig", "Siebzig", "Achtzig", "Neunzig"};
 
@@ -121,21 +121,21 @@ public class Numberer_de extends AbstractNumberer {
                 return ord;
             }
         } else if (mod100 < 20 && mod100 > 0) {
-            return toWords(number - (mod100), wordCase) +
+            return toWords("", number - (mod100), wordCase) +
                     toOrdinalWords(ordinalParam, mod100,
-                            (wordCase == TITLE_CASE ? LOWER_CASE : wordCase));
+                                   (wordCase == TITLE_CASE ? LOWER_CASE : wordCase));
         } else {
             String ending = "st" + suffix;
             if (wordCase == UPPER_CASE) {
                 ending = ending.toUpperCase();
             }
-            return toWords(number, wordCase) +
+            return toWords("", number, wordCase) +
                     (wordCase == UPPER_CASE ? ending.toUpperCase() : ending);
         }
     }
 
-    private static String[] germanOrdinalUnits = {
-            "", "Erst", "Zweit", "Dritt", "Viert", "F\u00fcnft", "Sechst", "Siebt", "Acht", "Neunt",
+    private static final String[] germanOrdinalUnits = {
+            "Nullt", "Erst", "Zweit", "Dritt", "Viert", "F\u00fcnft", "Sechst", "Siebt", "Acht", "Neunt",
             "Zehnt", "Elft", "Zw\u00f6lft", "Dreizehnt", "Vierzehnt", "F\u00fcnfzehnt", "Sechszehnt",
             "Siebzehnt", "Achtzehnt", "Neunzehnt"};
 
@@ -162,7 +162,7 @@ public class Numberer_de extends AbstractNumberer {
         return name;
     }
 
-    private static String[] germanMonths = {
+    private static final String[] germanMonths = {
             "Januar", "Februar", "M\u00e4rz", "April", "Mai", "Juni",
             "Juli", "August", "September", "Oktober", "November", "Dezember"
     };
@@ -170,7 +170,7 @@ public class Numberer_de extends AbstractNumberer {
     /**
      * Get a day name or abbreviation
      *
-     * @param day      The month number (1=Sunday, 7=Saturday)
+     * @param day      The month number (1=Monday, 7=Sunday)
      * @param minWidth The minimum number of characters
      * @param maxWidth The maximum number of characters
      */
@@ -187,7 +187,7 @@ public class Numberer_de extends AbstractNumberer {
         return name;
     }
 
-    private static String[] germanDays = {
+    private static final String[] germanDays = {
             "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"
     };
 
@@ -197,8 +197,8 @@ public class Numberer_de extends AbstractNumberer {
      * @param component the component specifier from a format-dateTime picture, for
      *                  example "M" for the month or "D" for the day.
      * @return a string that is acceptable in the ordinal attribute of xsl:number
-     *         to achieve the required ordinal representation. For example, "-e" for the day component
-     *         in German, to have the day represented as "dritte August".
+     * to achieve the required ordinal representation. For example, "-e" for the day component
+     * in German, to have the day represented as "dritte August".
      */
 
     @Override

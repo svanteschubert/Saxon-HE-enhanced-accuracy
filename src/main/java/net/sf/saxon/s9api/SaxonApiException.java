@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,16 @@
 package net.sf.saxon.s9api;
 
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
  * An exception thrown by the Saxon s9api API. This is always a wrapper for some other underlying exception
  */
+@CSharpInjectMembers(code="public override string Message {get => InnerException.Message;}")
+
 public class SaxonApiException extends Exception {
 
     /**
@@ -23,6 +28,16 @@ public class SaxonApiException extends Exception {
 
     public SaxonApiException(Throwable cause) {
         super(cause);
+    }
+
+    /**
+     * Create a SaxonApiException
+     *
+     * @param cause the underlying cause of the exception
+     */
+
+    public SaxonApiException(UncheckedXPathException cause) {
+        super(cause.getXPathException());
     }
 
     /**
@@ -49,10 +64,11 @@ public class SaxonApiException extends Exception {
     /**
      * Returns the detail message string of this throwable.
      *
-     * @return the detail message string of this <tt>Throwable</tt> instance
-     *         (which may be <tt>null</tt>).
+     * @return the detail message string of this <code>Throwable</code> instance
+     *         (which may be <code>null</code>).
      */
     @Override
+    @CSharpModifiers(code={"public", "override"})
     public String getMessage() {
         return getCause().getMessage();
     }

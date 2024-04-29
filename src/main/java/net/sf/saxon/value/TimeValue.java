@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,14 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
@@ -27,15 +29,13 @@ import java.util.*;
  * A value of type xs:time
  */
 
-public final class TimeValue extends CalendarValue implements Comparable {
+public final class TimeValue extends CalendarValue implements XPathComparable {
 
-    private byte hour;
-    private byte minute;
-    private byte second;
-    private int nanosecond;
+    private final byte hour;
+    private final byte minute;
+    private final byte second;
+    private final int nanosecond;
 
-    private TimeValue() {
-    }
 
     /**
      * Construct a time value given the hour, minute, second, and microsecond components.
@@ -45,19 +45,19 @@ public final class TimeValue extends CalendarValue implements Comparable {
      * @param minute      the minutes value, 0-59
      * @param second      the seconds value, 0-59
      * @param microsecond the number of microseconds, 0-999999
-     * @param tz          the timezone displacement in minutes from UTC. Supply the value
+     * @param tzMinutes   the timezone displacement in minutes from UTC. Supply the value
      *                    {@link CalendarValue#NO_TIMEZONE} if there is no timezone component.
-     * @deprecated since 10.0: use the constructor {@link #TimeValue(byte, byte, byte, int, int, String)}
+     * @deprecated since 10.0: use the constructor {@link #TimeValue(byte, byte, byte, int, int, AtomicType)}
      * that accepts nanosecond precision
      */
 
-    public TimeValue(byte hour, byte minute, byte second, int microsecond, int tz) {
+    @Deprecated
+    public TimeValue(byte hour, byte minute, byte second, int microsecond, int tzMinutes) {
+        super(BuiltInAtomicType.TIME, tzMinutes);
         this.hour = hour;
         this.minute = minute;
         this.second = second;
         this.nanosecond = microsecond * 1000;
-        setTimezoneInMinutes(tz);
-        typeLabel = BuiltInAtomicType.TIME;
     }
 
     /**
@@ -68,21 +68,17 @@ public final class TimeValue extends CalendarValue implements Comparable {
      * @param minute      the minutes value, 0-59
      * @param second      the seconds value, 0-59
      * @param nanosecond  the number of microseconds, 0-999999
-     * @param tz          the timezone displacement in minutes from UTC. Supply the value
+     * @param tzMinutes   the timezone displacement in minutes from UTC. Supply the value
      *                    {@link CalendarValue#NO_TIMEZONE} if there is no timezone component.
-     * @param flag        used to disambiguate this constructor. Must be set to "".
+     * @param typeLabel   the type annotation (must be a subtype of xs:time)
      */
 
-    public TimeValue(byte hour, byte minute, byte second, int nanosecond, int tz, String flag) {
-        if (!flag.isEmpty()) {
-            throw new IllegalArgumentException();
-        }
+    public TimeValue(byte hour, byte minute, byte second, int nanosecond, int tzMinutes, AtomicType typeLabel) {
+        super(typeLabel, tzMinutes);
         this.hour = hour;
         this.minute = minute;
         this.second = second;
         this.nanosecond = nanosecond;
-        setTimezoneInMinutes(tz);
-        typeLabel = BuiltInAtomicType.TIME;
     }
 
     /**
@@ -95,12 +91,12 @@ public final class TimeValue extends CalendarValue implements Comparable {
      * @param nanosecond  the number of nanoseconds, 0-999_999_999
      * @param tz          the timezone displacement in minutes from UTC. Supply the value
      *                    {@link CalendarValue#NO_TIMEZONE} if there is no timezone component.
+     * @return the constructed time value
      */
 
     public TimeValue makeTimeValue(byte hour, byte minute, byte second, int nanosecond, int tz) {
-        return new TimeValue(hour, minute, second, nanosecond, tz, "");
+        return new TimeValue(hour, minute, second, nanosecond, tz, BuiltInAtomicType.TIME);
     }
-
 
     /**
      * Constructor: create a time value given a Java calendar object
@@ -110,12 +106,11 @@ public final class TimeValue extends CalendarValue implements Comparable {
      */
 
     public TimeValue(/*@NotNull*/ GregorianCalendar calendar, int tz) {
+        super(BuiltInAtomicType.TIME, tz);
         hour = (byte) calendar.get(Calendar.HOUR_OF_DAY);
         minute = (byte) calendar.get(Calendar.MINUTE);
         second = (byte) calendar.get(Calendar.SECOND);
         nanosecond = calendar.get(Calendar.MILLISECOND) * 1_000_000;
-        setTimezoneInMinutes(tz);
-        typeLabel = BuiltInAtomicType.TIME;
     }
 
     /**
@@ -129,14 +124,13 @@ public final class TimeValue extends CalendarValue implements Comparable {
      */
 
     /*@NotNull*/
-    public static ConversionResult makeTimeValue(CharSequence s) {
+    public static ConversionResult makeTimeValue(UnicodeString s) {
         // input must have format hh:mm:ss[.fff*][([+|-]hh:mm | Z)]
-        TimeValue tv = new TimeValue();
-        StringTokenizer tok = new StringTokenizer(Whitespace.trimWhitespace(s).toString(), "-:.+Z", true);
-        if (!tok.hasMoreElements()) {
+        StringTokenizer tok = new StringTokenizer(Whitespace.trim(s).toString(), "-:.+Z", true);
+        if (!tok.hasMoreTokens()) {
             return badTime("too short", s);
         }
-        String part = (String) tok.nextElement();
+        String part = tok.nextToken();
 
         if (part.length() != 2) {
             return badTime("hour must be two digits", s);
@@ -145,21 +139,21 @@ public final class TimeValue extends CalendarValue implements Comparable {
         if (value < 0) {
             return badTime("Non-numeric hour component", s);
         }
-        tv.hour = (byte) value;
-        if (tv.hour > 24) {
+        byte hour = (byte) value;
+        if (hour > 24) {
             return badTime("hour is out of range", s);
         }
-        if (!tok.hasMoreElements()) {
+        if (!tok.hasMoreTokens()) {
             return badTime("too short", s);
         }
-        if (!":".equals(tok.nextElement())) {
+        if (!":".equals(tok.nextToken())) {
             return badTime("wrong delimiter after hour", s);
         }
 
-        if (!tok.hasMoreElements()) {
+        if (!tok.hasMoreTokens()) {
             return badTime("too short", s);
         }
-        part = (String) tok.nextElement();
+        part = tok.nextToken();
         if (part.length() != 2) {
             return badTime("minute must be two digits", s);
         }
@@ -167,24 +161,24 @@ public final class TimeValue extends CalendarValue implements Comparable {
         if (value < 0) {
             return badTime("Non-numeric minute component", s);
         }
-        tv.minute = (byte) value;
-        if (tv.minute > 59) {
+        byte minute = (byte) value;
+        if (minute > 59) {
             return badTime("minute is out of range", s);
         }
-        if (tv.hour == 24 && tv.minute != 0) {
+        if (hour == 24 && minute != 0) {
             return badTime("If hour is 24, minute must be 00", s);
         }
-        if (!tok.hasMoreElements()) {
+        if (!tok.hasMoreTokens()) {
             return badTime("too short", s);
         }
-        if (!":".equals(tok.nextElement())) {
+        if (!":".equals(tok.nextToken())) {
             return badTime("wrong delimiter after minute", s);
         }
 
-        if (!tok.hasMoreElements()) {
+        if (!tok.hasMoreTokens()) {
             return badTime("too short", s);
         }
-        part = (String) tok.nextElement();
+        part = tok.nextToken();
         if (part.length() != 2) {
             return badTime("second must be two digits", s);
         }
@@ -192,30 +186,31 @@ public final class TimeValue extends CalendarValue implements Comparable {
         if (value < 0) {
             return badTime("Non-numeric second component", s);
         }
-        tv.second = (byte) value;
-        if (tv.second > 59) {
+        byte second = (byte) value;
+        if (second > 59) {
             return badTime("second is out of range", s);
         }
-        if (tv.hour == 24 && tv.second != 0) {
+        if (hour == 24 && second != 0) {
             return badTime("If hour is 24, second must be 00", s);
         }
 
-        int tz = 0;
+        int tz = NO_TIMEZONE;
         boolean negativeTz = false;
         int state = 0;
-        while (tok.hasMoreElements()) {
+        int nanosecond = 0;
+        while (tok.hasMoreTokens()) {
             if (state == 9) {
                 return badTime("characters after the end", s);
             }
-            String delim = (String) tok.nextElement();
+            String delim = tok.nextToken();
             if (".".equals(delim)) {
                 if (state != 0) {
                     return badTime("decimal separator occurs twice", s);
                 }
-                if (!tok.hasMoreElements()) {
+                if (!tok.hasMoreTokens()) {
                     return badTime("decimal point must be followed by digits", s);
                 }
-                part = (String) tok.nextElement();
+                part = tok.nextToken();
                 if (part.length() > 9 && part.matches("^[0-9]+$")) {
                     part = part.substring(0, 9);
                 }
@@ -224,8 +219,8 @@ public final class TimeValue extends CalendarValue implements Comparable {
                     return badTime("Non-numeric fractional seconds component", s);
                 }
                 double fractionalSeconds = Double.parseDouble('.' + part);
-                tv.nanosecond = (int) Math.round(fractionalSeconds * 1_000_000_000);
-                if (tv.hour == 24 && tv.nanosecond != 0) {
+                nanosecond = (int) Math.round(fractionalSeconds * 1_000_000_000);
+                if (hour == 24 && nanosecond != 0) {
                     return badTime("If hour is 24, fractional seconds must be 0", s);
                 }
                 state = 1;
@@ -235,16 +230,15 @@ public final class TimeValue extends CalendarValue implements Comparable {
                 }
                 tz = 0;
                 state = 9;  // we've finished
-                tv.setTimezoneInMinutes(0);
             } else if ("+".equals(delim) || "-".equals(delim)) {
                 if (state > 1) {
                     return badTime(delim + " cannot occur here", s);
                 }
                 state = 2;
-                if (!tok.hasMoreElements()) {
+                if (!tok.hasMoreTokens()) {
                     return badTime("missing timezone", s);
                 }
-                part = (String) tok.nextElement();
+                part = tok.nextToken();
                 if (part.length() != 2) {
                     return badTime("timezone hour must be two digits", s);
                 }
@@ -264,7 +258,7 @@ public final class TimeValue extends CalendarValue implements Comparable {
                     return badTime("colon cannot occur here", s);
                 }
                 state = 9;
-                part = (String) tok.nextElement();
+                part = tok.nextToken();
                 value = DurationValue.simpleInteger(part);
                 if (value < 0) {
                     return badTime("Non-numeric timezone minute component", s);
@@ -281,7 +275,6 @@ public final class TimeValue extends CalendarValue implements Comparable {
                 if (negativeTz) {
                     tz = -tz;
                 }
-                tv.setTimezoneInMinutes(tz);
             } else {
                 return badTime("timezone format is incorrect", s);
             }
@@ -291,16 +284,15 @@ public final class TimeValue extends CalendarValue implements Comparable {
             return badTime("timezone incomplete", s);
         }
 
-        if (tv.hour == 24) {
-            tv.hour = 0;
+        if (hour == 24) {
+            hour = 0;
         }
 
-        tv.typeLabel = BuiltInAtomicType.TIME;
-        return tv;
+        return new TimeValue(hour, minute, second, nanosecond, tz, BuiltInAtomicType.TIME);
     }
 
     /*@NotNull*/
-    private static ValidationFailure badTime(String msg, CharSequence value) {
+    private static ValidationFailure badTime(String msg, UnicodeString value) {
         ValidationFailure err = new ValidationFailure(
                 "Invalid time " + Err.wrap(value, Err.VALUE) + " (" + msg + ")");
         err.setErrorCode("FORG0001");
@@ -380,22 +372,22 @@ public final class TimeValue extends CalendarValue implements Comparable {
 
     /*@NotNull*/
     @Override
-    public CharSequence getPrimitiveStringValue() {
+    public UnicodeString getPrimitiveStringValue() {
 
-        FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C16);
+        UnicodeBuilder sb = new UnicodeBuilder(16);
 
         appendTwoDigits(sb, hour);
-        sb.cat(':');
+        sb.append(':');
         appendTwoDigits(sb, minute);
-        sb.cat(':');
+        sb.append(':');
         appendTwoDigits(sb, second);
         if (nanosecond != 0) {
-            sb.cat('.');
+            sb.append('.');
             int ms = nanosecond;
             int div = 100_000_000;
             while (ms > 0) {
                 int d = ms / div;
-                sb.cat((char) (d + '0'));
+                sb.append((char) (d + '0'));
                 ms = ms % div;
                 div /= 10;
             }
@@ -405,7 +397,7 @@ public final class TimeValue extends CalendarValue implements Comparable {
             appendTimezone(sb);
         }
 
-        return sb;
+        return sb.toUnicodeString();
 
     }
 
@@ -419,11 +411,11 @@ public final class TimeValue extends CalendarValue implements Comparable {
      */
 
     @Override
-    public CharSequence getCanonicalLexicalRepresentation() {
+    public UnicodeString getCanonicalLexicalRepresentation() {
         if (hasTimezone() && getTimezoneInMinutes() != 0) {
-            return adjustTimezone(0).getStringValueCS();
+            return adjustTimezone(0).getUnicodeStringValue();
         } else {
-            return getStringValueCS();
+            return this.getUnicodeStringValue();
         }
     }
 
@@ -475,9 +467,7 @@ public final class TimeValue extends CalendarValue implements Comparable {
     /*@NotNull*/
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        TimeValue v = new TimeValue(hour, minute, second, nanosecond, getTimezoneInMinutes(), "");
-        v.typeLabel = typeLabel;
-        return v;
+        return new TimeValue(hour, minute, second, nanosecond, getTimezoneInMinutes(), typeLabel);
     }
 
     /**
@@ -494,7 +484,7 @@ public final class TimeValue extends CalendarValue implements Comparable {
     public TimeValue adjustTimezone(int timezone) {
         DateTimeValue dt = toDateTime().adjustTimezone(timezone);
         return new TimeValue(dt.getHour(), dt.getMinute(), dt.getSecond(),
-                dt.getNanosecond(), dt.getTimezoneInMinutes(), "");
+                dt.getNanosecond(), dt.getTimezoneInMinutes(), BuiltInAtomicType.TIME);
     }
 
     /**
@@ -533,6 +523,17 @@ public final class TimeValue extends CalendarValue implements Comparable {
         }
     }
 
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        if (hasTimezone()) {
+            return this;
+        } else if (implicitTimezone == MISSING_TIMEZONE) {
+            throw new NoDynamicContextException("Unknown implicit timezone");
+        } else {
+            return adjustTimezone(implicitTimezone);
+        }
+    }
+
     /**
      * Compare the value to another dateTime value
      *
@@ -545,23 +546,26 @@ public final class TimeValue extends CalendarValue implements Comparable {
      *                            is declared as Object to satisfy the Comparable interface)
      */
 
-    @Override
-    public int compareTo(Object other) {
-        TimeValue otherTime = (TimeValue) other;
-        if (getTimezoneInMinutes() == otherTime.getTimezoneInMinutes()) {
-            if (hour != otherTime.hour) {
-                return IntegerValue.signum(hour - otherTime.hour);
-            } else if (minute != otherTime.minute) {
-                return IntegerValue.signum(minute - otherTime.minute);
-            } else if (second != otherTime.second) {
-                return IntegerValue.signum(second - otherTime.second);
-            } else if (nanosecond != otherTime.nanosecond) {
-                return IntegerValue.signum(nanosecond - otherTime.nanosecond);
+    public int compareTo(XPathComparable other) {
+        if (other instanceof TimeValue) {
+            TimeValue otherTime = (TimeValue) other;
+            if (getTimezoneInMinutes() == otherTime.getTimezoneInMinutes()) {
+                if (hour != otherTime.hour) {
+                    return IntegerValue.signum(hour - otherTime.hour);
+                } else if (minute != otherTime.minute) {
+                    return IntegerValue.signum(minute - otherTime.minute);
+                } else if (second != otherTime.second) {
+                    return IntegerValue.signum(second - otherTime.second);
+                } else if (nanosecond != otherTime.nanosecond) {
+                    return IntegerValue.signum(nanosecond - otherTime.nanosecond);
+                } else {
+                    return 0;
+                }
             } else {
-                return 0;
+                return toDateTime().compareTo(otherTime.toDateTime());
             }
         } else {
-            return toDateTime().compareTo(otherTime.toDateTime());
+            throw new ClassCastException("Cannot compare xs:time to " + other);
         }
     }
 
@@ -588,7 +592,7 @@ public final class TimeValue extends CalendarValue implements Comparable {
         TimeValue otherTime = (TimeValue) other;
         if (getTimezoneInMinutes() == otherTime.getTimezoneInMinutes()) {
             // The values have the same time zone, or neither has a timezone
-            return compareTo(other);
+            return compareTo(otherTime);
         } else {
             return toDateTime().compareTo(otherTime.toDateTime(), implicitTimezone);
         }
@@ -596,45 +600,45 @@ public final class TimeValue extends CalendarValue implements Comparable {
 
 
     /*@NotNull*/
-    @Override
-    public Comparable getSchemaComparable() {
-        return new TimeComparable();
+    public TimeComparable getSchemaComparable() {
+        return new TimeComparable(this);
     }
 
-    private class TimeComparable implements Comparable {
+    public static class TimeComparable implements Comparable<TimeComparable> {
+
+        private final TimeValue value;
+        public TimeComparable(TimeValue value) {
+            this.value = value;
+        }
 
         /*@NotNull*/
         public TimeValue asTimeValue() {
-            return TimeValue.this;
+            return value;
         }
 
         @Override
-        public int compareTo(/*@NotNull*/ Object o) {
-            if (o instanceof TimeComparable) {
-                DateTimeValue dt0 = asTimeValue().toDateTime();
-                DateTimeValue dt1 = ((TimeComparable) o).asTimeValue().toDateTime();
-                return dt0.getSchemaComparable().compareTo(dt1.getSchemaComparable());
-            } else {
-                return SequenceTool.INDETERMINATE_ORDERING;
-            }
+        public int compareTo(TimeComparable o) {
+            DateTimeValue dt0 = asTimeValue().toDateTime();
+            DateTimeValue dt1 = o.asTimeValue().toDateTime();
+            return dt0.getSchemaComparable().compareTo(dt1.getSchemaComparable());
         }
 
         public boolean equals(/*@NotNull*/ Object o) {
-            return compareTo(o) == 0;
+            return o instanceof TimeComparable && compareTo((TimeComparable)o) == 0;
         }
 
         public int hashCode() {
-            return TimeValue.this.toDateTime().getSchemaComparable().hashCode();
+            return value.toDateTime().getSchemaComparable().hashCode();
         }
     }
 
 
     public boolean equals(Object other) {
-        return other instanceof TimeValue && compareTo(other) == 0;
+        return other instanceof TimeValue && compareTo((TimeValue)other) == 0;
     }
 
     public int hashCode() {
-        return DateTimeValue.hashCode(
+        return DateTimeValue.computeHashCode(
                 1951, (byte) 10, (byte) 11, hour, minute, second, nanosecond, getTimezoneInMinutes());
     }
 
@@ -654,12 +658,10 @@ public final class TimeValue extends CalendarValue implements Comparable {
         if (duration instanceof DayTimeDurationValue) {
             DateTimeValue dt = toDateTime().add(duration);
             return new TimeValue(dt.getHour(), dt.getMinute(), dt.getSecond(),
-                    dt.getNanosecond(), getTimezoneInMinutes(), "");
+                    dt.getNanosecond(), getTimezoneInMinutes(), BuiltInAtomicType.TIME);
         } else {
-            XPathException err = new XPathException("Time+Duration arithmetic is supported only for xs:dayTimeDuration");
-            err.setErrorCode("XPTY0004");
-            err.setIsTypeError(true);
-            throw err;
+            throw new XPathException("Time+Duration arithmetic is supported only for xs:dayTimeDuration", "XPTY0004")
+                    .asTypeError();
         }
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,11 +13,12 @@ import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 import net.sf.saxon.z.IntSet;
 import net.sf.saxon.z.IntSingletonSet;
 
 import java.util.Optional;
-import java.util.function.IntPredicate;
 
 /**
  * NodeTest is an interface that enables a test of whether a node has a particular
@@ -25,13 +26,11 @@ import java.util.function.IntPredicate;
  * as a supplied node.
  *
  * <p>Note: it's not safe to use this if the supplied node is mutable.</p>
- *
- * @author Michael H. Kay
  */
 
 public class SameNameTest extends NodeTest implements QNameTest {
 
-    private NodeInfo origin;
+    private final NodeInfo origin;
     /**
      * Create a SameNameTest to match nodes by name
      *
@@ -88,15 +87,15 @@ public class SameNameTest extends NodeTest implements QNameTest {
         if (name.hasFingerprint() && origin.hasFingerprint()) {
             return name.getFingerprint() == origin.getFingerprint();
         } else {
-            return name.hasURI(origin.getURI()) && name.getLocalPart().equals(origin.getLocalPart());
+            return name.hasURI(origin.getNamespaceUri()) && name.getLocalPart().equals(origin.getLocalPart());
         }
     }
 
     @Override
-    public IntPredicate getMatcher(final NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
         final byte[] nodeKindArray = tree.getNodeKindArray();
         final int[] nameCodeArray = tree.getNameCodeArray();
-        return nodeNr -> {
+        return IntPredicateLambda.of(nodeNr -> {
             int k = nodeKindArray[nodeNr] & 0x0f;
             if (k == Type.WHITESPACE_TEXT) {
                 k = Type.TEXT;
@@ -108,7 +107,7 @@ public class SameNameTest extends NodeTest implements QNameTest {
             } else {
                 return Navigator.haveSameName(tree.getNode(nodeNr), origin);
             }
-        };
+        });
     }
 
     /**
@@ -138,6 +137,18 @@ public class SameNameTest extends NodeTest implements QNameTest {
     }
 
     /**
+     * Test whether the QNameTest matches a given fingerprint
+     *
+     * @param namePool the name pool
+     * @param fp       the fingerprint of the QName to be matched
+     * @return true if the name matches, false if not
+     */
+    @Override
+    public boolean matchesFingerprint(NamePool namePool, int fp) {
+        return fp == getFingerprint();
+    }
+
+    /**
      * Determine the default priority of this node test when used on its own as a Pattern
      */
 
@@ -156,7 +167,7 @@ public class SameNameTest extends NodeTest implements QNameTest {
             return origin.getFingerprint();
         } else {
             NamePool pool = origin.getConfiguration().getNamePool();
-            return pool.allocateFingerprint(origin.getURI(), origin.getLocalPart());
+            return pool.allocateFingerprint(origin.getNamespaceUri(), origin.getLocalPart());
         }
     }
 
@@ -185,8 +196,8 @@ public class SameNameTest extends NodeTest implements QNameTest {
      * @return the namespace URI (using "" for the "null namepace")
      */
 
-    public String getNamespaceURI() {
-        return origin.getURI();
+    public NamespaceUri getNamespaceURI() {
+        return origin.getNamespaceUri();
     }
 
     /**
@@ -225,7 +236,7 @@ public class SameNameTest extends NodeTest implements QNameTest {
      */
 
     public int hashCode() {
-        return origin.getNodeKind() << 20 ^ origin.getURI().hashCode() ^ origin.getLocalPart().hashCode();
+        return origin.getNodeKind() << 20 ^ origin.getNamespaceUri().hashCode() ^ origin.getLocalPart().hashCode();
     }
 
     /**
@@ -243,7 +254,7 @@ public class SameNameTest extends NodeTest implements QNameTest {
      */
 
     public NameTest getEquivalentNameTest() {
-        return new NameTest(origin.getNodeKind(), origin.getURI(), origin.getLocalPart(), origin.getConfiguration().getNamePool());
+        return new NameTest(origin.getNodeKind(), origin.getNamespaceUri(), origin.getLocalPart(), origin.getConfiguration().getNamePool());
     }
 
     /**
@@ -257,21 +268,6 @@ public class SameNameTest extends NodeTest implements QNameTest {
     public String exportQNameTest() {
         // Not applicable
         return "";
-    }
-
-    /**
-     * Generate Javascript code to test if a name matches the test.
-     *
-     * @return JS code as a string. The generated code will be used
-     * as the body of a JS function in which the argument name "q" is an
-     * XdmQName object holding the name. The XdmQName object has properties
-     * uri and local.
-     * @param targetVersion the version of Saxon-JS being targeted
-     */
-    @Override
-    public String generateJavaScriptNameTest(int targetVersion) {
-        // Not applicable
-        return "false";
     }
 
 }

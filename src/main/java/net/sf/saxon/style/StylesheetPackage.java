@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,6 +18,7 @@ import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
 import net.sf.saxon.om.Action;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.NodeTest;
@@ -28,12 +29,13 @@ import net.sf.saxon.serialize.CharacterMapIndex;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.rules.RuleManager;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.TypeHierarchy;
 
 import java.util.*;
 
+import static net.sf.saxon.trans.Visibility.HIDDEN;
 import static net.sf.saxon.trans.Visibility.PRIVATE;
 
 /**
@@ -46,15 +48,14 @@ public class StylesheetPackage extends PackageData {
 
     private PackageVersion packageVersion = null;
     private String packageName;
-    private List<StylesheetPackage> usedPackages = new ArrayList<>();
-    private int xsltVersion;
+    private final List<StylesheetPackage> usedPackages = new ArrayList<>();
 
     private RuleManager ruleManager;
     private CharacterMapIndex characterMapIndex;
 
     private boolean createsSecondaryResultDocuments;
 
-    private List<Action> completionActions = new ArrayList<>();
+    private final List<Action> completionActions = new ArrayList<>();
     protected GlobalContextRequirement globalContextRequirement = null;
     private boolean containsGlobalContextItemDeclaration = false;
     protected SpaceStrippingRule stripperRules;
@@ -66,7 +67,7 @@ public class StylesheetPackage extends PackageData {
     protected Map<StructuredQName, Properties> namedOutputProperties = new HashMap<>(4);
 
     // table of imported schemas. The members of this set are strings holding the target namespace.
-    protected Set<String> schemaIndex = new HashSet<>(10);
+    protected Set<NamespaceUri> schemaIndex = new HashSet<>(10);
 
     private FunctionLibraryList functionLibrary;
     private XQueryFunctionLibrary queryFunctions;
@@ -81,13 +82,13 @@ public class StylesheetPackage extends PackageData {
     // component; value is the component itself. Hidden components are not included in this table because their names
     // need not be unique, and because they are not available for reference by name.
 
-    private HashMap<SymbolicName, Component> componentIndex = new HashMap<>(20);
+    private final HashMap<SymbolicName, Component> componentIndex = new HashMap<>(20);
 
     protected List<Component> hiddenComponents = new ArrayList<>();
 
     protected HashMap<SymbolicName, Component> overriddenComponents = new HashMap<>();
 
-    private HashMap<SymbolicName, Component> abstractComponents = new HashMap<>();
+    private final HashMap<SymbolicName, Component> abstractComponents = new HashMap<>();
 
     /**
      * Create a stylesheet package
@@ -97,7 +98,7 @@ public class StylesheetPackage extends PackageData {
 
     public StylesheetPackage(Configuration config) {
         super(config);
-        setHostLanguage(HostLanguage.XSLT);
+        setHostLanguage(HostLanguage.XSLT, 30);
         setAccumulatorRegistry(config.makeAccumulatorRegistry());
     }
 
@@ -151,8 +152,8 @@ public class StylesheetPackage extends PackageData {
      *
      * @param version the version (times ten) as an integer
      */
-    public void setVersion(int version) {
-        this.xsltVersion = version;
+    public void setLanguageVersion(int version) {
+        this.hostLanguageVersion = version;
     }
 
     /**
@@ -162,15 +163,6 @@ public class StylesheetPackage extends PackageData {
      */
     public void setPackageName(String packageName) {
         this.packageName = packageName;
-    }
-
-    /**
-     * Get the version of the XSLT language specification to which the package manifest conforms
-     *
-     * @return the version of the xslPackage, times ten, as an integer
-     */
-    public int getVersion() {
-        return xsltVersion;
     }
 
     /**
@@ -423,13 +415,14 @@ public class StylesheetPackage extends PackageData {
      * @return the set of imported namespaces
      */
 
-    public Set<String> getSchemaNamespaces() {
+    public Set<NamespaceUri> getSchemaNamespaces() {
         return schemaIndex;
     }
 
     /**
      * Set the required context item type. Used when there is an xsl:global-context-item child element
      * @param requirement details of the requirement for the global context item
+     * @throws XPathException if there are conflicts
      */
 
     public void setContextItemRequirements(GlobalContextRequirement requirement) throws XPathException {
@@ -530,12 +523,12 @@ public class StylesheetPackage extends PackageData {
     private void registerGlobalVariable(Component c, SlotManager slotManager) {
         if (c.getActor() instanceof GlobalVariable) {
             GlobalVariable var = (GlobalVariable) c.getActor();
-            int slot = slotManager.allocateSlotNumber(var.getVariableQName());
+            int slot = slotManager.allocateSlotNumber(var.getVariableQName(), null);
             var.setPackageData(this);
             var.setBinderySlotNumber(slot);
-            if (c.getVisibility() != Visibility.HIDDEN) {
-                addGlobalVariable(var);
-            }
+//            if (c.getVisibility() != Visibility.HIDDEN) {
+//                addGlobalVariable(var);
+//            }
         }
     }
 
@@ -647,38 +640,39 @@ public class StylesheetPackage extends PackageData {
 
             Visibility oldV = oldC.getVisibility();
 
-            Visibility newV = null;
+            Visibility newV = Visibility.UNDEFINED;
 
             if (overrides.contains(name) && !(oldC.getActor() instanceof Mode)) {
-                newV = Visibility.HIDDEN;
+                newV = HIDDEN;
             } else {
                 Visibility acceptedVisibility = explicitAcceptedVisibility(name, acceptors);
-                if (acceptedVisibility != null) {
+                if (acceptedVisibility != Visibility.UNDEFINED) {
                     if (!XSLAccept.isCompatible(oldV, acceptedVisibility)) {
-                        throw new XPathException("Cannot accept a " + oldV.show() +
+                        throw new XPathException("Cannot accept a " + Err.describeVisibility(oldV) +
                                                          " component (" + name + ") from package " + usedPackage.getPackageName()
-                                                         + " with visibility " + acceptedVisibility.show(), "XTSE3040");
+                                                         + " with visibility " + Err.describeVisibility(acceptedVisibility), "XTSE3040");
                     }
                     newV = acceptedVisibility;
                 } else {
                     acceptedVisibility = wildcardAcceptedVisibility(name, acceptors);
-                    if (acceptedVisibility != null) {
+                    if (acceptedVisibility != Visibility.UNDEFINED) {
                         if (XSLAccept.isCompatible(oldV, acceptedVisibility)) {
                             newV = acceptedVisibility;
                         }
                     }
                 }
 
-                if (newV == null) {
+                if (newV == Visibility.UNDEFINED) {
                     if (oldV == Visibility.PUBLIC || oldV == Visibility.FINAL) {
                         newV = Visibility.PRIVATE;
                     } else {
-                        newV = Visibility.HIDDEN;
+                        newV = HIDDEN;
                     }
                 }
             }
 
-            trace(oldC.getActor().getSymbolicName() + " (" + oldV.show() + ") becomes " + newV.show());
+            trace(oldC.getActor().getSymbolicName() + " (" + Err.describeVisibility(oldV)
+                          + ") becomes " + Err.describeVisibility(newV));
 
             final Component newC = Component.makeComponent(oldC.getActor(), newV, VisibilityProvenance.DERIVED, this, oldC.getDeclaringPackage());
             correspondence.put(oldC, newC);
@@ -693,7 +687,7 @@ public class StylesheetPackage extends PackageData {
                     abstractComponents.remove(name);
                 }
             }
-            if (newC.getVisibility() == Visibility.HIDDEN) {
+            if (newC.getVisibility() == HIDDEN) {
                 hiddenComponents.add(newC);
             } else if (componentIndex.get(name) != null) {
                 if (!(oldC.getActor() instanceof Mode)) {
@@ -711,11 +705,12 @@ public class StylesheetPackage extends PackageData {
                 }
             }
 
-            if (newC.getActor() instanceof Mode && overrides.contains(name)) {
+            if (newC.getActor() instanceof Mode && overrides.contains(name) && !newC.getVisibility().equals(HIDDEN)) {
                 addCompletionAction(() -> {
                     trace("Doing mode completion for " + newC.getActor().getSymbolicName());
                     List<ComponentBinding> oldBindings = newC.getBaseComponent().getComponentBindings();
                     List<ComponentBinding> newBindings = newC.getComponentBindings();
+                    //assert newBindings.size() == oldBindings.size();
                     for (int i=0; i<oldBindings.size(); i++) {
                         SymbolicName name12 = oldBindings.get(i).getSymbolicName();
                         Component target;
@@ -753,7 +748,7 @@ public class StylesheetPackage extends PackageData {
 
             trace(oldC.getActor().getSymbolicName() + " (HIDDEN, declared in " + oldC.getDeclaringPackage().getPackageName() + ") becomes HIDDEN");
 
-            final Component newC = Component.makeComponent(oldC.getActor(), Visibility.HIDDEN, VisibilityProvenance.DERIVED, this, oldC.getDeclaringPackage());
+            final Component newC = Component.makeComponent(oldC.getActor(), HIDDEN, VisibilityProvenance.DERIVED, this, oldC.getDeclaringPackage());
             correspondence.put(oldC, newC);
             newC.setBaseComponent(oldC);
 
@@ -795,6 +790,7 @@ public class StylesheetPackage extends PackageData {
         }
     }
 
+    @CSharpReplaceBody(code="")
     private void trace(String message) {
         if (TRACING) {
             System.err.println(message);
@@ -809,12 +805,12 @@ public class StylesheetPackage extends PackageData {
                 }
             }
         }
-        return null;
+        return Visibility.UNDEFINED;
     }
 
     private Visibility wildcardAcceptedVisibility(SymbolicName name, List<XSLAccept> acceptors) throws XPathException {
         // Note: last one wins
-        Visibility vis = null;
+        Visibility vis = Visibility.UNDEFINED;
         for (XSLAccept acceptor : acceptors) {
             for (ComponentTest test : acceptor.getWildcardComponentTests()) {
                 if (((NodeTest) test.getQNameTest()).getDefaultPriority() == -0.25 && test.matches(name)) {
@@ -822,7 +818,7 @@ public class StylesheetPackage extends PackageData {
                 }
             }
         }
-        if (vis != null) {
+        if (vis != Visibility.UNDEFINED) {
             return vis;
         }
         for (XSLAccept acceptor : acceptors) {
@@ -843,10 +839,9 @@ public class StylesheetPackage extends PackageData {
     public void createFunctionLibrary() {
 
         FunctionLibraryList functionLibrary = new FunctionLibraryList();
-        boolean includeHOF = !("HE".equals(getTargetEdition()) || "JS".equals(getTargetEdition()));
-        functionLibrary.addFunctionLibrary(includeHOF ? config.getXSLT30FunctionSet() : new Configuration().getXSLT30FunctionSet());
+        functionLibrary.addFunctionLibrary(config.getXSLTFunctionSet(hostLanguageVersion));
         functionLibrary.addFunctionLibrary(new StylesheetFunctionLibrary(this, true));
-        functionLibrary.addFunctionLibrary(config.getBuiltInExtensionLibraryList());
+        functionLibrary.addFunctionLibrary(config.getBuiltInExtensionLibraryList(hostLanguageVersion==40 ? 40 : 31));
         functionLibrary.addFunctionLibrary(new ConstructorFunctionLibrary(config));
         if ("JS".equals(getTargetEdition())) {
             addIxslFunctionLibrary(functionLibrary);
@@ -856,6 +851,7 @@ public class StylesheetPackage extends PackageData {
         functionLibrary.addFunctionLibrary(queryFunctions);
         functionLibrary.addFunctionLibrary(config.getIntegratedFunctionLibrary());
         config.addExtensionBinders(functionLibrary);
+        functionLibrary.addFunctionLibrary(XSLOriginalLibrary.getInstance());
         functionLibrary.addFunctionLibrary(new StylesheetFunctionLibrary(this, false));
 
         this.functionLibrary = functionLibrary;
@@ -876,6 +872,7 @@ public class StylesheetPackage extends PackageData {
     /**
      * Get the library of functions exposed by this stylesheet package, that
      * is, functions whose visibility is public or final
+     * @return a function library containing only the functions that are exposed as public
      */
 
     public FunctionLibrary getPublicFunctions() {
@@ -896,6 +893,7 @@ public class StylesheetPackage extends PackageData {
      * Set details of functions available for calling anywhere in this package. This is the
      * function library used for resolving run-time references to functions, for example
      * from xsl:evaluate, function-available(), or function-lookup().
+     * @param library         the main function library (as a list of sub-libraries)
      * @param overriding      library of stylesheet functions declared with override=yes
      * @param underriding     library of stylesheet functions declared with override=no
      */
@@ -918,7 +916,7 @@ public class StylesheetPackage extends PackageData {
      * @return the requested function, or null if none can be found
      */
 
-    protected UserFunction getFunction(SymbolicName.F name) {
+    public UserFunction getFunction(SymbolicName.F name) {
         if (name.getArity() == -1) {
             // supports the single-argument function-available() function
             int maximumArity = 20;
@@ -1077,16 +1075,19 @@ public class StylesheetPackage extends PackageData {
 
     /**
      * Mark the package as non-exportable, supplying an error message to be reported if export is attempted
-     * @param message the error message to report indicating why export is not possible
+     *
+     * @param message   the error message to report indicating why export is not possible
      * @param errorCode the error code to report if export is attempted
      */
 
-    public void markNonExportable(String message, String errorCode) {}
+    public void markNonExportable(String message, String errorCode) {
+    }
 
     /**
      * Output the abstract expression tree to the supplied destination.
      *
      * @param presenter the expression presenter used to display the structure
+     * @throws XPathException if exporting fails or is not permitted (it requires Saxon-EE)
      */
 
     public void export(ExpressionPresenter presenter) throws XPathException {
@@ -1100,7 +1101,7 @@ public class StylesheetPackage extends PackageData {
             }
         }
         if (!abstractComponents.isEmpty()) {
-            FastStringBuffer buff = new FastStringBuffer(256);
+            StringBuilder buff = new StringBuilder(256);
             int count = 0;
             for (SymbolicName name : abstractComponents.keySet()) {
                 if (count++ > 0) {

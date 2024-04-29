@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,25 +8,30 @@
 package net.sf.saxon.event;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.functions.ResolveURI;
+import net.sf.saxon.lib.DirectResourceResolver;
+import net.sf.saxon.lib.ResourceRequest;
+import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.StandardURIResolver;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.util.ProcInstParser;
 import net.sf.saxon.type.SchemaType;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.TransformerException;
-import javax.xml.transform.URIResolver;
 import javax.xml.transform.sax.SAXSource;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 /**
- * The <tt>PIGrabber</tt> class is a {@link ProxyReceiver} that looks for {@code xml-stylesheet} processing
+ * The <code>PIGrabber</code> class is a {@link ProxyReceiver} that looks for {@code xml-stylesheet} processing
  * instructions and tests whether they match specified criteria; for those that do, it creates
  * a {@link Source} object referring to the relevant stylesheet
  */
@@ -37,8 +42,8 @@ public class PIGrabber extends ProxyReceiver {
     private String reqMedia = null;
     private String reqTitle = null;
     private String baseURI = null;
-    private URIResolver uriResolver = null;
-    private List<String> stylesheets = new ArrayList<>();
+    private ResourceResolver resourceResolver = null;
+    private final List<String> stylesheets = new ArrayList<>();
     private boolean terminated = false;
 
     public PIGrabber(Receiver next) {
@@ -79,8 +84,8 @@ public class PIGrabber extends ProxyReceiver {
      * @param resolver the URI resolver
      */
 
-    public void setURIResolver(URIResolver resolver) {
-        uriResolver = resolver;
+    public void setResourceResolver(ResourceResolver resolver) {
+        resourceResolver = resolver;
     }
 
     /**
@@ -113,7 +118,7 @@ public class PIGrabber extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties)
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties)
             throws XPathException {
         if (target.equals("xml-stylesheet")) {
 
@@ -164,26 +169,33 @@ public class PIGrabber extends ProxyReceiver {
      */
 
     /*@Nullable*/
+    @CSharpReplaceBody(code="return new javax.xml.transform.Source[0];")
     public Source[] getAssociatedStylesheets() throws TransformerException {
         if (stylesheets.isEmpty()) {
             return null;
         }
-        if (uriResolver == null) {
-            uriResolver = new StandardURIResolver(config);
-        }
         Source[] result = new Source[stylesheets.size()];
+        ResourceRequest request = new ResourceRequest();
+        request.baseUri = baseURI;
+        request.nature = ResourceRequest.XSLT_NATURE;
+        request.purpose = ResourceRequest.ANY_PURPOSE;
         for (int i = 0; i < stylesheets.size(); i++) {
             String href = stylesheets.get(i);
-            Source s = uriResolver.resolve(href, baseURI);
+            request.relativeUri = href;
+            try {
+                request.uri = ResolveURI.makeAbsolute(href, baseURI).toString();
+            } catch (URISyntaxException e) {
+                throw XPathException.makeXPathException(e);
+            }
+            Source s = request.resolve(resourceResolver,
+                                       config.getResourceResolver(),
+                                       new DirectResourceResolver(config));
             if (s instanceof SAXSource) {
                 ((SAXSource) s).setXMLReader(config.getStyleParser());
-            }
-            if (s == null) {
-                s = config.getSystemURIResolver().resolve(href, baseURI);
             }
             result[i] = s;
         }
         return result;
     }
 
-}//
+}

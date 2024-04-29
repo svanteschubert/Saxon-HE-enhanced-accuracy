@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.expr.sort.CodepointCollator;
@@ -17,15 +18,21 @@ import net.sf.saxon.functions.Minimax;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
+import net.sf.saxon.tree.iter.RangeIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
-import net.sf.saxon.value.StringValue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 
 /**
@@ -34,14 +41,15 @@ import java.util.List;
  * =, !=, &lt;, &gt;, etc. This implementation is not used when in backwards-compatible mode
  */
 
-public abstract class GeneralComparison extends BinaryExpression implements ComparisonExpression, Callable {
+public abstract class GeneralComparison extends BinaryExpression implements ComparisonExpression {
 
+    @CSharpSimpleEnum
     public enum ComparisonCardinality {ONE_TO_ONE, MANY_TO_ONE, MANY_TO_MANY}
     // Note, a one-to-many comparison is inverted into a many-to-one comparison
 
     protected int singletonOperator;
     protected AtomicComparer comparer;
-    protected boolean needsRuntimeCheck = true;
+    protected boolean runtimeCheckNeeded = true;
     protected ComparisonCardinality comparisonCardinality = ComparisonCardinality.MANY_TO_MANY;
     protected boolean doneWarnings = false;
 
@@ -66,7 +74,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
      */
 
     public boolean needsRuntimeCheck() {
-        return needsRuntimeCheck;
+        return runtimeCheckNeeded;
     }
 
     /**
@@ -76,7 +84,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
      */
 
     public void setNeedsRuntimeCheck(boolean needsCheck) {
-        needsRuntimeCheck = needsCheck;
+        runtimeCheckNeeded = needsCheck;
     }
 
     /**
@@ -127,6 +135,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     /**
      * Get the namespace context for this expression, needed in the event that one operand contains untyped
      * atomic values and the other contains QNames
+     * @return the resolver used for namespace prefix resolution
      */
 
     public NamespaceResolver getNamespaceResolver() {
@@ -140,6 +149,16 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     @Override
     public AtomicComparer getAtomicComparer() {
         return comparer;
+    }
+
+    /**
+     * Get the StringCollator used to compare string values.
+     *
+     * @return the collator. May return null if the expression will never be used to compare strings
+     */
+    @Override
+    public StringCollator getStringCollator() {
+        return comparer.getCollator();
     }
 
     /**
@@ -169,7 +188,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -184,7 +203,6 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
 
         final Configuration config = visitor.getConfiguration();
-        final TypeHierarchy th = config.getTypeHierarchy();
 
         Expression oldOp0 = getLhsExpression();
         Expression oldOp1 = getRhsExpression();
@@ -206,12 +224,12 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         SequenceType atomicType = SequenceType.ATOMIC_SEQUENCE;
 
         TypeChecker tc = config.getTypeChecker(false);
-        RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
-        //role0.setSourceLocator(this);
+        Supplier<RoleDiagnostic> role0 =
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), atomicType, role0, visitor));
 
-        RoleDiagnostic role1 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
-        //role1.setSourceLocator(this);
+        Supplier<RoleDiagnostic> role1 =
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), atomicType, role1, visitor));
 
         if (getLhsExpression() != oldOp0) {
@@ -230,11 +248,8 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         }
 
         if (t0.getUType().union(t1.getUType()).overlaps(UType.EXTENSION)) {
-            XPathException err = new XPathException("Cannot perform comparisons involving external objects");
-            err.setIsTypeError(true);
-            err.setErrorCode("XPTY0004");
-            err.setLocator(getLocation());
-            throw err;
+            throw new XPathException("Cannot perform comparisons involving external objects")
+                    .asTypeError().withErrorCode("XPTY0004").withLocation(getLocation());
         }
 
         BuiltInAtomicType pt0 = (BuiltInAtomicType) t0.getPrimitiveItemType();
@@ -251,7 +266,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
                 t1.equals(BuiltInAtomicType.ANY_ATOMIC) || t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
             // then no static type checking is possible
         } else {
-            if (!Type.isPossiblyComparable(pt0, pt1, Token.isOrderedOperator(singletonOperator))) {
+            if (!Type.isPossiblyComparable(pt0, pt1, visitor.getStaticContext().getXPathVersion())) {
                 String message = "In {" + toShortString() + "}: cannot compare " + t0 + " to " + t1;
                 if (Cardinality.allowsZero(c0) || Cardinality.allowsZero(c1)) {
                     if (!doneWarnings) { // avoid duplicate warnings
@@ -263,21 +278,18 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
                             which = "the second";
                         }
                         visitor.getStaticContext().issueWarning(
-                            message + ". The comparison can succeed only if " + which +
-                                " operand is empty, and in that case will always be false", getLocation());
+                                message + ". The comparison can succeed only if " + which +
+                                " operand is empty, and in that case will always be false", SaxonErrorCode.SXWN9025, getLocation());
                     }
                 } else {
-                    XPathException err = new XPathException(message);
-                    err.setErrorCode("XPTY0004");
-                    err.setIsTypeError(true);
-                    err.setLocator(getLocation());
-                    throw err;
+                    throw new XPathException(message)
+                            .withErrorCode("XPTY0004").asTypeError().withLocation(getLocation());
                 }
             }
 
         }
 
-        needsRuntimeCheck = !Type.isGuaranteedGenerallyComparable(pt0, pt1, Token.isOrderedOperator(singletonOperator));
+        runtimeCheckNeeded = !Type.isGuaranteedGenerallyComparable(pt0, pt1, Token.isOrderedOperator(singletonOperator));
 
         if (!Cardinality.allowsMany(c0) /*c0 == StaticProperty.EXACTLY_ONE*/ &&
                 !Cardinality.allowsMany(c1) /*c1 == StaticProperty.EXACTLY_ONE */ &&
@@ -297,18 +309,22 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
                     e1 = new CastExpression(getRhsExpression(), BuiltInAtomicType.STRING, Cardinality.allowsZero(c1));
                     adoptChildExpression(e1);
                 } else if (NumericType.isNumericType(t1)) {
-                    Expression vun = makeCompareUntypedToNumeric(getLhsExpression(), getRhsExpression(), singletonOperator);
-                    return vun.typeCheck(visitor, contextInfo);
+                    setAtomicComparer(new UntypedNumericComparer());
+                    return this;
+//                    Expression vun = makeCompareUntypedToNumeric(getLhsExpression(), getRhsExpression(), singletonOperator);
+//                    return vun.typeCheck(visitor, contextInfo);
                 } else {
                     e0 = new CastExpression(getLhsExpression(), pt1, Cardinality.allowsZero(c0));
                     adoptChildExpression(e0);
                 }
             } else if (t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                 if (NumericType.isNumericType(t0)) {
+                    setAtomicComparer(new UntypedNumericComparer());
+                    return this;
 //                    e1 = new CastExpression(getRhsExpression(), BuiltInAtomicType.DOUBLE, false);
 //                    adoptChildExpression(e1);
-                    Expression vun = makeCompareUntypedToNumeric(getRhsExpression(), getLhsExpression(), Token.inverse(singletonOperator));
-                    return vun.typeCheck(visitor, contextInfo);
+//                    Expression vun = makeCompareUntypedToNumeric(getRhsExpression(), getLhsExpression(), Token.inverse(singletonOperator));
+//                    return vun.typeCheck(visitor, contextInfo);
                 } else {
                     e1 = new CastExpression(getRhsExpression(), pt0, Cardinality.allowsZero(c1));
                     adoptChildExpression(e1);
@@ -316,7 +332,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             }
 
             ValueComparison vc = new ValueComparison(e0, singletonOperator, e1);
-            vc.setAtomicComparer(comparer);
+            //vc.setAtomicComparer(comparer);
             vc.setResultWhenEmpty(BooleanValue.FALSE);
             ExpressionTool.copyLocationInfo(this, vc);
             Optimizer.trace(config, "Replaced general comparison by value comparison", vc);
@@ -324,16 +340,15 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         }
 
         StaticContext env = visitor.getStaticContext();
-        if (comparer == null) {
-            // In XSLT, only do this the first time through, otherwise default-collation may be missed
-            final String defaultCollationName = env.getDefaultCollationName();
-            StringCollator collation = config.getCollation(defaultCollationName);
-            if (collation == null) {
-                collation = CodepointCollator.getInstance();
-            }
-            comparer = GenericAtomicComparer.makeAtomicComparer(
-                    pt0, pt1, collation, config.getConversionContext());
+
+        final String defaultCollationName = getRetainedStaticContext().getDefaultCollationName();
+        StringCollator collation = config.getCollation(defaultCollationName);
+        if (collation == null) {
+            collation = CodepointCollator.getInstance();
         }
+        comparer = GenericAtomicComparer.makeAtomicComparer(
+                pt0, pt1, collation, config.getConversionContext());
+
 
         // evaluate the expression now if both arguments are constant
 
@@ -343,21 +358,17 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         return this;
     }
 
-    private Expression makeCompareUntypedToNumeric(Expression lhs, Expression rhs, int operator) {
-        ValueComparison vc = new ValueComparison(lhs, operator, rhs);
-        vc.setAtomicComparer(new UntypedNumericComparer());
-        ExpressionTool.copyLocationInfo(this, vc);
-        Optimizer.trace(getConfiguration(), "Replaced general comparison by untyped-numeric value comparison", vc);
-        return vc;
-    }
 
-
-    private static Expression makeMinOrMax(Expression exp, String function) {
+    private static Expression makeMinOrMax(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo,
+                                           Expression exp, String function) throws XPathException {
         if (Cardinality.allowsMany(exp.getCardinality())) {
-            Expression fn = SystemFunction.makeCall(function, exp.getRetainedStaticContext(), exp);
-            assert fn != null;
-            ((Minimax) ((SystemFunctionCall) fn).getTargetFunction()).setIgnoreNaN(true);
-            return fn;
+            SystemFunction fn = SystemFunction.makeFunction(function, exp.getRetainedStaticContext(), 1);
+            ((Minimax)fn).setIgnoreNaN(true);
+            Expression x = fn.makeOptimizedFunctionCall(visitor, contextInfo, exp);
+            if (x == null) {
+                x = fn.makeFunctionCall(exp);
+            }
+            return x;
         } else {
             return exp;
         }
@@ -390,6 +401,14 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
                 comparer.equals(((GeneralComparison) other).comparer);
     }
 
+    /**
+     * Get a hashCode for comparing two expressions. Note that this hashcode gives the same
+     * result for (A op B) and for (B op A), whether or not the operator is commutative.
+     */
+    @Override
+    protected int computeHashCode() {
+        return super.computeHashCode();
+    }
 
     /**
      * Optimize the expression
@@ -401,7 +420,6 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     @Override
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
 
-        final TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
         final StaticContext env = visitor.getStaticContext();
 
         getLhs().optimize(visitor, contextInfo);
@@ -447,7 +465,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
                 mc.comparisonCardinality = ComparisonCardinality.MANY_TO_ONE;
                 ExpressionTool.copyLocationInfo(this, mc);
                 mc.comparer = comparer;
-                mc.needsRuntimeCheck = needsRuntimeCheck;
+                mc.runtimeCheckNeeded = runtimeCheckNeeded;
                 return mc.optimize(visitor, contextInfo);
             } else {
                 comparisonCardinality = ComparisonCardinality.ONE_TO_ONE;
@@ -460,16 +478,16 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             // First a variable range...
 
             if (getLhsExpression() instanceof RangeExpression) {
-                Expression min = ((RangeExpression) getLhsExpression()).getLhsExpression();
-                Expression max = ((RangeExpression) getLhsExpression()).getRhsExpression();
+                Expression min = ((RangeExpression) getLhsExpression()).getStartExpression();
+                Expression max = ((RangeExpression) getLhsExpression()).getEndExpression();
                 IntegerRangeTest ir = new IntegerRangeTest(getRhsExpression(), min, max);
                 ExpressionTool.copyLocationInfo(this, ir);
                 return ir;
             }
 
             if (getRhsExpression() instanceof RangeExpression) {
-                Expression min = ((RangeExpression) getRhsExpression()).getLhsExpression();
-                Expression max = ((RangeExpression) getRhsExpression()).getRhsExpression();
+                Expression min = ((RangeExpression) getRhsExpression()).getStartExpression();
+                Expression max = ((RangeExpression) getRhsExpression()).getEndExpression();
                 IntegerRangeTest ir = new IntegerRangeTest(getLhsExpression(), min, max);
                 ExpressionTool.copyLocationInfo(this, ir);
                 return ir;
@@ -478,8 +496,8 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             // Now a fixed range...
 
             if (getLhsExpression() instanceof Literal) {
-                GroundedValue value0 = ((Literal) getLhsExpression()).getValue();
-                if (value0 instanceof IntegerRange) {
+                GroundedValue value0 = ((Literal) getLhsExpression()).getGroundedValue();
+                if (value0 instanceof IntegerRange && ((IntegerRange)value0).getStep() == 1) {
                     long min = ((IntegerRange) value0).getStart();
                     long max = ((IntegerRange) value0).getEnd();
                     IntegerRangeTest ir = new IntegerRangeTest(getRhsExpression(),
@@ -491,8 +509,8 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             }
 
             if (getRhsExpression() instanceof Literal) {
-                GroundedValue value1 = ((Literal) getRhsExpression()).getValue();
-                if (value1 instanceof IntegerRange) {
+                GroundedValue value1 = ((Literal) getRhsExpression()).getGroundedValue();
+                if (value1 instanceof IntegerRange && ((IntegerRange) value1).getStep() == 1) {
                     long min = ((IntegerRange) value1).getStart();
                     long max = ((IntegerRange) value1).getEnd();
                     IntegerRangeTest ir = new IntegerRangeTest(getLhsExpression(),
@@ -527,19 +545,19 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             switch (operator) {
                 case Token.LT:
                 case Token.LE:
-                    vc = new ValueComparison(makeMinOrMax(getLhsExpression(), "min"),
+                    vc = new ValueComparison(makeMinOrMax(visitor, contextInfo, getLhsExpression(), "min"),
                             singletonOperator,
-                            makeMinOrMax(getRhsExpression(), "max"));
+                            makeMinOrMax(visitor, contextInfo, getRhsExpression(), "max"));
                     vc.setResultWhenEmpty(BooleanValue.FALSE);
-                    vc.setAtomicComparer(comparer);
+                    //vc.setAtomicComparer(comparer);
                     break;
                 case Token.GT:
                 case Token.GE:
-                    vc = new ValueComparison(makeMinOrMax(getLhsExpression(), "max"),
+                    vc = new ValueComparison(makeMinOrMax(visitor, contextInfo, getLhsExpression(), "max"),
                             singletonOperator,
-                            makeMinOrMax(getRhsExpression(), "min"));
+                            makeMinOrMax(visitor, contextInfo, getRhsExpression(), "min"));
                     vc.setResultWhenEmpty(BooleanValue.FALSE);
-                    vc.setAtomicComparer(comparer);
+                    //vc.setAtomicComparer(comparer);
                     break;
                 default:
                     throw new UnsupportedOperationException("Unknown operator " + operator);
@@ -547,7 +565,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
             ExpressionTool.copyLocationInfo(this, vc);
             vc.setRetainedStaticContext(getRetainedStaticContext());
-            return vc.typeCheck(visitor, contextInfo).optimize(visitor, contextInfo);
+            return vc.typeCheck(visitor, contextInfo);
         }
 
         // evaluate the expression now if both arguments are constant
@@ -581,7 +599,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             Expression e = o.getChildExpression();
             if (Cardinality.allowsMany(e.getCardinality())) {
                 return (e instanceof RangeExpression ||
-                        e instanceof Literal && ((Literal)e).getValue() instanceof IntegerRange);
+                                e instanceof Literal && ((Literal) e).getGroundedValue() instanceof IntegerRange);
             }
         }
         return false; // shouldn't reach here.
@@ -597,38 +615,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     /*@Nullable*/
     @Override
     public BooleanValue evaluateItem(XPathContext context) throws XPathException {
-        return BooleanValue.get(effectiveBooleanValue(context));
-    }
-
-    /**
-     * Evaluate the expression
-     *
-     * @param context   the dynamic evaluation context
-     * @param arguments the values of the arguments, supplied as SequenceIterators
-     * @return the result of the evaluation, in the form of a SequenceIterator
-     * @throws XPathException if a dynamic error occurs during the evaluation of the expression
-     */
-
-    @Override
-    public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-        switch (comparisonCardinality) {
-            case ONE_TO_ONE: {
-                AtomicValue value0 = (AtomicValue) arguments[0].head();
-                AtomicValue value1 = (AtomicValue) arguments[1].head();
-                return BooleanValue.get(evaluateOneToOne(value0, value1, context));
-            }
-            case MANY_TO_ONE: {
-                SequenceIterator iter0 = arguments[0].iterate();
-                AtomicValue value1 = (AtomicValue) arguments[1].head();
-                return BooleanValue.get(evaluateManyToOne(iter0, value1, context));
-            }
-            case MANY_TO_MANY: {
-                SequenceIterator iter1 = arguments[0].iterate();
-                SequenceIterator iter2 = arguments[1].iterate();
-                return BooleanValue.get(evaluateManyToMany(iter1, iter2, context));
-            }
-        }
-        return null;
+        return BooleanValue.get(makeElaborator().elaborateForBoolean().eval(context));
     }
 
     /**
@@ -640,158 +627,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
     @Override
     public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
-        switch (comparisonCardinality) {
-            case ONE_TO_ONE: {
-                AtomicValue value0 = (AtomicValue) getLhsExpression().evaluateItem(context);
-                AtomicValue value1 = (AtomicValue) getRhsExpression().evaluateItem(context);
-                return evaluateOneToOne(value0, value1, context);
-            }
-            case MANY_TO_ONE: {
-                SequenceIterator iter0 = getLhsExpression().iterate(context);
-                AtomicValue value1 = (AtomicValue) getRhsExpression().evaluateItem(context);
-                return evaluateManyToOne(iter0, value1, context);
-            }
-            case MANY_TO_MANY: {
-                SequenceIterator iter1 = getLhsExpression().iterate(context);
-                SequenceIterator iter2 = getRhsExpression().iterate(context);
-                return evaluateManyToMany(iter1, iter2, context);
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Evaluate a (zero-or-one)-to-(zero-or-one) comparison
-     *
-     * @param value0  the first value, or null if empty
-     * @param value1  the second value, or null if empty
-     * @param context dynamic evaluation context
-     * @return the comparison result
-     * @throws XPathException if a dynamic error occurs
-     */
-
-    private boolean evaluateOneToOne(AtomicValue value0, AtomicValue value1, XPathContext context) throws XPathException {
-        try {
-            return !(value0 == null || value1 == null) &&
-                    compare(value0, singletonOperator, value1, comparer.provideContext(context),
-                            needsRuntimeCheck, context, getRetainedStaticContext());
-        } catch (XPathException e) {
-            // re-throw the exception with location information added
-            e.maybeSetLocation(getLocation());
-            e.maybeSetContext(context);
-            throw e;
-        }
-
-    }
-
-    /**
-     * Evaluate a (zero-to-many)-to-(zero-or-one) comparison
-     *
-     * @param iter0   iterator over the first value
-     * @param value1  the second value, or null if empty
-     * @param context dynamic evaluation context
-     * @return the comparison result
-     * @throws XPathException if a dynamic error occurs
-     */
-
-    private boolean evaluateManyToOne(SequenceIterator iter0, AtomicValue value1, XPathContext context) throws XPathException {
-        try {
-            if (value1 == null) {
-                return false;
-            }
-            AtomicValue item0;
-            AtomicComparer boundComparer = comparer.provideContext(context);
-            while ((item0 = (AtomicValue) iter0.next()) != null) {
-                if (compare(item0, singletonOperator, value1, boundComparer, needsRuntimeCheck, context, getRetainedStaticContext())) {
-                    iter0.close();
-                    return true;
-                }
-            }
-            return false;
-        } catch (XPathException e) {
-            // re-throw the exception with location information added
-            e.maybeSetLocation(getLocation());
-            e.maybeSetContext(context);
-            throw e;
-        }
-
-    }
-
-    /**
-     * Evaluate a (zero-or-one)-to-(zero-or-one) comparison
-     *
-     * @param iter0   iterator over the first value
-     * @param iter1   iterator the second value
-     * @param context dynamic evaluation context
-     * @return the comparison result
-     * @throws XPathException if a dynamic error occurs
-     */
-
-    public boolean evaluateManyToMany(SequenceIterator iter0, SequenceIterator iter1, XPathContext context) throws XPathException {
-        try {
-            boolean exhausted0 = false;
-            boolean exhausted1 = false;
-
-            List<AtomicValue> value0 = new ArrayList<>();
-            List<AtomicValue> value1 = new ArrayList<>();
-
-            AtomicComparer boundComparer = comparer.provideContext(context);
-
-            // Read items from the two sequences alternately, in each case comparing the item to
-            // all items that have previously been read from the other sequence. In the worst case
-            // the number of comparisons is N*M, and the memory usage is (max(N,M)*2) where N and M
-            // are the number of items in the two sequences. In practice, either M or N is often 1,
-            // meaning that in this case neither list will ever hold more than one item.
-
-            while (true) {
-                if (!exhausted0) {
-                    AtomicValue item0 = (AtomicValue) iter0.next();
-                    if (item0 == null) {
-                        if (exhausted1) {
-                            return false;
-                        }
-                        exhausted0 = true;
-                    } else {
-                        for (AtomicValue item1 : value1) {
-                            if (compare(item0, singletonOperator, item1, boundComparer, needsRuntimeCheck, context, getRetainedStaticContext())) {
-                                iter0.close();
-                                iter1.close();
-                                return true;
-                            }
-                        }
-                        if (!exhausted1) {
-                            value0.add(item0);
-                        }
-                    }
-                }
-                if (!exhausted1) {
-                    AtomicValue item1 = (AtomicValue) iter1.next();
-                    if (item1 == null) {
-                        if (exhausted0) {
-                            return false;
-                        }
-                        exhausted1 = true;
-                    } else {
-                        for (AtomicValue item0 : value0) {
-                            if (compare(item0, singletonOperator, item1, boundComparer, needsRuntimeCheck, context, getRetainedStaticContext())) {
-                                iter0.close();
-                                iter1.close();
-                                return true;
-                            }
-                        }
-                        if (!exhausted0) {
-                            value1.add(item1);
-                        }
-                    }
-                }
-            }
-        } catch (XPathException e) {
-            // re-throw the exception with location information added
-            e.maybeSetLocation(getLocation());
-            e.maybeSetContext(context);
-            throw e;
-        }
-
+        return makeElaborator().elaborateForBoolean().eval(context);
     }
 
     /**
@@ -819,36 +655,38 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
                                   XPathContext context,
                                   NamespaceResolver nsResolver) throws XPathException {
 
-        boolean u0 = a0 instanceof UntypedAtomicValue;
-        boolean u1 = a1 instanceof UntypedAtomicValue;
+        boolean u0 = a0.isUntypedAtomic();
+        boolean u1 = a1.isUntypedAtomic();
         if (u0 != u1) {
             // one value untyped, the other not
             final ConversionRules rules = context.getConfiguration().getConversionRules();
             if (u0) {
                 // a0 is untyped atomic
                 if (a1 instanceof NumericValue) {
-                    return UntypedNumericComparer.quickCompare((UntypedAtomicValue) a0, (NumericValue) a1, operator, rules);
+                    return UntypedNumericComparer.quickCompare((StringValue) a0, (NumericValue) a1, operator, rules);
                 } else if (a1 instanceof StringValue) {
                     // no conversion needed
                 } else {
-                    StringConverter sc = a1.getItemType().getPrimitiveItemType().getStringConverter(rules);
+                    AtomicType prim = a1.getPrimitiveType();
+                    StringConverter sc = prim.getStringConverter(rules);
                     if (a1 instanceof QualifiedNameValue) {
                         sc = (StringConverter) sc.setNamespaceResolver(nsResolver);
                     }
-                    a0 = sc.convertString(a0.getStringValueCS()).asAtomic();
+                    a0 = sc.convertString(a0.getUnicodeStringValue()).asAtomic();
                 }
             } else {
                 // a1 is untyped atomic
                 if (a0 instanceof NumericValue) {
-                    return UntypedNumericComparer.quickCompare((UntypedAtomicValue) a1, (NumericValue) a0, Token.inverse(operator), rules);
+                    return UntypedNumericComparer.quickCompare((StringValue) a1, (NumericValue) a0, Token.inverse(operator), rules);
                 } else if (a0 instanceof StringValue) {
                     // no conversion needed
                 } else {
-                    StringConverter sc = a0.getItemType().getPrimitiveItemType().getStringConverter(rules);
+                    AtomicType prim = a0.getPrimitiveType();
+                    StringConverter sc = prim.getStringConverter(rules);
                     if (a0 instanceof QualifiedNameValue) {
                         sc = (StringConverter) sc.setNamespaceResolver(nsResolver);
                     }
-                    a1 = sc.convertString(a1.getStringValueCS()).asAtomic();
+                    a1 = sc.convertString(a1.getUnicodeStringValue()).asAtomic();
                 }
             }
             checkTypes = false; // No further checking needed if conversion succeeded
@@ -913,7 +751,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         return gc2;
     }
 
-  /**
+    /**
      * Get the (partial) name of a class that supports streaming of this kind of expression
      *
      * @return the partial name of a class that can be instantiated to provide streaming support in Saxon-EE,
@@ -925,17 +763,13 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     }
 
 
-//    protected String displayOperator() {
-//        return "many-to-many " + super.displayOperator();
-//    }
-
     /**
      * Get the element name used to identify this expression in exported expression format
      * @return the element name used to identify this expression
      */
 
     @Override
-    public String tag() {
+    protected String tag() {
         return "gc";
     }
 
@@ -957,5 +791,199 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         out.emitAttribute("comp", comparer.save());
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new GeneralComparisonElaborator();
+    }
+
+    /**
+     * Elaborator for a general comparison expression such as (A = B).
+     */
+
+    public static class GeneralComparisonElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            final GeneralComparison exp = (GeneralComparison) getExpression();
+            final ComparisonCardinality cardinality = exp.getComparisonCardinality();
+            final boolean needsRunTimeCheck = exp.needsRuntimeCheck();
+            final AtomicComparer comparer = exp.getAtomicComparer();
+            final RetainedStaticContext staticContext = exp.getRetainedStaticContext();
+            final int singletonOperator = exp.getSingletonOperator();
+
+            switch (cardinality) {
+                case ONE_TO_ONE: {
+                    final ItemEvaluator p0 = exp.getLhsExpression().makeElaborator().elaborateForItem();
+                    final ItemEvaluator p1 = exp.getRhsExpression().makeElaborator().elaborateForItem();
+                    return context -> {
+                        AtomicValue av0 = (AtomicValue) p0.eval(context);
+                        if (av0 == null) {
+                            return false;
+                        }
+                        AtomicValue av1 = (AtomicValue) p1.eval(context);
+                        if (av1 == null) {
+                            return false;
+                        }
+                        return compare(av0, singletonOperator, av1, comparer.provideContext(context),
+                                       needsRunTimeCheck, context, staticContext);
+                    };
+                }
+                case MANY_TO_ONE: {
+                    final PullEvaluator p0 = exp.getLhsExpression().makeElaborator().elaborateForPull();
+                    final ItemEvaluator p1 = exp.getRhsExpression().makeElaborator().elaborateForItem();
+                    return context -> evaluateManyToOne(p0.iterate(context),
+                                                        (AtomicValue) p1.eval(context),
+                                                        singletonOperator,
+                                                        comparer,
+                                                        needsRunTimeCheck,
+                                                        staticContext,
+                                                        exp.getLocation(),
+                                                        context);
+                }
+                case MANY_TO_MANY: {
+                    final PullEvaluator p0 = exp.getLhsExpression().makeElaborator().elaborateForPull();
+                    final PullEvaluator p1 = exp.getRhsExpression().makeElaborator().elaborateForPull();
+                    return context -> evaluateManyToMany(p0.iterate(context),
+                                                         p1.iterate(context),
+                                                         singletonOperator,
+                                                         comparer,
+                                                         needsRunTimeCheck,
+                                                         staticContext,
+                                                         exp.getLocation(),
+                                                         context);
+                }
+                default:
+                    throw new UnsupportedOperationException();
+            }
+
+        }
+
+        public boolean evaluateManyToOne(SequenceIterator iter0,
+                                         AtomicValue value1,
+                                         int singletonOperator,
+                                         AtomicComparer comparer,
+                                         boolean runTimeCheckNeeded,
+                                         RetainedStaticContext staticContext,
+                                         Location loc,
+                                         XPathContext context) throws XPathException {
+            try {
+                if (value1 == null) {
+                    return false;
+                }
+                if (iter0 instanceof RangeIterator) {
+                    if (value1.isUntypedAtomic()) {
+                        value1 = StringConverter.StringToInteger.INSTANCE.convertString(value1.getUnicodeStringValue()).asAtomic();
+                    }
+                    RangeIterator ri = (RangeIterator) iter0;
+                    switch (singletonOperator) {
+                        case Token.FEQ:
+                            return ri.containsEq((NumericValue) value1);
+                        case Token.FNE:
+                            return ri.getFirst().compareTo(ri.getLast()) != 0 || ri.getFirst().compareTo(((NumericValue) value1)) != 0;
+                        case Token.FLE:
+                            return ri.getMin().compareTo(((NumericValue) value1)) <= 0;
+                        case Token.FLT:
+                            return ri.getMin().compareTo(((NumericValue) value1)) < 0;
+                        case Token.FGE:
+                            return ri.getMax().compareTo(((NumericValue) value1)) >= 0;
+                        case Token.FGT:
+                            return ri.getMax().compareTo(((NumericValue) value1)) > 0;
+                        default:
+                            throw new AssertionError();
+                    }
+                }
+                AtomicValue item0;
+                AtomicComparer boundComparer = comparer.provideContext(context);
+                while ((item0 = (AtomicValue) iter0.next()) != null) {
+                    if (compare(item0, singletonOperator, value1, boundComparer, runTimeCheckNeeded, context, staticContext)) {
+                        iter0.close();
+                        return true;
+                    }
+                }
+                return false;
+            } catch (XPathException e) {
+                throw e.maybeWithLocation(loc).maybeWithContext(context);
+            }
+
+
+        }
+
+        public boolean evaluateManyToMany(SequenceIterator iter0,
+                                          SequenceIterator iter1,
+                                          int singletonOperator,
+                                          AtomicComparer comparer,
+                                          boolean runTimeCheckNeeded,
+                                          RetainedStaticContext staticContext,
+                                          Location loc,
+                                          XPathContext context) throws XPathException {
+            try {
+                boolean exhausted0 = false;
+                boolean exhausted1 = false;
+
+                List<AtomicValue> value0 = new ArrayList<>();
+                List<AtomicValue> value1 = new ArrayList<>();
+
+                AtomicComparer boundComparer = comparer.provideContext(context);
+
+                // Read items from the two sequences alternately, in each case comparing the item to
+                // all items that have previously been read from the other sequence. In the worst case
+                // the number of comparisons is N*M, and the memory usage is (max(N,M)*2) where N and M
+                // are the number of items in the two sequences. In practice, either M or N is often 1,
+                // meaning that in this case neither list will ever hold more than one item.
+
+                while (true) {
+                    if (!exhausted0) {
+                        AtomicValue item0 = (AtomicValue) iter0.next();
+                        if (item0 == null) {
+                            if (exhausted1) {
+                                return false;
+                            }
+                            exhausted0 = true;
+                        } else {
+                            for (AtomicValue item1 : value1) {
+                                if (compare(item0, singletonOperator, item1, boundComparer,
+                                            runTimeCheckNeeded, context, staticContext)) {
+                                    iter0.close();
+                                    iter1.close();
+                                    return true;
+                                }
+                            }
+                            if (!exhausted1) {
+                                value0.add(item0);
+                            }
+                        }
+                    }
+                    if (!exhausted1) {
+                        AtomicValue item1 = (AtomicValue) iter1.next();
+                        if (item1 == null) {
+                            if (exhausted0) {
+                                return false;
+                            }
+                            exhausted1 = true;
+                        } else {
+                            for (AtomicValue item0 : value0) {
+                                if (compare(item0, singletonOperator, item1, boundComparer,
+                                            runTimeCheckNeeded, context, staticContext)) {
+                                    iter0.close();
+                                    iter1.close();
+                                    return true;
+                                }
+                            }
+                            if (!exhausted0) {
+                                value1.add(item1);
+                            }
+                        }
+                    }
+                }
+            } catch (XPathException e) {
+                throw e.maybeWithLocation(loc).maybeWithContext(context);
+            }
+        }
+    }
 }
 

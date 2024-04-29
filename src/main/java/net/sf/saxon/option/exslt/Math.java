@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,13 +21,15 @@ import java.util.List;
 
 /**
  * This class implements extension functions in the
- * http://exslt.org/math namespace. <p>
+ * http://exslt.org/math namespace.
  */
 
 public abstract class Math {
 
     /**
      * Get the maximum numeric value of the string-value of each of a set of nodes
+     * @param context the XPath dynamic context
+     * @param nsv the values whose maximum is required
      */
 
     public static double max(XPathContext context, SequenceIterator nsv) throws XPathException {
@@ -37,7 +39,7 @@ public abstract class Math {
             while (true) {
                 Item it = nsv.next();
                 if (it == null) break;
-                double x = converter.stringToNumber(it.getStringValueCS());
+                double x = converter.stringToNumber(it.getUnicodeStringValue());
                 if (Double.isNaN(x)) return x;
                 if (x > max) max = x;
             }
@@ -50,6 +52,8 @@ public abstract class Math {
 
     /**
      * Get the minimum numeric value of the string-value of each of a set of nodes
+     * @param context the XPath dynamic context
+     * @param nsv the values whose minimum is required
      */
 
     public static double min(XPathContext context, SequenceIterator nsv) throws XPathException {
@@ -59,7 +63,7 @@ public abstract class Math {
             while (true) {
                 Item it = nsv.next();
                 if (it == null) break;
-                double x = converter.stringToNumber(it.getStringValueCS());
+                double x = converter.stringToNumber(it.getUnicodeStringValue());
                 if (Double.isNaN(x)) return x;
                 if (x < min) min = x;
             }
@@ -73,6 +77,8 @@ public abstract class Math {
     /**
      * Get the items with maximum numeric value of the string-value of each of a sequence of items.
      * The items are returned in the order of the original sequence.
+     * @param context the XPath dynamic context
+     * @param nsv the input sequence
      */
 
     public static Sequence highest(XPathContext context, SequenceIterator nsv) throws XPathException {
@@ -85,7 +91,7 @@ public abstract class Math {
                 if (it == null) {
                     break;
                 }
-                double x = converter.stringToNumber(it.getStringValueCS());
+                double x = converter.stringToNumber(it.getUnicodeStringValue());
                 if (Double.isNaN(x)) {
                     return EmptySequence.getInstance();
                 }
@@ -97,7 +103,7 @@ public abstract class Math {
                     highest.add(it);
                 }
             }
-            return new SequenceExtent(highest);
+            return new SequenceExtent.Of<>(highest);
         } catch (NumberFormatException e) {
             return EmptySequence.getInstance();
         }
@@ -107,6 +113,8 @@ public abstract class Math {
     /**
      * Get the items with minimum numeric value of the string-value of each of a sequence of items
      * The items are returned in the order of the original sequence.
+     * @param context the XPath dynamic context
+     * @param nsv the input sequence
      */
 
     public static Sequence lowest(XPathContext context, SequenceIterator nsv) throws XPathException {
@@ -119,7 +127,7 @@ public abstract class Math {
                 if (it == null) {
                     break;
                 }
-                double x = converter.stringToNumber(it.getStringValueCS());
+                double x = converter.stringToNumber(it.getUnicodeStringValue());
                 if (Double.isNaN(x)) {
                     return EmptySequence.getInstance();
                 }
@@ -131,7 +139,7 @@ public abstract class Math {
                     lowest.add(it);
                 }
             }
-            return new SequenceExtent(lowest);
+            return new SequenceExtent.Of<>(lowest);
         } catch (NumberFormatException e) {
             return EmptySequence.getInstance();
         }
@@ -139,6 +147,8 @@ public abstract class Math {
 
     /**
      * Get the absolute value of a numeric value (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double abs(double x) {
@@ -147,6 +157,8 @@ public abstract class Math {
 
     /**
      * Get the square root of a numeric value (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double sqrt(double x) {
@@ -201,6 +213,9 @@ public abstract class Math {
 
     /**
      * Get a named constant to a given precision  (SStL)
+     * @param context the XPath dynamic context
+     * @param name the name of the constant
+     * @param precision the required precision
      */
 
     public static double constant(XPathContext context, /*@NotNull*/ String name, double precision) throws XPathException {
@@ -223,9 +238,7 @@ public abstract class Math {
         } else if (name.equals("SQRT1_2")) {
             con = "0.7071067811865476";
         } else {
-            XPathException e = new XPathException("Unknown math constant " + name);
-            e.setXPathContext(context);
-            throw e;
+            throw new XPathException("Unknown math constant " + name).withXPathContext(context);
         }
 
         return Double.parseDouble(con.substring(0, ((int) precision) + 2));
@@ -233,6 +246,8 @@ public abstract class Math {
 
     /**
      * Get the logarithm of a numeric value (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double log(double x) {
@@ -241,6 +256,7 @@ public abstract class Math {
 
     /**
      * Get a random numeric value (SStL)
+     * @return the result
      */
 
     public static double random() {
@@ -249,6 +265,8 @@ public abstract class Math {
 
     /**
      * Get the sine of a numeric value (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double sin(double x) {
@@ -257,6 +275,8 @@ public abstract class Math {
 
     /**
      * Get the cosine of a numeric value (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double cos(double x) {
@@ -265,6 +285,8 @@ public abstract class Math {
 
     /**
      * Get the tangent of a numeric value  (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double tan(double x) {
@@ -273,6 +295,8 @@ public abstract class Math {
 
     /**
      * Get the arcsine of a numeric value  (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double asin(double x) {
@@ -281,6 +305,8 @@ public abstract class Math {
 
     /**
      * Get the arccosine of a numeric value  (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double acos(double x) {
@@ -289,6 +315,8 @@ public abstract class Math {
 
     /**
      * Get the arctangent of a numeric value  (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double atan(double x) {
@@ -297,6 +325,9 @@ public abstract class Math {
 
     /**
      * Converts rectangular coordinates to polar  (SStL)
+     * @param x the first input value
+     * @param y the second input value
+     * @return the result
      */
 
     public static double atan2(double x, double y) {
@@ -305,6 +336,8 @@ public abstract class Math {
 
     /**
      * Get the exponential of a numeric value  (SStL)
+     * @param x the input value
+     * @return the result
      */
 
     public static double exp(double x) {

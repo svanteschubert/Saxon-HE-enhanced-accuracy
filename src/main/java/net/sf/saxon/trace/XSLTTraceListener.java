@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,6 @@ package net.sf.saxon.trace;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.LetExpression;
 import net.sf.saxon.expr.instruct.*;
-import net.sf.saxon.expr.parser.CodeInjector;
 import net.sf.saxon.functions.Trace;
 import net.sf.saxon.lib.NamespaceConstant;
 
@@ -19,11 +18,6 @@ import net.sf.saxon.lib.NamespaceConstant;
  */
 
 public class XSLTTraceListener extends AbstractTraceListener {
-
-    @Override
-    public CodeInjector getCodeInjector() {
-        return new XSLTTraceCodeInjector();
-    }
 
     /**
      * Generate attributes to be included in the opening trace element
@@ -37,7 +31,7 @@ public class XSLTTraceListener extends AbstractTraceListener {
     /**
      * Get the trace element tagname to be used for a particular construct. Return null for
      * trace events that are ignored by this trace listener.
-     * @param info
+     * @param info trace information
      */
 
     /*@Nullable*/

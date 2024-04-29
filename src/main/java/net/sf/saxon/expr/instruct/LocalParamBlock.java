@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,8 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
@@ -54,7 +54,7 @@ public class LocalParamBlock extends Instruction {
     }
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return 0;
     }
 
@@ -63,7 +63,7 @@ public class LocalParamBlock extends Instruction {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     /*@NotNull*/
@@ -116,22 +116,6 @@ public class LocalParamBlock extends Instruction {
     }
 
 
-    /*@Nullable*/
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        for (Operand o : operands()) {
-            LocalParam param = (LocalParam)o.getChildExpression();
-            try {
-                context.setLocalVariable(param.getSlotNumber(), param.getSelectValue(context));
-            } catch (XPathException e) {
-                e.maybeSetLocation(param.getLocation());
-                e.maybeSetContext(context);
-                throw e;
-            }
-        }
-        return null;
-    }
-
     /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
      * This method indicates which of these methods is provided. This implementation provides both iterate() and
@@ -141,6 +125,28 @@ public class LocalParamBlock extends Instruction {
     @Override
     public int getImplementationMethod() {
         return PROCESS_METHOD;
+    }
+
+    public Elaborator getElaborator() {
+        return new LocalParamBlockElaborator();
+    }
+
+    public static class LocalParamBlockElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            LocalParamBlock expr = (LocalParamBlock) getExpression();
+            SequenceEvaluator[] paramEval = new SequenceEvaluator[expr.operanda.length];
+            for (int i=0; i<expr.operanda.length; i++) {
+                paramEval[i] = expr.operanda[i].getChildExpression().makeElaborator().eagerly();
+            }
+            return (out, context) -> {
+                for (SequenceEvaluator eagerEvaluator : paramEval) {
+                    eagerEvaluator.evaluate(context);
+                }
+                return null;
+            };
+        }
     }
 
 

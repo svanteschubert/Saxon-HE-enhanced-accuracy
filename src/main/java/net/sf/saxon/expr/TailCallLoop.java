@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,14 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.expr.elab.*;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 
@@ -98,21 +101,7 @@ public final class TailCallLoop extends UnaryExpression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        final XPathContextMajor cm = (XPathContextMajor) context;
-        while (true) {
-            SequenceIterator iter = getBaseExpression().iterate(cm);
-            GroundedValue extent = iter.materialize();
-            TailCallInfo tail = cm.getTailCallInfo();
-            if (tail == null) {
-                return extent.iterate();
-            } else {
-                UserFunction target = establishTargetFunction(tail, cm);
-                if (target != containingFunction) {
-                    return tailCallDifferentFunction(target, cm).iterate();
-                }
-                // otherwise, loop round to execute the tail call
-            }
-        }
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
@@ -121,21 +110,7 @@ public final class TailCallLoop extends UnaryExpression {
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        final XPathContextMajor cm = (XPathContextMajor) context;
-        while (true) {
-            Item item = getBaseExpression().evaluateItem(context);
-
-            TailCallInfo tail = cm.getTailCallInfo();
-            if (tail == null) {
-                return item;
-            } else {
-                UserFunction target = establishTargetFunction(tail, cm);
-                if (target != containingFunction) {
-                    return tailCallDifferentFunction(target, cm).head();
-                }
-                // otherwise, loop round to execute the tail call
-            }
-        }
+        return makeElaborator().elaborateForItem().eval(context);
     }
 
     private UserFunction establishTargetFunction(TailCallInfo tail, XPathContextMajor cm) {
@@ -159,22 +134,8 @@ public final class TailCallLoop extends UnaryExpression {
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        final XPathContextMajor cm = (XPathContextMajor) context;
-        Expression operand = getBaseExpression();
-        while (true) {
-            operand.process(output, context);
-            TailCallInfo tail = cm.getTailCallInfo();
-            if (tail == null) {
-                return;
-            } else {
-                UserFunction target = establishTargetFunction(tail, cm);
-                if (target != containingFunction) {
-                    SequenceTool.process(tailCallDifferentFunction(target, cm), output, operand.getLocation());
-                    return;
-                }
-                // otherwise, loop round to execute the tail call
-            }
-        }
+        TailCall tc =  makeElaborator().elaborateForPush().processLeavingTail(output, context);
+        assert tc == null;
     }
 
     /**
@@ -192,11 +153,9 @@ public final class TailCallLoop extends UnaryExpression {
     private Sequence tailCallDifferentFunction(UserFunction userFunction, XPathContextMajor cm) throws XPathException {
         cm.resetStackFrameMap(userFunction.getStackFrameMap(), userFunction.getArity());
         try {
-            return userFunction.getEvaluator().evaluate(userFunction.getBody(), cm);
+            return userFunction.getBodyEvaluator().evaluate(cm);
         } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            err.maybeSetContext(cm);
-            throw err;
+            throw err.maybeWithLocation(getLocation()).maybeWithContext(cm);
         }
     }
 
@@ -224,16 +183,101 @@ public final class TailCallLoop extends UnaryExpression {
 
     public interface TailCallInfo {}
 
-    protected static class TailCallComponent implements TailCallInfo {
+    public static class TailCallComponent implements TailCallInfo {
         public Component component;
         public UserFunction function;
     }
 
-    protected static class TailCallFunction implements TailCallInfo {
+    public static class TailCallFunction implements TailCallInfo {
         public UserFunction function;
     }
 
+    @Override
+    public Elaborator getElaborator() {
+        return new TailCallLoopElaborator();
+    }
 
+    private static class TailCallLoopElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            TailCallLoop expr = (TailCallLoop)getExpression();
+            PullEvaluator contentEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                try {
+                    final XPathContextMajor cm = (XPathContextMajor) context;
+                    while (true) {
+                        SequenceIterator iter = contentEval.iterate(context);
+                        GroundedValue extent = SequenceTool.toGroundedValue(iter);
+                        TailCallInfo tail = cm.getTailCallInfo();
+                        if (tail == null) {
+                            return extent.iterate();
+                        } else {
+                            UserFunction target = expr.establishTargetFunction(tail, cm);
+                            if (target != expr.containingFunction) {
+                                return expr.tailCallDifferentFunction(target, cm).iterate();
+                            }
+                            // otherwise, loop round to execute the tail call
+                        }
+                    }
+                } catch (UncheckedXPathException e) {
+                    throw e.getXPathException()
+                            .maybeWithContext(context)
+                            .maybeWithLocation(expr.getLocation());
+                }
+            };
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            TailCallLoop expr = (TailCallLoop) getExpression();
+            PushEvaluator contentPush = expr.getBaseExpression().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+
+                final XPathContextMajor cm = (XPathContextMajor) context;
+                while (true) {
+                    TailCall tc = contentPush.processLeavingTail(output, context);
+                    assert tc == null;
+                    TailCallInfo tail = cm.getTailCallInfo();
+                    if (tail == null) {
+                        return null;
+                    } else {
+                        UserFunction target = expr.establishTargetFunction(tail, cm);
+                        if (target != expr.containingFunction) {
+                            SequenceTool.process(expr.tailCallDifferentFunction(target, cm), output, expr.getLocation());
+                            return null;
+                        }
+                        // otherwise, loop round to execute the tail call
+                    }
+                }
+
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            TailCallLoop expr = (TailCallLoop) getExpression();
+            ItemEvaluator contentEval = expr.getBaseExpression().makeElaborator().elaborateForItem();
+
+            return context -> {
+                final XPathContextMajor cm = (XPathContextMajor) context;
+                while (true) {
+                    Item item = contentEval.eval(context);
+
+                    TailCallInfo tail = cm.getTailCallInfo();
+                    if (tail == null) {
+                        return item;
+                    } else {
+                        UserFunction target = expr.establishTargetFunction(tail, cm);
+                        if (target != expr.containingFunction) {
+                            return expr.tailCallDifferentFunction(target, cm).head();
+                        }
+                        // otherwise, loop round to execute the tail call
+                    }
+                }
+            };
+        }
+    }
 
 
 }

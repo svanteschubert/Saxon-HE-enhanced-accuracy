@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,65 +8,34 @@
 package net.sf.saxon.tree.iter;
 
 import net.sf.saxon.expr.LastPositionFinder;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.functions.Reverse;
+import net.sf.saxon.om.*;
 import net.sf.saxon.value.SequenceExtent;
 
 import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.List;
 
 /**
- * ArrayIterator is used to enumerate items held in an array.
+ * ArrayIterator is used to enumerate items held in a Java array.
  * The items are always held in the correct sorted order for the sequence.
  *
- * @author Michael H. Kay
+ * The challenge here is getting the generics right, especially in a way
+ * that works for C#, which is less tolerant of generic abuse. The solution
+ * is to have a non-generic {@code ArrayIterator} class, with
+ * {@code ArrayIterator.Of<T extends Item>} as a subclass. A further subtlety
+ * is that we need an ArrayIterator of nodes to implement {@code AxisIterator},
+ * so we have another subclass {@code ArrayIterator.OfNodes<N extends NodeInfo>}
+ * for that purpose.
  */
 
 
-public class ArrayIterator<T extends Item> implements UnfailingIterator,
-        LastPositionFinder, LookaheadIterator, GroundedIterator {
+public abstract class ArrayIterator implements SequenceIterator, FocusIterator,
+        LastPositionFinder, LookaheadIterator, GroundedIterator, ReversibleIterator {
 
-    protected T[] items;
-    private int index;          // position in array of current item, zero-based
+    protected int index;          // position in array of current item, zero-based
     // set equal to end+1 when all the items required have been read.
     protected int start;          // position of first item to be returned, zero-based
     protected int end;            // position of first item that is NOT returned, zero-based
-
-    /**
-     * Create an iterator over all the items in an array
-     *
-     * @param nodes the array (of any items, not necessarily nodes) to be
-     *              processed by the iterator
-     */
-
-    public ArrayIterator(/*@NotNull*/ T[] nodes) {
-        items = nodes;
-        start = 0;
-        end = nodes.length;
-        index = 0;
-    }
-
-    /**
-     * Create an iterator over a range of an array. Note that the start position is zero-based
-     *
-     * @param items the array (of nodes or simple values) to be processed by
-     *              the iterator
-     * @param start the position of the first item to be processed
-     *              (numbering from zero). Must be between zero and nodes.length-1; if not,
-     *              undefined exceptions are likely to occur.
-     * @param end   position of first item that is NOT returned, zero-based. Must be
-     *              beween 1 and nodes.length; if not, undefined exceptions are likely to occur.
-     */
-
-    public ArrayIterator(T[] items, int start, int end) {
-        this.items = items;
-        this.end = end;
-        this.start = start;
-        index = start;
-    }
 
     /**
      * Create a new ArrayIterator over the same items,
@@ -81,141 +50,217 @@ public class ArrayIterator<T extends Item> implements UnfailingIterator,
      * @return an iterator over the items between the min and max positions
      */
 
-    public SequenceIterator makeSliceIterator(int min, int max) {
-        T[] items = getArray();
-        int currentStart = getStartPosition();
-        int currentEnd = getEndPosition();
-        if (min < 1) {
-            min = 1;
-        }
-        int newStart = currentStart + (min - 1);
-        if (newStart < currentStart) {
-            newStart = currentStart;
-        }
-        int newEnd = max == Integer.MAX_VALUE ? currentEnd : newStart + max - min + 1;
-        if (newEnd > currentEnd) {
-            newEnd = currentEnd;
-        }
-        if (newEnd <= newStart) {
-            return EmptyIterator.emptyIterator();
-        }
-        return new ArrayIterator<>(items, newStart, newEnd);
-    }
+    public abstract SequenceIterator makeSliceIterator(int min, int max);
 
-    /**
-     * Test whether there are any more items
-     *
-     * @return true if there are more items
-     */
+    public boolean isActuallyGrounded() {
+        return true;
+    }
 
     @Override
-    public boolean hasNext() {
-        return index < end;
+    public boolean supportsHasNext() {
+        return true;
     }
 
-    /**
-     * Get the next item in the array
-     *
-     * @return the next item in the array
-     */
-
-    /*@Nullable*/
     @Override
-    public T next() {
-        if (index >= end) {
-            index = end + 1;
-            return null;
-        }
-        return items[index++];
+    public int position() {
+        return index - start;
     }
 
-    /**
-     * Get the number of items in the part of the array being processed
-     *
-     * @return the number of items; equivalently, the position of the last
-     *         item
-     */
     @Override
     public int getLength() {
         return end - start;
     }
 
     /**
-     * Get the underlying array
-     *
-     * @return the underlying array being processed by the iterator
+     * Parameterised subclass to accept items of a particular item type
+     * @param <T> the item type of the items returned by the ArrayIterator
      */
 
-    public T[] getArray() {
-        return items;
-    }
+    public static class Of <T extends Item> extends ArrayIterator {
 
-    /**
-     * Get the initial start position
-     *
-     * @return the start position of the iterator in the array (zero-based)
-     */
+        protected T[] items;
 
-    public int getStartPosition() {
-        return start;
-    }
-
-    /**
-     * Get the end position in the array
-     *
-     * @return the position in the array (zero-based) of the first item not included
-     *         in the iteration
-     */
-
-    public int getEndPosition() {
-        return end;
-    }
-
-    /**
-     * Return a SequenceValue containing all the items in the sequence returned by this
-     * SequenceIterator
-     *
-     * @return the corresponding SequenceValue
-     */
-
-    /*@NotNull*/
-    @Override
-    public GroundedValue materialize() {
-        SequenceExtent seq;
-        if (start == 0 && end == items.length) {
-            seq =  new SequenceExtent(items);
-        } else {
-            List<T> sublist = Arrays.asList(items).subList(start, end);
-            seq = new SequenceExtent(sublist);
+        public Of(T[] items) {
+            this.items = items;
+            start = 0;
+            end = items.length;
+            index = 0;
         }
-        return seq.reduce();
-    }
 
-    @Override
-    public GroundedValue getResidue() {
-        SequenceExtent seq;
-        if (start == 0 && index ==0 && end == items.length) {
-            seq = new SequenceExtent(items);
-        } else {
-            List<T> sublist = Arrays.asList(items).subList(start + index, end);
-            seq = new SequenceExtent(sublist);
+        /**
+         * Create an iterator over a range of an array. Note that the start position is zero-based
+         *
+         * @param items the array (of nodes or simple values) to be processed by
+         *              the iterator
+         * @param start the position of the first item to be processed
+         *              (numbering from zero). Must be between zero and nodes.length-1; if not,
+         *              undefined exceptions are likely to occur.
+         * @param end   position of first item that is NOT returned, zero-based. Must be
+         *              between 1 and nodes.length; if not, undefined exceptions are likely to occur.
+         */
+
+        public Of(T[] items, int start, int end) {
+            this.items = items;
+            this.end = end;
+            this.start = start;
+            index = start;
         }
-        return seq.reduce();
-    }
 
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
+        /**
+         * Create a new ArrayIterator over the same items,
+         * with a different start point and end point
+         *
+         * @param min the start position (1-based) of the new ArrayIterator
+         *            relative to the original
+         * @param max the end position (1-based) of the last item to be delivered
+         *            by the new ArrayIterator, relative to the original. For example, min=2, max=3
+         *            delivers the two items ($base[2], $base[3]). Set this to Integer.MAX_VALUE if
+         *            there is no end limit.
+         * @return an iterator over the items between the min and max positions
+         */
 
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.GROUNDED, Property.LAST_POSITION_FINDER, Property.LOOKAHEAD);
+        public SequenceIterator makeSliceIterator(int min, int max) {
+            T[] items = getArray();
+            int currentStart = getStartPosition();
+            int currentEnd = getEndPosition();
+            if (min < 1) {
+                min = 1;
+            }
+            int newStart = currentStart + (min - 1);
+            if (newStart < currentStart) {
+                newStart = currentStart;
+            }
+            int newEnd = max == Integer.MAX_VALUE ? currentEnd : newStart + max - min + 1;
+            if (newEnd > currentEnd) {
+                newEnd = currentEnd;
+            }
+            if (newEnd <= newStart) {
+                return EmptyIterator.getInstance();
+            }
+            return new Of<T>(items, newStart, newEnd);
+        }
+
+        /**
+         * Test whether there are any more items
+         *
+         * @return true if there are more items
+         */
+
+        @Override
+        public boolean hasNext() {
+            return index < end;
+        }
+
+        /**
+         * Get the next item in the array
+         *
+         * @return the next item in the array
+         */
+
+        /*@Nullable*/
+        @Override
+        public Item next() {
+            if (index >= end) {
+                index = end + 1;
+                return null;
+            }
+            return items[index++];
+        }
+
+        @Override
+        public Item current() {
+            return index > start && index <= end ? items[index - 1] : null;
+        }
+
+        @Override
+        public boolean supportsGetLength() {
+            return true;
+        }
+
+        /**
+         * Get the number of items in the part of the array being processed
+         *
+         * @return the number of items; equivalently, the position of the last
+         * item
+         */
+        @Override
+        public int getLength() {
+            return end - start;
+        }
+
+        /**
+         * Get the underlying array
+         *
+         * @return the underlying array being processed by the iterator
+         */
+
+        public T[] getArray() {
+            return items;
+        }
+
+        /**
+         * Get the initial start position
+         *
+         * @return the start position of the iterator in the array (zero-based)
+         */
+
+        public int getStartPosition() {
+            return start;
+        }
+
+        /**
+         * Get the end position in the array
+         *
+         * @return the position in the array (zero-based) of the first item not included
+         * in the iteration
+         */
+
+        public int getEndPosition() {
+            return end;
+        }
+
+        /**
+         * Return a SequenceValue containing all the items in the sequence returned by this
+         * SequenceIterator
+         *
+         * @return the corresponding SequenceValue
+         */
+
+        /*@NotNull*/
+        @Override
+        public GroundedValue materialize() {
+            SequenceExtent.Of<T> seq;
+            if (start == 0 && end == items.length) {
+                seq = new SequenceExtent.Of<>(items);
+            } else {
+                List<T> sublist = Arrays.asList(items).subList(start, end);
+                seq = new SequenceExtent.Of<>(sublist);
+            }
+            return seq.reduce();
+        }
+
+        @Override
+        public GroundedValue getResidue() {
+            SequenceExtent seq;
+            if (start == 0 && index == 0 && end == items.length) {
+                seq = new SequenceExtent.Of<>(items);
+            } else {
+                List<T> sublist = Arrays.asList(items).subList(start + index, end);
+                seq = new SequenceExtent.Of<>(sublist);
+            }
+            return seq.reduce();
+        }
+
+        @Override
+        public SequenceIterator getReverseIterator() {
+            if (start == 0 && end == items.length) {
+                return Reverse.reverseIterator(Arrays.asList(items));
+            } else {
+                List<T> sublist = Arrays.asList(items).subList(start, end);
+                return Reverse.reverseIterator(sublist);
+            }
+        }
+
     }
 
     /**
@@ -223,9 +268,12 @@ public class ArrayIterator<T extends Item> implements UnfailingIterator,
      * contains Nodes; it therefore implements the AxisIterator interface.
      */
 
-    public static class OfNodes extends ArrayIterator<NodeInfo> implements AxisIterator {
-        public OfNodes(NodeInfo[] list) {
-            super(list);
+    public static class OfNodes <N extends NodeInfo> extends ArrayIterator.Of<N> implements AxisIterator {
+        public OfNodes(N[] nodes) {
+            super(nodes);
+        }
+        public NodeInfo next() {
+            return (NodeInfo)super.next();
         }
     }
 

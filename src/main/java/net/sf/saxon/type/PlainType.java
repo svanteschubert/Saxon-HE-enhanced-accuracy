@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,14 @@ package net.sf.saxon.type;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.StructuredQName;
 
+import java.util.List;
+
 /**
  * A "plain type" is either an atomic type, or a union type that (a) imposes no restrictions other
  * than those imposed by its member types, and (b) has exclusively plain types as its member types
  */
 
-public interface PlainType extends ItemType {
+public interface PlainType extends ItemType, HyperType {
 
     /**
      * Get the name of this type as a structured QName
@@ -25,24 +27,13 @@ public interface PlainType extends ItemType {
     StructuredQName getTypeName();
 
     /**
-     * Test whether this type is namespace sensitive, that is, if a namespace context is needed
-     * to translate between the lexical space and the value space. This is true for types derived
-     * from, or containing, QNames and NOTATIONs
-     *
-     * @return true if any of the member types is namespace-sensitive, or if namespace sensitivity
-     * cannot be determined because there are components missing from the schema.
-     */
-
-    boolean isNamespaceSensitive();
-
-    /**
      * Get the list of plain types that are subsumed by this type
      *
      * @return for an atomic type, the type itself; for a plain union type, the list of plain types
      *         in its transitive membership
      */
 
-    Iterable<? extends PlainType> getPlainMemberTypes() throws MissingComponentException;
+    List<? extends PlainType> getPlainMemberTypes() throws MissingComponentException;
 
     /**
      * Test whether a given item conforms to this type
@@ -69,5 +60,6 @@ public interface PlainType extends ItemType {
      */
     @Override
     AtomicType getPrimitiveItemType();
+
 }
 

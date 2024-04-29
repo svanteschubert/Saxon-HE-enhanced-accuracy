@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr.sort;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
@@ -24,8 +28,8 @@ import net.sf.saxon.value.SequenceType;
  */
 public class ConditionalSorter extends Expression {
 
-    private Operand conditionOp;
-    private Operand sorterOp;
+    private final Operand conditionOp;
+    private final Operand sorterOp;
 
     /**
      * Generalized abstraction of the simplify(), typeCheck(), and optimize() methods, which
@@ -173,7 +177,7 @@ public class ConditionalSorter extends Expression {
         }
         Expression cond = rewriter.rewrite(getCondition());
         if (cond instanceof Literal) {
-            boolean b = ((Literal) cond).getValue().effectiveBooleanValue();
+            boolean b = ((Literal) cond).getGroundedValue().effectiveBooleanValue();
             if (b) {
                 return base;
             } else {
@@ -211,7 +215,7 @@ public class ConditionalSorter extends Expression {
     /**
      * Copy an expression. This makes a deep copy.
      *
-     * @param rebindings
+     * @param rebindings the rebinding map
      * @return the copy of the original expression
      */
 
@@ -274,12 +278,7 @@ public class ConditionalSorter extends Expression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        boolean b = getCondition().effectiveBooleanValue(context);
-        if (b) {
-            return getDocumentSorter().iterate(context);
-        } else {
-            return getDocumentSorter().getBaseExpression().iterate(context);
-        }
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
@@ -294,6 +293,39 @@ public class ConditionalSorter extends Expression {
         return "conditionalSort";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new ConditionalSorterElaborator();
+    }
+
+    /**
+     * Elaborator for a conditional sorter, which sorts the results of a subexpression into document
+     * order only if a supplied condition is true
+     */
+
+    public static class ConditionalSorterElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final ConditionalSorter expr = (ConditionalSorter) getExpression();
+            final BooleanEvaluator condition = expr.getCondition().makeElaborator().elaborateForBoolean();
+            final PullEvaluator sorter = expr.getDocumentSorter().makeElaborator().elaborateForPull();
+            final PullEvaluator nonSorter = expr.getDocumentSorter().getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                boolean b = condition.eval(context);
+                if (b) {
+                    return sorter.iterate(context);
+                } else {
+                    return nonSorter.iterate(context);
+                }
+            };
+        }
+
+    }
 }
 

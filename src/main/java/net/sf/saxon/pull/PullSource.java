@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,12 @@
 
 package net.sf.saxon.pull;
 
-import javax.xml.transform.Source;
+import net.sf.saxon.event.PipelineConfiguration;
+import net.sf.saxon.event.Receiver;
+import net.sf.saxon.event.Sender;
+import net.sf.saxon.lib.ParseOptions;
+import net.sf.saxon.lib.ActiveSource;
+import net.sf.saxon.trans.XPathException;
 
 /**
  * A PullSource is a JAXP Source that encapsulates a PullProvider - that is, an object
@@ -18,10 +23,10 @@ import javax.xml.transform.Source;
  * to understand the individual implementation.
  */
 
-public class PullSource implements Source {
+public class PullSource implements ActiveSource {
 
     private String systemId;
-    private PullProvider provider;
+    private final PullProvider provider;
 
     /**
      * Create a PullSource based on a supplied PullProvider
@@ -69,6 +74,30 @@ public class PullSource implements Source {
     @Override
     public String getSystemId() {
         return systemId;
+    }
+
+    @Override
+    public void deliver(Receiver receiver, ParseOptions options) throws XPathException {
+        PipelineConfiguration pipe = receiver.getPipelineConfiguration();
+        boolean xInclude = options.isXIncludeAware();
+        if (xInclude) {
+            throw new XPathException("XInclude processing is not supported with a pull parser");
+        }
+        // TODO: Sender has already put a validator on the pipeline...?
+        receiver = Sender.makeValidator(receiver, getSystemId(), options);
+
+        PullProvider provider = getPullProvider();
+
+        provider.setPipelineConfiguration(pipe);
+        receiver.setPipelineConfiguration(pipe);
+        PullPushCopier copier = new PullPushCopier(provider, receiver);
+        try {
+            copier.copy();
+        } finally {
+            if (options.isPleaseCloseAfterUse()) {
+                provider.close();
+            }
+        }
     }
 }
 

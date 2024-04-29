@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,14 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.om.EnumSetTool;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.iter.LookaheadIterator;
-
-import java.util.EnumSet;
 
 /**
  * ItemMappingIterator applies a mapping function to each item in a sequence.
@@ -22,17 +23,27 @@ import java.util.EnumSet;
  * <p>This is a specialization of the more general MappingIterator class, for use
  * in cases where a single input item never maps to a sequence of more than one
  * output item.</p>
+ * <p>The Java implementation accepts a lambda expression as the mapping function
+ * (because it is a functional interface, even though not declared as such). To achieve
+ * the same effect on C# we add extra constructors that explicitly accept a lambda
+ * expression, by virtue of the fact that the expected type is a functional interface
+ * (which translates to a C# delegate)</p>
  */
+
+@CSharpInjectMembers(code={
+        "public ItemMappingIterator(Saxon.Hej.om.SequenceIterator first, Saxon.Hej.expr.ItemMapper.Lambda action) : this(first, Saxon.Hej.expr.ItemMapper.of(action)) {}",
+        "public ItemMappingIterator(Saxon.Hej.om.SequenceIterator first, Saxon.Hej.expr.ItemMapper.Lambda action, bool oneToOne) : this(first, Saxon.Hej.expr.ItemMapper.of(action), oneToOne) {}"
+})
 
 public class ItemMappingIterator
         implements SequenceIterator, LookaheadIterator, LastPositionFinder {
 
-    private SequenceIterator base;
-    private ItemMappingFunction action;
+    private final SequenceIterator base;
+    private final ItemMappingFunction action;
     private boolean oneToOne = false;
 
     /**
-     * Construct an ItemMappingIterator that will apply a specified DummyItemMappingFunction to
+     * Construct an ItemMappingIterator that will apply a specified ItemMappingFunction to
      * each Item returned by the base iterator.
      *
      * @param base   the base iterator
@@ -42,6 +53,31 @@ public class ItemMappingIterator
     public ItemMappingIterator(SequenceIterator base, ItemMappingFunction action) {
         this.base = base;
         this.action = action;
+    }
+
+    /**
+     * Factory method designed for use when the mapping function is a lambda expression
+     * Example of usage: {@code ItemMappingIterator.map(base, item -> item.getParentNode())}
+     * @param base iterator over the base sequence
+     * @param mappingExpression function to be applied to items in the base sequence
+     * @return an iterator over the items determined by applying the mapping expression
+     * to every item in the base sequence (a flatMap operation).
+     */
+
+    public static ItemMappingIterator map(SequenceIterator base, ItemMapper.Lambda mappingExpression) {
+        return new ItemMappingIterator(base, ItemMapper.of(mappingExpression));
+    }
+
+    /**
+     * Factory method designed for use when the mapping function is designed to filter the input nodes
+     * Example of usage: {@code ItemMappingIterator.filter(base, item -> item.hasChildNodes())}
+     * @param base iterator over the base sequence
+     * @param filterExpression predicate to be applied to items in the base sequence
+     * @return an iterator over the items in the base sequence that satisfy the predicate
+     */
+
+    public static ItemMappingIterator filter(SequenceIterator base, ItemFilter.Lambda filterExpression) {
+        return new ItemMappingIterator(base, ItemFilter.of(filterExpression));
     }
 
     /**
@@ -100,6 +136,12 @@ public class ItemMappingIterator
     }
 
     @Override
+    public boolean supportsHasNext() {
+        return oneToOne && base instanceof LookaheadIterator && ((LookaheadIterator)base).supportsHasNext();
+    }
+
+
+    @Override
     public boolean hasNext() {
         // Must only be called if this is a lookahead iterator, which will only be true if the base iterator
         // is a lookahead iterator and one-to-one is true
@@ -107,53 +149,41 @@ public class ItemMappingIterator
     }
 
     @Override
-    public Item next() throws XPathException {
-        while (true) {
-            Item nextSource = base.next();
-            if (nextSource == null) {
-                return null;
+    @CSharpModifiers(code={"public", "virtual"})
+    public Item next() {
+        try {
+            while (true) {
+                Item nextSource = base.next();
+                if (nextSource == null) {
+                    return null;
+                }
+                // Call the supplied mapping function
+                Item current = action.mapItem(nextSource);
+                if (current != null) {
+                    return current;
+                }
+                // otherwise go round the loop to get the next item from the base sequence
             }
-            // Call the supplied mapping function
-            Item current = action.mapItem(nextSource);
-            if (current != null) {
-                return current;
-            }
-            // otherwise go round the loop to get the next item from the base sequence
+        } catch (XPathException e) {
+            throw new UncheckedXPathException(e);
         }
     }
 
     @Override
+    @CSharpModifiers(code = {"public", "virtual"})
     public void close() {
         base.close();
     }
 
     @Override
-    public int getLength() throws XPathException {
-        // Must only be called if this is a last-position-finder iterator, which will only be true if the base iterator
-        // is a last-position-finder iterator and one-to-one is true
-        return ((LastPositionFinder) base).getLength();
+    public boolean supportsGetLength() {
+        return oneToOne && SequenceTool.supportsGetLength(base);
     }
-
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED},
-     *         {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
 
     @Override
-    public EnumSet<Property> getProperties() {
-        if (oneToOne) {
-            return EnumSetTool.intersect(
-                    base.getProperties(),
-                    EnumSet.of(Property.LAST_POSITION_FINDER, Property.LOOKAHEAD));
-        } else {
-            return EnumSet.noneOf(Property.class);
-        }
+    public int getLength() {
+        return SequenceTool.getLength(base);
     }
+
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,17 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.FunctionCall;
+import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.One;
-import net.sf.saxon.om.ZeroOrOne;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.type.Converter;
@@ -35,8 +37,8 @@ public class Number_1 extends ScalarSystemFunction {
     }
 
     @Override
-    public ZeroOrOne resultWhenEmpty() {
-        return new One(DoubleValue.NaN);
+    public DoubleValue resultWhenEmpty() {
+        return DoubleValue.NaN;
     }
 
     /**
@@ -61,12 +63,12 @@ public class Number_1 extends ScalarSystemFunction {
 
     public static DoubleValue toNumber(AtomicValue arg0) {
         if (arg0 instanceof BooleanValue) {
-            return Converter.BooleanToDouble.INSTANCE.convert((BooleanValue)arg0);
+            return Converter.BooleanToDouble.INSTANCE.convert(arg0);
         } else if (arg0 instanceof NumericValue) {
-            return (DoubleValue) Converter.NumericToDouble.INSTANCE.convert((NumericValue)arg0).asAtomic();
+            return (DoubleValue) Converter.NumericToDouble.INSTANCE.convert(arg0).asAtomic();
         } else if (arg0 instanceof StringValue && !(arg0 instanceof AnyURIValue)) {
             // Always use the XSD 1.1 rules, which permit "+INF"
-            ConversionResult cr = StringToDouble11.getInstance().convert((StringValue)arg0);
+            ConversionResult cr = StringToDouble11.getInstance().convert(arg0);
             if (cr instanceof ValidationFailure) {
                 return DoubleValue.NaN;
             } else {
@@ -101,7 +103,7 @@ public class Number_1 extends ScalarSystemFunction {
                 return new DoubleValue(((NumericValue) value).getDoubleValue());
             }
             if (value instanceof StringValue && !(value instanceof AnyURIValue)) {
-                double d = config.getConversionRules().getStringToDoubleConverter().stringToNumber(value.getStringValueCS());
+                double d = config.getConversionRules().getStringToDoubleConverter().stringToNumber(value.getUnicodeStringValue());
                 return new DoubleValue(d);
             }
             return DoubleValue.NaN;
@@ -110,11 +112,25 @@ public class Number_1 extends ScalarSystemFunction {
         }
     }
 
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
     @Override
-    public String getCompilerName() {
-        return "NumberFnCompiler";
+    public Elaborator getElaborator() {
+        return new NumberFnElaborator();
     }
 
+    public static class NumberFnElaborator extends ItemElaborator {
 
+        public ItemEvaluator elaborateForItem() {
+            SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            ItemEvaluator argEval = fnc.getArg(0).makeElaborator().elaborateForItem();
+            return context -> toNumber((AtomicValue)argEval.eval(context));
+        }
+
+
+    }
 }
 

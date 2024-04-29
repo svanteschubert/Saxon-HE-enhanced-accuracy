@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.lib;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpDelegate;
 
 import java.io.Reader;
 import java.net.URI;
@@ -18,11 +19,16 @@ import java.net.URI;
  * and returns a Reader as its result.
  */
 
+@FunctionalInterface
+@CSharpDelegate(false)
 public interface UnparsedTextURIResolver {
 
     /**
      * Resolve the URI passed to the XSLT unparsed-text() function, after resolving
      * against the base URI.
+     * <p>The resolver is called by the functions <code>unparsed-text()</code>,
+     * <code>unparsed-text-lines()</code>, <code>unparsed-text-available()</code>,
+     * and <code>json-doc()</code>.</p>
      * <p>Note that a user-written resolver is responsible for enforcing some of the rules in the
      * XSLT specification, such as the rules for inferring an encoding when none is supplied. Saxon
      * will not report any error if the resolver does this in a non-conformant way.</p>

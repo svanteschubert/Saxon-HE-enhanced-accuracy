@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,9 +24,10 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.*;
+import net.sf.saxon.transpile.CSharpInnerClass;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import javax.xml.transform.Source;
-import javax.xml.transform.TransformerException;
 import javax.xml.transform.dom.DOMSource;
 import java.io.File;
 import java.io.OutputStream;
@@ -34,6 +35,7 @@ import java.io.Writer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * An <code>Xslt30Transformer</code> represents a compiled and loaded stylesheet ready for execution.
@@ -46,7 +48,9 @@ import java.util.Objects;
  * <p>An <code>Xslt30Transformer</code> must not be used concurrently in multiple threads.
  * It is safe to reuse the object within a single thread to run several transformations using
  * the same stylesheet, but the values of the global context item and of stylesheet parameters
- * must be initialized before any transformations are run, and must remain unchanged thereafter.</p>
+ * must be initialized before any transformations are run, and must remain unchanged thereafter.
+ * The date/time value returned by <code>fn:current-dateTime()</code> also remains constant for the
+ * duration of an <code>Xslt30Transformer.</code></p>
  * <p>Some of the entry point methods are synchronized. This is not
  * because multi-threaded execution is permitted; rather it is to reduce the damage if it is attempted.</p>
  * <p>An <code>Xslt30Transformer</code> is always constructed by running the
@@ -88,6 +92,7 @@ import java.util.Objects;
  *
  * @since 9.6
  */
+@CSharpModifiers(code = {"internal"})
 public class Xslt30Transformer extends AbstractXsltTransformer {
 
     private GlobalParameterSet globalParameterSet;
@@ -155,6 +160,15 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
     }
 
     /**
+     * Get the global context item
+     * @return the global context item if it has been set, or null otherwise
+     */
+
+    public XdmItem getGlobalContextItem() {
+        return XdmItem.wrapItem(this.globalContextItem);
+    }
+
+    /**
      * Supply the values of global stylesheet parameters.
      *
      * <p>If a value is supplied for a parameter with a particular name, and the stylesheet does not declare
@@ -177,6 +191,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      *                   and whose corresponding values are the values to be assigned to those parameters.
      *                   The contents of the supplied map are copied by this method,
      *                   so subsequent changes to the map have no effect.
+     * @param <T> the type of values for the parameters
      * @throws IllegalStateException if the transformation has already been evaluated by calling one of the methods
      *                               <code>applyTemplates</code>, <code>callTemplate</code>, or <code>callFunction</code>
      * @throws SaxonApiException     currently occurs only if the supplied value of a parameter cannot be evaluated
@@ -191,10 +206,10 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
         }
         for (Map.Entry<QName, T> param : parameters.entrySet()) {
             StructuredQName name = param.getKey().getStructuredQName();
+            XdmValue value = param.getValue();
             try {
-                globalParameterSet.put(name,
-                                       ((Sequence) param.getValue().getUnderlyingValue()).materialize());
-            } catch (XPathException e) {
+                globalParameterSet.put(name, value.getUnderlyingValue());
+            } catch (UncheckedXPathException e) {
                 throw new SaxonApiException(e);
             }
         }
@@ -242,13 +257,16 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * @param parameters the parameters to be used for the initial template
      * @param tunnel     true if these values are to be used for setting tunnel parameters;
      *                   false if they are to be used for non-tunnel parameters
+     * @param <T> the type of values for the parameters
      * @throws SaxonApiException not currently used, but retained in the method signature for compatibility reasons
      */
 
     public synchronized <T extends XdmValue> void setInitialTemplateParameters(Map<QName, T> parameters, boolean tunnel) throws SaxonApiException {
         Map<StructuredQName, Sequence> templateParams = new HashMap<>();
         for (Map.Entry<QName, T> entry : parameters.entrySet()) {
-            templateParams.put(entry.getKey().getStructuredQName(), entry.getValue().getUnderlyingValue());
+            QName key = entry.getKey();
+            XdmValue value = entry.getValue();
+            templateParams.put(key.getStructuredQName(), value.getUnderlyingValue());
         }
         controller.setInitialTemplateParameters(templateParams, tunnel);
     }
@@ -258,8 +276,10 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * in a document node) to a given Destination. The invocation uses any initial mode set using {@link #setInitialMode(QName)},
      * and any template parameters set using {@link #setInitialTemplateParameters(java.util.Map, boolean)}.
      *
-     * <p>This method does not set the global context item for the transformation. If that is required, it
-     * can be done separately using the method {@link #setGlobalContextItem(XdmItem)}.</p>
+     * <p>Note that this method does <b>not</b> cause the supplied Source document to become the global
+     * context item (that is, to be available as the value of "." when evaluating global variables. If
+     * a global context item is required, this must be set separately using {@link #setGlobalContextItem(XdmItem)}.
+     * Alternatively, use the {@link #transform(Source, Destination)} method.</p>
      *
      * @param source      the source document. For streamed processing, this must be a SAXSource or StreamSource.
      *                    <p>Note: supplying a <code>DOMSource</code> is allowed, but is much less efficient than using a
@@ -287,11 +307,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
             destination.closeAndNotify();
         } catch (XPathException e) {
             if (!e.hasBeenReported()) {
-                try {
-                    getErrorListener().fatalError(e);
-                } catch (TransformerException e1) {
-                    // ignore secondary error
-                }
+                getErrorReporter().report(new XmlProcessingException(e));
             }
             throw new SaxonApiException(e);
         }
@@ -301,6 +317,11 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * Invoke the stylesheet by applying templates to a supplied Source document, returning the raw results
      * as an {@link XdmValue}. The invocation uses any initial mode set using {@link #setInitialMode(QName)},
      * and any template parameters set using {@link #setInitialTemplateParameters(java.util.Map, boolean)}.
+     *
+     * <p>Note that this method does <b>not</b> cause the supplied Source document to become the global
+     * context item (that is, to be available as the value of "." when evaluating global variables. If
+     * a global context item is required, this must be set separately using {@link #setGlobalContextItem(XdmItem)}.
+     * Alternatively, use the {@link #transform(Source, Destination)} method.</p>
      *
      * @param source the source document. For streamed processing, this must be a SAXSource or StreamSource.
      *               <p>Note: supplying a <code>DOMSource</code> is allowed, but is much less efficient than using a
@@ -376,11 +397,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
             destination.closeAndNotify();
         } catch (XPathException e) {
             if (!e.hasBeenReported()) {
-                try {
-                    getErrorListener().fatalError(e);
-                } catch (TransformerException e1) {
-                    // ignore secondary error
-                }
+                getErrorReporter().report(new XmlProcessingException(e))                                                                                                                                            ;
             }
             throw new SaxonApiException(e);
         }
@@ -391,6 +408,11 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * Invoke the stylesheet by applying templates to a supplied input sequence, sending the results (wrapped
      * in a document node) to a given Destination. The invocation uses any initial mode set using {@link #setInitialMode(QName)},
      * and any template parameters set using {@link #setInitialTemplateParameters(java.util.Map, boolean)}.
+     *
+     * <p>Note that this method does <b>not</b> cause the supplied Source document to become the global
+     * context item (that is, to be available as the value of "." when evaluating global variables. If
+     * a global context item is required, this must be set separately using {@link #setGlobalContextItem(XdmItem)}.
+     * Alternatively, use the {@link #transform(Source, Destination)} method.</p>
      *
      * @param selection   the initial value to which templates are to be applied (equivalent to the <code>select</code>
      *                    attribute of <code>xsl:apply-templates</code>)
@@ -417,11 +439,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
             destination.closeAndNotify();
         } catch (XPathException e) {
             if (!e.hasBeenReported()) {
-                try {
-                    getErrorListener().fatalError(e);
-                } catch (TransformerException e1) {
-                    // ignore secondary error
-                }
+                getErrorReporter().report(new XmlProcessingException(e));
             }
             throw new SaxonApiException(e);
         }
@@ -431,6 +449,11 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * Invoke the stylesheet by applying templates to a supplied input sequence, returning the raw results.
      * as an {@link XdmValue}. The invocation uses any initial mode set using {@link #setInitialMode(QName)},
      * and any template parameters set using {@link #setInitialTemplateParameters(java.util.Map, boolean)}.
+     *
+     * <p>Note that this method does <b>not</b> cause the supplied selection to become the global
+     * context item (that is, to be available as the value of "." when evaluating global variables. If
+     * a global context item is required, this must be set separately using {@link #setGlobalContextItem(XdmItem)}.
+     * Alternatively, use the {@link #transform(Source, Destination)} method.</p>
      *
      * @param selection the initial value to which templates are to be applied (equivalent to the <code>select</code>
      *                  attribute of <code>xsl:apply-templates</code>)
@@ -565,12 +588,14 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
         Configuration config = processor.getUnderlyingConfiguration();
         UserFunctionParameter[] params = uf.getParameterDefinitions();
         GroundedValue[] vr =
-                (GroundedValue[])new GroundedValue[arguments.length];
+                new GroundedValue[arguments.length];
         for (int i = 0; i < arguments.length; i++) {
             net.sf.saxon.value.SequenceType type = params[i].getRequiredType();
             vr[i] = arguments[i].getUnderlyingValue();
             if (!type.matches(vr[i], config.getTypeHierarchy())) {
-                RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION, uf.getFunctionName().getDisplayName(), i);
+                final int pos = i;
+                Supplier<RoleDiagnostic> role =
+                        () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, uf.getFunctionName().getDisplayName(), pos);
                 Sequence converted = config.getTypeHierarchy().applyFunctionConversionRules(vr[i], type, role, Loc.NONE);
                 vr[i] = converted.materialize();
             }
@@ -638,6 +663,8 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * This makes the method unsuitable for passing intermediate results other than XML document
      * nodes.
      *
+     * @param finalDestination the destination for the principal result of this transformation
+     *
      * @return a {@link Destination} which accepts an XML document (typically as a stream
      * of events) and which transforms this supplied XML document (possibly using streaming)
      * as defined by the stylesheet from which which this {@code Xslt30Transformer} was generated,
@@ -647,22 +674,25 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * @since 9.9
      */
 
+    @CSharpInnerClass(outer=true, extra={"Saxon.Hej.s9api.Destination finalDestination"})
     public Destination asDocumentDestination(Destination finalDestination) {
         return new AbstractDestination() {
 
-            Receiver r;
+            private Receiver receiver;
             @Override
+            @CSharpModifiers(code={"public", "override"})
             public Receiver getReceiver(PipelineConfiguration pipe, SerializationProperties params) throws SaxonApiException {
                 Receiver rt = getReceivingTransformer(controller, globalParameterSet, finalDestination);
                 rt = new SequenceNormalizerWithSpaceSeparator(rt);
                 rt.setPipelineConfiguration(pipe);
-                return r = rt;
+                return receiver = rt;
             }
 
             @Override
+            @CSharpModifiers(code = {"public", "override"})
             public void close() throws SaxonApiException {
                 try {
-                    r.close();
+                    receiver.close();
                 } catch (XPathException e) {
                     throw new SaxonApiException(e);
                 }
@@ -675,6 +705,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * These serialization parameters can be overridden by use of
      * {@link Serializer#setOutputProperty(Serializer.Property, String)}.
      *
+     * @return the new serializer
      * @since 9.7.0.1
      */
 
@@ -692,6 +723,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * @param file the output file to which the serializer will write its output. As well as initializing
      *             the serializer to write to this output file, this method sets the base output URI of this
      *             Xslt30Transformer to be the URI of this file.
+     * @return the new serializer
      * @since 9.7.0.1
      */
 
@@ -708,6 +740,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * {@link Serializer#setOutputProperty(Serializer.Property, String)}.
      *
      * @param writer the Writer to which the serializer will write
+     * @return the new serializer
      * @since 9.7.0.1
      */
 
@@ -723,6 +756,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      * {@link Serializer#setOutputProperty(Serializer.Property, String)}.
      *
      * @param stream the output stream to which the serializer will write
+     * @return the new serializer
      * @since 9.7.0.1
      */
 
@@ -731,8 +765,6 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
         serializer.setOutputStream(stream);
         return serializer;
     }
-
-
 
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,17 +11,19 @@ import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AnyURIValue;
+import net.sf.saxon.value.EmptySequence;
 
 /**
 * This class implements the XSLT 3.0 function current-output-uri()
 */
 
 
-public class CurrentOutputUri extends SystemFunction implements Callable {
+public class CurrentOutputUri extends ContextAccessorFunction implements Callable {
 
     /**
      * Determine the special properties of this function. The general rule
@@ -37,6 +39,17 @@ public class CurrentOutputUri extends SystemFunction implements Callable {
         // Prevent inlining of stylesheet functions calling current-output-uri()
         return super.getSpecialProperties(arguments) | StaticProperty.HAS_SIDE_EFFECTS;
     }
+
+    @Override
+    public FunctionItem bindContext(XPathContext context) {
+        String uri = context.getCurrentOutputUri();
+        ConstantFunction fn = new ConstantFunction(
+                uri==null ? EmptySequence.getInstance() : new AnyURIValue(uri));
+        fn.setDetails(getDetails());
+        fn.setRetainedStaticContext(getRetainedStaticContext());
+        return fn;
+    }
+
 
     /**
     * Evaluate in a general context
@@ -69,8 +82,8 @@ public class CurrentOutputUri extends SystemFunction implements Callable {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne<AnyURIValue> call(XPathContext context, Sequence[] arguments) throws XPathException {
-        return new ZeroOrOne<>(evaluateItem(context));
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+        return SequenceTool.itemOrEmpty(evaluateItem(context));
     }
 
 }

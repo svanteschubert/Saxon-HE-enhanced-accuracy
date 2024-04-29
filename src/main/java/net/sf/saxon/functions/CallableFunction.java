@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,7 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.instruct.UserFunction;
-import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.AnnotationList;
@@ -28,7 +28,7 @@ import net.sf.saxon.type.FunctionItemType;
 public class CallableFunction extends AbstractFunction {
 
     private Callable callable;
-    private SymbolicName.F name;
+    private final SymbolicName.F name;
     private FunctionItemType type;
     private AnnotationList annotations;
 
@@ -39,7 +39,7 @@ public class CallableFunction extends AbstractFunction {
     }
 
     public CallableFunction(int arity, Callable callable, FunctionItemType type) {
-        this.name = new SymbolicName.F(new StructuredQName("", "anon", "anon"), arity);
+        this.name = new SymbolicName.F(NamespaceUri.ANONYMOUS.qName("anon"), arity);
         this.callable = callable;
         this.type = type;
     }

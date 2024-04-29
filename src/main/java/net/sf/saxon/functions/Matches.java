@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,17 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.UnicodeStringEvaluator;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.regex.RegularExpression;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.StringValue;
 
@@ -28,18 +34,7 @@ public class Matches extends RegexFunction {
         return true;
     }
 
-    /**
-     * Interface used by compiled bytecode
-     *
-     * @param input   the value to be tested
-     * @param regex   the regular expression
-     * @param flags   the flags
-     * @param context the dynamic context
-     * @return true if the string matches the regex
-     * @throws XPathException if a dynamic error occurs
-     */
-
-    public boolean evalMatches(AtomicValue input, AtomicValue regex, CharSequence flags, XPathContext context) throws XPathException {
+    public boolean evalMatches(UnicodeString input, UnicodeString regex, UnicodeString flags, XPathContext context) throws XPathException {
         RegularExpression re;
 
         if (regex == null) {
@@ -52,15 +47,14 @@ public class Matches extends RegexFunction {
                 lang += "/XSD11";
             }
             re = context.getConfiguration().compileRegularExpression(
-                    regex.getStringValueCS(), flags.toString(), lang, null);
+                    regex, flags.toString(), lang, null);
 
         } catch (XPathException err) {
-            XPathException de = new XPathException(err);
-            de.maybeSetErrorCode("FORX0002");
-            de.setXPathContext(context);
-            throw de;
+            err.maybeSetErrorCode("FORX0002");
+            err.maybeSetContext(context);
+            throw err;
         }
-        return re.containsMatch(input.getStringValueCS());
+        return re.containsMatch(input);
     }
 
     /**
@@ -74,18 +68,51 @@ public class Matches extends RegexFunction {
      */
     @Override
     public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-        RegularExpression re = getRegularExpression(arguments);
+        RegularExpression re = getRegularExpression(arguments, 1, 2);
         StringValue arg = (StringValue)arguments[0].head();
-        CharSequence in = arg==null ? "" : arg.getStringValueCS();
+        UnicodeString in = arg==null ? EmptyUnicodeString.getInstance() : arg.getUnicodeStringValue();
         boolean result = re.containsMatch(in);
         return BooleanValue.get(result);
     }
 
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
     @Override
-    public String getCompilerName() {
-        return "MatchesCompiler";
+    public Elaborator getElaborator() {
+        return new MatchesFnElaborator();
     }
 
+    public static class MatchesFnElaborator extends BooleanElaborator {
 
+        public BooleanEvaluator elaborateForBoolean() {
+            final SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            final Matches fn = (Matches) fnc.getTargetFunction();
+            final UnicodeStringEvaluator arg0eval = fnc.getArg(0).makeElaborator().elaborateForUnicodeString(true);
+            final RegularExpression staticRegex = fn.getStaticRegex();
+            if (staticRegex == null) {
+                final UnicodeStringEvaluator arg1eval = fnc.getArg(1).makeElaborator().elaborateForUnicodeString(true);
+                final UnicodeStringEvaluator arg2eval = fn.getArity() == 3
+                        ? fnc.getArg(2).makeElaborator().elaborateForUnicodeString(true)
+                        : cxt -> EmptyUnicodeString.getInstance();
+                return context -> {
+                    try {
+                        return fn.evalMatches(
+                                arg0eval.eval(context),
+                                arg1eval.eval(context),
+                                arg2eval.eval(context),
+                                context);
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(fnc.getLocation()).maybeWithContext(context);
+                    }
+                };
+            } else {
+                return context -> staticRegex.containsMatch(arg0eval.eval(context));
+            }
+        }
+
+    }
 }
 

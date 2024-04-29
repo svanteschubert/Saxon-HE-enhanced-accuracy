@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,18 +8,16 @@
 package net.sf.saxon.type;
 
 import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.MappingFunction;
 import net.sf.saxon.expr.MappingIterator;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.Whitespace;
 
-import static net.sf.saxon.type.SchemaComponent.ValidationStatus.VALIDATED;
+import static net.sf.saxon.type.SchemaValidationStatus.VALIDATED;
 
 /**
  * <p>This class is used to implement the built-in
@@ -29,12 +27,12 @@ import static net.sf.saxon.type.SchemaComponent.ValidationStatus.VALIDATED;
 
 public class BuiltInListType implements ListType {
 
-    private int fingerprint;
+    private final int fingerprint;
 
-    public static BuiltInListType ENTITIES = makeListType(NamespaceConstant.SCHEMA, "ENTITIES");
-    public static BuiltInListType IDREFS = makeListType(NamespaceConstant.SCHEMA, "IDREFS");
-    public static BuiltInListType NMTOKENS = makeListType(NamespaceConstant.SCHEMA, "NMTOKENS");
-    public static BuiltInListType ANY_URIS = makeListType(NamespaceConstant.SCHEMA_INSTANCE, "anonymous_schemaLocationType");
+    public static BuiltInListType ENTITIES = makeListType(NamespaceUri.SCHEMA, "ENTITIES");
+    public static BuiltInListType IDREFS = makeListType(NamespaceUri.SCHEMA, "IDREFS");
+    public static BuiltInListType NMTOKENS = makeListType(NamespaceUri.SCHEMA, "NMTOKENS");
+    public static BuiltInListType ANY_URIS = makeListType(NamespaceUri.SCHEMA_INSTANCE, "anonymous_schemaLocationType");
 
     /**
      * Determine whether this is a built-in type or a user-defined type
@@ -120,7 +118,7 @@ public class BuiltInListType implements ListType {
      * Get the validation status - always valid
      */
     @Override
-    public ValidationStatus getValidationStatus() {
+    public SchemaValidationStatus getValidationStatus() {
         return VALIDATED;
     }
 
@@ -229,8 +227,8 @@ public class BuiltInListType implements ListType {
      */
 
     @Override
-    public String getTargetNamespace() {
-        return NamespaceConstant.SCHEMA;
+    public NamespaceUri getTargetNamespace() {
+        return NamespaceUri.SCHEMA;
     }
 
     /**
@@ -289,7 +287,7 @@ public class BuiltInListType implements ListType {
 
     /**
      * Returns the value of the 'block' attribute for this type, as a bit-signnificant
-     * integer with fields such as {@link SchemaType#DERIVATION_LIST} and {@link SchemaType#DERIVATION_EXTENSION}
+     * integer with fields such as {@link Derivation#DERIVATION_LIST} and {@link Derivation#DERIVATION_EXTENSION}
      *
      * @return the value of the 'block' attribute for this type
      */
@@ -317,19 +315,19 @@ public class BuiltInListType implements ListType {
      * Gets the integer code of the derivation method used to derive this type from its
      * parent. Returns zero for primitive types.
      *
-     * @return a numeric code representing the derivation method, for example {@link SchemaType#DERIVATION_RESTRICTION}
+     * @return a numeric code representing the derivation method, for example {@link Derivation#DERIVATION_RESTRICTION}
      */
 
     @Override
     public int getDerivationMethod() {
-        return SchemaType.DERIVATION_LIST;
+        return Derivation.DERIVATION_LIST;
     }
 
     /**
      * Determines whether derivation (of a particular kind)
      * from this type is allowed, based on the "final" property
      *
-     * @param derivation the kind of derivation, for example {@link SchemaType#DERIVATION_LIST}
+     * @param derivation the kind of derivation, for example {@link Derivation#DERIVATION_LIST}
      * @return true if this kind of derivation is allowed
      */
 
@@ -342,13 +340,12 @@ public class BuiltInListType implements ListType {
      * Get the types of derivation that are not permitted, by virtue of the "final" property.
      *
      * @return the types of derivation that are not permitted, as a bit-significant integer
-     *         containing bits such as {@link net.sf.saxon.type.SchemaType#DERIVATION_EXTENSION}
+     *         containing bits such as {@link net.sf.saxon.type.Derivation#DERIVATION_EXTENSION}
      */
     @Override
     public int getFinalProhibitions() {
         return 0;
     }
-
 
     /**
      * Get the typed value of a node that is annotated with this schema type. The result of this method will always be consistent with the method
@@ -361,7 +358,7 @@ public class BuiltInListType implements ListType {
     @Override
     public AtomicSequence atomize(/*@NotNull*/ NodeInfo node) throws XPathException {
         try {
-            return getTypedValue(node.getStringValue(),
+            return getTypedValue(node.getUnicodeStringValue(),
                     node.getAllNamespaces(),
                     node.getConfiguration().getConversionRules());
         } catch (ValidationException err) {
@@ -415,7 +412,7 @@ public class BuiltInListType implements ListType {
      */
     @Override
     public StructuredQName getStructuredQName() {
-        return new StructuredQName("xs", NamespaceConstant.SCHEMA, getLocalName());
+        return new StructuredQName("xs", NamespaceUri.SCHEMA, getLocalName());
     }
 
     /**
@@ -428,17 +425,6 @@ public class BuiltInListType implements ListType {
     @Override
     public SimpleType getItemType() {
         return itemType;
-    }
-
-    /**
-     * Apply the whitespace normalization rules for this simple type
-     *
-     * @param value the string before whitespace normalization
-     * @return the string after whitespace normalization
-     */
-
-    public String applyWhitespaceNormalization(String value) {
-        return Whitespace.collapseWhitespace(value).toString();
     }
 
     /**
@@ -474,14 +460,14 @@ public class BuiltInListType implements ListType {
     /*@Nullable*/
     @Override
     public ValidationFailure validateContent(
-            /*@NotNull*/ CharSequence value, /*@Nullable*/ NamespaceResolver nsResolver, /*@NotNull*/ ConversionRules rules) {
+            /*@NotNull*/ UnicodeString value, /*@Nullable*/ NamespaceResolver nsResolver, /*@NotNull*/ ConversionRules rules) {
         SimpleType base = getItemType();
         Whitespace.Tokenizer iter = new Whitespace.Tokenizer(value);
         boolean found = false;
         StringValue val;
         while ((val = iter.next()) != null) {
             found = true;
-            ValidationFailure v = base.validateContent(val.getStringValue(), nsResolver, rules);
+            ValidationFailure v = base.validateContent(val.getUnicodeStringValue(), nsResolver, rules);
             if (v != null) {
                 return v;
             }
@@ -497,7 +483,6 @@ public class BuiltInListType implements ListType {
     /**
      * Get the typed value of a given input string. This method assumes that the input value
      * is valid according to this SimpleType
-     *
      * @param value    the string whose typed value is required
      * @param resolver namespace resolver for namespace-sensitive content
      * @param rules    the type conversion rules to be used
@@ -505,47 +490,24 @@ public class BuiltInListType implements ListType {
 
     /*@NotNull*/
     @Override
-    public AtomicSequence getTypedValue(/*@NotNull*/ CharSequence value, NamespaceResolver resolver, ConversionRules rules) throws ValidationException {
+    public AtomicSequence getTypedValue(/*@NotNull*/ UnicodeString value, NamespaceResolver resolver, ConversionRules rules) throws ValidationException {
         Whitespace.Tokenizer iter = new Whitespace.Tokenizer(value);
-        ListTypeMappingFunction map = new ListTypeMappingFunction();
-        map.resolver = resolver;
-        map.atomicType = (AtomicType) getItemType();
-        map.rules = rules;
+        AtomicType atomicType = (AtomicType) getItemType();
         try {
-            return new AtomicArray(new MappingIterator(iter, map));
+            return new AtomicArray(
+                    MappingIterator.map(iter,
+                                        item -> atomicType.getTypedValue(
+                                                item.getUnicodeStringValue(), resolver, rules).iterate()));
         } catch (XPathException err) {
             throw new ValidationException(err); // should not happen
         }
     }
 
     /*@NotNull*/
-    private static BuiltInListType makeListType(String namespace, String lname) {
+    private static BuiltInListType makeListType(NamespaceUri namespace, String lname) {
         BuiltInListType t = new BuiltInListType(StandardNames.getFingerprint(namespace, lname));
         BuiltInType.register(t.getFingerprint(), t);
         return t;
-    }
-
-    private static class ListTypeMappingFunction implements MappingFunction {
-
-        public NamespaceResolver resolver;
-        /*@Nullable*/ public AtomicType atomicType;
-        public ConversionRules rules;
-
-        /**
-         * The typed value of a list-valued node is obtained by tokenizing the string value and
-         * applying a mapping function to the sequence of tokens.
-         * This method implements the mapping function. It is for internal use only.
-         * For details see {@link net.sf.saxon.expr.MappingFunction}
-         */
-
-        @Override
-        public AtomicIterator<AtomicValue> map(Item item) throws XPathException {
-            try {
-                return atomicType.getTypedValue(item.getStringValueCS(), resolver, rules).iterate();
-            } catch (ValidationException err) {
-                throw new XPathException(err);
-            }
-        }
     }
 
     /**
@@ -557,7 +519,7 @@ public class BuiltInListType implements ListType {
      */
 
     @Override
-    public CharSequence preprocess(CharSequence input) {
+    public UnicodeString preprocess(UnicodeString input) {
         return input;
     }
 
@@ -572,8 +534,9 @@ public class BuiltInListType implements ListType {
      */
 
     @Override
-    public CharSequence postprocess(CharSequence input) {
+    public UnicodeString postprocess(UnicodeString input) {
         return input;
     }
+
 }
 

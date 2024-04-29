@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,13 @@
 package net.sf.saxon.event;
 
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.om.*;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.om.AttributeMap;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.AtomicValue;
@@ -25,10 +29,10 @@ import net.sf.saxon.value.AtomicValue;
 
 public class SequenceNormalizerWithItemSeparator extends SequenceNormalizer {
 
-    private String separator;
+    private final UnicodeString separator;
     private boolean first = true;
 
-    public SequenceNormalizerWithItemSeparator(Receiver next, String separator) {
+    public SequenceNormalizerWithItemSeparator(Receiver next, UnicodeString separator) {
         super(next);
         this.separator = separator;
     }
@@ -67,7 +71,7 @@ public class SequenceNormalizerWithItemSeparator extends SequenceNormalizer {
      * Character data
      */
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         sep();
         super.characters(chars, locationId, properties);
     }
@@ -76,7 +80,7 @@ public class SequenceNormalizerWithItemSeparator extends SequenceNormalizer {
      * Processing Instruction
      */
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         sep();
         super.processingInstruction(target, data, locationId, properties);
     }
@@ -85,7 +89,7 @@ public class SequenceNormalizerWithItemSeparator extends SequenceNormalizer {
      * Output a comment
      */
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         sep();
         super.comment(chars, locationId, properties);
     }
@@ -104,7 +108,7 @@ public class SequenceNormalizerWithItemSeparator extends SequenceNormalizer {
         } else {
             if (item instanceof AtomicValue) {
                 sep();
-                nextReceiver.characters(item.getStringValueCS(), locationId, ReceiverOption.NONE);
+                nextReceiver.characters(item.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
             } else {
                 decompose(item, locationId, copyNamespaces);
             }

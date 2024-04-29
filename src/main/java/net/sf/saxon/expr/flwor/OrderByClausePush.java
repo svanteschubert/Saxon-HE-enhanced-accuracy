@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,13 +21,13 @@ import java.util.ArrayList;
  */
 public class OrderByClausePush extends TuplePush {
 
-    private TuplePush destination;
-    private OrderByClause orderByClause;
-    private TupleExpression tupleExpr;
-    private AtomicComparer[] comparers;
-    private XPathContext context;
+    private final TuplePush destination;
+    private final OrderByClause orderByClause;
+    private final TupleExpression tupleExpr;
+    private final AtomicComparer[] comparers;
+    private final XPathContext context;
     private int position = 0;
-    private ArrayList<ItemToBeSorted> tupleArray = new ArrayList<>(100);
+    private final ArrayList<ItemToBeSorted> tupleArray = new ArrayList<>(100);
 
     public OrderByClausePush(Outputter outputter, TuplePush destination, TupleExpression tupleExpr, OrderByClause orderBy, XPathContext context) {
         super(outputter);
@@ -85,9 +85,7 @@ public class OrderByClausePush extends TuplePush {
                 return a.originalPosition - b.originalPosition;
             });
         } catch (ClassCastException e) {
-            XPathException err = new XPathException("Non-comparable types found while sorting: " + e.getMessage());
-            err.setErrorCode("XPTY0004");
-            throw err;
+            throw new XPathException("Non-comparable types found while sorting: " + e.getMessage(), "XPTY0004");
         }
 
         for (ItemToBeSorted itbs : tupleArray) {

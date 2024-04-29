@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -82,7 +82,7 @@ public abstract class XSLLeafNodeConstructor extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -105,7 +105,7 @@ public abstract class XSLLeafNodeConstructor extends StyleElement {
                     // there is exactly one child node
                     if (first.getNodeKind() == Type.TEXT) {
                         // it is a text node: optimize for this case
-                        select = new StringLiteral(first.getStringValue());
+                        select = new StringLiteral(first.getUnicodeStringValue());
                         select.setRetainedStaticContext(makeRetainedStaticContext());
                     }
                 }

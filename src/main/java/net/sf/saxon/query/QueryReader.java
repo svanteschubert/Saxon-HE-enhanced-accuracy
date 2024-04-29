@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,19 @@
 
 package net.sf.saxon.query;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.functions.UnparsedTextFunction;
+import net.sf.saxon.resource.ResourceLoader;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.Whitespace;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import javax.xml.transform.stream.StreamSource;
 import java.io.*;
-import java.util.function.IntPredicate;
+import java.net.URL;
 
 /**
  * This class contains static methods used to read a query as a byte stream, infer the encoding if
@@ -42,19 +46,27 @@ public class QueryReader {
      *                    responsibility.</p>
      * @param charChecker this checks XML characters against either the XML 1.0 or XML 1.1 rules
      * @return the text of the query
+     * @throws XPathException if the input cannot be read
      */
 
-    public static String readSourceQuery(/*@NotNull*/ StreamSource ss, IntPredicate charChecker) throws XPathException {
+    public static String readSourceQuery(Configuration config, /*@NotNull*/ StreamSource ss, IntPredicateProxy charChecker) throws XPathException {
         CharSequence queryText;
         if (ss.getInputStream() != null) {
             InputStream is = ss.getInputStream();
-            if (!is.markSupported()) {
-                is = new BufferedInputStream(is);
-            }
+            is = InputStreamMarker.ensureMarkSupported(is);
             String encoding = readEncoding(is);
             queryText = readInputStream(is, encoding, charChecker);
         } else if (ss.getReader() != null) {
             queryText = readQueryFromReader(ss.getReader(), charChecker);
+        } else if (ss.getSystemId() != null) {
+            try {
+                InputStream stream = ResourceLoader.urlStream(config, ss.getSystemId());
+                stream = InputStreamMarker.ensureMarkSupported(stream);
+                String encoding = readEncoding(stream);
+                queryText = readInputStream(stream, encoding, charChecker);
+            } catch (IOException e) {
+                throw new XPathException("I/O Error reading input stream from " + ss.getSystemId(), e);
+            }
         } else {
             throw new XPathException("Module URI Resolver must supply either an InputStream or a Reader");
         }
@@ -72,16 +84,17 @@ public class QueryReader {
 
     public static String readEncoding(/*@NotNull*/ InputStream is) throws XPathException {
         try {
-            if (!is.markSupported()) {
+            InputStreamMarker marker = new InputStreamMarker(is);
+            if (!marker.isMarkSupported()) {
                 throw new IllegalArgumentException("InputStream must have markSupported() = true");
             }
-            is.mark(100);
+            marker.mark(100);
             byte[] start = new byte[100];
             int read = is.read(start, 0, 100);
             if (read == -1) {
                 throw new XPathException("Query source file is empty");
             }
-            is.reset();
+            marker.reset();
             return inferEncoding(start, read);
         } catch (IOException e) {
             throw new XPathException("Failed to read query source file", e);
@@ -96,13 +109,12 @@ public class QueryReader {
      * @param encoding    the encoding, or null if the encoding is unknown
      * @param nameChecker the predicate to be used for checking characters
      * @return the content of the InputStream as a string
+     * @throws XPathException if the stream cannot be read, for example if there is a problem with the encoding
      */
 
-    public static String readInputStream(InputStream is, String encoding, IntPredicate nameChecker) throws XPathException {
+    public static String readInputStream(InputStream is, String encoding, IntPredicateProxy nameChecker) throws XPathException {
         if (encoding == null) {
-            if (!is.markSupported()) {
-                is = new BufferedInputStream(is);
-            }
+            is = InputStreamMarker.ensureMarkSupported(is);
             encoding = readEncoding(is);
         }
         try {
@@ -125,9 +137,9 @@ public class QueryReader {
      * @throws XPathException if the file cannot be read or contains illegal characters
      */
 
-    private static String readQueryFromReader(Reader reader, IntPredicate charChecker) throws XPathException {
+    private static String readQueryFromReader(Reader reader, IntPredicateProxy charChecker) throws XPathException {
         try {
-            CharSequence content = UnparsedTextFunction.readFile(charChecker, reader);
+            UnicodeString content = UnparsedTextFunction.readFile(charChecker, reader);
             return content.toString();
         } catch (XPathException err) {
             err.setErrorCode("XPST0003");
@@ -222,7 +234,7 @@ public class QueryReader {
      * is a sequence of characters delimited either by whitespace, or by single or double quotes; the
      * quotes if present are returned as part of the token.
      *
-     * @param in  the character buffer
+     * @param in  the raw content buffer, whose encoding is at this point unknown
      * @param i   offset where to start reading
      * @param len the length of buffer
      * @return the next token
@@ -249,13 +261,25 @@ public class QueryReader {
             }
         }
         if (p >= len) {
-            return new String(in, i, len - i);
+            return fromAsciiByteArray(in, i, len - i);
         }
-        FastStringBuffer sb = new FastStringBuffer(p - i + 1);
+        StringBuilder sb = new StringBuilder(p - i + 1);
         for (int c = i; c <= p; c++) {
-            sb.cat((char) ch(in[c]));
+            sb.append((char) ch(in[c]));
         }
         return sb.toString();
+    }
+
+    /**
+     * Form a string from an ascii byte array
+     * @param bytes the byte array
+     * @param start offset of the first byte to be included
+     * @param length the number of bytes to be included
+     */
+
+    @CSharpReplaceBody(code="return System.Text.Encoding.ASCII.GetString(bytes, start, length);")
+    private static String fromAsciiByteArray(byte[] bytes, int start, int length) {
+        return new String(bytes, start, length);
     }
 
     /**
@@ -265,8 +289,8 @@ public class QueryReader {
      * @return the ASCII character
      */
 
-    private static int ch(byte b) {
-        return (int) b & 0xff;
+    private static char ch(byte b) {
+        return (char)(b & 0xff);
     }
 
 }

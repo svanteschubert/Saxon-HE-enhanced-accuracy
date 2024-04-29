@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,8 @@ package net.sf.saxon.expr;
 
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * Treat Expression: implements "treat as data-type ( expression )". This is a factory class only.
@@ -44,8 +46,7 @@ public abstract class TreatExpression {
      */
 
     public static Expression make(Expression sequence, SequenceType type, String errorCode) {
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.TYPE_OP, "treat as", 0);
-        role.setErrorCode(errorCode);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.TYPE_OP, "treat as", 0, errorCode);
         Expression e = CardinalityChecker.makeCardinalityChecker(sequence, type.getCardinality(), role);
         return new ItemChecker(e, type.getPrimaryType(), role);
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Item;
@@ -14,6 +18,7 @@ import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.pattern.AnchorPattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.AnyItemType;
@@ -58,7 +63,7 @@ public class ContextItemExpression extends Expression {
      * Create a clone copy of this expression
      *
      * @return a copy of this expression
-     * @param rebindings
+     * @param rebindings     variables that must be re-bound
      */
 
     /*@NotNull*/
@@ -97,7 +102,7 @@ public class ContextItemExpression extends Expression {
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, /*@Nullable*/ ContextItemStaticInfo contextInfo) throws XPathException {
         if (contextInfo.getItemType() == ErrorType.getInstance()) {
-            visitor.issueWarning("Evaluation will always fail: there is no context item", getLocation());
+            visitor.issueWarning("Evaluation will always fail: there is no context item", SaxonErrorCode.SXWN9027, getLocation());
             ErrorExpression ee = new ErrorExpression(
                     "There is no context item",
                     getErrorCodeForUndefinedContext(),
@@ -132,11 +137,9 @@ public class ContextItemExpression extends Expression {
         // In XSLT, we don't catch this error at the typeCheck() phase because it's done one XPath expression
         // at a time. So we repeat the check here.
         if (contextItemType == null) {
-            XPathException err = new XPathException("The context item is undefined at this point");
-            err.setErrorCode(getErrorCodeForUndefinedContext());
-            err.setIsTypeError(absentContextIsTypeError);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("The context item is undefined at this point")
+                    .withErrorCode(getErrorCodeForUndefinedContext()).withLocation(getLocation())
+                    .asTypeErrorIf(absentContextIsTypeError);
         }
         return this;
     }
@@ -180,7 +183,7 @@ public class ContextItemExpression extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -191,7 +194,7 @@ public class ContextItemExpression extends Expression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NO_NODES_NEWLY_CREATED | StaticProperty.CONTEXT_DOCUMENT_NODESET;
     }
@@ -214,7 +217,7 @@ public class ContextItemExpression extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return "ContextItemExpression".hashCode();
     }
 
@@ -322,7 +325,7 @@ public class ContextItemExpression extends Expression {
         return item;
     }
 
-    private void reportAbsentContext(XPathContext context) throws XPathException {
+    public void reportAbsentContext(XPathContext context) throws XPathException {
         if (absentContextIsTypeError) {
             typeError("The context item is absent", getErrorCodeForUndefinedContext(), context);
         } else {
@@ -362,6 +365,55 @@ public class ContextItemExpression extends Expression {
     @Override
     public String toShortString() {
         return ".";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new ContextItemElaborator();
+    }
+
+    /**
+     * Elaborator for the context item expression, "dot".
+     */
+
+    public static class ContextItemElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            ContextItemExpression cie = (ContextItemExpression) getExpression();
+            if (cie.isContextPossiblyUndefined()) {
+                return context -> {
+                    Item current = context.getContextItem();
+                    if (current == null) {
+                        cie.reportAbsentContext(context);
+                    }
+                    return current;
+                };
+            } else {
+                return XPathContext::getContextItem;
+            }
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            ContextItemExpression cie = (ContextItemExpression) getExpression();
+            if (cie.isContextPossiblyUndefined()) {
+                return context -> {
+                    Item current = context.getContextItem();
+                    if (current == null) {
+                        cie.reportAbsentContext(context);
+                    }
+                    return SingletonIterator.makeIterator(current);
+                };
+            } else {
+                return context -> SingletonIterator.makeIterator(context.getContextItem());
+            }
+        }
     }
 }
 

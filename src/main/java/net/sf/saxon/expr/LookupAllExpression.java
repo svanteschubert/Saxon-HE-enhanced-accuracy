@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,9 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
@@ -19,11 +22,14 @@ import net.sf.saxon.ma.arrays.SquareArrayConstructor;
 import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.ma.map.TupleType;
+import net.sf.saxon.ma.map.RecordType;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
@@ -42,11 +48,11 @@ public class LookupAllExpression extends UnaryExpression {
     /**
      * Constructor
      *
-     * @param base The left hand operand (which must always select a sequence of maps or arrays).
+     * @param lhs The left hand operand (which must always select a sequence of maps or arrays).
      */
 
-    public LookupAllExpression(Expression base) {
-        super(base);
+    public LookupAllExpression(Expression lhs) {
+        super(lhs);
     }
 
     @Override
@@ -64,11 +70,11 @@ public class LookupAllExpression extends UnaryExpression {
     /*@NotNull*/
     @Override
     public final ItemType getItemType() {
-        ItemType base = getBaseExpression().getItemType();
-        if (base instanceof MapType) {
-            return ((MapType)base).getValueType().getPrimaryType();
-        } else if (base instanceof ArrayItemType) {
-            return ((ArrayItemType) base).getMemberType().getPrimaryType();
+        ItemType lhs = getBaseExpression().getItemType();
+        if (lhs instanceof MapType) {
+            return ((MapType)lhs).getValueType().getPrimaryType();
+        } else if (lhs instanceof ArrayItemType) {
+            return ((ArrayItemType) lhs).getMemberType().getPrimaryType();
         } else {
             return AnyItemType.getInstance();
         }
@@ -103,25 +109,30 @@ public class LookupAllExpression extends UnaryExpression {
 
         ItemType containerType = getBaseExpression().getItemType();
         boolean isArrayLookup = containerType instanceof ArrayItemType;
-        boolean isMapLookup = containerType instanceof MapType || containerType instanceof TupleType;
+        boolean isMapLookup = containerType instanceof MapType || containerType instanceof RecordType;
 
         if (!isArrayLookup && !isMapLookup) {
             if (th.relationship(containerType, MapType.ANY_MAP_TYPE) == Affinity.DISJOINT &&
                     th.relationship(containerType, ArrayItemType.getInstance()) == Affinity.DISJOINT) {
                 if (Cardinality.allowsZero(getBaseExpression().getCardinality())) {
-                    visitor.issueWarning("The left-hand operand of '?' must be a map or an array; the expression can succeed only if the operand is an empty sequence " + containerType, getLocation());
+                    visitor.issueWarning("The left-hand operand of '?' must be a map or an array; the expression can succeed only if the operand is an empty sequence "
+                                                 + containerType, SaxonErrorCode.SXWN9026, getLocation());
                 } else {
-                    XPathException err = new XPathException("The left-hand operand of '?' must be a map or an array; the supplied expression is of type " + containerType, "XPTY0004");
-                    err.setLocation(getLocation());
-                    err.setIsTypeError(true);
-                    err.setFailingExpression(this);
-                    throw err;
+                    throw new XPathException("The left-hand operand of '?' must be a map or an array; "
+                                                     + "the supplied expression is of type " + containerType, "XPTY0004")
+                            .withLocation(getLocation())
+                            .asTypeError()
+                            .withFailingExpression(this);
                 }
             }
         }
 
         if (getBaseExpression() instanceof Literal) {
-            return new Literal(iterate(visitor.makeDynamicContext()).materialize());
+            try {
+                return new Literal(SequenceTool.toGroundedValue(iterate(visitor.makeDynamicContext())));
+            } catch (UncheckedXPathException e) {
+                throw e.getXPathException();
+            }
         }
 
         return this;
@@ -132,7 +143,11 @@ public class LookupAllExpression extends UnaryExpression {
         getOperand().optimize(visitor, contextItemType);
 
         if (getBaseExpression() instanceof Literal) {
-            return new Literal(iterate(visitor.makeDynamicContext()).materialize());
+            try {
+                return new Literal(SequenceTool.toGroundedValue(iterate(visitor.makeDynamicContext())));
+            } catch (UncheckedXPathException e) {
+                throw e.getXPathException();
+            }
         }
 
         // See W3C bug 30228. In the interests of keeping certain tests streamable, we do a rewrite of [A,B,C]?*
@@ -158,7 +173,7 @@ public class LookupAllExpression extends UnaryExpression {
      * and we assume that a sequence has length 5. The resulting estimates may be used, for
      * example, to reorder the predicates in a filter expression so cheaper predicates are
      * evaluated first.
-     * @return a rough estimate of the cost of evaluation
+     * @return the cost estimate
      */
     @Override
     public double getCost() {
@@ -196,7 +211,7 @@ public class LookupAllExpression extends UnaryExpression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
@@ -217,7 +232,7 @@ public class LookupAllExpression extends UnaryExpression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return "LookupAll".hashCode() ^ getBaseExpression().hashCode();
     }
 
@@ -230,70 +245,7 @@ public class LookupAllExpression extends UnaryExpression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(final XPathContext context) throws XPathException {
-
-        return new SequenceIterator() {
-
-            final SequenceIterator level0 = getBaseExpression().iterate(context);
-            Iterator<?> level1 = null;
-                // delivers GroundedValue in the case of an array, or KeyValuePair in the case of a map
-            SequenceIterator level2 = null;
-
-            @Override
-            public Item next() throws XPathException {
-                if (level2 == null) {
-                    if (level1 == null) {
-                        Item base = level0.next();
-                        if (base == null) {
-                            return null;
-                        } else if (base instanceof ArrayItem) {
-                            level1 = ((ArrayItem)base).members().iterator();
-                            return next();
-                        } else if (base instanceof MapItem) {
-                            level1 = ((MapItem)base).keyValuePairs().iterator();
-                            return next();
-                        } else {
-                            LookupExpression.mustBeArrayOrMap(LookupAllExpression.this, base);
-                            return null;
-                        }
-                    } else {
-                        if (level1.hasNext()) {
-                            Object nextEntry = level1.next();
-                            if (nextEntry instanceof KeyValuePair) {
-                                GroundedValue value = ((KeyValuePair)nextEntry).value;
-                                level2 = value.iterate();
-                            } else if (nextEntry instanceof GroundedValue) {
-                                level2 = ((GroundedValue) nextEntry).iterate();
-                            } else {
-                                throw new IllegalStateException();
-                            }
-                        } else {
-                            level1 = null;
-                        }
-                        return next();
-                    }
-                } else {
-                    Item next = level2.next();
-                    if (next == null) {
-                        level2 = null;
-                        return next();
-                    } else {
-                        return next;
-                    }
-                }
-            }
-
-            @Override
-            public void close() {
-                if (level0 != null) {
-                    level0.close();
-                }
-                if (level2 != null) {
-                    level2.close();
-                }
-            }
-
-        };
-
+        return new LookupAllIterator(this, getBaseExpression().iterate(context));
     }
 
     /**
@@ -325,5 +277,91 @@ public class LookupAllExpression extends UnaryExpression {
         return getBaseExpression().toShortString() + "?*";
     }
 
+    @Override
+    public Elaborator getElaborator() {
+        return new LookupAllElaborator();
+    }
+
+    public static class LookupAllElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            LookupAllExpression expr = (LookupAllExpression) getExpression();
+            PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return (context) -> new LookupAllIterator(expr, baseEval.iterate(context));
+        }
+    }
+
+    private static class LookupAllIterator implements SequenceIterator {
+
+        final LookupAllExpression expr;
+        final SequenceIterator level0;
+        Iterator<GroundedValue> level1forArrays;
+        Iterator<KeyValuePair> level1forMaps;
+        // delivers GroundedValue in the case of an array, or KeyValuePair in the case of a map
+        SequenceIterator level2;
+
+        public LookupAllIterator(LookupAllExpression expr, SequenceIterator baseIterator) {
+            level0 = baseIterator;
+            level1forArrays = null;
+            level1forMaps = null;
+            level2 = null;
+            this.expr = expr;
+        }
+
+        @Override
+        public Item next() {
+            if (level2 == null) {
+                if (level1forArrays == null && level1forMaps == null) {
+                    Item lhs = level0.next();
+                    if (lhs == null) {
+                        return null;
+                    } else if (lhs instanceof ArrayItem) {
+                        level1forArrays = ((ArrayItem)lhs).members().iterator();
+                        return next();
+                    } else if (lhs instanceof MapItem) {
+                        level1forMaps = ((MapItem)lhs).keyValuePairs().iterator();
+                        return next();
+                    } else {
+                        try {
+                            LookupExpression.mustBeArrayOrMap(expr, lhs);
+                        } catch (XPathException e) {
+                            throw new UncheckedXPathException(e);
+                        }
+                        return null;
+                    }
+                } else if (level1forArrays != null && level1forArrays.hasNext()) {
+                    GroundedValue nextEntry = level1forArrays.next();
+                    level2 = nextEntry.iterate();
+                } else if (level1forMaps != null && level1forMaps.hasNext()) {
+                    KeyValuePair nextEntry = level1forMaps.next();
+                    GroundedValue value = nextEntry.value;
+                    level2 = value.iterate();
+                } else {
+                    level1forMaps = null;
+                    level1forArrays = null;
+                }
+                return next();
+            } else {
+                Item nextItem = level2.next();
+                if (nextItem == null) {
+                    level2 = null;
+                    return next();
+                } else {
+                    return nextItem;
+                }
+            }
+        }
+
+        @Override
+        public void close() {
+            if (level0 != null) {
+                level0.close();
+            }
+            if (level2 != null) {
+                level2.close();
+            }
+        }
+
+    }
 }
 

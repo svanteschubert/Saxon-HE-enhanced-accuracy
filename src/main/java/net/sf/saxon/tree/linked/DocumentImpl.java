@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,10 +12,11 @@ import net.sf.saxon.event.Builder;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.iter.ListIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.tree.iter.NodeListIterator;
 import net.sf.saxon.type.AnyType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -32,7 +33,6 @@ import java.util.*;
  * <p>A DocumentImpl object may either represent a real document node, or it may represent an imaginary
  * container for a parentless element.</p>
  *
- * @author Michael H. Kay
  */
 
 public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, MutableDocumentInfo {
@@ -54,7 +54,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
     private LineNumberMap lineNumberMap;
     private SystemIdMap systemIdMap = new SystemIdMap();
     private boolean imaginary;
-    private boolean mutable;
+    private Durability durability;
     private SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.getInstance();
 
 
@@ -107,18 +107,27 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
 
     @Override
     public boolean isMutable() {
-        return mutable;
+        return durability == Durability.MUTABLE;
     }
 
     /**
-     * Say whether the tree is mutable. This is true only if {@link #setMutable(boolean) has been called
-     * supplying the value {@code true}}
+     * Get the durability of nodes in the tree. This affects how they are handled in a memo function
+     * cache, to optimize memory and garbage collection. By default, all nodes are considered durable
+     * unless otherwise specified
+     */
+    @Override
+    public Durability getDurability() {
+        return durability;
+    }
+
+    /**
+     * Say whether the tree is mutable.
      *
      * @param mutable true if and only if the tree is to be marked as mutable
      */
 
     public void setMutable(boolean mutable) {
-        this.mutable = mutable;
+        this.durability = mutable ? Durability.MUTABLE : Durability.LASTING;
     }
 
     /**
@@ -139,7 +148,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
     /*@NotNull*/
     @Override
     public Builder newBuilder() {
-        LinkedTreeBuilder builder = new LinkedTreeBuilder(config.makePipelineConfiguration());
+        LinkedTreeBuilder builder = new LinkedTreeBuilder(config.makePipelineConfiguration(), Durability.MUTABLE);
         builder.setAllocateSequenceNumbers(false);
         return builder;
     }
@@ -458,9 +467,9 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
      */
 
     @Override
-    public void generateId(/*@NotNull*/ FastStringBuffer buffer) {
-        buffer.cat('d');
-        buffer.append(Long.toString(documentNumber));
+    public void generateId(/*@NotNull*/ StringBuilder buffer) {
+        buffer.append('d');
+        buffer.append(documentNumber);
     }
 
     /**
@@ -489,7 +498,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
             }
             eList.put(fingerprint, list);
         }
-        return new ListIterator.OfNodes(list);
+        return new NodeListIterator(list);
     }
 
     /**
@@ -536,7 +545,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
                 //noinspection ConstantConditions
                 ElementImpl e = (ElementImpl) curr;
                 if (e.isId()) {
-                    registerID(e, Whitespace.trim(e.getStringValueCS()));
+                    registerID(e, Whitespace.trim(e.getStringValue()));
                 }
                 AttributeMap atts = e.attributes();
                 for (AttributeInfo att : atts) {
@@ -557,7 +566,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
      * @param id The unique ID value
      */
 
-    protected void registerID(NodeInfo e, String id) {
+    void registerID(NodeInfo e, String id) {
         // the XPath spec (5.2.1) says ignore the second ID if it's not unique
         if (idTable == null) {
             idTable = new HashMap<>(256);
@@ -583,7 +592,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
         }
         assert idTable != null;
         NodeInfo node = idTable.get(id);
-        if (node != null && getParent && node.isId() && node.getStringValue().equals(id)) {
+        if (node != null && getParent && node.isId() && node.getUnicodeStringValue().equals(id)) {
             node = node.getParent();
         }
         return node;
@@ -596,7 +605,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
      * @param id The id value
      */
 
-    protected void deregisterID(String id) {
+    void deregisterID(String id) {
         id = Whitespace.trim(id);
         if (idTable != null) {
             idTable.remove(id);
@@ -679,6 +688,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
      */
 
     @Override
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public void copy(/*@NotNull*/ Receiver out, int copyOptions, Location locationId) throws XPathException {
         out.startDocument(CopyOptions.getStartDocumentProperties(copyOptions));
 
@@ -710,7 +720,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
      */
 
     @Override
-    public void replaceStringValue(CharSequence stringValue) {
+    public void replaceStringValue(UnicodeString stringValue) {
         throw new UnsupportedOperationException("Cannot replace the value of a document node");
     }
 

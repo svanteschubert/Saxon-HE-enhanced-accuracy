@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,9 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
@@ -23,11 +23,12 @@ import java.util.Arrays;
 
 
 /**
- * The RuleBasedStripper class performs whitespace stripping according to the rules of
+ * The {@code Stripper} class performs whitespace stripping according to the rules of
  * the xsl:strip-space and xsl:preserve-space instructions.
  * It maintains details of which elements need to be stripped.
  * The code is written to act as a SAX-like filter to do the stripping.
  *
+ * <p>If you found this code as a result of a Google search, sorry about the disappointment.</p>
  */
 
 
@@ -48,26 +49,12 @@ public class Stripper extends ProxyReceiver {
     // stripStack is used to hold information used while stripping nodes. We avoid allocating
     // space on the tree itself to keep the size of nodes down. Each entry on the stack is two
     // booleans, one indicates the current value of xml-space is "preserve", the other indicates
-    // that we are in a space-preserving element.
+    // that we are in a space-preserving element. See masks below for information about other bits.
 
-    // We implement our own stack to avoid the overhead of allocating objects. The two booleans
-    // are held as the leas-significant bits of a byte.
+    // We implement our own stack to avoid the overhead of allocating objects.
 
-    private byte[] stripStack = new byte[100];
+    private int[] stripStack = new int[100];
     private int top = 0;
-
-    /**
-     * Get a clean copy of this stripper. The new copy shares the same PipelineConfiguration
-     * as the original, but the underlying receiver (that is, the destination for post-stripping
-     * events) is changed.
-     *
-     * @param next the next receiver in the pipeline for the new Stripper
-     * @return a dublicate of this Stripper, with the output sent to "next".
-     */
-
-    public Stripper getAnother(Receiver next) {
-        return new Stripper(rule, next);
-    }
 
     /**
      * Decide whether an element is in the set of white-space preserving element types
@@ -86,12 +73,12 @@ public class Stripper extends ProxyReceiver {
         return rule.isSpacePreserving(name, type);
     }
 
-    public static final byte ALWAYS_PRESERVE = 0x01;    // whitespace always preserved (e.g. xsl:text)
-    public static final byte ALWAYS_STRIP = 0x02;       // whitespace always stripped (e.g. xsl:choose)
-    public static final byte STRIP_DEFAULT = 0x00;      // no special action
-    public static final byte PRESERVE_PARENT = 0x04;    // parent element specifies xml:space="preserve"
-    public static final byte SIMPLE_CONTENT = 0x08;     // type annotation indicates simple typed content
-    public static final byte ASSERTIONS_EXIST = 0x10;   // XSD 1.1 assertions are in scope
+    public static final int ALWAYS_PRESERVE = 0x01;    // whitespace always preserved (e.g. xsl:text)
+    public static final int ALWAYS_STRIP = 0x02;       // whitespace always stripped (e.g. xsl:choose)
+    public static final int STRIP_DEFAULT = 0x00;      // no special action
+    public static final int PRESERVE_PARENT = 0x04;    // parent element specifies xml:space="preserve"
+    public static final int SIMPLE_CONTENT = 0x08;     // type annotation indicates simple typed content
+    public static final int ASSERTIONS_EXIST = 0x10;   // XSD 1.1 assertions are in scope
 
 
     /**
@@ -102,7 +89,7 @@ public class Stripper extends ProxyReceiver {
     public void open() throws XPathException {
         // System.err.println("Stripper#startDocument()");
         top = 0;
-        stripStack[top] = ALWAYS_PRESERVE;             // {xml:preserve = false, preserve this element = true}
+        stripStack[top] = ALWAYS_PRESERVE;             // {xml:space = default, preserve this element = true}
         super.open();
     }
 
@@ -110,11 +97,11 @@ public class Stripper extends ProxyReceiver {
     public void startElement(NodeName elemName, SchemaType type,
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties) throws XPathException {
-        // System.err.println("startElement " + nameCode);
+        //System.err.println("startElement " + elemName.getDisplayName());
         nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
 
-        byte preserveParent = stripStack[top];
-        byte preserve = (byte) (preserveParent & (PRESERVE_PARENT | ASSERTIONS_EXIST));
+        int preserveParent = stripStack[top];
+        int preserve = preserveParent & (PRESERVE_PARENT | ASSERTIONS_EXIST);
 
         int elementStrip = isSpacePreserving(elemName, type);
         if (elementStrip == ALWAYS_PRESERVE) {
@@ -142,32 +129,15 @@ public class Stripper extends ProxyReceiver {
         }
         stripStack[top] = preserve;
 
-        String xmlSpace = attributes.getValue(NamespaceConstant.XML, "space");
+        String xmlSpace = attributes.getValue(NamespaceUri.XML, "space");
         if (xmlSpace != null) {
-            if (Whitespace.normalizeWhitespace(xmlSpace).equals("preserve")) {
+            if (Whitespace.trim(xmlSpace).equals("preserve")) {
                 stripStack[top] |= PRESERVE_PARENT;
             } else {
                 stripStack[top] &= ~PRESERVE_PARENT;
             }
         }
     }
-
-//    public void attribute(NodeName nameCode, SimpleType typeCode, CharSequence value, Location locationId, int properties)
-//            throws XPathException {
-//
-//        // test for xml:space="preserve" | "default"
-//
-//        if (nameCode.equals(XML_SPACE)) {
-//            if (Whitespace.normalizeWhitespace(value).equals("preserve")) {
-//                stripStack[top] |= PRESERVE_PARENT;
-//            } else {
-//                stripStack[top] &= ~PRESERVE_PARENT;
-//            }
-//        }
-//        nextReceiver.attribute(nameCode, typeCode, value, locationId, properties);
-//    }
-
-    private static NodeName XML_SPACE = new FingerprintedQName("xml", NamespaceConstant.XML, "space", StandardNames.XML_SPACE);
 
     /**
      * Handle an end-of-element event
@@ -184,13 +154,13 @@ public class Stripper extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         // assume adjacent chunks of text are already concatenated
 
         if (((((stripStack[top] & (ALWAYS_PRESERVE | PRESERVE_PARENT | SIMPLE_CONTENT | ASSERTIONS_EXIST)) != 0) &&
                 (stripStack[top] & ALWAYS_STRIP) == 0)
-                || !Whitespace.isWhite(chars))
-                && chars.length() > 0) {
+                || !Whitespace.isAllWhite(chars))
+                && !chars.isEmpty()) {
             nextReceiver.characters(chars, locationId, properties);
         }
     }

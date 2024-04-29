@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,12 +18,13 @@ import net.sf.saxon.functions.OptionsParameter;
 import net.sf.saxon.functions.PushableFunction;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.ma.map.MapItem;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.str.UniStringConsumer;
+import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.CharSequenceConsumer;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.FunctionItemType;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.type.Type;
@@ -54,9 +55,8 @@ public class XMLToJsonFn extends SystemFunction implements PushableFunction {
 
     private static class Options {
         public boolean indent;
-        public Function numberFormatter;
+        public FunctionItem numberFormatter;
     }
-
 
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
@@ -69,21 +69,20 @@ public class XMLToJsonFn extends SystemFunction implements PushableFunction {
 
         PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
         pipe.setXPathContext(context);
-        FastStringBuffer stringBuffer = new FastStringBuffer(2048);
-        convertToJson(xml, stringBuffer, options, context);
-        return new StringValue(stringBuffer.condense());
-
+        UnicodeBuilder uniBuffer = new UnicodeBuilder();
+        convertToJson(xml, uniBuffer, options, context);
+        return new StringValue(uniBuffer.toUnicodeString());
     }
 
     private Options getOptions(XPathContext context, Sequence[] arguments) throws XPathException {
         if (getArity() > 1) {
             MapItem suppliedOptions = (MapItem) arguments[1].head();
-            Map<String, Sequence> options = getDetails().optionDetails.processSuppliedOptions(suppliedOptions, context);
+            Map<String, GroundedValue> options = getDetails().optionDetails.processSuppliedOptions(suppliedOptions, context);
             Options o = new Options();
             o.indent = ((BooleanValue) options.get("indent").head()).getBooleanValue();
             Sequence format = options.get("number-formatter");
             if (format != null) {
-                o.numberFormatter = (Function) format.head();
+                o.numberFormatter = (FunctionItem)format.head();
             }
             return o;
         } else {
@@ -102,10 +101,10 @@ public class XMLToJsonFn extends SystemFunction implements PushableFunction {
         }
     }
 
-    private void convertToJson(NodeInfo xml, CharSequenceConsumer output, Options options, XPathContext context) throws XPathException {
+    private void convertToJson(NodeInfo xml, UniStringConsumer output, Options options, XPathContext context) throws XPathException {
         PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
         pipe.setXPathContext(context);
-        JsonReceiver receiver = new JsonReceiver(pipe, output);
+        JsonReceiver receiver = new JsonReceiver(pipe, context, output);
         receiver.setIndenting(options.indent);
         if (options.numberFormatter != null) {
             receiver.setNumberFormatter(options.numberFormatter);

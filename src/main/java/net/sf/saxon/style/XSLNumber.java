@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,6 +21,8 @@ import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
+
+import java.util.function.Supplier;
 
 /**
  * An xsl:number element in the stylesheet. <br>
@@ -57,7 +59,7 @@ public class XSLNumber extends StyleElement {
 
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String selectAtt = null;
         String valueAtt = null;
@@ -169,7 +171,7 @@ public class XSLNumber extends StyleElement {
         if (formatAtt != null) {
             if (format instanceof StringLiteral) {
                 formatter = new NumberFormatter();
-                formatter.prepare(((StringLiteral) format).getStringValue());
+                formatter.prepare(((StringLiteral) format).stringify());
             }
             // else we'll need to allocate the formatter at run-time
         } else {
@@ -220,9 +222,9 @@ public class XSLNumber extends StyleElement {
 
         if (select != null) {
             try {
-                RoleDiagnostic role =
-                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:number/select", 0);
-                role.setErrorCode(errorCode);
+                final String errorCode1 = errorCode;
+                Supplier<RoleDiagnostic> role = () ->
+                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:number/select", 0, errorCode1);
                 select = getConfiguration().getTypeChecker(false).staticTypeCheck(select,
                         SequenceType.SINGLE_NODE,
                                                                                   role, makeExpressionVisitor());

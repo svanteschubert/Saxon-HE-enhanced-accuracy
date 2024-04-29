@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,7 @@ import net.sf.saxon.z.IntRangeSet;
 
 public class Alphanumeric {
 
-    private static int[] zeroDigits = {
+    private static final int[] zeroDigits = {
             0x0030, 0x0660, 0x06f0, 0x0966, 0x09e6, 0x0a66, 0x0ae6, 0x0b66, 0x0be6, 0x0c66, 0x0ce6,
             0x0d66, 0x0e50, 0x0ed0, 0x0f20, 0x1040, 0x17e0, 0x1810, 0x1946, 0x19d0, 0xff10,
             0x104a0, 0x107ce, 0x107d8, 0x107e2, 0x107ec, 0x107f6};
@@ -27,7 +27,7 @@ public class Alphanumeric {
     // These data sets were generated from the Unicode 10.0.0 database using a custom stylesheet.
     // (copied below)
 
-    private static int[] startPoints = new int[]{
+    private static final int[] startPoints = new int[]{
             0x0030, 0x0041, 0x0061, 0x00AA, 0x00B2, 0x00B5, 0x00B9, 0x00BC, 0x00C0, 0x00D8,
             0x00F8, 0x02C6, 0x02E0, 0x02EC, 0x02EE, 0x0370, 0x0376, 0x037A, 0x037F, 0x0386,
             0x0388, 0x038C, 0x038E, 0x03A3, 0x03F7, 0x048A, 0x0531, 0x0559, 0x0561, 0x05D0,
@@ -135,7 +135,7 @@ public class Alphanumeric {
 //            0x1D6C2, 0x1D6DC, 0x1D6FC, 0x1D716, 0x1D736, 0x1D750, 0x1D770, 0x1D78A, 0x1D7AA, 0x1D7C4,
 //            0x1D7CE, 0x20000, 0x2F800};
 
-    private static int[] endPoints = new int[]{
+    private static final int[] endPoints = new int[]{
             0x0039, 0x005A, 0x007A, 0x00AA, 0x00B3, 0x00B5, 0x00BA, 0x00BE, 0x00D6, 0x00F6,
             0x02C1, 0x02D1, 0x02E4, 0x02EC, 0x02EE, 0x0374, 0x0377, 0x037D, 0x037F, 0x0386,
             0x038A, 0x038C, 0x03A1, 0x03F5, 0x0481, 0x052F, 0x0556, 0x0559, 0x0587, 0x05EA,
@@ -243,7 +243,7 @@ public class Alphanumeric {
 //            0x1D6DA, 0x1D6FA, 0x1D714, 0x1D734, 0x1D74E, 0x1D76E, 0x1D788, 0x1D7A8, 0x1D7C2, 0x1D7C9,
 //            0x1D7FF, 0x2A6D6, 0x2FA1D};
 
-    /*@NotNull*/ private static IntRangeSet alphanumerics = new IntRangeSet(startPoints, endPoints);
+    /*@NotNull*/ private static final IntRangeSet alphanumerics = new IntRangeSet(startPoints, endPoints);
 
     /**
      * Determine whether a Unicode codepoint is alphanumeric, that is, whether it is in one of the

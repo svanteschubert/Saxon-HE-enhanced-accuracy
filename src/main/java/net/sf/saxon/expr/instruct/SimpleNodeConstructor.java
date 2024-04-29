@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,9 +13,9 @@ import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.functions.String_1;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeName;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.*;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.tree.util.Orphan;
@@ -65,6 +65,15 @@ public abstract class SimpleNodeConstructor extends Instruction {
         return selectOp.getChildExpression();
     }
 
+    /**
+     * Get the select operand, that is the operand that wraps the select expression
+     * @return the select operand
+     */
+
+    public Operand getSelectOp() {
+        return selectOp;
+    }
+
     @Override
     public Iterable<Operand> operands() {
         return selectOp;
@@ -100,7 +109,7 @@ public abstract class SimpleNodeConstructor extends Instruction {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getSelect().getCardinality(); // may allow empty sequence
     }
 
@@ -113,7 +122,7 @@ public abstract class SimpleNodeConstructor extends Instruction {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return super.computeSpecialProperties() |
                 StaticProperty.SINGLE_DOCUMENT_NODESET;
     }
@@ -212,27 +221,6 @@ public abstract class SimpleNodeConstructor extends Instruction {
         return "SimpleNodeConstructor";
     }
 
-    /**
-     * Process this instruction
-     *
-     *
-     * @param output the destination for the result
-     * @param context the dynamic context of the transformation
-     * @return a TailCall to be executed by the caller, always null for this instruction
-     */
-
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        CharSequence value = getSelect().evaluateAsString(context);
-        try {
-            processValue(value, output, context);
-        } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            throw e;
-        }
-        return null;
-    }
-
 
     /**
      * Process the value of the node, to create the new node.
@@ -243,7 +231,7 @@ public abstract class SimpleNodeConstructor extends Instruction {
      * @throws XPathException if a dynamic error occurs
      */
 
-    public abstract void processValue(CharSequence value, Outputter output, XPathContext context) throws XPathException;
+    public abstract void processValue(UnicodeString value, Outputter output, XPathContext context) throws XPathException;
 
     /**
      * Evaluate as an expression.
@@ -251,12 +239,12 @@ public abstract class SimpleNodeConstructor extends Instruction {
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        Item contentItem = getSelect().evaluateItem(context);
-        String content;
+        Item contentItem = getSelect().makeElaborator().elaborateForItem().eval(context);
+        UnicodeString content;
         if (contentItem == null) {
-            content = "";
+            content = EmptyUnicodeString.getInstance();
         } else {
-            content = contentItem.getStringValue();
+            content = contentItem.getUnicodeStringValue();
             content = checkContent(content, context);
         }
         Orphan o = new Orphan(context.getConfiguration());
@@ -275,13 +263,13 @@ public abstract class SimpleNodeConstructor extends Instruction {
      * @throws XPathException if the content is invalid
      */
 
-    protected String checkContent(String data, XPathContext context) throws XPathException {
+    public UnicodeString checkContent(UnicodeString data, XPathContext context) throws XPathException {
         return data;
     }
 
     /**
      * Run-time method to compute the name of the node being constructed. This is overridden
-     * for nodes that have a name. The default implementation returns null, which is suitable for
+     * for nodes that have a name. The default implementation returns -1, which is suitable for
      * unnamed nodes such as comments
      *
      * @param context the XPath dynamic evaluation context

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,7 +22,7 @@ import net.sf.saxon.tree.util.Navigator;
  */
 public class FailRuleSet implements BuiltInRuleSet {
 
-    private static FailRuleSet THE_INSTANCE = new FailRuleSet();
+    private static final FailRuleSet THE_INSTANCE = new FailRuleSet();
 
     /**
      * Get the singleton instance of this class
@@ -53,8 +53,10 @@ public class FailRuleSet implements BuiltInRuleSet {
                         Location locationId) throws XPathException {
         String id = (item instanceof NodeInfo ?
                 "the node " + Navigator.getPath((NodeInfo) item) :
-                "the atomic value " + item.getStringValue());
-        XPathException err = new XPathException("No user-defined template rule matches " + id, "XTDE0555");
+                "the atomic value " + item.getUnicodeStringValue());
+        XPathException err = new XPathException("No user-defined template rule in " +
+                                                    context.getCurrentMode().getActor().getModeTitle(false) +
+                                                        " matches " + id, "XTDE0555");
         err.setLocator(locationId.saveLocation());
         throw err;
     }
@@ -78,7 +80,7 @@ public class FailRuleSet implements BuiltInRuleSet {
      * @return the default action for unmatched element nodes: one of DEEP_COPY, APPLY_TEMPLATES, DEEP_SKIP, FAIL
      */
     @Override
-    public int[] getActionForParentNodes(int nodeKind) {
-        return new int[]{FAIL};
+    public BuiltInRules[] getActionForParentNodes(int nodeKind) {
+        return new BuiltInRules[]{BuiltInRules.FAIL};
     }
 }

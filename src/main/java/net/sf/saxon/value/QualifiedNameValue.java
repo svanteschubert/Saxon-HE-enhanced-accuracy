@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,14 +10,18 @@ package net.sf.saxon.value;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ValidationFailure;
 
 import javax.xml.namespace.QName;
+import java.util.Objects;
 
 
 /**
@@ -27,7 +31,13 @@ import javax.xml.namespace.QName;
 
 public abstract class QualifiedNameValue extends AtomicValue implements AtomicMatchKey {
 
-    /*@NotNull*/ protected StructuredQName qName;
+    /*@NotNull*/ protected final StructuredQName qName;
+
+    public QualifiedNameValue(StructuredQName qName, AtomicType typeLabel) {
+        super(typeLabel);
+        Objects.requireNonNull(qName);
+        this.qName = qName;
+    }
 
     /**
      * Factory method to construct either a QName or a NOTATION value, or a subtype of either of these.
@@ -45,8 +55,8 @@ public abstract class QualifiedNameValue extends AtomicValue implements AtomicMa
      */
 
     /*@Nullable*/
-    public static AtomicValue makeQName(String prefix, String uri, String local,
-                                        /*@NotNull*/ AtomicType targetType, CharSequence lexicalForm, ConversionRules rules)
+    public static AtomicValue makeQName(String prefix, NamespaceUri uri, String local,
+                                        /*@NotNull*/ AtomicType targetType, UnicodeString lexicalForm, ConversionRules rules)
             throws XPathException {
 
         if (targetType.getFingerprint() == StandardNames.XS_QNAME) {
@@ -57,13 +67,12 @@ public abstract class QualifiedNameValue extends AtomicValue implements AtomicMa
             if (targetType.getPrimitiveType() == StandardNames.XS_QNAME) {
                 qnv = new QNameValue(prefix, uri, local, targetType, true);
             } else {
-                qnv = new NotationValue(prefix, uri, local, null);
+                qnv = new NotationValue(prefix, uri, local, targetType);
             }
             ValidationFailure vf = targetType.validate(qnv, lexicalForm, rules);
             if (vf != null) {
                 throw vf.makeException();
             }
-            qnv.setTypeLabel(targetType);
             return qnv;
         }
     }
@@ -72,11 +81,12 @@ public abstract class QualifiedNameValue extends AtomicValue implements AtomicMa
     /**
      * Get the string value as a String. Returns the QName as a lexical QName, retaining the original
      * prefix if available.
+     * @return the value converted to a string
      */
 
     @Override
-    public final String getPrimitiveStringValue() {
-        return qName.getDisplayName();
+    public final UnicodeString getPrimitiveStringValue() {
+        return StringView.of(qName.getDisplayName()).tidy();
     }
 
     /**
@@ -117,8 +127,8 @@ public abstract class QualifiedNameValue extends AtomicValue implements AtomicMa
      */
 
     /*@NotNull*/
-    public final String getNamespaceURI() {
-        return qName.getURI();
+    public final NamespaceUri getNamespaceURI() {
+        return qName.getNamespaceUri();
     }
 
     /**
@@ -142,17 +152,14 @@ public abstract class QualifiedNameValue extends AtomicValue implements AtomicMa
      * using the getXPathComparable() method. A context argument is supplied for use in cases where the comparison
      * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
      * collation.
-     *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
-     * @param collator the collation to be used for the comparison
+     *  @param collator the collation to be used for the comparison
      * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
      */
 
     /*@Nullable*/
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone) {
-        return ordered ? null : this;
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
+        return this;
     }
 
     public int hashCode() {
@@ -175,13 +182,12 @@ public abstract class QualifiedNameValue extends AtomicValue implements AtomicMa
     }
 
     /**
-     * The toString() method returns the name in the form QName("uri", "local")
-     *
+     * The show() method returns the name in the form QName("uri", "local")
      * @return the name in in the form QName("uri", "local")
      */
 
-    /*@NotNull*/
-    public String toString() {
+    @Override
+    public String show() {
         return "QName(\"" + getNamespaceURI() + "\", \"" + getLocalName() + "\")";
     }
 
@@ -194,7 +200,6 @@ public abstract class QualifiedNameValue extends AtomicValue implements AtomicMa
     public QName toJaxpQName() {
         return qName.toJaxpQName();
     }
-
     /**
      * Get the equivalent StructuredQName
      *

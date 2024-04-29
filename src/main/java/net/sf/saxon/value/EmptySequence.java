@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,20 +9,21 @@ package net.sf.saxon.value;
 
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.UnfailingIterator;
-
-import java.util.Collections;
 
 /**
  * An EmptySequence object represents a sequence containing no members.
+ * @since 9.5.  Generified in 9.9.  Generification reverted in 11.0.
  */
 
 
-public final class EmptySequence<T extends Item> implements GroundedValue {
+public final class EmptySequence implements GroundedValue {
 
     // This class has a single instance
-    /*@NotNull*/ private static EmptySequence THE_INSTANCE = new EmptySequence();
+    private static final EmptySequence THE_INSTANCE = new EmptySequence();
 
 
     /**
@@ -38,20 +39,17 @@ public final class EmptySequence<T extends Item> implements GroundedValue {
      * @return the singular instances of this class: an empty sequence
      */
 
-    @SuppressWarnings("unchecked")
-    public static <T extends Item> EmptySequence<T> getInstance() {
-        return (EmptySequence<T>)THE_INSTANCE;
+    public static EmptySequence getInstance() {
+        return THE_INSTANCE;
+    }
+
+    @Override
+    public UnicodeString getUnicodeStringValue() {
+        return EmptyUnicodeString.getInstance();
     }
 
     @Override
     public String getStringValue() {
-        return "";
-    }
-
-    public Collections a;
-
-    @Override
-    public CharSequence getStringValueCS() {
         return "";
     }
 
@@ -62,29 +60,19 @@ public final class EmptySequence<T extends Item> implements GroundedValue {
      *         is empty
      */
     @Override
-    public T head() {
+    public Item head() {
         return null;
     }
 
     /**
      * Return an iteration over the sequence
+     * @return an empty iterator
      */
 
     /*@NotNull*/
     @Override
-    public UnfailingIterator iterate() {
-        return EmptyIterator.emptyIterator();
-    }
-
-    /**
-     * Return the value in the form of an Item
-     *
-     * @return the value in the form of an Item
-     */
-
-    /*@Nullable*/
-    public Item asItem() {
-        return null;
+    public SequenceIterator iterate() {
+        return EmptyIterator.getInstance();
     }
 
     /**
@@ -137,7 +125,7 @@ public final class EmptySequence<T extends Item> implements GroundedValue {
 
     /*@Nullable*/
     @Override
-    public T itemAt(int n) {
+    public Item itemAt(int n) {
         return null;
     }
 

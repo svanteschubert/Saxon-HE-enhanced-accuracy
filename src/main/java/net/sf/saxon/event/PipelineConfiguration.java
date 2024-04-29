@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,10 +12,9 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.ParseOptions;
-import net.sf.saxon.lib.SchemaURIResolver;
+import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.s9api.HostLanguage;
 
-import javax.xml.transform.URIResolver;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,16 +23,20 @@ import java.util.Map;
  * Unlike the global Configuration, these options are always local to a process.
  */
 
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<Saxon.Hej.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
 public class PipelineConfiguration {
 
     /*@NotNull*/ private Configuration config;
-    private URIResolver uriResolver;
-    private SchemaURIResolver schemaURIResolver;
     private Controller controller;
     private ParseOptions parseOptions;
-    private HostLanguage hostLanguage = HostLanguage.XSLT;
+    private HostLanguage hostLanguage = HostLanguage.UNKNOWN;
     private Map<String, Object> components;
     private XPathContext context;
+    private java.util.function.Function<NodeInfo, Object> copyInformee;
 
     /**
      * Create a PipelineConfiguration. Note: the normal way to create
@@ -50,6 +53,11 @@ public class PipelineConfiguration {
         parseOptions = new ParseOptions();
     }
 
+    public PipelineConfiguration(/*@NotNull*/ Configuration config, ParseOptions parseOptions) {
+        this.config = config;
+        this.parseOptions = parseOptions;
+    }
+
     /**
      * Create a PipelineConfiguration as a copy of an existing
      * PipelineConfiguration
@@ -59,15 +67,14 @@ public class PipelineConfiguration {
 
     public PipelineConfiguration(PipelineConfiguration p) {
         config = p.config;
-        uriResolver = p.uriResolver;
-        schemaURIResolver = p.schemaURIResolver;
         controller = p.controller;
-        parseOptions = new ParseOptions(p.parseOptions);
+        parseOptions = p.parseOptions;
         hostLanguage = p.hostLanguage;
         if (p.components != null) {
             components = new HashMap<>(p.components);
         }
         context = p.context;
+        copyInformee = null;
     }
 
     /**
@@ -100,9 +107,9 @@ public class PipelineConfiguration {
      */
 
     public ErrorReporter getErrorReporter() {
-        ErrorReporter reporter = parseOptions.getErrorReporter();
+        ErrorReporter reporter = getParseOptions().getErrorReporter();
         if (reporter == null) {
-            reporter = config.makeErrorReporter();
+            reporter = controller == null ? config.makeErrorReporter() : controller.getErrorReporter();
         }
         return reporter;
     }
@@ -114,38 +121,7 @@ public class PipelineConfiguration {
      */
 
     public void setErrorReporter(ErrorReporter errorReporter) {
-        parseOptions.setErrorReporter(errorReporter);
-    }
-
-    /**
-     * Get the URIResolver used for processing URIs encountered on this pipeline
-     *
-     * @return the URIResolver
-     */
-
-    public URIResolver getURIResolver() {
-        return uriResolver;
-    }
-
-    /**
-     * Set the URIResolver used for processing URIs encountered on this pipeline
-     *
-     * @param uriResolver the URIResolver
-     */
-
-    public void setURIResolver(URIResolver uriResolver) {
-        this.uriResolver = uriResolver;
-    }
-
-    /**
-     * Get the user-defined SchemaURIResolver for resolving URIs used in "import schema"
-     * declarations; returns null if none has been explicitly set.
-     *
-     * @return the SchemaURIResolver
-     */
-
-    public SchemaURIResolver getSchemaURIResolver() {
-        return schemaURIResolver;
+        parseOptions = getParseOptions().withErrorReporter(errorReporter);
     }
 
     /**
@@ -166,6 +142,9 @@ public class PipelineConfiguration {
      */
 
     public ParseOptions getParseOptions() {
+        if (parseOptions == null) {
+            parseOptions = config.getParseOptions();
+        }
         return parseOptions;
     }
 
@@ -177,7 +156,7 @@ public class PipelineConfiguration {
      */
 
     public void setUseXsiSchemaLocation(boolean recognize) {
-        parseOptions.setUseXsiSchemaLocation(recognize);
+        parseOptions = getParseOptions().withUseXsiSchemaLocation(recognize);
     }
 
     /**
@@ -194,7 +173,7 @@ public class PipelineConfiguration {
      */
 
     public void setRecoverFromValidationErrors(boolean recover) {
-        parseOptions.setContinueAfterValidationErrors(recover);
+        parseOptions = getParseOptions().withContinueAfterValidationErrors(recover);
     }
 
     /**
@@ -207,19 +186,19 @@ public class PipelineConfiguration {
      */
 
     public boolean isRecoverFromValidationErrors() {
-        return parseOptions.isContinueAfterValidationErrors();
+        return getParseOptions().isContinueAfterValidationErrors();
     }
 
-    /**
-     * Set a user-defined SchemaURIResolver for resolving URIs used in "import schema"
-     * declarations.
-     *
-     * @param resolver the SchemaURIResolver
-     */
-
-    public void setSchemaURIResolver(SchemaURIResolver resolver) {
-        schemaURIResolver = resolver;
-    }
+//    /**
+//     * Set a user-defined SchemaURIResolver for resolving URIs used in "import schema"
+//     * declarations.
+//     *
+//     * @param resolver the SchemaURIResolver
+//     */
+//
+//    public void setSchemaURIResolver(SchemaURIResolver resolver) {
+//        schemaURIResolver = resolver;
+//    }
 
     /**
      * Get the controller associated with this pipelineConfiguration
@@ -248,6 +227,9 @@ public class PipelineConfiguration {
      */
 
     public HostLanguage getHostLanguage() {
+        if (hostLanguage == HostLanguage.UNKNOWN) {
+            hostLanguage = controller == null ? HostLanguage.UNKNOWN : controller.getExecutable().getHostLanguage();
+        }
         return hostLanguage;
     }
 
@@ -257,7 +239,7 @@ public class PipelineConfiguration {
      */
 
     public boolean isXSLT() {
-        return hostLanguage == HostLanguage.XSLT;
+        return getHostLanguage() == HostLanguage.XSLT;
     }
 
     /**
@@ -268,18 +250,6 @@ public class PipelineConfiguration {
 
     public void setHostLanguage(HostLanguage language) {
         hostLanguage = language;
-    }
-
-    /**
-     * Set whether attribute defaults defined in a schema or DTD are to be expanded or not
-     * (by default, fixed and default attribute values are expanded, that is, they are inserted
-     * into the document during validation as if they were present in the instance being validated)
-     *
-     * @param expand true if defaults are to be expanded, false if not
-     */
-
-    public void setExpandAttributeDefaults(boolean expand) {
-        parseOptions.setExpandAttributeDefaults(expand);
     }
 
     /**
@@ -294,6 +264,14 @@ public class PipelineConfiguration {
             components = new HashMap<>();
         }
         components.put(name, value);
+    }
+
+    public void setCopyInformee(java.util.function.Function<NodeInfo, Object> informee) {
+        this.copyInformee = informee;
+    }
+
+    public java.util.function.Function<NodeInfo, Object> getCopyInformee() {
+        return this.copyInformee;
     }
 
     /**

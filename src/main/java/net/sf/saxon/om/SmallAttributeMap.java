@@ -1,12 +1,11 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.om;
-
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -23,9 +22,9 @@ import java.util.List;
 
 public class SmallAttributeMap implements AttributeMap {
 
-    final static int LIMIT = 8;
+    public final static int LIMIT = 8;
 
-    private List<AttributeInfo> attributes;
+    private final ArrayList<AttributeInfo> attributes;
 
     public SmallAttributeMap(List<AttributeInfo> attributes) {
         // TODO: check uniqueness of names?
@@ -54,7 +53,7 @@ public class SmallAttributeMap implements AttributeMap {
     }
 
     @Override
-    public AttributeInfo get(String uri, String local) {
+    public AttributeInfo get(NamespaceUri uri, String local) {
         for (AttributeInfo info : attributes) {
             NodeName name = info.getNodeName();
             if (name.getLocalPart().equals(local) && name.hasURI(uri)) {
@@ -81,8 +80,8 @@ public class SmallAttributeMap implements AttributeMap {
     }
 
     @Override
-    public List<AttributeInfo> asList() {
-        return new ArrayList<>(attributes);
+    public ArrayList<AttributeInfo> asList() {
+        return attributes;
     }
 
     @Override

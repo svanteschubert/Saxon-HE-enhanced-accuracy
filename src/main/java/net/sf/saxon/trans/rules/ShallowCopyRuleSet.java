@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -29,7 +29,7 @@ import net.sf.saxon.type.Untyped;
  */
 public class ShallowCopyRuleSet implements BuiltInRuleSet {
 
-    private static ShallowCopyRuleSet THE_INSTANCE = new ShallowCopyRuleSet();
+    private static final ShallowCopyRuleSet THE_INSTANCE = new ShallowCopyRuleSet();
 
     /**
      * Get the singleton instance of this class
@@ -41,15 +41,15 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
         return THE_INSTANCE;
     }
 
-    private ShallowCopyRuleSet() {
+    protected ShallowCopyRuleSet() {
     }
 
     /**
      * Perform the built-in template action for a given node.
-     * @param item
+     * @param item the item to be processed by this built-in rule
      * @param parameters   the parameters supplied to apply-templates
      * @param tunnelParams the tunnel parameters to be passed through
-     * @param out
+     * @param out  the destination for output
      * @param context      the dynamic evaluation context
      * @param locationId   location of the instruction (apply-templates, apply-imports etc) that caused
      */
@@ -59,7 +59,6 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                         ParameterSet tunnelParams, Outputter out, XPathContext context,
                         Location locationId) throws XPathException {
         if (item instanceof NodeInfo) {
-            boolean schemaAware = context.getController().getExecutable().isSchemaAware();
             NodeInfo node = (NodeInfo) item;
             switch (node.getNodeKind()) {
                 case Type.DOCUMENT: {
@@ -82,6 +81,7 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                     return;
                 }
                 case Type.ELEMENT: {
+                    boolean schemaAware = context.getController().getExecutable().isSchemaAware();
                     PipelineConfiguration pipe = out.getPipelineConfiguration();
                     if (out.getSystemId() == null) {
                         out.setSystemId(node.getBaseURI());
@@ -89,7 +89,7 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                     NodeName fqn = NameOfNode.makeName(node);
                     out.startElement(fqn, schemaAware ? AnyType.getInstance() : Untyped.getInstance(), locationId, ReceiverOption.NONE);
                     for (NamespaceBinding ns : node.getAllNamespaces()) {
-                        out.namespace(ns.getPrefix(), ns.getURI(), ReceiverOption.NONE);
+                        out.namespace(ns.getPrefix(), ns.getNamespaceUri(), ReceiverOption.NONE);
                     }
                     XPathContextMajor c2 = context.newContext();
                     c2.setCurrentComponent(c2.getCurrentMode());  // Bug 3508
@@ -119,15 +119,15 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                     return;
                 }
                 case Type.TEXT:
-                    out.characters(node.getStringValueCS(), locationId, ReceiverOption.NONE);
+                    out.characters(node.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                     return;
 
                 case Type.COMMENT:
-                    out.comment(node.getStringValueCS(), locationId, ReceiverOption.NONE);
+                    out.comment(node.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                     return;
 
                 case Type.PROCESSING_INSTRUCTION:
-                    out.processingInstruction(node.getLocalPart(), node.getStringValue(), locationId, ReceiverOption.NONE);
+                    out.processingInstruction(node.getLocalPart(), node.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                     return;
 
                 case Type.ATTRIBUTE:
@@ -136,7 +136,7 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
                     return;
 
                 case Type.NAMESPACE:
-                    out.namespace(node.getLocalPart(), node.getStringValue(), ReceiverOption.NONE);
+                    out.namespace(node.getLocalPart(), NamespaceUri.of(node.getStringValue()), ReceiverOption.NONE);
                     return;
 
                 default:
@@ -166,7 +166,10 @@ public class ShallowCopyRuleSet implements BuiltInRuleSet {
      * @return the default action for unmatched nodes: one of DEEP_COPY, APPLY_TEMPLATES, DEEP_SKIP, FAIL
      */
     @Override
-    public int[] getActionForParentNodes(int nodeKind) {
-        return new int[]{SHALLOW_COPY, APPLY_TEMPLATES_TO_ATTRIBUTES, APPLY_TEMPLATES_TO_CHILDREN};
+    public BuiltInRules[] getActionForParentNodes(int nodeKind) {
+        return new BuiltInRules[]{
+                BuiltInRules.SHALLOW_COPY,
+                BuiltInRules.APPLY_TEMPLATES_TO_ATTRIBUTES,
+                BuiltInRules.APPLY_TEMPLATES_TO_CHILDREN};
     }
 }

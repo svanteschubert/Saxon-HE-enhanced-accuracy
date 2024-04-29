@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,15 @@
 package net.sf.saxon.ma.arrays;
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.Pingable;
 import net.sf.saxon.functions.Fold;
 import net.sf.saxon.functions.FoldingFunction;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.ma.Parcel;
+import net.sf.saxon.ma.zeno.ZenoSequence;
 import net.sf.saxon.om.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -24,139 +27,147 @@ import net.sf.saxon.z.IntHashSet;
 import net.sf.saxon.z.IntSet;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
- * Function signatures (and pointers to implementations) of the functions defined in XPath 2.0
+ * Function signatures (and pointers to implementations) of the functions defined in XPath 3.1
  */
 
 public class ArrayFunctionSet extends BuiltInFunctionSet {
 
-    public static ArrayFunctionSet THE_INSTANCE = new ArrayFunctionSet();
+    private final static ArrayFunctionSet instance31 = new ArrayFunctionSet(31);
+    private final static ArrayFunctionSet instance40 = new ArrayFunctionSet(40);
 
-    public ArrayFunctionSet() {
-        init();
+    private ArrayFunctionSet(int version) {
+        init(version);
     }
 
-    public static ArrayFunctionSet getInstance() {
-        return THE_INSTANCE;
+    public static ArrayFunctionSet getInstance(int version) {
+        return version >= 40 ? instance40 : instance31;
     }
 
-    private void init() {
+    private void init(int version) {
 
 
-        register("append", 2, ArrayAppend.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("append", 2, e -> e.populate( ArrayAppend::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, AnyItemType.getInstance(), STAR | NAV, null);
+                .arg(1, AnyItemType.getInstance(), STAR | NAV, null));
+
 
         ItemType filterFunctionType = new SpecificFunctionType(
                 new SequenceType[]{SequenceType.ANY_SEQUENCE},
                 SequenceType.SINGLE_BOOLEAN);
 
-        register("filter", 2, ArrayFilter.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("filter", 2, e -> e.populate( ArrayFilter::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, filterFunctionType, ONE | INS, null);
+                .arg(1, filterFunctionType, ONE | INS, null));
 
-        register("flatten", 1, ArrayFlatten.class, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, AnyItemType.getInstance(), STAR | ABS, null);
+        register("flatten", 1, e -> e.populate( ArrayFlatten::new, AnyItemType.getInstance(), STAR, 0)
+                .arg(0, AnyItemType.getInstance(), STAR | ABS, null));
 
         ItemType foldFunctionType = new SpecificFunctionType(
                 new SequenceType[]{SequenceType.ANY_SEQUENCE, SequenceType.ANY_SEQUENCE},
                 SequenceType.ANY_SEQUENCE);
 
-        register("fold-left", 3, ArrayFoldLeft.class, AnyItemType.getInstance(), STAR, 0)
+        register("fold-left", 3, e -> e.populate( ArrayFoldLeft::new, AnyItemType.getInstance(), STAR, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, AnyItemType.getInstance(), STAR | NAV, null)
-                .arg(2, foldFunctionType, ONE | INS, null);
+                .arg(2, foldFunctionType, ONE | INS, null));
 
-        register("fold-right", 3, ArrayFoldRight.class, AnyItemType.getInstance(), STAR, 0)
+        register("fold-right", 3, e -> e.populate( ArrayFoldRight::new, AnyItemType.getInstance(), STAR, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, AnyItemType.getInstance(), STAR | NAV, null)
-                .arg(2, foldFunctionType, ONE | INS, null);
+                .arg(2, foldFunctionType, ONE | INS, null));
+
 
         ItemType forEachFunctionType = new SpecificFunctionType(
                 new SequenceType[]{SequenceType.ANY_SEQUENCE},
                 SequenceType.ANY_SEQUENCE);
 
-        register("for-each", 2, ArrayForEach.class, AnyItemType.getInstance(), STAR, 0)
+        register("for-each", 2, e -> e.populate( ArrayForEach::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, forEachFunctionType, ONE | INS, null);
+                .arg(1, forEachFunctionType, ONE | INS, null));
 
-        register("for-each-pair", 3, ArrayForEachPair.class, AnyItemType.getInstance(), STAR, 0)
+        register("for-each-pair", 3, e -> e.populate( ArrayForEachPair::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(2, foldFunctionType, ONE | INS, null);
+                .arg(2, foldFunctionType, ONE | INS, null));
 
-        register("get", 2, ArrayGet.class, AnyItemType.getInstance(), STAR, 0)
+        register("get", 2, e -> e.populate( ArrayGet::new, AnyItemType.getInstance(), STAR, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null);
+                .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null));
 
-        register("head", 1, ArrayHead.class, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
+        register("head", 1, e -> e.populate( ArrayHead::new, AnyItemType.getInstance(), STAR, 0)
+                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
 
-        register("insert-before", 3, ArrayInsertBefore.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("insert-before", 3, e -> e.populate( ArrayInsertBefore::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, STAR | ABS, null)
-                .arg(2, AnyItemType.getInstance(), STAR | NAV, null);
+                .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null)
+                .arg(2, AnyItemType.getInstance(), STAR | NAV, null));
 
-        register("join", 1, ArrayJoin.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, STAR | INS, null);
+        register("join", 1, e -> e.populate( ArrayJoin::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, STAR | INS, null));
 
-        register("put", 3, ArrayPut.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("put", 3, e -> e.populate( ArrayPut::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, STAR | INS, null)
-                .arg(2, AnyItemType.getInstance(), STAR | NAV, null);
+                .arg(1, BuiltInAtomicType.INTEGER, ONE | INS, null)
+                .arg(2, AnyItemType.getInstance(), STAR | NAV, null));
 
-        register("remove", 2, ArrayRemove.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("remove", 2, e -> e.populate( ArrayRemove::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, STAR | ABS, null);
+                .arg(1, BuiltInAtomicType.INTEGER, STAR | ABS, null));
 
-        register("reverse", 1, ArrayReverse.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
+        register("reverse", 1, e -> e.populate( ArrayReverse::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
 
-        register("size", 1, ArraySize.class, BuiltInAtomicType.INTEGER, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
+        register("size", 1, e -> e.populate( ArraySize::new, BuiltInAtomicType.INTEGER, ONE, 0)
+                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
 
         ItemType sortFunctionType = new SpecificFunctionType(
                 new SequenceType[]{SequenceType.ANY_SEQUENCE},
                 SequenceType.ATOMIC_SEQUENCE);
 
-        register("sort", 1, ArraySort.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
+        register("sort", 1, e -> e.populate( ArraySort::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
 
-        register("sort", 2, ArraySort.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("sort", 2, e -> e.populate( ArraySort::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.STRING, OPT | ABS, null);
+                .arg(1, BuiltInAtomicType.STRING, OPT | ABS, null));
 
-        register("sort", 3, ArraySort.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("sort", 3, e -> e.populate( ArraySort::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, BuiltInAtomicType.STRING, OPT | ABS, null)
-                .arg(2, sortFunctionType, ONE | INS, null);
+                .arg(2, sortFunctionType, ONE | INS, null));
 
-        register("subarray", 2, ArraySubarray.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("subarray", 2, e -> e.populate( ArraySubarray::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null);
+                .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null));
 
-        register("subarray", 3, ArraySubarray.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+        register("subarray", 3, e -> e.populate( ArraySubarray::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null)
-                .arg(2, BuiltInAtomicType.INTEGER, ONE | ABS, null);
+                .arg(2, BuiltInAtomicType.INTEGER, (version>=40 ? OPT : ONE) | ABS, null));
 
-        register("tail", 1, ArrayTail.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
 
-        register("_to-sequence", 1, ArrayToSequence.class, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
 
-        register("_from-sequence", 1, ArrayFromSequence.class, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, AnyItemType.getInstance(), STAR | INS, null);
+        register("tail", 1, e -> e.populate( ArrayTail::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
+
+        // TODO: the following functions should be private
+
+        register("_to-sequence", 1, e -> e.populate(ArrayToSequence::new, AnyItemType.getInstance(), STAR, 0)
+                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
+
+        register("_from-sequence", 1, e -> e.populate(ArrayFromSequence::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                .arg(0, AnyItemType.getInstance(), STAR | INS, null));
 
 
     }
 
     @Override
-    public String getNamespace() {
-        return NamespaceConstant.ARRAY_FUNCTIONS;
+    public NamespaceUri getNamespace() {
+        return NamespaceUri.ARRAY_FUNCTIONS;
     }
 
     @Override
@@ -177,13 +188,64 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
     public static int checkSubscript(IntegerValue subscript, int limit) throws XPathException {
         int index = subscript.asSubscript();
         if (index <= 0) {
-            throw new XPathException("Array subscript " + subscript.getStringValue() + " is out of range", "FOAY0001");
+            throw new XPathException("Array subscript " + subscript.getUnicodeStringValue() + " is out of range", "FOAY0001");
         }
         if (index > limit) {
-            throw new XPathException("Array subscript " + subscript.getStringValue() +
+            throw new XPathException("Array subscript " + subscript.getUnicodeStringValue() +
                                              " exceeds limit (" + limit + ")", "FOAY0001");
         }
         return index;
+    }
+
+    /**
+     * Abstract superclass for functions that produce an array, and that decide what kind of array implementation
+     * to use based on past experience. Specifically, if the generated array is frequently converted to
+     * an ImmutableArrayItem, then the function ends up deciding to generate an ImmutableArrayItem in the
+     * first place.
+     */
+
+    public static abstract class ArrayGeneratingFunction extends SystemFunction implements Pingable {
+
+        private double numberOfCalls = 0;
+        private double numberOfConversions = 0;
+        private double totalSize = 0;
+
+        /**
+         * Callback function, invoked when a SimpleArrayItem created by this function needs to be converted
+         * to an {@code ImmutableArrayItem}
+         */
+
+        @Override
+        public void ping() {
+            numberOfConversions++;
+        }
+
+        /**
+         * Get the estimated number of members in the array, based on past experience
+         * @return the average size of arrays previously created, plus a little margin for expansion
+         */
+
+        protected int expectedSize() {
+            return numberOfCalls < 10 ? 10 : (int)(totalSize / numberOfCalls * 1.05); // allow a little leeway
+        }
+
+        /**
+         * Construct an array, given a list of members
+         * @param members the members of the array
+         * @return the constructed array
+         */
+        protected ArrayItem makeArray(List<GroundedValue> members) {
+            if (numberOfConversions > Math.max(10, numberOfCalls * 0.5)) {
+                // More than half the calls result in the array being converted...
+                return new ImmutableArrayItem(members);
+            } else {
+                numberOfCalls++;
+                totalSize += members.size();
+                SimpleArrayItem result = new SimpleArrayItem(members);
+                result.requestNotification(this);
+                return result;
+            }
+        }
     }
 
 
@@ -196,14 +258,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
             ArrayItem array = (ArrayItem) arguments[0].head();
             assert array != null;
-            return append(array, arguments[1]);
-        }
-
-        public static ArrayItem append(ArrayItem array, Sequence member) throws XPathException {
-            List<GroundedValue> list = new ArrayList<>(1);
-            list.add(member.materialize());
-            SimpleArrayItem otherArray = new SimpleArrayItem(list);
-            return array.concat(otherArray);
+            return array.append(arguments[1].materialize());
         }
 
     }
@@ -211,21 +266,21 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
     /**
      * Implementation of the function array:filter(array, function) =&gt; array
      */
-    public static class ArrayFilter extends SystemFunction {
+    public static class ArrayFilter extends ArrayGeneratingFunction {
 
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
+
             ArrayItem array = (ArrayItem) arguments[0].head();
             assert array != null;
-            Function fn = (Function) arguments[1].head();
-            List<GroundedValue> list = new ArrayList<>(1);
-            int i;
-            for (i=0; i < array.arrayLength(); i++) {
-                if (((BooleanValue) dynamicCall(fn, context, new Sequence[]{array.get(i)}).head()).getBooleanValue()) {
-                    list.add(array.get(i));
+            FunctionItem fn = (FunctionItem) arguments[1].head();
+            List<GroundedValue> list = new ArrayList<>(expectedSize());
+            for (GroundedValue gv : array.members()) {
+                if (((BooleanValue) dynamicCall(fn, context, new Sequence[]{gv}).head()).getBooleanValue()) {
+                    list.add(gv);
                 }
             }
-            return new SimpleArrayItem(list);
+            return makeArray(list);
         }
     }
 
@@ -234,10 +289,10 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
      */
     public static class ArrayFlatten extends SystemFunction {
 
-        private void flatten(Sequence arg, List<Item> out) throws XPathException {
-            arg.iterate().forEachOrFail(item -> {
+        private void flatten(Sequence arg, List<Item> out) {
+            SequenceTool.supply(arg.iterate(), (ItemConsumer<? super Item>) item -> {
                 if (item instanceof ArrayItem) {
-                    for (Sequence member : ((ArrayItem) item).members()) {
+                    for (GroundedValue member : ((ArrayItem) item).members()) {
                         flatten(member, out);
                     }
                 } else {
@@ -265,7 +320,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             assert array != null;
             int arraySize = array.arrayLength();
             Sequence zero = arguments[1];
-            Function fn = (Function) arguments[2].head();
+            FunctionItem fn = (FunctionItem) arguments[2].head();
             int i;
             for (i=0; i < arraySize; i++) {
                 zero = dynamicCall(fn, context, new Sequence[]{zero, array.get(i)});
@@ -284,7 +339,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             ArrayItem array = (ArrayItem) arguments[0].head();
             assert array != null;
             Sequence zero = arguments[1];
-            Function fn = (Function) arguments[2].head();
+            FunctionItem fn = (FunctionItem) arguments[2].head();
             int i;
             for (i = array.arrayLength() - 1; i >= 0; i--) {
                 zero = dynamicCall(fn, context, new Sequence[]{array.get(i), zero});
@@ -294,21 +349,68 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
     }
 
     /**
+     * Implementation of the proposed 4.0 function array:exists(array)
+     */
+    public static class ArrayExists extends SystemFunction {
+
+        @Override
+        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+            ArrayItem array = (ArrayItem) arguments[0].head();
+            assert array != null;
+            int len = array.arrayLength();
+            return BooleanValue.get(len > 0);
+        }
+
+    }
+
+    /**
+     * Implementation of the proposed 4.0 function array:empty(array)
+     */
+    public static class ArrayEmpty extends SystemFunction {
+
+        @Override
+        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+            ArrayItem array = (ArrayItem) arguments[0].head();
+            assert array != null;
+            int len = array.arrayLength();
+            return BooleanValue.get(len == 0);
+        }
+
+    }
+
+    /**
+     * Implementation of the proposed 4.0 function array:foot(array) =&gt; item()*
+     */
+    public static class ArrayFoot extends SystemFunction {
+
+        @Override
+        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+            ArrayItem array = (ArrayItem) arguments[0].head();
+            assert array != null;
+            int len = array.arrayLength();
+            if (len == 0) {
+                throw new XPathException("Argument to array:foot is an empty array", "FOAY0001");
+            }
+            return array.get(len - 1);
+        }
+
+    }
+
+    /**
      * Implementation of the function array:for-each(array, function) =&gt; array
      */
-    public static class ArrayForEach extends SystemFunction {
+    public static class ArrayForEach extends ArrayGeneratingFunction {
 
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
             ArrayItem array = (ArrayItem) arguments[0].head();
             assert array != null;
-            Function fn = (Function) arguments[1].head();
-            List<GroundedValue> list = new ArrayList<>(1);
-            int i;
-            for (i=0; i < array.arrayLength(); i++) {
-                list.add(dynamicCall(fn, context, new GroundedValue[]{array.get(i)}).materialize());
+            FunctionItem fn = (FunctionItem) arguments[1].head();
+            List<GroundedValue> list = new ArrayList<>(expectedSize());
+            for (GroundedValue gv : array.members()) {
+                list.add(dynamicCall(fn, context, new GroundedValue[]{gv}).materialize());
             }
-            return new SimpleArrayItem(list);
+            return makeArray(list);
         }
 
     }
@@ -316,7 +418,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
     /**
      * Implementation of the function array:for-each-pair(array, array, function) =&gt; array
      */
-    public static class ArrayForEachPair extends SystemFunction {
+    public static class ArrayForEachPair extends ArrayGeneratingFunction {
 
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
@@ -324,13 +426,13 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             assert array1 != null;
             ArrayItem array2 = (ArrayItem) arguments[1].head();
             assert array2 != null;
-            Function fn = (Function) arguments[2].head();
-            List<GroundedValue> list = new ArrayList<>(1);
+            FunctionItem fn = (FunctionItem) arguments[2].head();
+            List<GroundedValue> list = new ArrayList<>(expectedSize());
             int i;
             for (i=0; i < array1.arrayLength() && i < array2.arrayLength(); i++) {
                 list.add(dynamicCall(fn, context, new Sequence[]{array1.get(i), array2.get(i)}).materialize());
             }
-            return new SimpleArrayItem(list);
+            return makeArray(list);
         }
     }
 
@@ -343,7 +445,18 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
         public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
             ArrayItem array = (ArrayItem) arguments[0].head();
             IntegerValue index = (IntegerValue) arguments[1].head();
-            return array.get(checkSubscript(index, array.arrayLength()) - 1);
+            if (arguments.length <= 2) {
+                return array.get(checkSubscript(index, array.arrayLength()) - 1);
+            } else {
+                int i = index.asSubscript();
+                if (i <= 0 || i > array.arrayLength()) {
+                    FunctionItem fn = (FunctionItem) arguments[2].head();
+                    return dynamicCall(fn, context, index);
+                } else {
+                    return array.get(i - 1);
+                }
+
+            }
         }
 
     }
@@ -403,6 +516,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
 
     }
 
+
     /**
      * Implementation of the function array:put(arrays, index, newValue) =&gt; array
      */
@@ -434,8 +548,8 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             }
             IntSet positions = new IntHashSet();
             SequenceIterator arg1 = offsets.iterate();
-            arg1.forEachOrFail(pos -> {
-                int index = checkSubscript((IntegerValue)pos, array.arrayLength()) - 1;
+            SequenceTool.supply(arg1, (ItemConsumer<? super Item>) pos -> {
+                int index = checkSubscript((IntegerValue) pos, array.arrayLength()) - 1;
                 positions.add(index);
             });
             return array.removeSeveral(positions);
@@ -444,20 +558,39 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
     }
 
     /**
+     * Implementation of the function array:replace(array, position, action) =&gt; array
+     */
+    public static class ArrayReplace extends SystemFunction {
+
+        @Override
+        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+            ArrayItem array = (ArrayItem) arguments[0].head();
+            IntegerValue index = (IntegerValue) arguments[1].head();
+            int pos = checkSubscript(index, array.arrayLength()) - 1;
+            GroundedValue oldVal = array.get(pos);
+            FunctionItem fn = (FunctionItem) arguments[2].head();
+            GroundedValue newVal = dynamicCall(fn, context, oldVal).materialize();
+            return array.put(pos, newVal);
+        }
+
+    }
+
+
+    /**
      * Implementation of the function array:reverse(array, xs:integer, xs:integer) =&gt; array
      */
-    public static class ArrayReverse extends SystemFunction {
+    public static class ArrayReverse extends ArrayGeneratingFunction {
 
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
             ArrayItem array = (ArrayItem) arguments[0].head();
             assert array != null;
-            List<GroundedValue> list = new ArrayList<>(1);
+            List<GroundedValue> list = new ArrayList<>(array.arrayLength());
             int i;
             for (i=0; i < array.arrayLength(); i++) {
                 list.add(array.get(array.arrayLength()-i-1));
             }
-            return new SimpleArrayItem(list);
+            return makeArray(list);
         }
 
     }
@@ -481,6 +614,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
      */
     public static class ArraySubarray extends SystemFunction {
 
+
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
             ArrayItem array = (ArrayItem) arguments[0].head();
@@ -489,13 +623,16 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             int length;
             if (arguments.length == 3) {
                 IntegerValue len = (IntegerValue) arguments[2].head();
-                int signum = len.signum();
-                if (signum < 0) {
-                    throw new XPathException("Specified length of subarray is less than zero", "FOAY0002");
+                if (len == null) {
+                    length = array.arrayLength() - start + 1;
+                } else {
+                    int signum = len.signum();
+                    if (signum < 0) {
+                        throw new XPathException("Specified length of subarray is less than zero", "FOAY0002");
+                    }
+                    length = signum == 0 ? 0 : checkSubscript(len, array.arrayLength());
                 }
-                length = signum == 0 ? 0 : checkSubscript(len, array.arrayLength());
-            }
-            else {
+            } else {
                 length = array.arrayLength() - start + 1;
             }
             if (start < 1) {
@@ -541,11 +678,11 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
         }
 
         public static Sequence toSequence(ArrayItem array) throws XPathException {
-            List<GroundedValue> results = new ArrayList<>();
-            for (Sequence seq : array.members()) {
-                results.add(seq.materialize());
+            ZenoSequence results = new ZenoSequence();
+            for (GroundedValue seq : array.members()) {
+                results = results.appendSequence(seq);
             }
-            return new Chain(results);
+            return results;
         }
     }
 
@@ -554,10 +691,31 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
      * is used internally for the implementation of array{} and of the saxon:array extension
      */
 
-    public static class ArrayFromSequence extends FoldingFunction {
+    public static class ArrayFromSequence extends FoldingFunction implements Pingable {
+
+        private double numberOfCalls = 0;
+        private double numberOfConversions = 0;
+
+        /**
+         * Callback function, invoked when a SimpleArrayItem created by this function needs to be converted
+         * to an {@code ImmutableArrayItem}
+         */
+
+        @Override
+        public void ping() {
+            numberOfConversions++;
+        }
+
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
-            return SimpleArrayItem.makeSimpleArrayItem(((Sequence)arguments[0]).iterate());
+            if (numberOfConversions > Math.max(10, numberOfCalls * 0.5)) {
+                return ImmutableArrayItem.from(arguments[0].iterate());
+            } else {
+                SimpleArrayItem result = SimpleArrayItem.makeSimpleArrayItem(arguments[0].iterate());
+                result.requestNotification(this);
+                numberOfCalls++;
+                return result;
+            }
         }
 
         /**
@@ -570,7 +728,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
         @Override
         public Fold getFold(XPathContext context, Sequence... additionalArguments) {
             return new Fold() {
-                List<GroundedValue> members = new ArrayList<>();
+                final List<GroundedValue> members = new ArrayList<>();
 
                 /**
                  * Process one item in the input sequence, returning a new copy of the working data
@@ -601,10 +759,12 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
                  * @return the result of the function
                  */
                 @Override
-                public ArrayItem result() {
+                public Sequence result() {
                     return new SimpleArrayItem(members);
                 }
             };
         }
     }
+
+
 }

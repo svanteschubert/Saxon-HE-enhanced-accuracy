@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,6 +17,7 @@ import net.sf.saxon.expr.accum.IAccumulatorData;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 
@@ -25,7 +26,8 @@ import net.sf.saxon.type.Type;
  */
 public abstract class AccumulatorFn extends SystemFunction {
 
-    public enum Phase {AFTER, BEFORE}
+    @CSharpSimpleEnum
+    public enum Phase {AFTER, BEFORE, UNSPECIFIED}
 
     public abstract Phase getPhase();
 
@@ -66,7 +68,7 @@ public abstract class AccumulatorFn extends SystemFunction {
      * @param name     the name (as written - a lexical EQName)
      * @param registry the accumulator registry, or null if there are no accumulators registered
      * @return the accumulator
-     * @throws XPathException the the accumulator is not recognised or if the name is invalid
+     * @throws XPathException if the accumulator is not recognised or if the name is invalid
      */
 
     private Accumulator getAccumulator(String name, AccumulatorRegistry registry) throws XPathException {
@@ -95,7 +97,7 @@ public abstract class AccumulatorFn extends SystemFunction {
         try {
             if (args[0] instanceof StringLiteral) {
                 AccumulatorRegistry registry = getRetainedStaticContext().getPackageData().getAccumulatorRegistry();
-                Accumulator accumulator = getAccumulator(((StringLiteral) args[0]).getStringValue(), registry);
+                Accumulator accumulator = getAccumulator(((StringLiteral) args[0]).stringify(), registry);
                 return accumulator.getType().getPrimaryType();
             }
         } catch (Exception e) {
@@ -115,7 +117,7 @@ public abstract class AccumulatorFn extends SystemFunction {
         try {
             if (args[0] instanceof StringLiteral) {
                 AccumulatorRegistry registry = getRetainedStaticContext().getPackageData().getAccumulatorRegistry();
-                Accumulator accumulator = getAccumulator(((StringLiteral) args[0]).getStringValue(), registry);
+                Accumulator accumulator = getAccumulator(((StringLiteral) args[0]).stringify(), registry);
                 return accumulator.getType().getCardinality();
             }
         } catch (Exception e) {

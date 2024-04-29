@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,12 +14,11 @@ import net.sf.saxon.lib.ErrorReporterToListener;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.SerializerFactory;
 import net.sf.saxon.serialize.SerializationProperties;
-import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XmlProcessingException;
 import org.xml.sax.SAXParseException;
 
 import javax.xml.transform.*;
-import java.util.Enumeration;
 import java.util.Objects;
 import java.util.Properties;
 
@@ -31,14 +30,13 @@ import java.util.Properties;
 
 public class IdentityTransformer extends Transformer {
 
-    private Configuration configuration;
+    private final Configuration configuration;
     private Properties localOutputProperties;
     private URIResolver uriResolver;
     private ErrorListener errorListener;
 
     protected IdentityTransformer(Configuration config) {
         this.configuration = config;
-        this.uriResolver = config.getURIResolver();
     }
 
     /**
@@ -61,7 +59,7 @@ public class IdentityTransformer extends Transformer {
     @Override
     public void reset() {
         localOutputProperties = null;
-        uriResolver = getConfiguration().getURIResolver();
+        uriResolver = null;
         errorListener = null;
     }
 
@@ -182,15 +180,11 @@ public class IdentityTransformer extends Transformer {
 
         Properties newProps = new Properties();
         Properties sheetProperties = getStylesheetOutputProperties();
-        Enumeration keys = sheetProperties.propertyNames();
-        while (keys.hasMoreElements()) {
-            String key = (String) keys.nextElement();
+        for (String key : sheetProperties.stringPropertyNames()) {
             newProps.setProperty(key, sheetProperties.getProperty(key));
         }
         if (localOutputProperties != null) {
-            keys = localOutputProperties.propertyNames();
-            while (keys.hasMoreElements()) {
-                String key = (String) keys.nextElement();
+            for (String key : localOutputProperties.stringPropertyNames()) {
                 newProps.setProperty(key, localOutputProperties.getProperty(key));
             }
         }
@@ -364,9 +358,9 @@ public class IdentityTransformer extends Transformer {
             Receiver receiver = sf.getReceiver(result, new SerializationProperties(getOutputProperties()));
             ParseOptions options = receiver.getPipelineConfiguration().getParseOptions();
             if (errorListener != null) {
-                options.setErrorReporter(new ErrorReporterToListener(errorListener));
+                options = options.withErrorReporter(new ErrorReporterToListener(errorListener));
             }
-            options.setContinueAfterValidationErrors(true);
+            options = options.withContinueAfterValidationErrors(true);
             Sender.send(source, receiver, options);
         } catch (XPathException err) {
             Throwable cause = err.getException();

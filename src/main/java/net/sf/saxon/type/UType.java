@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,8 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.tree.iter.UnfailingIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.ObjectValue;
 
 import java.util.HashSet;
 import java.util.Iterator;
@@ -78,7 +76,7 @@ public class UType {
     public static final UType ANY = ANY_NODE.union(ANY_ATOMIC).union(FUNCTION).union(EXTENSION);
 
 
-    private int bits;
+    private final int bits;
 
     public UType(int bits) {
         this.bits = bits;
@@ -244,7 +242,7 @@ public class UType {
      */
 
     public Set<PrimitiveUType> decompose() {
-        Set<PrimitiveUType> result = new HashSet<PrimitiveUType>();
+        Set<PrimitiveUType> result = new HashSet<>();
         for (PrimitiveUType p : PrimitiveUType.values()) {
             if ((bits & (1<<p.getBit())) != 0) {
                 result.add(p);
@@ -263,7 +261,7 @@ public class UType {
         if (components.isEmpty()) {
             return "U{}";
         }
-        FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder sb = new StringBuilder(256);
         Iterator<PrimitiveUType> iter = components.iterator();
         boolean started = false;
         while (iter.hasNext()) {
@@ -277,12 +275,7 @@ public class UType {
     }
 
     public String toStringWithIndefiniteArticle() {
-        String s = toString();
-        if ("aeiouxy".indexOf(s.charAt(0)) >= 0) {
-            return "an " + s + " node";
-        } else {
-            return "a " + s + " node";
-        }
+        return Err.indefiniteArticleFor(toString(), false) + " " + this + " node";
     }
 
 
@@ -318,7 +311,8 @@ public class UType {
         if (p.isEmpty()) {
             return ErrorType.getInstance();
         } else if (p.size() == 1) {
-            return p.toArray(new PrimitiveUType[1])[0].toItemType();
+            Iterator<PrimitiveUType> iter = p.iterator();
+            return iter.hasNext() ? iter.next().toItemType() : null;
         } else if (ANY_NODE.subsumes(this)) {
             return AnyNodeTest.getInstance();
         } else if (equals(NUMERIC)) {
@@ -351,9 +345,9 @@ public class UType {
             return fromTypeCode(((NodeInfo) item).getNodeKind());
         } else if (item instanceof AtomicValue) {
             return ((AtomicValue)item).getUType();
-        } else if (item instanceof Function) {
+        } else if (item instanceof FunctionItem) {
             return UType.FUNCTION;
-        } else if (item instanceof ObjectValue) {
+        } else if (item.getGenre() == Genre.EXTERNAL) {
             return UType.EXTENSION;
         } else {
             return UType.VOID;
@@ -367,10 +361,9 @@ public class UType {
      */
 
     public static UType getUType(GroundedValue sequence)  {
-        UnfailingIterator iter = sequence.iterate();
-        Item item;
+        SequenceIterator iter = sequence.iterate();
         UType u = UType.VOID;
-        while ((item = iter.next()) != null) {
+        for (Item item; (item = iter.next()) != null; ) {
             u = u.union(getUType(item));
         }
         return u;

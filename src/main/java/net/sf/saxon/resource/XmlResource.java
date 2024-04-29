@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,36 +32,12 @@ public class XmlResource implements Resource {
     //    private Source source;
 //    private ParseOptions options;
     private NodeInfo doc;
-    private Configuration config;
+    private final XPathContext context;
+    private final Configuration config;
     private AbstractResourceCollection.InputDetails details;
     //private int onError = URIQueryParameters.ON_ERROR_FAIL;
 
-    public final static ResourceFactory FACTORY = new ResourceFactory() {
-        @Override
-        public Resource makeResource(Configuration config, AbstractResourceCollection.InputDetails details) throws XPathException {
-            return new XmlResource(config, details);
-            //            String resourceURI = details.resourceUri;
-//            ParseOptions options = details.parseOptions;
-//            if (options == null) {
-//                options = config.getParseOptions();
-//            }
-//            Source source;
-//            if (details.characterContent != null) {
-//                source = new StreamSource(new StringReader(details.characterContent), resourceURI);
-//                return new XmlResource(config, source, options, details.onError);
-//            } else if (details.binaryContent != null) {
-//                source = new StreamSource(new ByteArrayInputStream(details.binaryContent), resourceURI);
-//                return new XmlResource(config, source, options, details.onError);
-//            } else {
-//                try (InputStream stream = details.getInputStream()) {
-//                    source = new StreamSource(stream, resourceURI);
-//                    return new XmlResource(config, source, options, details.onError);
-//                } catch (IOException e) {
-//                    throw new XPathException(e);
-//                }
-//            }
-        }
-    };
+    public final static ResourceFactory FACTORY = (context, details) -> new XmlResource(context, details);
 
     /**
      * Create an XML resource using a specific node
@@ -71,27 +47,29 @@ public class XmlResource implements Resource {
 
     public XmlResource(NodeInfo doc) {
         this.config = doc.getConfiguration();
+        this.context = this.config.getConversionContext();
         this.doc = doc;
     }
 
     /**
      * Create an XML resource using a specific node. (Method retained for backwards compatibility).
-     *
-     * @param config the Saxon Configuration. This must be the configuration to which the node
+     *  @param context the Saxon evaluation context. This must belong to the configuration to which the node
      *               belongs.
      * @param doc    the node in question (usually but not necessarily a document node)
      */
 
-    public XmlResource(Configuration config, NodeInfo doc) {
-        this.config = config;
+    public XmlResource(XPathContext context, NodeInfo doc) {
+        this.context = context;
+        this.config = context.getConfiguration();
         this.doc = doc;
         if (config != doc.getConfiguration()) {
             throw new IllegalArgumentException("Supplied node belongs to wrong configuration");
         }
     }
 
-    public XmlResource(Configuration config, AbstractResourceCollection.InputDetails details) {
-        this.config = config;
+    public XmlResource(XPathContext context, AbstractResourceCollection.InputDetails details) {
+        this.config = context.getConfiguration();
+        this.context = context;
         this.details = details;
     }
 
@@ -125,41 +103,45 @@ public class XmlResource implements Resource {
     /**
      * Get an item representing the resource: in this case a document node for the XML document.
      *
-     * @param context the XPath evaluation context
      * @return the document; or null if there is an error and the error is to be ignored
      * @throws XPathException if (for example) XML parsing fails
      */
 
     @Override
-    public Item getItem(XPathContext context) throws XPathException {
+    public Item getItem() throws XPathException {
         if (doc == null) {
             String resourceURI = details.resourceUri;
             ParseOptions options = details.parseOptions;
             if (options == null) {
                 options = config.getParseOptions();
             }
-            StreamSource source = null;
-            try {
-                if (details.characterContent != null) {
-                    source = new StreamSource(new StringReader(details.characterContent), resourceURI);
-                } else if (details.binaryContent != null) {
-                    source = new StreamSource(new ByteArrayInputStream(details.binaryContent), resourceURI);
-                } else {
-                    try {
-                        InputStream stream = details.getInputStream();
-                        source = new StreamSource(stream, resourceURI);
-                    } catch (IOException e) {
+            StreamSource source;
+            if (details.characterContent != null) {
+                source = new StreamSource(new StringReader(details.characterContent), resourceURI);
+            } else if (details.binaryContent != null) {
+                source = new StreamSource(new ByteArrayInputStream(details.binaryContent), resourceURI);
+            } else {
+                try {
+                    InputStream stream = details.getInputStream(config);
+                    source = new StreamSource(stream, resourceURI);
+                } catch (IOException e) {
+                    if (details.onError == URIQueryParameters.ON_ERROR_FAIL) {
                         throw new XPathException(e);
+                    } else if (details.onError == URIQueryParameters.ON_ERROR_WARNING) {
+                        context.getController().warning("collection(): failed to read XML file " + details.resourceUri + ": " + e.getMessage(), "FODC0005", null);
+                        return null;
+                    } else {
+                        return null;
                     }
                 }
+            }
+            try {
                 doc = config.buildDocumentTree(source, options).getRootNode();
             } catch (XPathException e) {
                 if (details.onError == URIQueryParameters.ON_ERROR_FAIL) {
-                    XPathException e2 = new XPathException("collection(): failed to parse XML file " + source.getSystemId() + ": " + e.getMessage(),
-                                                           e.getErrorCodeLocalPart());
-                    throw e2;
+                    throw e.withMessage("collection(): failed to parse XML file " + source.getSystemId() + ": " + e.getMessage());
                 } else if (details.onError == URIQueryParameters.ON_ERROR_WARNING) {
-                    context.getController().warning("collection(): failed to parse XML file " + source.getSystemId() + ": " + e.getMessage(), e.getErrorCodeLocalPart(), null);
+                    context.getController().warning("collection(): failed to parse XML file " + source.getSystemId() + ": " + e.getMessage(), e.showErrorCode(), null);
                 }
                 doc = null;
             } finally {

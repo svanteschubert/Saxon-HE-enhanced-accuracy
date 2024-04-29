@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,6 @@
 package net.sf.saxon.lib;
 
 
-import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.XPathException;
 
@@ -33,16 +32,16 @@ public interface Resource {
 
     /**
      * Get an XDM Item holding the contents of this resource.
-     * @param context the XPath evaluation context
      * @return an item holding the contents of the resource. The type of item will
      * reflect the type of the resource: a document node for XML resources, a string
      * for text resources, a map or array for JSON resources, a base64Binary value
      * for binary resource. May also return null if the resource cannot be materialized
      * and this is not to be treated as an error.
-     * @throws XPathException if a failure occurs materializing the resource
+     * @throws XPathException if a failure occurs materializing the resource, and errors
+     * are to be treated as fatal
      */
 
-    Item getItem(XPathContext context) throws XPathException;
+    Item getItem() throws XPathException;
 
     /**
      * Get the media type (MIME type) of the resource if known

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,30 +7,40 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.ErrorReporter;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.lib.ResourceResolver;
+import net.sf.saxon.lib.ResourceResolverWrappingURIResolver;
+import net.sf.saxon.lib.UnparsedTextURIResolver;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.streams.XdmStream;
 import net.sf.saxon.sxpath.XPathDynamicContext;
 import net.sf.saxon.sxpath.XPathExpression;
 import net.sf.saxon.sxpath.XPathVariable;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import javax.xml.transform.URIResolver;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * An XPathSelector represents a compiled and loaded XPath expression ready for execution.
  * The XPathSelector holds details of the dynamic evaluation context for the XPath expression.
  */
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<net.sf.saxon.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
 @SuppressWarnings({"ForeachStatement"})
+@CSharpModifiers(code = {"internal"})
 public class XPathSelector implements Iterable<XdmItem> {
 
-    private XPathExpression exp;
-    private XPathDynamicContext dynamicContext;
-    private Map<StructuredQName, XPathVariable> declaredVariables;
+    private final XPathExpression exp;
+    private final XPathDynamicContext dynamicContext;
+    private final Map<StructuredQName, XPathVariable> declaredVariables;
 
     // protected constructor
 
@@ -94,7 +104,8 @@ public class XPathSelector implements Iterable<XdmItem> {
      */
 
     public void setVariable(QName name, XdmValue value) throws SaxonApiException {
-
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
         StructuredQName qn = name.getStructuredQName();
         XPathVariable var = declaredVariables.get(qn);
         if (var == null) {
@@ -103,9 +114,33 @@ public class XPathSelector implements Iterable<XdmItem> {
         }
         try {
             dynamicContext.setVariable(var, value.getUnderlyingValue());
-        } catch (XPathException e) {
+        } catch (XPathException | UncheckedXPathException e) {
             throw new SaxonApiException(e);
         }
+    }
+
+    /**
+     * Set an object that will be used to resolve URIs used in
+     * fn:doc() and related functions.
+     *
+     * @param resolver An object that implements the ResourceResolver interface, or null.
+     * @since 9.4
+     */
+
+    public void setResourceResolver(ResourceResolver resolver) {
+        dynamicContext.setResourceResolver(resolver);
+    }
+
+    /**
+     * Get the resource resolver.
+     *
+     * @return the user-supplied resource resolver if there is one, or the
+     * system-defined one otherwise
+     * @since 9.4
+     */
+
+    public ResourceResolver getResourceResolver() {
+        return dynamicContext.getResourceResolver();
     }
 
     /**
@@ -117,7 +152,7 @@ public class XPathSelector implements Iterable<XdmItem> {
      */
 
     public void setURIResolver(URIResolver resolver) {
-        dynamicContext.setURIResolver(resolver);
+        dynamicContext.setResourceResolver(new ResourceResolverWrappingURIResolver(resolver));
     }
 
     /**
@@ -129,16 +164,50 @@ public class XPathSelector implements Iterable<XdmItem> {
      */
 
     public URIResolver getURIResolver() {
-        return dynamicContext.getURIResolver();
+        if (dynamicContext.getResourceResolver() instanceof ResourceResolverWrappingURIResolver) {
+            return ((ResourceResolverWrappingURIResolver) dynamicContext.getResourceResolver()).getWrappedURIResolver();
+        } else {
+            return null;
+        }
     }
 
     /**
-     * Set a callback to be used for reporting of run-time errors and warnings.
+     * Set an object that will be used to resolve URIs used in
+     * <code>fn:unparsed-text()</code> and related functions.
+     *
+     * @param resolver An object that implements the UnparsedTextURIResolver interface, or
+     *                 null.
+     * @since 11
+     */
+
+    public void setUnparsedTextResolver(UnparsedTextURIResolver resolver) {
+        dynamicContext.setUnparsedTextURIResolver(resolver);
+    }
+
+    /**
+     * Get the URI resolver used for <code>fn:unparsed-text()</code> and related functions.
+     *
+     * @return the user-supplied URI resolver if there is one, or the
+     * system-defined one otherwise
+     * @since 11
+     */
+
+    public UnparsedTextURIResolver getUnparsedTextURIResolver() {
+        return dynamicContext.getUnparsedTextURIResolver();
+    }
+
+
+    /**
+     * Set a callback to be used for reporting of run-time conditions.
      * Note that fatal run-time errors are always reported by throwing an exception,
-     * so this is primarily useful for controlling the way that warnings are reported.
-     * By default, warnings are reported to the {@link ErrorReporter} associated with the
-     * Saxon Configuration.
-     * @param reporter the user-supplied error reporter to be called when dynamic errors and warnings
+     * and are not notified to the <code>ErrorReporter</code>.
+     * <p>This method is therefore not especially useful; its only real effect is to
+     * control the way that warnings are reported, and there are not many conditions
+     * in pure XPath processing that result in warnings being generated dynamically.</p>
+     * <p>By default, warnings are reported to a default error reporter which writes to
+     * the logging destination associated with the Saxon {@link Configuration}, which
+     * in turn defaults to the system error stream.</p>
+     * @param reporter the user-supplied error reporter to be called when run-time warnings
      *                 arise
      * @since 10.0
      */
@@ -162,7 +231,9 @@ public class XPathSelector implements Iterable<XdmItem> {
     public XdmValue evaluate() throws SaxonApiException {
         Sequence value;
         try {
-            value = exp.iterate(dynamicContext).materialize();
+            value = SequenceTool.toGroundedValue(exp.iterate(dynamicContext));
+        } catch (UncheckedXPathException uxe) {
+            throw new SaxonApiException(uxe);
         } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
@@ -218,7 +289,7 @@ public class XPathSelector implements Iterable<XdmItem> {
     @Override
     public XdmSequenceIterator<XdmItem> iterator() throws SaxonApiUncheckedException {
         try {
-            return new XdmSequenceIterator(exp.iterate(dynamicContext));
+            return new XdmSequenceIterator<>(exp.iterate(dynamicContext));
         } catch (XPathException e) {
             throw new SaxonApiUncheckedException(e);
         }

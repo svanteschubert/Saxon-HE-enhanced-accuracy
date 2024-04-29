@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -31,9 +31,9 @@ public class NamespaceForPrefix extends SystemFunction implements Callable {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AnyURIValue result = namespaceUriForPrefix((StringValue) arguments[0].head(), (NodeInfo) arguments[1].head());
-        return new ZeroOrOne(result);
+        return SequenceTool.itemOrEmpty(result);
     }
 
     /**
@@ -53,11 +53,11 @@ public class NamespaceForPrefix extends SystemFunction implements Callable {
             prefix = p.getStringValue();
         }
         NamespaceResolver resolver = element.getAllNamespaces();
-        String uri = resolver.getURIForPrefix(prefix, true);
+        NamespaceUri uri = resolver.getURIForPrefix(prefix, true);
         if (uri == null || uri.isEmpty()) {
             return null;
         }
-        return new AnyURIValue(uri);
+        return new AnyURIValue(uri.toUnicodeString());
     }
 
 }

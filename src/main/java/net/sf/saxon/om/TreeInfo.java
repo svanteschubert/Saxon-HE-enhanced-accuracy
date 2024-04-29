@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.om;
 
 import net.sf.saxon.Configuration;
 
-import javax.xml.transform.Source;
 import java.util.Iterator;
 
 /**
@@ -25,13 +24,12 @@ import java.util.Iterator;
  * the order of trees is based on their "document number", a unique number allocated by the
  * document number allocator for the Configuration.</p>
  *
- * @author Michael H. Kay
  * @since 9.7. Replaces the DocumentInfo interface which represented both a document as a whole, and
  * the document node at the root of a document, but which did not apply to trees rooted at a node other
  * than a document node.
  */
 
-public interface TreeInfo extends Source {
+public interface TreeInfo {
 
     /**
      * Get the NodeInfo object representing the node at the root of the tree, which will often
@@ -158,11 +156,6 @@ public interface TreeInfo extends Source {
      * @param key   A string giving the name of the property to be set. Clients are responsible
      *              for choosing a key that is likely to be unique. Must not be null. Keys used internally
      *              by Saxon are prefixed "saxon:".
-     *              <p>The key <code>saxon:document-uri</code> may be used to set the document-uri
-     *              property of the document node. If this is set to a non-empty string, the result
-     *              of the document-uri() function on the document node will be that string, as an
-     *              instance of xs:anyURI. If it is set to a zero-length string, the result of
-     *              document-uri() will be the empty sequence, ().</p>
      * @param value The value to be set for the property. May be null, which effectively
      *              removes the existing value for the property.
      */
@@ -178,6 +171,18 @@ public interface TreeInfo extends Source {
      */
 
     Object getUserData(String key);
+
+    /**
+     * Get the durability of nodes in the tree. This affects how they are handled in a memo function
+     * cache, to optimize memory and garbage collection. By default, all nodes are considered durable
+     * unless otherwise specified
+     * @return the durability property of this node tree
+     */
+
+    default Durability getDurability() {
+        return isMutable() ? Durability.MUTABLE : Durability.LASTING;
+    }
+
 
 }
 

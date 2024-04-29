@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,20 +7,20 @@
 
 package net.sf.saxon;
 
-import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.SimpleCollation;
-import net.sf.saxon.lib.ModuleURIResolver;
-import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.lib.*;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.regex.RegularExpression;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ExternalObjectType;
 import org.xml.sax.XMLReader;
 
 import javax.xml.transform.Source;
-import javax.xml.transform.stream.StreamSource;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Properties;
 
@@ -31,7 +31,8 @@ import java.util.Properties;
 public interface Platform {
 
     /**
-     * Perform platform-specific initialization of the configuration
+     * Perform platform-specific initialization of the configuration. Note that this
+     * should not undo any configuration settings defined in the configuration file.
      *
      * @param config the Saxon Configuration
      */
@@ -65,10 +66,51 @@ public interface Platform {
     /**
      * Get a suffix letter to add to the Saxon version number to identify the platform
      *
-     * @return "J" for Java, "N" for .NET
+     * @return "J" for Java, "N" for .NET, "CS" for SaxonCS
      */
 
     String getPlatformSuffix();
+
+    /**
+     * Get the default DynamicLoader for the platform
+     * @return the default DynamicLoader
+     */
+
+    IDynamicLoader getDefaultDynamicLoader();
+
+    /**
+     * Get the default language for localization.
+     * @return the default language
+     */
+
+    String getDefaultLanguage();
+
+    /**
+     * Get the default country for localization.
+     *
+     * @return the default country
+     */
+
+    String getDefaultCountry();
+
+    /**
+     * Read a resource file issued with the Saxon product
+     *
+     * @param filename the filename of the file to be read
+     * @param messages List to be populated with messages in the event of failure
+     * @return an InputStream for reading the file/resource
+     */
+
+    /*@Nullable*/
+    InputStream locateResource(String filename, List<String> messages);
+
+    /**
+     * Diagnostic method to list the embedded resources contained in the loaded software
+     */
+
+    default void showEmbeddedResources() {
+
+    }
 
     /**
      * Get a parser by instantiating the SAXParserFactory
@@ -90,19 +132,25 @@ public interface Platform {
     XMLReader loadParserForXmlFragments();
 
     /**
-     * Convert a StreamSource to a different kind of Source, depending on the native
-     * parser of the selected platform
+     * Convert a Source to an ActiveSource. This method is present in the Platform
+     * because different Platforms accept different kinds of Source object.
      *
-     * @param pipe          the pipeline Configuration
-     * @param input         the supplied StreamSource
-     * @param validation    required validation mode, for example Validation.STRICT
-     * @param dtdValidation true if DTD-based input validation is required
-     * @return the PullSource or SAXSource, initialized with a suitable parser, or the original
-     *         input Source, if now special handling is required or possible
+     * @param source A source object, typically the source supplied as the first
+     *               argument to {@link javax.xml.transform.Transformer#transform(javax.xml.transform.Source, javax.xml.transform.Result)}
+     *               or similar methods.
+     * @param config The Configuration. This provides the SourceResolver with access to
+     *               configuration information; it also allows the SourceResolver to invoke the
+     *               resolveSource() method on the Configuration object as a fallback implementation.
+     * @return a source object that Saxon knows how to process. This must be an instance of one
+     * of the classes  StreamSource, SAXSource, DOMSource, {@link AugmentedSource},
+     * {@link net.sf.saxon.om.NodeInfo},
+     * or {@link net.sf.saxon.pull.PullSource}. Return null if the Source object is not
+     * recognized
+     * @throws XPathException if the Source object is recognized but cannot be processed
      */
 
-    Source getParserSource(PipelineConfiguration pipe, StreamSource input,
-                           int validation, boolean dtdValidation);
+    /*@Nullable*/
+    ActiveSource resolveSource(Source source, Configuration config) throws XPathException;
 
     /**
      * Obtain a collation with a given set of properties. The set of properties is extensible
@@ -187,7 +235,7 @@ public interface Platform {
      * @throws XPathException if the regular expression or the flags are invalid
      */
 
-    RegularExpression compileRegularExpression(Configuration config, CharSequence regex, String flags, String hostLanguage, List<String> warnings)
+    RegularExpression compileRegularExpression(Configuration config, UnicodeString regex, String flags, String hostLanguage, List<String> warnings)
             throws XPathException;
 
     /**
@@ -199,7 +247,7 @@ public interface Platform {
      * @return the SchemaType object representing this type
      */
 
-    ExternalObjectType getExternalObjectType(Configuration config, String uri, String localName);
+    ExternalObjectType getExternalObjectType(Configuration config, NamespaceUri uri, String localName);
 
     /**
      * Return the name of the directory in which the software is installed (if available)

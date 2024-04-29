@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,26 +12,26 @@ import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.instruct.ValueOf;
 import net.sf.saxon.lib.ConversionRules;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.*;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
-import static net.sf.saxon.type.SchemaComponent.ValidationStatus.VALIDATED;
+import static net.sf.saxon.type.SchemaValidationStatus.VALIDATED;
 
 /**
  * This class represents a built-in atomic type, which may be either a primitive type
  * (such as xs:decimal or xs:anyURI) or a derived type (such as xs:ID or xs:dayTimeDuration).
  */
 
-public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeCache {
+public class BuiltInAtomicType implements AtomicType, ItemTypeWithSequenceTypeCache {
 
-    private int fingerprint;
+    private final int fingerprint;
     private int baseFingerprint;
     private int primitiveFingerprint;
     private UType uType;
@@ -43,7 +43,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
     private SequenceType _zeroOrOne;
     private SequenceType _zeroOrMore;
 
-    private static Map<String, BuiltInAtomicType> byAlphaCode = new HashMap<>(60);
+    private static final Map<String, BuiltInAtomicType> byAlphaCode = new HashMap<>(60);
 
     public final static BuiltInAtomicType ANY_ATOMIC =
             makeAtomicType(StandardNames.XS_ANY_ATOMIC_TYPE, AnySimpleType.getInstance(), "A", true);
@@ -238,6 +238,20 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
         this.fingerprint = fingerprint;
     }
 
+    /**
+     * Ask whether an item type is "string-like" in its comparison semantics
+     *
+     * @param type the item type
+     * @return true if the item type is xs:string, xs:anyURI, or xs:untypedAtomic
+     */
+
+    public static boolean isStringLike(ItemType type) {
+        int fp = type.getPrimitiveType();
+        return fp == StandardNames.XS_STRING ||
+                fp == StandardNames.XS_ANY_URI ||
+                fp == StandardNames.XS_UNTYPED_ATOMIC;
+    }
+
 
     /**
      * Get the local name of this type
@@ -270,8 +284,8 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      */
 
     @Override
-    public String getTargetNamespace() {
-        return NamespaceConstant.SCHEMA;
+    public NamespaceUri getTargetNamespace() {
+        return NamespaceUri.SCHEMA;
     }
 
     /**
@@ -281,7 +295,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      */
     @Override
     public String getEQName() {
-        return "Q{" + NamespaceConstant.SCHEMA + "}" + getName();
+        return "Q{" + NamespaceUri.SCHEMA + "}" + getName();
     }
 
     /**
@@ -465,13 +479,13 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      * Get the validation status - always valid
      */
     @Override
-    public final ValidationStatus getValidationStatus() {
+    public final SchemaValidationStatus getValidationStatus() {
         return VALIDATED;
     }
 
     /**
      * Returns the value of the 'block' attribute for this type, as a bit-significant
-     * integer with fields such as {@link SchemaType#DERIVATION_LIST} and {@link SchemaType#DERIVATION_EXTENSION}
+     * integer with fields such as {@link Derivation#DERIVATION_LIST} and {@link Derivation#DERIVATION_EXTENSION}
      *
      * @return the value of the 'block' attribute for this type
      */
@@ -485,19 +499,19 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      * Gets the integer code of the derivation method used to derive this type from its
      * parent. Returns zero for primitive types.
      *
-     * @return a numeric code representing the derivation method, for example {@link SchemaType#DERIVATION_RESTRICTION}
+     * @return a numeric code representing the derivation method, for example {@link Derivation#DERIVATION_RESTRICTION}
      */
 
     @Override
     public final int getDerivationMethod() {
-        return SchemaType.DERIVATION_RESTRICTION;
+        return Derivation.DERIVATION_RESTRICTION;
     }
 
     /**
      * Determines whether derivation (of a particular kind)
      * from this type is allowed, based on the "final" property
      *
-     * @param derivation the kind of derivation, for example {@link SchemaType#DERIVATION_LIST}
+     * @param derivation the kind of derivation, for example {@link Derivation#DERIVATION_LIST}
      * @return true if this kind of derivation is allowed
      */
 
@@ -510,7 +524,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      * Get the types of derivation that are not permitted, by virtue of the "final" property.
      *
      * @return the types of derivation that are not permitted, as a bit-significant integer
-     *         containing bits such as {@link net.sf.saxon.type.SchemaType#DERIVATION_EXTENSION}
+     *         containing bits such as {@link net.sf.saxon.type.Derivation#DERIVATION_EXTENSION}
      */
     @Override
     public int getFinalProhibitions() {
@@ -548,7 +562,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
     /*@NotNull*/
     @Override
     public final StructuredQName getStructuredQName() {
-        return new StructuredQName("xs", NamespaceConstant.SCHEMA, StandardNames.getLocalName(fingerprint));
+        return new StructuredQName("xs", NamespaceUri.SCHEMA, StandardNames.getLocalName(fingerprint));
     }
 
     /**
@@ -920,7 +934,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
 
     /*@Nullable*/
     @Override
-    public ValidationFailure validateContent(CharSequence value, /*@Nullable*/ NamespaceResolver nsResolver,
+    public ValidationFailure validateContent(UnicodeString value, /*@Nullable*/ NamespaceResolver nsResolver,
                                              ConversionRules rules) {
         int f = getFingerprint();
         if (f == StandardNames.XS_STRING ||
@@ -1008,14 +1022,14 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
     @Override
     public AtomicSequence atomize(NodeInfo node) throws XPathException {
         // Fast path for common cases
-        CharSequence stringValue = node.getStringValueCS();
-        if (stringValue.length() == 0 && node.isNilled()) {
+        UnicodeString stringValue = node.getUnicodeStringValue();
+        if (stringValue.isEmpty() && node.isNilled()) {
             return AtomicArray.EMPTY_ATOMIC_ARRAY;
         }
         if (fingerprint == StandardNames.XS_STRING) {
-            return StringValue.makeStringValue(stringValue);
+            return new StringValue(stringValue.tidy());
         } else if (fingerprint == StandardNames.XS_UNTYPED_ATOMIC) {
-            return new UntypedAtomicValue(stringValue);
+            return StringValue.makeUntypedAtomic(stringValue);
         }
         StringConverter converter = stringConverter;
         if (converter == null) {
@@ -1047,13 +1061,13 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
 
     /*@NotNull*/
     @Override
-    public AtomicSequence getTypedValue(CharSequence value, NamespaceResolver resolver, ConversionRules rules)
+    public AtomicSequence getTypedValue(UnicodeString value, NamespaceResolver resolver, ConversionRules rules)
             throws ValidationException {
         // Fast path for common cases
         if (fingerprint == StandardNames.XS_STRING) {
-            return StringValue.makeStringValue(value);
+            return new StringValue(value.tidy());
         } else if (fingerprint == StandardNames.XS_UNTYPED_ATOMIC) {
-            return new UntypedAtomicValue(value);
+            return StringValue.makeUntypedAtomic(value);
         }
         StringConverter converter = getStringConverter(rules);
         if (isNamespaceSensitive()) {
@@ -1098,7 +1112,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
 
     /*@Nullable*/
     @Override
-    public ValidationFailure validate(AtomicValue primValue, CharSequence lexicalValue, ConversionRules rules) {
+    public ValidationFailure validate(AtomicValue primValue, UnicodeString lexicalValue, ConversionRules rules) {
         switch (fingerprint) {
             case StandardNames.XS_NUMERIC:
             case StandardNames.XS_STRING:
@@ -1121,8 +1135,17 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
             case StandardNames.XS_DECIMAL:
             case StandardNames.XS_FLOAT:
             case StandardNames.XS_DOUBLE:
-            case StandardNames.XS_INTEGER:
                 return null;
+            case StandardNames.XS_INTEGER:
+                if (primValue.getItemType() == BuiltInAtomicType.DECIMAL) {
+                    if (((DecimalValue)primValue).isWholeNumber()) {
+                        return null;
+                    } else {
+                        return new ValidationFailure("xs:decimal value " + primValue.toShortString() + " cannot be used where xs:integer is required");
+                    }
+                } else {
+                    return null;
+                }
             case StandardNames.XS_NON_POSITIVE_INTEGER:
             case StandardNames.XS_NEGATIVE_INTEGER:
             case StandardNames.XS_LONG:
@@ -1151,7 +1174,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
             case StandardNames.XS_ID:
             case StandardNames.XS_IDREF:
             case StandardNames.XS_ENTITY:
-                return stringConverter.validate(primValue.getStringValueCS());
+                return stringConverter.validate(primValue.getUnicodeStringValue());
             default:
                 throw new IllegalArgumentException();
         }
@@ -1242,7 +1265,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      */
 
     @Override
-    public CharSequence preprocess(CharSequence input) {
+    public UnicodeString preprocess(UnicodeString input) {
         return input;
     }
 
@@ -1257,7 +1280,7 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      */
 
     @Override
-    public CharSequence postprocess(CharSequence input) {
+    public UnicodeString postprocess(UnicodeString input) {
         return input;
     }
 
@@ -1269,8 +1292,8 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
      */
     /*@NotNull*/
     @Override
-    public Set<? extends PlainType> getPlainMemberTypes() {
-        return Collections.singleton(this);
+    public List<? extends PlainType> getPlainMemberTypes() {
+        return Collections.singletonList((PlainType)this);
     }
 
     /**
@@ -1283,6 +1306,16 @@ public class BuiltInAtomicType implements AtomicType, ItemType.WithSequenceTypeC
         return p == NumericType.getInstance() || p == DECIMAL ||
                 p == DOUBLE || p == FLOAT ||
                 p == INTEGER;
+    }
+
+    /**
+     * Ask whether a built-in type is a duration type (duration, dayTimeDuration, yearMonthDuration)
+     *
+     * @return true if the type is xs:duration or a subtype
+     */
+
+    public boolean isDurationType() {
+        return this == DURATION || this == DAY_TIME_DURATION || this == YEAR_MONTH_DURATION;
     }
 
 

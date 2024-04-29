@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,8 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
@@ -31,7 +31,7 @@ public class Lang extends SystemFunction  {
         NodeInfo node = target;
 
         while (node != null) {
-            doclang = node.getAttributeValue(NamespaceConstant.XML, "lang");
+            doclang = node.getAttributeValue(NamespaceUri.XML, "lang");
             if (doclang != null) {
                 break;
             }
@@ -91,16 +91,14 @@ public class Lang extends SystemFunction  {
         NodeInfo target;
         Item current = context.getContextItem();
         if (current == null) {
-            XPathException err = new XPathException("The context item for lang() is absent");
-            err.setErrorCode("XPDY0002");
-            err.setXPathContext(context);
-            throw err;
+            throw new XPathException("The context item for lang() is absent")
+                    .withErrorCode("XPDY0002")
+                    .withXPathContext(context);
         }
         if (!(current instanceof NodeInfo)) {
-            XPathException err = new XPathException("The context item for lang() is not a node");
-            err.setErrorCode("XPTY0004");
-            err.setXPathContext(context);
-            throw err;
+            throw new XPathException("The context item for lang() is not a node")
+                    .withErrorCode("XPTY0004")
+                    .withXPathContext(context);
         }
         target = (NodeInfo) current;
         return target;

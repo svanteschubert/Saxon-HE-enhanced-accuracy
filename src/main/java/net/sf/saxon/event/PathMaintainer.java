@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,8 @@ package net.sf.saxon.event;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
@@ -39,18 +40,15 @@ public class PathMaintainer extends ProxyReceiver {
                              Location location, int properties)
             throws XPathException {
         // System.err.println("startElement " + nameCode);
-        nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
+
         HashMap<NodeName, Integer> counters = siblingCounters.peek();
-        int index = 1;
-        Integer preceding = counters.get(elemName);
-        if (preceding != null) {
-            index = preceding + 1;
-            counters.put(elemName, index);
-        } else {
-            counters.put(elemName, 1);
-        }
+        int preceding = counters.getOrDefault(elemName, 0);
+        int index = preceding + 1;
+        counters.put(elemName, index);
         path.push(new AbsolutePath.PathElement(Type.ELEMENT, elemName, index));
         siblingCounters.push(new HashMap<>());
+
+        nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
     }
 
     /**
@@ -64,41 +62,8 @@ public class PathMaintainer extends ProxyReceiver {
         path.pop();
     }
 
-    /**
-     * Get the path to the current location in the stream
-     *
-     * @param useURIs set to true if namespace URIs are to appear in the path;
-     *                false if prefixes are to be used instead. The prefix will be the one
-     *                that is used in the source document, and is potentially ambiguous.
-     * @return the path to the current location, as a string.
-     */
-
-    public String getPath(boolean useURIs) {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
-        for (AbsolutePath.PathElement pe : path) {
-            fsb.cat('/');
-            if (useURIs) {
-                String uri = pe.getName().getURI();
-                if (!uri.isEmpty()) {
-                    fsb.cat('"');
-                    fsb.append(uri);
-                    fsb.cat('"');
-                }
-            } else {
-                String prefix = pe.getName().getPrefix();
-                if (!prefix.isEmpty()) {
-                    fsb.append(prefix);
-                    fsb.cat(':');
-                }
-            }
-            fsb.append(pe.getName().getLocalPart());
-            fsb.cat('[');
-            fsb.append(pe.getIndex() + "");
-            fsb.cat(']');
-        }
-        return fsb.toString();
-    }
-
+    @CSharpReplaceBody(code="return new Saxon.Hej.om.AbsolutePath(new List<Saxon.Hej.om.AbsolutePath.PathElement>(path.ToArray()));")
+    // Custom code needed for C# because a Stack is not a List.
     public AbsolutePath getAbsolutePath() {
         return new AbsolutePath(path);
     }

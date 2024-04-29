@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.functions.ResolveQName;
 import net.sf.saxon.functions.ResolveURI;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.lib.SerializerFactory;
 import net.sf.saxon.om.*;
@@ -30,11 +29,11 @@ import java.util.StringTokenizer;
 public class XSLOutput extends StyleElement {
 
     private StructuredQName outputFormatName;
-    /*@Nullable*/ private String method = null;
-    private String outputVersion = null;
+    /*@Nullable*/ private final String method = null;
+    private final String outputVersion = null;
 
     private String useCharacterMaps = null;
-    private Map<String, String> serializationAttributes = new HashMap<String, String>(10);
+    private final Map<String, String> serializationAttributes = new HashMap<String, String>(10);
 
     private HashMap<String, String> userAttributes = null;
 
@@ -51,7 +50,7 @@ public class XSLOutput extends StyleElement {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         String nameAtt = null;
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
@@ -72,21 +71,23 @@ public class XSLOutput extends StyleElement {
                     compileError(XPathException.makeXPathException(e));
                 }
                 serializationAttributes.put(f, val);
-                //serializationAttributes.put(SaxonOutputKeys.PARAMETER_DOCUMENT_BASE_URI, getBaseURI());
             } else if (XSLResultDocument.fans.contains(f) && !f.equals("output-version")) {
                 String val = value;
+                if (f.equals(SaxonOutputKeys.ESCAPE_SOLIDUS)) {
+                     requireXslt40Attribute(f);
+                }
                 if (!f.equals(SaxonOutputKeys.ITEM_SEPARATOR) && !f.equals(SaxonOutputKeys.NEWLINE)) {
                     val = Whitespace.trim(val);
                 }
                 serializationAttributes.put(f, val);
             } else {
-                String attributeURI = attName.getURI();
-                if ("".equals(attributeURI) ||
-                        NamespaceConstant.XSLT.equals(attributeURI) ||
-                        NamespaceConstant.SAXON.equals(attributeURI)) {
+                NamespaceUri attributeURI = attName.getNamespaceUri();
+                if (NamespaceUri.NULL.equals(attributeURI) ||
+                        NamespaceUri.XSLT.equals(attributeURI) ||
+                        NamespaceUri.SAXON.equals(attributeURI)) {
                     checkUnknownAttribute(attName);
                 } else {
-                    String name = '{' + attributeURI + '}' + attName.getLocalPart();
+                    String name = "{" + attributeURI + "}" + attName.getLocalPart();
                     if (userAttributes == null) {
                         userAttributes = new HashMap<>(5);
                     }
@@ -126,7 +127,7 @@ public class XSLOutput extends StyleElement {
      * @param ns the namespace URI of the attribute required, either the XSLT namespace or ""
      */
     @Override
-    protected void processVersionAttribute(String ns)  {
+    protected void processVersionAttribute(NamespaceUri ns)  {
         version = ((StyleElement)getParent()).getEffectiveVersion();
     }
 
@@ -160,11 +161,11 @@ public class XSLOutput extends StyleElement {
                     if (prefix.isEmpty()) {
                         compileError("method must be xml, html, xhtml, text, json, adaptive, or a prefixed name", "XTSE1570");
                     } else {
-                        String uri = getURIForPrefix(prefix, false);
+                        NamespaceUri uri = getURIForPrefix(prefix, false);
                         if (uri == null) {
                             undeclaredNamespaceError(prefix, "XTSE0280", "method");
                         }
-                        checkAndPut(sf, OutputKeys.METHOD, '{' + uri + '}' + parts[1], details, precedences, thisPrecedence);
+                        checkAndPut(sf, OutputKeys.METHOD, "{" + uri + "}" + parts[1], details, precedences, thisPrecedence);
                         //details.put(OutputKeys.METHOD, '{' + uri + '}' + parts[1] );
                     }
                 } catch (QNameException e) {
@@ -242,8 +243,8 @@ public class XSLOutput extends StyleElement {
             props.setProperty(property, old + " " + value);
             precedences.put(property, thisPrecedence);
         } else {
-            Integer oldPrec = precedences.get(property);
-            if (oldPrec == null) {
+            int oldPrec = precedences.getOrDefault(property, Integer.MIN_VALUE);
+            if (oldPrec == Integer.MIN_VALUE) {
                 return;    // shouldn't happen but ignore it
             }
             if (oldPrec > thisPrecedence) {

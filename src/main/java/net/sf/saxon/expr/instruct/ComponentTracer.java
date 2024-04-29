@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,14 +8,17 @@
 package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.Controller;
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.lib.TraceListener;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trace.TraceableComponent;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 
@@ -43,9 +46,14 @@ public class ComponentTracer extends Instruction {
         component.gatherProperties((k, v) -> properties.put(k, v));
     }
 
-    private ComponentTracer() {};
+    private ComponentTracer() {
+    }
 
     public Expression getChild() {
+        return baseOp.getChildExpression();
+    }
+
+    public Expression getBody() {
         return baseOp.getChildExpression();
     }
 
@@ -128,35 +136,6 @@ public class ComponentTracer extends Instruction {
     @Override
     public int getImplementationMethod() {
         return getChild().getImplementationMethod();
-    }
-
-    /**
-     * Execute this instruction, with the possibility of returning tail calls if there are any.
-     * This outputs the trace information via the registered TraceListener,
-     * and invokes the instruction being traced.
-     *
-     *
-     * @param output the destination for the result
-     * @param context the dynamic execution context
-     * @return either null, or a tail call that the caller must invoke on return
-     * @throws XPathException
-     *
-     */
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        assert controller != null;
-        TraceListener listener = controller.getTraceListener();
-        if (controller.isTracing()) {
-            assert listener != null;
-            listener.enter(component, properties, context);
-            // Don't attempt tail call optimization when tracing, the results are too confusing
-            getChild().process(output, context);
-            listener.leave(component);
-        } else {
-            getChild().process(output, context);
-        }
-        return null;
     }
 
     /**
@@ -243,17 +222,7 @@ public class ComponentTracer extends Instruction {
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        assert controller != null;
-        if (controller.isTracing()) {
-            TraceListener listener = controller.getTraceListener();
-            listener.enter(component, properties, context);
-            Item result = getChild().evaluateItem(context);
-            listener.leave(component);
-            return result;
-        } else {
-            return getChild().evaluateItem(context);
-        }
+        return makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -274,18 +243,7 @@ public class ComponentTracer extends Instruction {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        assert controller != null;
-        if (controller.isTracing()) {
-            TraceListener listener = controller.getTraceListener();
-            listener.enter(component, properties, context);
-            SequenceIterator result = getChild().iterate(context);
-            listener.leave(component);
-            return result;
-        } else {
-            return getChild().iterate(context);
-        }
-
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     @Override
@@ -309,29 +267,6 @@ public class ComponentTracer extends Instruction {
     }
 
     /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     */
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        Controller controller = context.getController();
-        assert controller != null;
-        if (controller.isTracing()) {
-            TraceListener listener = controller.getTraceListener();
-            listener.enter(component, properties, context);
-            getChild().evaluatePendingUpdates(context, pul);
-            listener.leave(component);
-        } else {
-            getChild().evaluatePendingUpdates(context, pul);
-        }
-    }
-
-    /**
      * Produce a short string identifying the expression for use in error messages
      *
      * @return a short string, sufficient to identify the expression
@@ -339,6 +274,96 @@ public class ComponentTracer extends Instruction {
     @Override
     public String toShortString() {
         return getChild().toShortString();
+    }
+
+    public Elaborator getElaborator() {
+        return new ComponentTracerElaborator();
+    }
+
+    private static class ComponentTracerElaborator extends PullElaborator {
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            ComponentTracer expr = (ComponentTracer) getExpression();
+            UpdateEvaluator baseEval = expr.getBody().makeElaborator().elaborateForUpdate();
+            return (context, pul) -> {
+                Controller controller = context.getController();
+                assert controller != null;
+                if (controller.isTracing()) {
+                    TraceListener listener = controller.getTraceListener();
+                    listener.enter(expr, expr.properties, context);
+                    baseEval.registerUpdates(context, pul);
+                    listener.leave(expr);
+                } else {
+                    baseEval.registerUpdates(context, pul);
+                }
+            };
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            ComponentTracer expr = (ComponentTracer) getExpression();
+            PullEvaluator baseEval = expr.getBody().makeElaborator().elaborateForPull();
+            return context -> {
+                Controller controller = context.getController();
+                assert controller != null;
+                if (controller.isTracing()) {
+                    TraceListener listener = controller.getTraceListener();
+                    listener.enter(expr.component, expr.properties, context);
+                    SequenceIterator result = baseEval.iterate(context);
+                    GroundedValue extent;
+                    try {
+                        extent = SequenceTool.toGroundedValue(result);
+                    } catch (UncheckedXPathException e) {
+                        throw e.getXPathException();
+                    }
+                    listener.leave(expr.component);
+                    return extent.iterate();
+                } else {
+                    return baseEval.iterate(context);
+                }
+            };
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            ComponentTracer expr = (ComponentTracer) getExpression();
+            PushEvaluator baseEval = expr.getBody().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+                Controller controller = context.getController();
+                assert controller != null;
+                if (controller.isTracing()) {
+                    TraceListener listener = controller.getTraceListener();
+                    listener.enter(expr.component, expr.properties, context);
+                    TailCall tc = baseEval.processLeavingTail(output, context);
+                    dispatchTailCall(tc);
+                    listener.leave(expr.component);
+                } else {
+                    dispatchTailCall(baseEval.processLeavingTail(output, context));
+                }
+                return null;
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            ComponentTracer expr = (ComponentTracer) getExpression();
+            ItemEvaluator baseEval = expr.getBody().makeElaborator().elaborateForItem();
+            return context -> {
+                Controller controller = context.getController();
+                assert controller != null;
+                if (controller.isTracing()) {
+                    TraceListener listener = controller.getTraceListener();
+                    listener.enter(expr.component, expr.properties, context);
+                    Item result = baseEval.eval(context);
+                    listener.leave(expr.component);
+                    return result;
+                } else {
+                    return baseEval.eval(context);
+                }
+            };
+        }
+
     }
 }
 

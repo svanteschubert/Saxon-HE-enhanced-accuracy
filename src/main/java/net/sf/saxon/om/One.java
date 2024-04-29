@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.om;
 
-import net.sf.saxon.tree.iter.ConstrainedIterator;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.value.*;
 
 /**
@@ -33,50 +33,6 @@ public class One<T extends Item> extends ZeroOrOne<T> {
     }
 
     /**
-     * Return an iterator over this value.
-     */
-    @Override
-    public ConstrainedIterator<T> iterate() {
-        return new ConstrainedIterator<T>() {
-            boolean gone = false;
-            @Override
-            public boolean hasNext() {
-                return !gone;
-            }
-
-            @Override
-            public T next() {
-                if (gone) {
-                    return null;
-                } else {
-                    gone = true;
-                    return head();
-                }
-            }
-
-            @Override
-            public int getLength() {
-                return 1;
-            }
-
-            @Override
-            public GroundedValue materialize() {
-                return head();
-            }
-
-            @Override
-            public GroundedValue getResidue() {
-                return gone ? EmptySequence.getInstance() : head();
-            }
-
-            @Override
-            public SequenceIterator getReverseIterator() {
-                return iterate();
-            }
-        };
-    }
-
-    /**
      * Convenience function to create a singleton boolean value
      * @param value the boolean value
      * @return the boolean value wrapped as a One&lt;BooleanValue&gt;
@@ -93,6 +49,17 @@ public class One<T extends Item> extends ZeroOrOne<T> {
      */
 
     public static One<StringValue> string (String value) {
+        return new One<>(new StringValue(value));
+    }
+
+    /**
+     * Convenience function to create a singleton string value
+     *
+     * @param value the string value.. If null, the result will represent a zero-length string
+     * @return the string value wrapped as a One&lt;StringValue&gt;
+     */
+
+    public static One<StringValue> string(UnicodeString value) {
         return new One<>(new StringValue(value));
     }
 

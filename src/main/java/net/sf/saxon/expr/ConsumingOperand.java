@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
@@ -88,7 +92,7 @@ public class ConsumingOperand extends UnaryExpression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality();
     }
 
@@ -96,7 +100,7 @@ public class ConsumingOperand extends UnaryExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings  variables that must be re-bound
      */
 
     /*@NotNull*/
@@ -190,9 +194,13 @@ public class ConsumingOperand extends UnaryExpression {
 
     @Override
     public void export(ExpressionPresenter destination) throws XPathException {
-        destination.startElement("consume", this);
-        getBaseExpression().export(destination);
-        destination.endElement();
+        if ("JS".equals(destination.getOptions().target)) {
+            getBaseExpression().export(destination);
+        } else {
+            destination.startElement("consume", this);
+            getBaseExpression().export(destination);
+            destination.endElement();
+        }
     }
 
     /**
@@ -211,4 +219,37 @@ public class ConsumingOperand extends UnaryExpression {
     public String toShortString() {
         return "consume(" + getBaseExpression().toShortString() + ")";
     }
+
+    public Elaborator getElaborator() {
+        return new ConsumingOperandElaborator();
+    }
+    private static class ConsumingOperandElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            ConsumingOperand expr = (ConsumingOperand) getExpression();
+            PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                if (context.getStackFrame().holdsDynamicValue()) {
+                    return context.getStackFrame().popDynamicValue().iterate();
+                } else {
+                    return baseEval.iterate(context);
+                }
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            ConsumingOperand expr = (ConsumingOperand) getExpression();
+            ItemEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForItem();
+            return context -> {
+                if (context.getStackFrame().holdsDynamicValue()) {
+                    return context.getStackFrame().popDynamicValue().head();
+                } else {
+                    return baseEval.eval(context);
+                }
+            };
+        }
+    }
+
 }

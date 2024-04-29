@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,13 +9,16 @@ package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.LearningEvaluator;
+import net.sf.saxon.expr.elab.SequenceEvaluator;
 import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.ItemType;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.LET;
 
@@ -26,19 +29,21 @@ public class LetClause extends Clause {
 
     private LocalVariableBinding rangeVariable;
     private Operand sequenceOp;
-    private Evaluator evaluator;
+    private SequenceEvaluator variableEvaluator;
 
     @Override
     public ClauseName getClauseKey() {
         return LET;
     }
 
-    public Evaluator getEvaluator() {
-        if (evaluator == null) {
-            evaluator = ExpressionTool.lazyEvaluator(getSequence(), true);
+    public SequenceEvaluator getEvaluator() {
+        if (variableEvaluator == null) {
+            variableEvaluator = new LearningEvaluator(
+                    getSequence(), getSequence().makeElaborator().lazily(true, false));
         }
-        return evaluator;
+        return variableEvaluator;
     }
+
 
     @Override
     public LetClause copy(FLWORExpression flwor, RebindingMap rebindings) {
@@ -71,6 +76,14 @@ public class LetClause extends Clause {
         return rangeVariable;
     }
 
+    public void evaluateRangeVariable(XPathContext context) throws XPathException {
+        if (variableEvaluator == null) {
+            getEvaluator();
+        }
+        Sequence val = variableEvaluator.evaluate(context);
+        context.setLocalVariable(getRangeVariable().getLocalSlotNumber(), val);
+    }
+
     /**
      * Get the number of variables bound by this clause
      *
@@ -86,7 +99,7 @@ public class LetClause extends Clause {
      * input from another tuple stream which this clause modifies
      *
      * @param base    the input tuple stream
-     * @param context
+     * @param context the XPath context
      * @return the output tuple stream
      */
 
@@ -100,8 +113,8 @@ public class LetClause extends Clause {
      * output to another tuple stream
      *
      * @param destination the output tuple stream
-     * @param output the destination for the result
-     * @param context
+     * @param output      the destination for the result
+     * @param context     the XPath context
      * @return the push tuple stream that implements the functionality of this clause of the FLWOR
      *         expression
      */
@@ -126,10 +139,16 @@ public class LetClause extends Clause {
 
     @Override
     public void typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, rangeVariable.getVariableQName().getDisplayName(), 0);
-        setSequence(TypeChecker.strictTypeCheck(
-                getSequence(), rangeVariable.getRequiredType(), role, visitor.getStaticContext()));
-        evaluator = ExpressionTool.lazyEvaluator(getSequence(), true);
+        Supplier<RoleDiagnostic> role =
+                () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, rangeVariable.getVariableQName().getDisplayName(), 0);
+        if (visitor.getStaticContext().getXPathVersion() < 40) {
+            setSequence(TypeChecker.strictTypeCheck(
+                    getSequence(), rangeVariable.getRequiredType(), role, visitor.getStaticContext()));
+        } else {
+            TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
+            setSequence(tc.staticTypeCheck(
+                    getSequence(), rangeVariable.getRequiredType(), role, visitor));
+        }
     }
 
     @Override
@@ -143,7 +162,7 @@ public class LetClause extends Clause {
         final ItemType actualItemType = seq.getItemType();
         for (VariableReference ref : references) {
             ref.refineVariableType(actualItemType, getSequence().getCardinality(),
-                    seq instanceof Literal ? ((Literal) seq).getValue() : null,
+                    seq instanceof Literal ? ((Literal) seq).getGroundedValue() : null,
                     seq.getSpecialProperties());
             ExpressionTool.resetStaticProperties(returnExpr);
         }
@@ -207,7 +226,7 @@ public class LetClause extends Clause {
 
     @Override
     public String toShortString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         fsb.append("let $");
         fsb.append(rangeVariable.getVariableQName().getDisplayName());
         fsb.append(" := ");
@@ -216,7 +235,7 @@ public class LetClause extends Clause {
     }
 
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         fsb.append("let $");
         fsb.append(rangeVariable.getVariableQName().getDisplayName());
         fsb.append(" := ");

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,10 +17,15 @@ import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.tree.util.IndexedStack;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 
 /**
  * A PathMap is a description of all the paths followed by an expression.
@@ -42,9 +47,9 @@ import java.util.*;
 
 public class PathMap {
 
-    /*@NotNull*/ private List<PathMapRoot> pathMapRoots = new ArrayList<PathMapRoot>();
-    /*@NotNull*/ private HashMap<Binding, PathMapNodeSet> pathsForVariables =
-            new HashMap<Binding, PathMapNodeSet>();  // a map from a variable Binding to a PathMapNodeSet
+    /*@NotNull*/ private final List<PathMapRoot> pathMapRoots = new ArrayList<>();
+    /*@NotNull*/ private final HashMap<Binding, PathMapNodeSet> pathsForVariables =
+            new HashMap<>();  // a map from a variable Binding to a PathMapNodeSet
 
     /**
      * A node in the path map. A node holds a set of arcs, each representing a link to another
@@ -55,13 +60,13 @@ public class PathMap {
         List<PathMapArc> arcs;
         private boolean returnable;
         private boolean atomized;
-        private boolean hasUnknownDependencies;
+        private boolean _hasUnknownDependencies;
 
         /**
          * Create a node in the PathMap (initially with no arcs)
          */
 
-        private PathMapNode() {
+        protected PathMapNode() {
             arcs = new ArrayList<PathMapArc>();
         }
 
@@ -187,7 +192,7 @@ public class PathMap {
          */
 
         public void setHasUnknownDependencies() {
-            hasUnknownDependencies = true;
+            _hasUnknownDependencies = true;
         }
 
         /**
@@ -198,7 +203,7 @@ public class PathMap {
          */
 
         public boolean hasUnknownDependencies() {
-            return hasUnknownDependencies;
+            return _hasUnknownDependencies;
         }
 
         /**
@@ -247,15 +252,15 @@ public class PathMap {
 
     public static class PathMapRoot extends PathMapNode {
 
-        private Expression rootExpression;
-        private boolean isDownwardsOnly;
+        private final Expression rootExpression;
+        public boolean isDownwardsOnly;
 
         /**
          * Create a PathMapRoot
          *
          * @param root the expression at the root of a path
          */
-        private PathMapRoot(Expression root) {
+        protected PathMapRoot(Expression root) {
             this.rootExpression = root;
         }
 
@@ -276,9 +281,9 @@ public class PathMap {
      */
 
     public static class PathMapArc {
-        private PathMapNode target;
-        private int axis;
-        private NodeTest test;
+        private final PathMapNode target;
+        private final int axis;
+        private final NodeTest test;
 
         /**
          * Create a PathMapArc
@@ -287,7 +292,7 @@ public class PathMap {
          * @param test   the node test
          * @param target the node reached by following this arc
          */
-        private PathMapArc(int axis, /*@NotNull*/ NodeTest test, /*@NotNull*/ PathMapNode target) {
+        protected PathMapArc(int axis, /*@NotNull*/ NodeTest test, /*@NotNull*/ PathMapNode target) {
             this.axis = axis;
             this.test = test;
             this.target = target;
@@ -344,7 +349,7 @@ public class PathMap {
          */
 
         public PathMapNodeSet(PathMapNode singleton) {
-            add(singleton);
+            this.add(singleton);
         }
 
         /**
@@ -374,7 +379,7 @@ public class PathMap {
         public void addNodeSet(/*@Nullable*/ PathMapNodeSet nodes) {
             if (nodes != null) {
                 for (PathMapNode node : nodes) {
-                    add(node);
+                    this.add(node);
                 }
             }
         }
@@ -391,6 +396,8 @@ public class PathMap {
 
         /**
          * Set the returnable property on all nodes in this nodeset
+         *
+         * @param isReturned true if nodes should be returnable
          */
 
         public void setReturnable(boolean isReturned) {
@@ -401,6 +408,8 @@ public class PathMap {
 
         /**
          * Test whether there are any returnable nodes reachable from nodes in this nodeset
+         *
+         * @return true if there are any reachable returnable nodes
          */
 
         public boolean hasReachableReturnables() {
@@ -415,6 +424,8 @@ public class PathMap {
         /**
          * Determine whether the path is entirely within a streamable snapshot of a streamed document:
          * that is, it must only navigate to ancestors and to attributes of ancestors
+         *
+         * @return true if the path is entirely within a streamable snapshot
          */
 
         public boolean allPathsAreWithinStreamableSnapshot() {
@@ -596,7 +607,7 @@ public class PathMap {
             String suppliedUri = null;
             if (arg instanceof Literal) {
                 try {
-                    String argValue = ((Literal) arg).getValue().getStringValue();
+                    String argValue = ((Literal) arg).getGroundedValue().getUnicodeStringValue().toString();
                     if (baseUri == null) {
                         if (new URI(argValue).isAbsolute()) {
                             suppliedUri = argValue;
@@ -676,7 +687,7 @@ public class PathMap {
         }
         // Now process the tree of paths recursively, rewriting all axes in terms of downwards
         // selections, if necessary as downward selections from the root
-        Stack<PathMapNode> nodeStack = new Stack<PathMapNode>();
+        IndexedStack<PathMapNode> nodeStack = new IndexedStack<>();
         nodeStack.push(newRoot);
         reduceToDownwardsAxes(newRoot, nodeStack);
         newRoot.isDownwardsOnly = true;
@@ -691,7 +702,7 @@ public class PathMap {
      *                  The node at the bottom of the stack is the root.
      */
 
-    private void reduceToDownwardsAxes(/*@NotNull*/ PathMapRoot root, /*@NotNull*/ Stack<PathMapNode> nodeStack) {
+    private void reduceToDownwardsAxes(/*@NotNull*/ PathMapRoot root, /*@NotNull*/ IndexedStack<PathMapNode> nodeStack) {
         //PathMapArc lastArc = (PathMapArc)arcStack.peek();
         //byte lastAxis = lastArc.getStep().getAxis();
         PathMapNode node = nodeStack.peek();
@@ -731,6 +742,7 @@ public class PathMap {
                         }
                         break;
                     } else {
+                        CSharp.emitCode("goto case Saxon.Hej.om.AxisInfo.ANCESTOR;");
                         // fall through
                     }
 
@@ -807,25 +819,25 @@ public class PathMap {
 
     }
 
-    /**
-     * Display a printed representation of the path map
-     *
-     * @param out the output stream to which the output will be written
-     */
-
-    public void diagnosticDump(/*@NotNull*/ Logger out) {
-        for (int i = 0; i < pathMapRoots.size(); i++) {
-            out.info("\nROOT EXPRESSION " + i);
-            PathMapRoot mapRoot = pathMapRoots.get(i);
-            if (mapRoot.hasUnknownDependencies()) {
-                out.info("  -- has unknown dependencies --");
-            }
-            Expression exp = mapRoot.rootExpression;
-            exp.explain(out);
-            out.info("\nTREE FOR EXPRESSION " + i);
-            showArcs(out, mapRoot, 2);
-        }
-    }
+//    /**
+//     * Display a printed representation of the path map
+//     *
+//     * @param out the output stream to which the output will be written
+//     */
+//
+//    public void diagnosticDump(/*@NotNull*/ Logger out) {
+//        for (int i = 0; i < pathMapRoots.size(); i++) {
+//            out.info("\nROOT EXPRESSION " + i);
+//            PathMapRoot mapRoot = pathMapRoots.get(i);
+//            if (mapRoot.hasUnknownDependencies()) {
+//                out.info("  -- has unknown dependencies --");
+//            }
+//            Expression exp = mapRoot.rootExpression;
+//            exp.explain(out);
+//            out.info("\nTREE FOR EXPRESSION " + i);
+//            showArcs(out, mapRoot, 2);
+//        }
+//    }
 
     /**
      * Internal helper method called by diagnosticDump, to show the arcs emanating from a node.
@@ -842,13 +854,13 @@ public class PathMap {
         String pad = "                                           ".substring(0, indent);
         List<PathMapArc> arcs = node.arcs;
         for (PathMapArc arc : arcs) {
-            out.info(pad + AxisInfo.axisName[arc.axis] +
+            out.info(pad + AxisInfo.axisName[arc.getAxis()] +
                     "::" +
-                    arc.test.toString() +
-                    (arc.target.isAtomized() ? " @" : "") +
-                    (arc.target.isReturnable() ? " #" : "") +
-                    (arc.target.hasUnknownDependencies() ? " ...??" : ""));
-            showArcs(out, arc.target, indent + 2);
+                    arc.getNodeTest().toString() +
+                    (arc.getTarget().isAtomized() ? " @" : "") +
+                    (arc.getTarget().isReturnable() ? " #" : "") +
+                    (arc.getTarget().hasUnknownDependencies() ? " ...??" : ""));
+            showArcs(out, arc.getTarget(), indent + 2);
         }
     }
 

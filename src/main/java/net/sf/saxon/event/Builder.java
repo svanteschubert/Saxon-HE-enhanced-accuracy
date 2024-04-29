@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,12 @@
 package net.sf.saxon.event;
 
 import net.sf.saxon.Configuration;
-import net.sf.saxon.s9api.Location;
+import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.NamePool;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
-import net.sf.saxon.trans.CommandLineOptions;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.trans.Timer;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.tiny.TinyDocumentImpl;
 import net.sf.saxon.type.SchemaType;
@@ -62,10 +63,11 @@ public abstract class Builder implements Receiver {
     protected NodeInfo currentRoot;
     protected boolean lineNumbering = false;
     protected boolean useEventLocation = true;
+    protected Durability durability = Durability.LASTING;
 
     protected boolean started = false;
     protected boolean timing = false;
-    protected boolean open = false;
+    protected boolean opened = false;
 
     private long startTime;
 
@@ -204,6 +206,14 @@ public abstract class Builder implements Receiver {
         return baseURI;
     }
 
+    public void setDurability(Durability durability) {
+        this.durability = durability;
+    }
+
+    public Durability getDurability() {
+        return durability;
+    }
+
 
     /////////////////////////////////////////////////////////////////////////
     // Methods setting and getting options for building the tree
@@ -243,7 +253,7 @@ public abstract class Builder implements Receiver {
 
     @Override
     public void open() {
-        if (timing && !open) {
+        if (timing && !opened) {
             String sysId = getSystemId();
             if (sysId == null) {
                 sysId = "(unknown systemId)";
@@ -252,21 +262,21 @@ public abstract class Builder implements Receiver {
                     "Building tree for " + sysId + " using " + getClass());
             startTime = System.nanoTime();
         }
-        open = true;
+        opened = true;
     }
 
     @Override
     public void close() throws XPathException {
-        if (timing && open) {
+        if (timing && opened) {
             long endTime = System.nanoTime();
             getConfiguration().getLogger().info(
-                    "Tree built in " + CommandLineOptions.showExecutionTimeNano(endTime - startTime));
+                    "Tree built in " + Timer.showExecutionTimeNano(endTime - startTime));
             if (currentRoot instanceof TinyDocumentImpl) {
                 ((TinyDocumentImpl) currentRoot).showSize();
             }
             startTime = endTime;
         }
-        open = false;
+        opened = false;
     }
 
     /**
@@ -310,7 +320,7 @@ public abstract class Builder implements Receiver {
         lineNumbering = false;
         started = false;
         timing = false;
-        open = false;
+        opened = false;
     }
 
 }

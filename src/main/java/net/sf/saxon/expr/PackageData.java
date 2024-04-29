@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -27,11 +27,12 @@ public class PackageData {
 
     protected Configuration config;
     private HostLanguage hostLanguage;
-    private boolean isSchemaAware;
+    protected int hostLanguageVersion;
+    private boolean schemaAware;
     private DecimalFormatManager decimalFormatManager = null;
     protected KeyManager keyManager = null;
     private AccumulatorRegistry accumulatorRegistry = null;
-    private List<GlobalVariable> globalVariables = new ArrayList<>();
+    private final List<GlobalVariable> globalVariables = new ArrayList<>();
     private SlotManager globalSlotManager;
     private int localLicenseId = -1;
     private String targetEdition;
@@ -51,15 +52,8 @@ public class PackageData {
         this.config = config;
         targetEdition = config.getEditionCode();
         globalSlotManager = config.makeSlotManager();
-    }
-
-    /**
-     * Create a PackageData object as a copy of an existing PackageData
-     * @param p the existing PackageData object
-     */
-
-    public PackageData(PackageData p) {
-
+        hostLanguage = HostLanguage.XPATH;
+        hostLanguageVersion = 31;
     }
 
     /**
@@ -90,6 +84,15 @@ public class PackageData {
     }
 
     /**
+     * Get the version of the host language
+     * @return the host language version, as an integer: for example 31 represents 3.1.
+     */
+
+    public int getHostLanguageVersion() {
+        return hostLanguageVersion;
+    }
+
+    /**
      * Ask if the host language is XSLT
      * @return true if the host language is XSLT
      */
@@ -99,12 +102,16 @@ public class PackageData {
     }
 
     /**
-     * Set the language in which this package is written
-     * @param hostLanguage typically {@link HostLanguage#XSLT}, {@link HostLanguage#XQUERY}, or {@link HostLanguage#XPATH}
+     * Set the language and version in which this package is written
+     * @param hostLanguage typically {@link HostLanguage#XSLT}, {@link HostLanguage#XQUERY}, or
+     * {@link HostLanguage#XPATH}
+     * @param version the host language version, as an integer (for example 30 represents 3.0, 31
+     *                represents 3.1)
      */
 
-    public void setHostLanguage(HostLanguage hostLanguage) {
+    public void setHostLanguage(HostLanguage hostLanguage, int version) {
         this.hostLanguage = hostLanguage;
+        this.hostLanguageVersion = version;
     }
 
     /**
@@ -178,7 +185,7 @@ public class PackageData {
      */
 
     public boolean isSchemaAware() {
-        return isSchemaAware;
+        return schemaAware;
     }
 
     /**
@@ -187,7 +194,7 @@ public class PackageData {
      */
 
     public void setSchemaAware(boolean schemaAware) {
-        isSchemaAware = schemaAware;
+        this.schemaAware = schemaAware;
     }
 
     /**

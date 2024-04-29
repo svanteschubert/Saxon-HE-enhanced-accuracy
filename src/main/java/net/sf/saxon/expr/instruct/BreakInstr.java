@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,17 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
-import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.Operand;
+import net.sf.saxon.expr.TailCallLoop;
+import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.iter.EmptyIterator;
 
 import java.util.Collections;
 
@@ -54,7 +58,8 @@ public class BreakInstr extends Instruction implements TailCallLoop.TailCallInfo
     /**
      * Ask whether the expression can be lifted out of a loop, assuming it has no dependencies
      * on the controlling variable/focus of the loop
-     * @param forStreaming
+     * @param forStreaming true if we are optimizing for streamed evaluation
+     * @return for a {@code BreakInstr}, always false
      */
 
     @Override
@@ -73,19 +78,8 @@ public class BreakInstr extends Instruction implements TailCallLoop.TailCallInfo
         return StandardNames.XSL_BREAK;
     }
 
-    /*@Nullable*/
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        markContext(context);
-        return null;
-    }
-
     public void markContext(XPathContext context) {
-        XPathContext c = context;
-        while (!(c instanceof XPathContextMajor)) {
-            c = c.getCaller();
-        }
-        ((XPathContextMajor) c).requestTailCall(this, null);
+        context.getMajorContext().requestTailCall(this, null);
     }
 
     @Override
@@ -98,5 +92,38 @@ public class BreakInstr extends Instruction implements TailCallLoop.TailCallInfo
         out.startElement("break", this);
         out.endElement();
     }
+
+    @Override
+    public Elaborator getElaborator() {
+        return new BreakElaborator();
+    }
+
+    public static class BreakElaborator extends PushElaborator {
+        @Override
+        public PushEvaluator elaborateForPush() {
+            BreakInstr expr = (BreakInstr)getExpression();
+            return (output, context) -> {
+                expr.markContext(context);
+                return null;
+            };
+        }
+
+        public ItemEvaluator elaborateForItem() {
+            BreakInstr expr = (BreakInstr) getExpression();
+            return (context) -> {
+                expr.markContext(context);
+                return null;
+            };
+        }
+
+        public PullEvaluator elaborateForPull() {
+            BreakInstr expr = (BreakInstr) getExpression();
+            return (context) -> {
+                expr.markContext(context);
+                return EmptyIterator.getInstance();
+            };
+        }
+    }
+
 }
 

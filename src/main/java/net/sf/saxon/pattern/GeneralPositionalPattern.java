@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,7 +30,7 @@ import net.sf.saxon.value.NumericValue;
  */
 public class GeneralPositionalPattern extends Pattern {
 
-    private NodeTest nodeTest;
+    private final NodeTest nodeTest;
     private Expression positionExpr;
     private boolean usesPosition = true;
 
@@ -324,7 +324,7 @@ public class GeneralPositionalPattern extends Pattern {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return nodeTest.hashCode() ^ positionExpr.hashCode();
     }
 
@@ -369,4 +369,4 @@ public class GeneralPositionalPattern extends Pattern {
 
 
 }
-// Copyright (c) 2012-2020 Saxonica Limited
+// Copyright (c) 2012-2023 Saxonica Limited

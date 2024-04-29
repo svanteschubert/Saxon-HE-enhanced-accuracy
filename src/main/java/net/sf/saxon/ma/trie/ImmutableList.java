@@ -7,6 +7,8 @@
 
 package net.sf.saxon.ma.trie;
 
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
+
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
@@ -26,8 +28,10 @@ public abstract class ImmutableList<T> implements Iterable<T> {
      * @param <T> the nominal item type of the list elements
      * @return an empty list
      */
+
+    @SuppressWarnings("unchecked")
     public static <T> ImmutableList<T> empty() {
-        return EMPTY_LIST;
+        return (ImmutableList<T>) EMPTY_LIST;
     }
 
     /**
@@ -82,6 +86,7 @@ public abstract class ImmutableList<T> implements Iterable<T> {
      * elements of the two lists are pairwise equal.
      */
 
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public boolean equals(Object o) {
         if (!(o instanceof ImmutableList)) {
             return false;
@@ -186,11 +191,11 @@ public abstract class ImmutableList<T> implements Iterable<T> {
 
     private static class NonEmptyList<T> extends ImmutableList<T> {
         private final T element;
-        private final ImmutableList<T> tail;
+        private final ImmutableList<T> _tail;
 
         private NonEmptyList(final T element, final ImmutableList<T> tail) {
             this.element = element;
-            this.tail = tail;
+            this._tail = tail;
         }
 
         @Override
@@ -200,7 +205,7 @@ public abstract class ImmutableList<T> implements Iterable<T> {
 
         @Override
         public ImmutableList<T> tail() {
-            return tail;
+            return _tail;
         }
 
         @Override

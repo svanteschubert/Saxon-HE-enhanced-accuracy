@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,14 @@
 
 package net.sf.saxon.functions.registry;
 
-import net.sf.saxon.functions.hof.AtomicConstructorFunction;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.functions.CallableFunction;
 import net.sf.saxon.functions.FunctionLibrary;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.functions.hof.AtomicConstructorFunction;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
@@ -24,6 +24,7 @@ import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * The ConstructorFunctionLibrary represents the collection of constructor functions for atomic types. These
@@ -32,7 +33,7 @@ import java.util.List;
 
 public class ConstructorFunctionLibrary implements FunctionLibrary {
 
-    private Configuration config;
+    private final Configuration config;
 
     /**
      * Create a SystemFunctionLibrary
@@ -60,11 +61,14 @@ public class ConstructorFunctionLibrary implements FunctionLibrary {
      *          that is private
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
         if (functionName.getArity() != 1) {
             return null;
         }
-        final String uri = functionName.getComponentName().getURI();
+        final NamespaceUri uri = functionName.getComponentName().getNamespaceUri();
+        if (uri.equals(NamespaceUri.ANONYMOUS)) {
+            return null;
+        }
         final String localName = functionName.getComponentName().getLocalPart();
         final SchemaType type = config.getSchemaType(new StructuredQName("", uri, localName));
         if (type == null || type.isComplexType()) {
@@ -76,13 +80,13 @@ public class ConstructorFunctionLibrary implements FunctionLibrary {
         } else if (type instanceof ListType) {
             return new ListConstructorFunction((ListType)type, resolver, true);
         } else {
-            Callable callable = (context, arguments) -> {
+            Callable callable = new CallableDelegate((context, arguments) -> {
                 AtomicValue value = (AtomicValue) arguments[0].head();
                 if (value == null) {
                     return EmptySequence.getInstance();
                 }
                 return UnionConstructorFunction.cast(value, (UnionType) type, resolver, context.getConfiguration().getConversionRules());
-            };
+            });
             SequenceType returnType = ((UnionType) type).getResultTypeOfCast();
             return new CallableFunction(1, callable,
                                         new SpecificFunctionType(new SequenceType[]{SequenceType.OPTIONAL_ATOMIC}, returnType));
@@ -90,13 +94,11 @@ public class ConstructorFunctionLibrary implements FunctionLibrary {
     }
 
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         if (functionName.getArity() != 1) {
             return false;
         }
-        final String uri = functionName.getComponentName().getURI();
-        final String localName = functionName.getComponentName().getLocalPart();
-        final SchemaType type = config.getSchemaType(new StructuredQName("", uri, localName));
+        final SchemaType type = config.getSchemaType(functionName.getComponentName());
         if (type == null || type.isComplexType()) {
             return false;
         }
@@ -115,6 +117,8 @@ public class ConstructorFunctionLibrary implements FunctionLibrary {
      * @param arguments    The expressions supplied statically in the function call. The intention is
      *                     that the static type of the arguments (obtainable via getItemType() and getCardinality() may
      *                     be used as part of the binding algorithm.
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          The static context
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
@@ -124,15 +128,35 @@ public class ConstructorFunctionLibrary implements FunctionLibrary {
      */
 
     @Override
-    public Expression bind(SymbolicName.F functionName, Expression[] arguments, StaticContext env, List<String> reasons) {
-        final String uri = functionName.getComponentName().getURI();
+    public Expression bind(SymbolicName.F functionName, Expression[] arguments, Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons) {
+        final NamespaceUri uri = functionName.getComponentName().getNamespaceUri();
         final String localName = functionName.getComponentName().getLocalPart();
-        boolean builtInNamespace = uri.equals(NamespaceConstant.SCHEMA);
+        boolean builtInNamespace = uri.equals(NamespaceUri.SCHEMA);
         if (builtInNamespace) {
-            // it's a constructor function: treat it as shorthand for a cast expression
-            if (functionName.getArity() != 1) {
+            int languageVersion = env.getXPathVersion();
+            if (languageVersion >= 40 && arguments.length == 0) {
+                SymbolicName.F f1 = new SymbolicName.F(functionName.getComponentName(), 1);
+                return bind(f1, new Expression[]{new ContextItemExpression()}, keywords, env, reasons);
+            } else if (functionName.getArity() != 1) {
                 reasons.add("A constructor function must have exactly one argument");
                 return null;
+            }
+            if (keywords != null && !keywords.isEmpty()) {
+                if (keywords.size() != 1) {
+                    reasons.add("The keyword for the sole argument of a constructor function is 'value'");
+                    return null;
+                }
+                for (Map.Entry<StructuredQName, Integer> kw : keywords.entrySet()) {
+                    if (kw.getKey().getEQName().equals("Q{}value")) {
+                        if (kw.getValue() != 0) {
+                            reasons.add("The 'value' keyword in a constructor function call must be the first and only argument");
+                            return null;
+                        }
+                    } else {
+                        reasons.add("The argument keyword '" + kw.getKey().getEQName() + " is not allowed in a constructor function call");
+                        return null;
+                    }
+                }
             }
             SimpleType type = Type.getBuiltInSimpleType(uri, localName);
             if (type != null) {

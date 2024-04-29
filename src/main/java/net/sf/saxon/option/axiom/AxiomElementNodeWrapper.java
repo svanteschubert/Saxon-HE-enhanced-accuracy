@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,10 +9,12 @@ package net.sf.saxon.option.axiom;
 
 import net.sf.saxon.om.NamespaceBinding;
 import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.NameTest;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.tree.NamespaceNode;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
@@ -28,12 +30,9 @@ import javax.xml.namespace.QName;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.function.Predicate;
 
 /**
  * A node in the XDM tree; specifically, a node that wraps an Axiom element node.
- *
- * @author Michael H. Kay
  */
 
 public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
@@ -156,9 +155,9 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
      */
 
     @Override
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         String uri = ((OMElement) node).getNamespaceURI();
-        return uri == null ? "" : uri;
+        return NamespaceUri.of(uri);
     }
 
     /**
@@ -201,11 +200,11 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
 
 
     @Override
-    protected AxisIterator iterateAttributes(Predicate<? super NodeInfo> nodeTest) {
+    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
         if (!((OMElement) node).getAllAttributes().hasNext()) {
             return EmptyIterator.ofNodes();
         } else if (nodeTest instanceof NameTest) {
-            String uri = ((NameTest) nodeTest).getNamespaceURI();
+            String uri = ((NameTest) nodeTest).getNamespaceURI().toString();
             String local = ((NameTest) nodeTest).getLocalPart();
             OMAttribute att = ((OMElement) node).getAttribute(new QName(uri, local));
             if (att == null) {
@@ -219,7 +218,7 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
     }
 
     @Override
-    protected AxisIterator iterateSiblings(Predicate<? super NodeInfo> nodeTest, boolean forwards) {
+    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
         if (forwards) {
             if (nodeTest instanceof AnyNodeTest) {
                 return new AxiomDocument.FollowingSiblingIterator((OMElement) node, parent, docWrapper);
@@ -249,8 +248,8 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
      */
 
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
-        return ((OMElement) node).getAttributeValue(new javax.xml.namespace.QName(uri, local, ""));
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
+        return ((OMElement) node).getAttributeValue(new javax.xml.namespace.QName(uri.toString(), local, ""));
     }
 
     /**
@@ -286,7 +285,7 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
         List<NamespaceBinding> list = new ArrayList<>();
         for (Iterator iter = elem.getAllDeclaredNamespaces(); iter.hasNext(); ) {
             OMNamespace ns = (OMNamespace) iter.next();
-            NamespaceBinding nb = new NamespaceBinding(ns.getPrefix(), ns.getNamespaceURI());
+            NamespaceBinding nb = new NamespaceBinding(ns.getPrefix(), NamespaceUri.of(ns.getNamespaceURI()));
             list.add(nb);
         }
         NamespaceBinding[] array = new NamespaceBinding[list.size()];
@@ -316,7 +315,7 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
                 OMElement elem = (OMElement) node;
                 for (Iterator iter = elem.getAllDeclaredNamespaces(); iter.hasNext(); ) {
                     OMNamespace ns = (OMNamespace) iter.next();
-                    nsMap = nsMap.bind(ns.getPrefix(), ns.getNamespaceURI());
+                    nsMap = nsMap.bind(ns.getPrefix(), NamespaceUri.of(ns.getNamespaceURI()));
                 }
                 return inScopeNamespaces = nsMap;
             }
@@ -337,15 +336,15 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
      */
     private final class AttributeAxisIterator implements AxisIterator {
 
-        private AxiomElementNodeWrapper element;
-        private Iterator base;
+        private final AxiomElementNodeWrapper element;
+        private final Iterator base;
 
         private NodeInfo current;
         private int index;
 
-        private Predicate<? super NodeInfo> nodeTest;
+        private final NodeTest nodeTest;
 
-        public AttributeAxisIterator(AxiomElementNodeWrapper element, Predicate<? super NodeInfo> test) {
+        public AttributeAxisIterator(AxiomElementNodeWrapper element, NodeTest test) {
             this.element = element;
             if (test == AnyNodeTest.getInstance() || test == NodeKindTest.ATTRIBUTE) {
                 test = null;
@@ -369,9 +368,9 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
 
         private NodeInfo advance() {
             if (base.hasNext()) {
-                OMAttribute next = (OMAttribute) base.next();
+                OMAttribute nextAtt = (OMAttribute) base.next();
                 index++;
-                return new AxiomAttributeWrapper(next, element, index);
+                return new AxiomAttributeWrapper(nextAtt, element, index);
             } else {
                 return null;
             }

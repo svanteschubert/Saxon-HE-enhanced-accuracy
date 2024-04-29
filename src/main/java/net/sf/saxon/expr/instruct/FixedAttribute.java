@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -18,14 +19,19 @@ import net.sf.saxon.functions.NormalizeSpace_1;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.Validation;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.*;
+import net.sf.saxon.value.Whitespace;
 
 import java.util.function.BiConsumer;
 
@@ -39,7 +45,7 @@ import java.util.function.BiConsumer;
 
 public final class FixedAttribute extends AttributeCreator {
 
-    private NodeName nodeName;
+    private final NodeName nodeName;
 
     /**
      * Construct an Attribute instruction
@@ -114,12 +120,10 @@ public final class FixedAttribute extends AttributeCreator {
             if (validation == Validation.STRICT) {
                 SchemaDeclaration decl = config.getAttributeDeclaration(nodeName.getStructuredQName());
                 if (decl == null) {
-                    XPathException se = new XPathException(
+                    throw new XPathException(
                             "Strict validation fails: there is no global attribute declaration for " +
-                                    nodeName.getDisplayName());
-                    se.setErrorCode("XTTE1510");
-                    se.setLocation(getLocation());
-                    throw se;
+                                    nodeName.getDisplayName())
+                            .withErrorCode("XTTE1510").withLocation(getLocation());
                 }
                 schemaType = (SimpleType) decl.getType();
                 errorCode = "XTTE1510";
@@ -131,23 +135,22 @@ public final class FixedAttribute extends AttributeCreator {
                 } else {
                     visitor.getStaticContext().issueWarning(
                             "Lax validation has no effect: there is no global attribute declaration for " +
-                                    nodeName.getDisplayName(), getLocation());
+                                    nodeName.getDisplayName(), SaxonErrorCode.SXWN9031, getLocation());
                 }
             }
         }
 
         // Attempt early validation if possible
         if (Literal.isAtomic(getSelect()) && schemaType != null && !schemaType.isNamespaceSensitive()) {
-            CharSequence value = ((Literal) getSelect()).getValue().getStringValueCS();
+            UnicodeString value = ((Literal) getSelect()).getGroundedValue().getUnicodeStringValue();
             ValidationFailure err = schemaType.validateContent(
                     value, DummyNamespaceResolver.getInstance(), rules);
             if (err != null) {
-                XPathException se = new XPathException("Attribute value " + Err.wrap(value, Err.VALUE) +
+                throw new XPathException("Attribute value " + Err.wrap(value, Err.VALUE) +
                         " does not the match the required type " +
                         schemaType.getDescription() + ". " +
-                        err.getMessage());
-                se.setErrorCode(errorCode);
-                throw se;
+                        err.getMessage())
+                        .withErrorCode(errorCode);
             }
         }
 
@@ -155,7 +158,7 @@ public final class FixedAttribute extends AttributeCreator {
         // escaped when the time comes for serialization
         if (getSelect() instanceof StringLiteral) {
             boolean special = false;
-            CharSequence val = ((StringLiteral) getSelect()).getStringValue();
+            String val = ((StringLiteral) getSelect()).stringify();
             for (int k = 0; k < val.length(); k++) {
                 char c = val.charAt(k);
                 if ((int) c < 33 || (int) c > 126 ||
@@ -229,10 +232,10 @@ public final class FixedAttribute extends AttributeCreator {
         }
         if (parentType instanceof SimpleType) {
             XPathException err = new XPathException("Attribute " + nodeName.getDisplayName() +
-                    " is not permitted in the content model of the simple type " + parentType.getDescription());
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            err.setErrorCode(getPackageData().isXSLT() ? "XTTE1510" : "XQDY0027");
+                    " is not permitted in the content model of the simple type " + parentType.getDescription())
+                    .asTypeError()
+                    .withLocation(getLocation())
+                    .withErrorCode(getPackageData().isXSLT() ? "XTTE1510" : "XQDY0027");
             throw err;
         }
         SchemaType type;
@@ -242,20 +245,18 @@ public final class FixedAttribute extends AttributeCreator {
             throw new XPathException(e);
         }
         if (type == null) {
-            XPathException err = new XPathException("Attribute " + nodeName.getDisplayName() +
-                    " is not permitted in the content model of the complex type " + parentType.getDescription());
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            err.setErrorCode(getPackageData().isXSLT() ? "XTTE1510" : "XQDY0027");
-            throw err;
+            throw new XPathException("Attribute " + nodeName.getDisplayName() +
+                    " is not permitted in the content model of the complex type " + parentType.getDescription())
+                    .asTypeError()
+                    .withLocation(getLocation())
+                    .withErrorCode(getPackageData().isXSLT() ? "XTTE1510" : "XQDY0027");
         }
 
         try {
             // When select is a SimpleContentConstructor, this does nothing
             getSelect().checkPermittedContents(type, true);
         } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            throw e;
+            throw e.maybeWithLocation(getLocation());
         }
     }
 
@@ -278,11 +279,11 @@ public final class FixedAttribute extends AttributeCreator {
     public void export(ExpressionPresenter out) throws XPathException {
         out.startElement("att", this);
         out.emitAttribute("name", nodeName.getDisplayName());
-        if (!nodeName.getStructuredQName().hasURI("")) {
-            out.emitAttribute("nsuri", nodeName.getStructuredQName().getURI());
+        if (!nodeName.getStructuredQName().hasURI(NamespaceUri.NULL)) {
+            out.emitAttribute("nsuri", nodeName.getStructuredQName().getNamespaceUri().toString());
         }
         if (getValidationAction() != Validation.SKIP && getValidationAction() != Validation.BY_TYPE) {
-            out.emitAttribute("validation", Validation.toString(getValidationAction()));
+            out.emitAttribute("validation", Validation.describe(getValidationAction()));
         }
         if (getSchemaType() != null) {
             out.emitAttribute("type", getSchemaType().getStructuredQName());
@@ -306,6 +307,79 @@ public final class FixedAttribute extends AttributeCreator {
     @Override
     public String toShortString() {
         return "attr{" + nodeName.getDisplayName() + "=...}";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new FixedAttributeElaborator();
+    }
+
+
+    private static class FixedAttributeElaborator extends SimpleNodePushElaborator {
+        @Override
+        public PushEvaluator elaborateForPush() {
+            FixedAttribute expr = (FixedAttribute) getExpression();
+            NodeName name = expr.nodeName;
+            Location loc = expr.getLocation();
+            int options = expr.getOptions();
+            boolean collapse = name.equals(StandardNames.XML_ID_NAME);
+
+            if (collapse || expr.getSchemaType() != null
+                    || expr.getValidationAction() == Validation.STRICT || expr.getValidationAction() == Validation.LAX) {
+                UnicodeStringEvaluator contentEval = expr.getSelect().makeElaborator().elaborateForUnicodeString(true);
+                return (output, context) -> {
+                    UnicodeString content = contentEval.eval(context);
+                    SimpleType ann = expr.validate(name, content, context);
+                    if (collapse) {
+                        content = Whitespace.collapseWhitespace(content);
+                    }
+
+                    try {
+                        output.attribute(name, ann, content.toString(), loc, options);
+                    } catch (XPathException err) {
+                        throw dynamicError(loc, err, context);
+                    }
+
+                    return null;
+                };
+            } else {
+                StringEvaluator contentEval = expr.getSelect().makeElaborator().elaborateForString(true);
+                return (output, context) -> {
+                    String content = contentEval.eval(context);
+                    try {
+                        output.attribute(name, BuiltInAtomicType.UNTYPED_ATOMIC, content, loc, options);
+                    } catch (XPathException err) {
+                        throw Instruction.dynamicError(loc, err, context);
+                    }
+                    return null;
+                };
+            }
+
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            FixedAttribute expr = (FixedAttribute) getExpression();
+            if (expr.getSchemaType() != null ||
+                    expr.getValidationAction() == Validation.STRICT ||
+                    expr.getValidationAction() == Validation.LAX) {
+                ItemEvaluator superEval = super.elaborateForItem();
+                return context -> {
+                    Orphan o = (Orphan)superEval.eval(context);
+                    assert o != null;
+                    expr.validateOrphanAttribute(o, context);
+                    return o;
+                };
+            } else {
+                return super.elaborateForItem();
+            }
+        }
     }
 }
 

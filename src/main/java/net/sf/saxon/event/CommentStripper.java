@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,27 +9,31 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.tiny.CompressedWhitespace;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.SchemaType;
+
+import java.util.function.Predicate;
 
 /**
  * The CommentStripper class is a filter that removes all comments and processing instructions.
  * It also concatenates text nodes that are split by comments and PIs. This follows the rules for
  * processing stylesheets; it is also used for removing comments and PIs from the tree seen
- * by XPath expressions used to process XSD 1.1 assertions
+ * by XPath expressions used to process XSD 1.1 assertions.
+ *
+ * <p>It also has the ability to deep-skip xsl:note (or any other) elements, as required for XSLT 4.0.</p>
  *
  */
 
 
 public class CommentStripper extends ProxyReceiver {
 
-    /*@Nullable*/ private CompressedWhitespace savedWhitespace = null;
-    private final FastStringBuffer buffer = new FastStringBuffer(FastStringBuffer.C256);
+    private UnicodeString currentTextNode = null;
+    private Predicate<NodeName> skippedElementTest = (NodeName name) -> false;
+    private int depthOfHole = 0;
 
     /**
      * Default constructor for use in subclasses
@@ -41,13 +45,25 @@ public class CommentStripper extends ProxyReceiver {
         super(next);
     }
 
+    public void setSkippedElementTest(Predicate<NodeName> test) {
+        this.skippedElementTest = test;
+    }
+
     @Override
     public void startElement(NodeName elemName, SchemaType type,
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties)
             throws XPathException {
-        flush();
-        nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
+        if (depthOfHole == 0) {
+            if (skippedElementTest.test(elemName)) {
+                depthOfHole++;
+            } else {
+                flush();
+                nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
+            }
+        } else {
+            depthOfHole++;
+        }
     }
 
     /**
@@ -56,8 +72,12 @@ public class CommentStripper extends ProxyReceiver {
 
     @Override
     public void endElement() throws XPathException {
-        flush();
-        nextReceiver.endElement();
+        if (depthOfHole > 0) {
+            depthOfHole--;
+        } else {
+            flush();
+            nextReceiver.endElement();
+        }
     }
 
     /**
@@ -69,21 +89,14 @@ public class CommentStripper extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (chars instanceof CompressedWhitespace) {
-            if (buffer.isEmpty() && savedWhitespace == null) {
-                savedWhitespace = (CompressedWhitespace) chars;
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (depthOfHole == 0) {
+            if (currentTextNode == null) {
+                currentTextNode = chars;
             } else {
-                ((CompressedWhitespace) chars).uncompress(buffer);
+                currentTextNode = currentTextNode.concat(chars);
             }
-        } else {
-            if (savedWhitespace != null) {
-                savedWhitespace.uncompress(buffer);
-                savedWhitespace = null;
-            }
-            buffer.cat(chars);
         }
-
     }
 
     /**
@@ -91,7 +104,7 @@ public class CommentStripper extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) {
+    public void comment(UnicodeString chars, Location locationId, int properties) {
     }
 
     /**
@@ -99,7 +112,7 @@ public class CommentStripper extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String name, CharSequence data, Location locationId, int properties) {
+    public void processingInstruction(String name, UnicodeString data, Location locationId, int properties) {
     }
 
     /**
@@ -110,13 +123,10 @@ public class CommentStripper extends ProxyReceiver {
      */
 
     private void flush() throws XPathException {
-        if (!buffer.isEmpty()) {
-            nextReceiver.characters(buffer, Loc.NONE, ReceiverOption.NONE);
-        } else if (savedWhitespace != null) {
-            nextReceiver.characters(savedWhitespace, Loc.NONE, ReceiverOption.NONE);
+        if (currentTextNode != null) {
+            nextReceiver.characters(currentTextNode, Loc.NONE, ReceiverOption.NONE);
         }
-        savedWhitespace = null;
-        buffer.setLength(0);
+        currentTextNode = null;
     }
 
 }

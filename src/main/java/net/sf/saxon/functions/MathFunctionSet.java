@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,14 +11,16 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.One;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.ZeroOrOne;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.value.DoubleValue;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.NumericValue;
+
+import java.util.function.Function;
 
 
 /**
@@ -27,7 +29,7 @@ import net.sf.saxon.value.NumericValue;
  */
 public class MathFunctionSet extends BuiltInFunctionSet {
 
-    private static MathFunctionSet THE_INSTANCE = new MathFunctionSet();
+    private static final MathFunctionSet THE_INSTANCE = new MathFunctionSet();
 
     public static MathFunctionSet getInstance() {
         return THE_INSTANCE;
@@ -37,9 +39,9 @@ public class MathFunctionSet extends BuiltInFunctionSet {
         init();
     }
 
-    private void reg1(String name, Class<? extends SystemFunction> implementation) {
-        register(name, 1, implementation, BuiltInAtomicType.DOUBLE, OPT, CARD0)
-                .arg(0, BuiltInAtomicType.DOUBLE, OPT, EMPTY);
+    private void reg1(String name, Function<Double, Double> method) {
+        register(name, 1, e -> e.populate(() -> new TrigFn1(method), BuiltInAtomicType.DOUBLE, OPT, CARD0)
+                .arg(0, BuiltInAtomicType.DOUBLE, OPT, EMPTY));
     }
 
 
@@ -47,37 +49,37 @@ public class MathFunctionSet extends BuiltInFunctionSet {
 
         // Arity 0 functions
 
-        register("pi", 0, PiFn.class, BuiltInAtomicType.DOUBLE, ONE, 0);
+        register("pi", 0, e -> e.populate(PiFn::new, BuiltInAtomicType.DOUBLE, ONE, 0));
 
         // Arity 1 functions
 
-        reg1("sin", SinFn.class);
-        reg1("cos", CosFn.class);
-        reg1("tan", TanFn.class);
-        reg1("asin", AsinFn.class);
-        reg1("acos", AcosFn.class);
-        reg1("atan", AtanFn.class);
-        reg1("sqrt", SqrtFn.class);
-        reg1("log", LogFn.class);
-        reg1("log10", Log10Fn.class);
-        reg1("exp", ExpFn.class);
-        reg1("exp10", Exp10Fn.class);
+        reg1("sin", Math::sin);
+        reg1("cos", Math::cos);
+        reg1("tan", Math::tan);
+        reg1("asin", Math::asin);
+        reg1("acos", Math::acos);
+        reg1("atan", Math::atan);
+        reg1("sqrt", Math::sqrt);
+        reg1("log", Math::log);
+        reg1("log10", Math::log10);
+        reg1("exp", Math::exp);
+        reg1("exp10", input -> Math.pow(10, input));
 
         // Arity 2 functions
 
-        register("pow", 2, PowFn.class, BuiltInAtomicType.DOUBLE, OPT, CARD0)
+        register("pow", 2, e -> e.populate(PowFn::new, BuiltInAtomicType.DOUBLE, OPT, CARD0)
                 .arg(0, BuiltInAtomicType.DOUBLE, OPT, EMPTY)
-                .arg(1, BuiltInAtomicType.DOUBLE, ONE, null);
+                .arg(1, BuiltInAtomicType.DOUBLE, ONE, null));
 
-        register("atan2", 2, Atan2Fn.class, BuiltInAtomicType.DOUBLE, ONE, 0)
+        register("atan2", 2, e -> e.populate(Atan2Fn::new, BuiltInAtomicType.DOUBLE, ONE, 0)
                 .arg(0, BuiltInAtomicType.DOUBLE, ONE, null)
-                .arg(1, BuiltInAtomicType.DOUBLE, ONE, null);
+                .arg(1, BuiltInAtomicType.DOUBLE, ONE, null));
 
     }
 
     @Override
-    public String getNamespace() {
-        return NamespaceConstant.MATH;
+    public NamespaceUri getNamespace() {
+        return NamespaceUri.MATH;
     }
 
     @Override
@@ -105,152 +107,25 @@ public class MathFunctionSet extends BuiltInFunctionSet {
      * Generic superclass for all the arity-1 trig functions
      */
 
-    private static abstract class TrigFn1 extends SystemFunction {
+    public static class TrigFn1 extends SystemFunction {
 
-        protected abstract double compute(double input);
+        private final Function<Double, Double> method;
+
+        public TrigFn1(Function<Double, Double> method) {
+            this.method = method;
+        }
 
         @Override
-        public ZeroOrOne call(XPathContext context, Sequence[] args) throws XPathException {
+        public GroundedValue call(XPathContext context, Sequence[] args) throws XPathException {
             DoubleValue in = (DoubleValue) args[0].head();
             if (in == null) {
-                return ZeroOrOne.empty();
+                return EmptySequence.getInstance();
             } else {
-                return One.dbl(compute(in.getDoubleValue()));
+                return new DoubleValue(method.apply(in.getDoubleValue()));
             }
         }
     }
 
-    /**
-     * Implement math:sin
-     */
-
-    public static class SinFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.sin(input);
-        }
-    }
-
-    /**
-     * Implement math:cos
-     */
-
-    public static class CosFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.cos(input);
-        }
-    }
-
-    /**
-     * Implement math:tan
-     */
-
-    public static class TanFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.tan(input);
-        }
-    }
-
-    /**
-     * Implement math:asin
-     */
-
-    public static class AsinFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.asin(input);
-        }
-    }
-
-    /**
-     * Implement math:acos
-     */
-
-    public static class AcosFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.acos(input);
-        }
-    }
-
-    /**
-     * Implement math:atan
-     */
-
-    public static class AtanFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.atan(input);
-        }
-    }
-
-    /**
-     * Implement math:sqrt
-     */
-
-    public static class SqrtFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.sqrt(input);
-        }
-    }
-
-    /**
-     * Implement math:log
-     */
-
-    public static class LogFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.log(input);
-        }
-    }
-
-    /**
-     * Implement math:log10
-     */
-
-    public static class Log10Fn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.log10(input);
-        }
-    }
-
-    /**
-     * Implement math:exp
-     */
-
-    public static class ExpFn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.exp(input);
-        }
-    }
-
-    /**
-     * Implement math:exp10
-     */
-
-    public static class Exp10Fn extends TrigFn1 {
-
-        @Override
-        protected double compute(double input) {
-            return Math.pow(10, input);
-        }
-    }
 
     /**
      * Implement math:pow
@@ -266,11 +141,11 @@ public class MathFunctionSet extends BuiltInFunctionSet {
          * @throws XPathException if a dynamic error occurs within the function
          */
         @Override
-        public ZeroOrOne call(XPathContext context, Sequence[] args) throws XPathException {
+        public GroundedValue call(XPathContext context, Sequence[] args) throws XPathException {
             DoubleValue x = (DoubleValue) args[0].head();
             DoubleValue result;
             if (x == null) {
-                result = null;
+                return EmptySequence.getInstance();
             } else {
                 double dx = x.getDoubleValue();
                 if (dx == 1) {
@@ -285,8 +160,8 @@ public class MathFunctionSet extends BuiltInFunctionSet {
                         result = new DoubleValue(Math.pow(dx, dy));
                     }
                 }
+                return result;
             }
-            return new ZeroOrOne(result);
         }
     }
 
@@ -309,4 +184,4 @@ public class MathFunctionSet extends BuiltInFunctionSet {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

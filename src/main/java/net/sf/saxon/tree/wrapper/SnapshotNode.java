@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,15 +13,15 @@ import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.value.UntypedAtomicValue;
-
-import java.util.function.Predicate;
+import net.sf.saxon.value.StringValue;
 
 /**
  * This class represents a node within a tree produced by the snapshot() function, as a virtual copy of
@@ -84,18 +84,19 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
     }
 
     /**
-     * Get the value of the item as a CharSequence. The string value for a node below the pivot is the same
+     * Get the string value of the item. The string value for a node below the pivot is the same
      * as the string value for the corresponding node in the source tree; the string value for a node above the pivot
      * is the same as the string value of the pivot. For attributes and namespaces the string value is the same
      * as in the original tree.
+     * @return the string value of the node, as a {@code UnicodeString}
      */
 
     @Override
-    public CharSequence getStringValueCS() {
+    public UnicodeString getUnicodeStringValue() {
         if (Navigator.isAncestorOrSelf(original, pivot)) {
-            return pivot.getStringValueCS();
+            return pivot.getUnicodeStringValue();
         } else {
-            return original.getStringValueCS();
+            return original.getUnicodeStringValue();
         }
     }
 
@@ -161,7 +162,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
                 } else {
                     // Ancestors of the pivot node have type xs:anyType. The typed value is therefore the
                     // string value as an instance of xs:untypedAtomic
-                    return new UntypedAtomicValue(pivot.getStringValueCS());
+                    return StringValue.makeUntypedAtomic(pivot.getUnicodeStringValue());
                 }
         }
     }
@@ -201,7 +202,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
     }
 
     /**
-     * Return the public identifier for the current document event.
+     * Return the public identifier for the _current document event.
      * <p>The return value is the public identifier of the document
      * entity or of the external parsed entity in which the markup that
      * triggered the event appears.</p>
@@ -232,7 +233,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
      */
 
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
         switch (getNodeKind()) {
             case Type.ATTRIBUTE:
             case Type.NAMESPACE:

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.sxpath;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.value.QNameValue;
 
 /**
@@ -27,7 +28,7 @@ public interface XPathStaticContext extends StaticContext {
      *            in the XPath expression.
      */
 
-    void setDefaultElementNamespace(String uri);
+    void setDefaultElementNamespace(NamespaceUri uri);
 
     /**
      * Set an external namespace resolver. If this is set, then all resolution of namespace
@@ -61,7 +62,7 @@ public interface XPathStaticContext extends StaticContext {
      *         declared.
      */
 
-    XPathVariable declareVariable(String namespaceURI, String localName);
+    XPathVariable declareVariable(NamespaceUri namespaceURI, String localName);
 
     /**
      * Get a Stack Frame Map containing definitions of all the declared variables. This will return a newly

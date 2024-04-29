@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,9 @@
 
 package net.sf.saxon.expr.number;
 
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntSet;
 
 import java.util.List;
@@ -20,8 +21,8 @@ import java.util.List;
 
 public class IrregularGroupFormatter extends NumericGroupFormatter {
 
-    /*@Nullable*/ private IntSet groupingPositions = null;
-    private List<Integer> separators = null;
+    private final IntSet groupingPositions;
+    private final List<Integer> separators;
 
     /**
      * Create a formatter for numbers where the grouping separators occur at irregular positions
@@ -29,7 +30,7 @@ public class IrregularGroupFormatter extends NumericGroupFormatter {
      * @param groupingPositions the positions where the separators are to be inserted
      * @param sep               array holding the separators to be inserted, as Unicode codepoints, in order starting
      *                          with the right-most
-     * @param adjustedPicture
+     * @param adjustedPicture   the formatting picture, after expansion and removal of grouping separators
      */
 
     public IrregularGroupFormatter(IntSet groupingPositions, List<Integer> sep, UnicodeString adjustedPicture) {
@@ -39,24 +40,24 @@ public class IrregularGroupFormatter extends NumericGroupFormatter {
     }
 
     @Override
-    public String format(FastStringBuffer value) {
-        UnicodeString in = UnicodeString.makeUnicodeString(value);
+    public String format(String value) {
+        StringValue in = new StringValue(value);
         int l, m = 0;
-        for (l = 0; l < in.uLength(); l++) {
+        for (l = 0; l < in.length(); l++) {
             if (groupingPositions.contains(l)) {
                 m++;
             }
         }
-        int[] out = new int[in.uLength() + m];
+        int[] out = new int[in.length32() + m];
         int j = 0;
         int k = out.length - 1;
-        for (int i = in.uLength() - 1; i >= 0; i--) {
-            out[k--] = in.uCharAt(i);
-            if ((i > 0) && groupingPositions.contains(in.uLength() - i)) {
+        for (int i = in.length32() - 1; i >= 0; i--) {
+            out[k--] = in.getContent().codePointAt(i);
+            if ((i > 0) && groupingPositions.contains(in.length32() - i)) {
                 out[k--] = separators.get(j++);
             }
         }
-        return UnicodeString.makeUnicodeString(out).toString();
+        return StringTool.fromCodePoints(out, out.length).toString();
     }
 
     /**
@@ -71,8 +72,8 @@ public class IrregularGroupFormatter extends NumericGroupFormatter {
             return null;
         } else {
             int sep = separators.get(separators.size() - 1);
-            FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C16);
-            fsb.appendWideChar(sep);
+            StringBuilder fsb = new StringBuilder(16);
+            fsb.appendCodePoint(sep);
             return fsb.toString();
         }
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,15 +8,18 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.*;
-import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.HostLanguage;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.DecimalFormatManager;
 import net.sf.saxon.trans.DecimalSymbols;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.tiny.CharSlice;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.*;
 
 import java.math.BigDecimal;
@@ -49,19 +52,17 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
     @Override
     public Expression fixArguments(Expression... arguments) throws XPathException {
 
-        if (arguments[1] instanceof Literal && (arguments.length == 2 || arguments[2] instanceof Literal)) {
+        if (arguments[1] instanceof Literal && (arguments.length == 2 || arguments[2] instanceof StringLiteral)) {
             DecimalFormatManager dfm = getRetainedStaticContext().getDecimalFormatManager();
             assert dfm != null;
-            picture = ((Literal) arguments[1]).getValue().getStringValue();
+            picture = ((StringLiteral) arguments[1]).stringify();
             if (arguments.length == 3 && !Literal.isEmptySequence(arguments[2])) {
                 try {
-                    String lexicalName = ((Literal) arguments[2]).getValue().getStringValue();
+                    String lexicalName = ((StringLiteral) arguments[2]).stringify();
                     decimalFormatName = StructuredQName.fromLexicalQName(lexicalName, false,
                                                                          true, getRetainedStaticContext());
                 } catch (XPathException e) {
-                    XPathException err = new XPathException("Invalid decimal format name. " + e.getMessage());
-                    err.setErrorCode("FODF1280");
-                    throw err;
+                    throw new XPathException("Invalid decimal format name. " + e.getMessage(), "FODF1280");
                 }
             }
             if (decimalFormatName == null) {
@@ -89,12 +90,10 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
      */
 
     private static SubPicture[] getSubPictures(String picture, DecimalSymbols dfs) throws XPathException {
-        int[] picture4 = StringValue.expand(picture);
+        int[] picture4 = StringTool.expand(StringView.of(picture));
         SubPicture[] pics = new SubPicture[2];
         if (picture4.length == 0) {
-            XPathException err = new XPathException("format-number() picture is zero-length");
-            err.setErrorCode("FODF1310");
-            throw err;
+            throw new XPathException("format-number() picture is zero-length", "FODF1310");
         }
         int sep = -1;
         for (int c = 0; c < picture4.length; c++) {
@@ -111,17 +110,22 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
         }
 
         if (sep < 0) {
-            pics[0] = new SubPicture(picture4, dfs);
+            pics[0] = makeSubPicture(picture4, dfs);
             pics[1] = null;
         } else {
             int[] pic0 = new int[sep];
             System.arraycopy(picture4, 0, pic0, 0, sep);
             int[] pic1 = new int[picture4.length - sep - 1];
             System.arraycopy(picture4, sep + 1, pic1, 0, picture4.length - sep - 1);
-            pics[0] = new SubPicture(pic0, dfs);
-            pics[1] = new SubPicture(pic1, dfs);
+            pics[0] = makeSubPicture(pic0, dfs);
+            pics[1] = makeSubPicture(pic1, dfs);
         }
         return pics;
+    }
+
+    @CSharpReplaceBody(code="return new Saxon.Impl.Overrides.FormatNumberSubPicture(details, dfs);")
+    protected static SubPicture makeSubPicture(int[] details, DecimalSymbols dfs) throws XPathException {
+        return new SubPicture(details, dfs);
     }
 
     /**
@@ -133,7 +137,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
      * @return the formatted number
      */
 
-    private static CharSequence formatNumber(NumericValue number,
+    private static String formatNumber(NumericValue number,
                                              SubPicture[] subPictures,
                                              DecimalSymbols dfs) {
 
@@ -148,7 +152,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             absN = number.negate();
             if (subPictures[1] == null) {
                 pic = subPictures[0];
-                minusSign = "" + unicodeChar(dfs.getMinusSign());
+                minusSign = stringFromCodepoint(dfs.getMinusSign());
             } else {
                 pic = subPictures[1];
             }
@@ -157,6 +161,12 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
         }
 
         return pic.format(absN, dfs, minusSign);
+    }
+
+    private static String stringFromCodepoint(int codepoint) {
+        StringBuilder sb = new StringBuilder();
+        sb.appendCodePoint(codepoint);
+        return sb.toString();
     }
 
     private static void grumble(String s) throws XPathException {
@@ -175,12 +185,13 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
      * @return the result of conversion to a double
      */
 
+    @CSharpReplaceBody(code="return Singulink.Numerics.BigDecimal.FromDouble(value, Singulink.Numerics.FloatConversion.Truncate);") // keep it simple for now...
     public static BigDecimal adjustToDecimal(double value, int precision) {
         final String zeros = precision == 1 ? "00000" : "000000000";
         final String nines = precision == 1 ? "99999" : "999999999";
         BigDecimal initial = BigDecimal.valueOf(value);
         BigDecimal trial = null;
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C16);
+        StringBuilder fsb = new StringBuilder(16);
         BigDecimalValue.decimalToString(initial, fsb);
         String s = fsb.toString();
         int start = s.charAt(0) == '-' ? 1 : 0;
@@ -190,10 +201,10 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             if (p < 0 || i < p) {
                 // we're in the integer part
                 // try replacing all following digits with zeros and seeing if we get the same double back
-                FastStringBuffer sb = new FastStringBuffer(s.length());
+                StringBuilder sb = new StringBuilder(s.length());
                 sb.append(s.substring(0, i));
                 for (int n = i; n < s.length(); n++) {
-                    sb.cat(s.charAt(n) == '.' ? '.' : '0');
+                    sb.append(s.charAt(n) == '.' ? '.' : '0');
                 }
                 trial = new BigDecimal(sb.toString());
             } else {
@@ -207,13 +218,13 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             if (i >= 0) {
                 if (i == start) {
                     // number starts with 99999... or -99999. Try rounding up to 100000.. or -100000...
-                    FastStringBuffer sb = new FastStringBuffer(s.length() + 1);
+                    StringBuilder sb = new StringBuilder(s.length() + 1);
                     if (start == 1) {
-                        sb.cat('-');
+                        sb.append('-');
                     }
-                    sb.cat('1');
+                    sb.append('1');
                     for (int n = start; n < s.length(); n++) {
-                        sb.cat(s.charAt(n) == '.' ? '.' : '0');
+                        sb.append(s.charAt(n) == '.' ? '.' : '0');
                     }
                     trial = new BigDecimal(sb.toString());
                 } else {
@@ -225,11 +236,11 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                         return initial;     // can't happen: we've already handled numbers starting 99999..
                     } else if (p < 0 || i < p) {
                         // we're in the integer part
-                        FastStringBuffer sb = new FastStringBuffer(s.length());
+                        StringBuilder sb = new StringBuilder(s.length());
                         sb.append(s.substring(0, i));
-                        sb.cat((char) ((int) s.charAt(i) + 1));
+                        sb.append((char) ((int) s.charAt(i) + 1));
                         for (int n = i; n < s.length(); n++) {
-                            sb.cat(s.charAt(n) == '.' ? '.' : '0');
+                            sb.append(s.charAt(n) == '.' ? '.' : '0');
                         }
                         trial = new BigDecimal(sb.toString());
                     } else {
@@ -252,22 +263,22 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
      * Inner class to represent one sub-picture (the negative or positive subpicture)
      */
 
-    private static class SubPicture {
+    public static class SubPicture {  // public so it can be overridden for C#
 
-        int minWholePartSize = 0;
-        int maxWholePartSize = 0;
-        int minFractionPartSize = 0;
-        int maxFractionPartSize = 0;
-        int minExponentSize = 0;
-        int scalingFactor = 0;
-        boolean isPercent = false;
-        boolean isPerMille = false;
-        String prefix = "";
-        String suffix = "";
-        int[] wholePartGroupingPositions = null;
-        int[] fractionalPartGroupingPositions = null;
-        boolean regular;
-        boolean is31 = false;
+        protected int minWholePartSize = 0;
+        protected int maxWholePartSize = 0;
+        protected int minFractionPartSize = 0;
+        protected int maxFractionPartSize = 0;
+        protected int minExponentSize = 0;
+        protected int scalingFactor = 0;
+        protected boolean isPercent = false;
+        protected boolean isPerMille = false;
+        protected String prefix = "";
+        protected String suffix = "";
+        protected int[] wholePartGroupingPositions = null;
+        protected int[] fractionalPartGroupingPositions = null;
+        protected boolean regular;
+        protected boolean is31 = false;
 
         public SubPicture(int[] pic, DecimalSymbols dfs) throws XPathException {
 
@@ -280,6 +291,9 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             final int digitSign = dfs.getDigit();
             final int zeroDigit = dfs.getZeroDigit();
             final int exponentSeparator = dfs.getExponentSeparator();
+
+            StringBuilder prefixBuilder = new StringBuilder(8);
+            StringBuilder suffixBuilder = new StringBuilder(8);
 
             List<Integer> wholePartPositions = null;
             List<Integer> fractionalPartPositions = null;
@@ -317,7 +331,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                     isPerMille = c == perMilleSign;
                     switch (phase) {
                         case 0:
-                            prefix += unicodeChar(c);
+                            prefixBuilder.appendCodePoint(c);
                             break;
                         case 1:
                         case 2:
@@ -327,9 +341,10 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                             if (foundExponentSeparator) {
                                 grumble("Cannot have exponent-separator as well as percent or per-mille character in a sub-picture");
                             }
+                            CSharp.emitCode("goto case 6;");
                         case 6:
                             phase = 6;
-                            suffix += unicodeChar(c);
+                            suffixBuilder.appendCodePoint(c);
                             break;
                     }
                 } else if (c == digitSign) {
@@ -427,7 +442,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                                 grumble("Grouping separator cannot be adjacent to decimal separator");
                             }
                             if (fractionalPartPositions == null) {
-                                fractionalPartPositions = new ArrayList<Integer>(3);
+                                fractionalPartPositions = new ArrayList<>(3);
                             }
                             if (fractionalPartPositions.contains(maxFractionPartSize)) {
                                 grumble("Sub-picture cannot contain adjacent grouping separators");
@@ -446,7 +461,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                 } else if (c == exponentSeparator) {
                     switch (phase) {
                         case 0:
-                            prefix += unicodeChar(c);
+                            prefixBuilder.appendCodePoint(c);
                             break;
                         case 1:
                         case 2:
@@ -459,17 +474,17 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                             if (foundExponentSeparator) {
                                 foundExponentSeparator2 = true;
                                 phase = 6;
-                                suffix += unicodeChar(exponentSeparator);
+                                suffixBuilder.appendCodePoint(exponentSeparator);
                             }
                             break;
                         case 6:
-                            suffix += unicodeChar(c);
+                            suffixBuilder.appendCodePoint(c);
                             break;
                     }
                 } else {    // passive character found
                     switch (phase) {
                         case 0:
-                            prefix += unicodeChar(c);
+                            prefixBuilder.appendCodePoint(c);
                             break;
                         case 1:
                         case 2:
@@ -478,17 +493,21 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                         case 5:
                             if (minExponentSize == 0 && foundExponentSeparator) {
                                 phase = 6;
-                                suffix += unicodeChar(exponentSeparator);
-                                suffix += unicodeChar(c);
+                                suffixBuilder.appendCodePoint(exponentSeparator);
+                                suffixBuilder.appendCodePoint(c);
                                 break;
                             }
+                            CSharp.emitCode("goto case 6;");
                         case 6:
                             phase = 6;
-                            suffix += unicodeChar(c);
+                            suffixBuilder.appendCodePoint(c);
                             break;
                     }
                 }
             }
+
+            prefix = prefixBuilder.toString();
+            suffix = suffixBuilder.toString();
 
             /* 4.7.4 Rule 3 */
             scalingFactor = minWholePartSize;
@@ -573,7 +592,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
          * @return the formatted number
          */
 
-        public CharSequence format(NumericValue value, DecimalSymbols dfs, String minusSign) {
+        public String format(NumericValue value, DecimalSymbols dfs, String minusSign) {
 
             // System.err.println("Formatting " + value);
 
@@ -603,7 +622,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             }
 
 
-            FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C16);
+            StringBuilder sb = new StringBuilder(16);
             if (value instanceof DoubleValue || value instanceof FloatValue) {
                 BigDecimal dec = adjustToDecimal(value.getDoubleValue(), 2);
                 formatDecimal(dec, sb);
@@ -616,19 +635,20 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                     formatInteger(value, sb);
                 }
 
-            } else if (value instanceof BigDecimalValue) {
-                formatDecimal(((BigDecimalValue) value).getDecimalValue(), sb);
+            } else if (value instanceof DecimalValue) {
+                formatDecimal(((DecimalValue) value).getDecimalValue(), sb);
             }
 
             // System.err.println("Justified number: " + sb.toString());
 
             // Map the digits and decimal point to use the selected characters
 
-            int[] ib = StringValue.expand(sb);
+            String raw = sb.toString();
+            int[] ib = StringTool.expand(StringView.of(raw));
             int ibused = ib.length;
-            int point = sb.indexOf('.');
+            int point = raw.indexOf('.');
             if (point == -1) {
-                point = sb.length();
+                point = raw.length();
             } else {
                 ib[point] = dfs.getDecimalSeparator();
 
@@ -653,7 +673,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             // Map the exponent-separator
 
             if (dfs.getExponentSeparator() != 'e') {
-                int expS = sb.indexOf('e');
+                int expS = raw.indexOf('e');
                 if (expS != -1) {
                     ib[expS] = dfs.getExponentSeparator();
                 }
@@ -698,19 +718,14 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                 }
             }
 
-            // System.err.println("Grouped number: " + sb.toString());
-
-            //sb.insert(0, prefix);
-            //sb.insert(0, minusSign);
-            //sb.append(suffix);
-            FastStringBuffer res = new FastStringBuffer(prefix.length() + minusSign.length() + suffix.length() + ibused);
+            StringBuilder res = new StringBuilder(prefix.length() + minusSign.length() + suffix.length() + ibused);
             res.append(minusSign);
             res.append(prefix);
             for (int i = 0; i < ibused; i++) {
-                res.appendWideChar(ib[i]);
+                res.appendCodePoint(ib[i]);
             }
             res.append(suffix);
-            return res;
+            return res.toString();
         }
 
 
@@ -718,13 +733,12 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
          * Format a number supplied as a decimal
          *
          * @param dval the decimal value
-         * @param fsb  the FastStringBuffer to contain the result
+         * @param fsb  the StringBuilder to contain the result
          */
-        private void formatDecimal(BigDecimal dval, FastStringBuffer fsb) {
+        @CSharpModifiers(code={"protected", "virtual"})
+        private void formatDecimal(BigDecimal dval, StringBuilder fsb) {
+            //NOTE: C# has its own version of this code in an overriding subclass
             int exponent = 0;
-            /*if (maxFractionPartSize == 0 && minWholePartSize == 0) {
-                minWholePartSize = 1;
-            }*/ // this bit of logic is now included in the SubPicture class
             if (minExponentSize == 0) {
                 dval = dval.setScale(maxFractionPartSize, RoundingMode.HALF_EVEN);
             } else if (dval.signum() != 0) {
@@ -734,7 +748,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             }
             BigDecimalValue.decimalToString(dval, fsb);
 
-            int point = fsb.indexOf('.');
+            int point = fsb.indexOf(".");
             int intDigits;
             if (point >= 0) {
                 int zz = maxFractionPartSize - minFractionPartSize;
@@ -753,31 +767,32 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             } else {
                 intDigits = fsb.length();
                 if (minFractionPartSize > 0) {
-                    fsb.cat('.');
+                    fsb.append('.');
                     for (int i = 0; i < minFractionPartSize; i++) {
-                        fsb.cat('0');
+                        fsb.append('0');
                     }
                 }
             }
+
             if (minWholePartSize == 0 && intDigits == 1 && fsb.charAt(0) == '0') {
-                fsb.removeCharAt(0);
-            } else {
-                fsb.prependRepeated('0', minWholePartSize - intDigits);
+                fsb.deleteCharAt(0);
+            } else if (minWholePartSize > intDigits) {
+                StringTool.prependRepeated(fsb, '0', minWholePartSize - intDigits);
             }
             if (minExponentSize != 0) {
-                fsb.cat('e');
-                IntegerValue exp = (IntegerValue) IntegerValue.makeIntegerValue(exponent);
-                String expStr = exp.toString();
+                fsb.append('e');
+                IntegerValue exp = (IntegerValue) IntegerValue.fromDouble(exponent);
+                String expStr = exp.getUnicodeStringValue().toString();
                 char first = expStr.charAt(0);
                 if (first == '-') {
-                    fsb.cat('-');
+                    fsb.append('-');
                     expStr = expStr.substring(1);
                 }
                 int length = expStr.length();
                 if (length < minExponentSize) {
                     int zz = minExponentSize - length;
                     for (int i = 0; i < zz; i++) {
-                        fsb.cat('0');
+                        fsb.append('0');
                     }
                 }
                 fsb.append(expStr);
@@ -788,46 +803,26 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
          * Format a number supplied as a integer
          *
          * @param value the integer value
-         * @param fsb   the FastStringBuffer to contain the result
+         * @param sb   the StringBuilder to contain the result
          */
 
-        private void formatInteger(NumericValue value, FastStringBuffer fsb) {
+        private void formatInteger(NumericValue value, StringBuilder sb) {
             if (!(minWholePartSize == 0 && value.compareTo(0) == 0)) {
-                fsb.cat(value.getStringValueCS());
-                int leadingZeroes = minWholePartSize - fsb.length();
-                fsb.prependRepeated('0', leadingZeroes);
+                sb.append(value.getUnicodeStringValue());
+                int leadingZeroes = minWholePartSize - sb.length();
+                if (leadingZeroes > 0) {
+                    StringTool.prependRepeated(sb, '0', leadingZeroes);
+                }
             }
             if (minFractionPartSize != 0) {
-                fsb.cat('.');
+                sb.append('.');
                 for (int i = 0; i < minFractionPartSize; i++) {
-                    fsb.cat('0');
+                    sb.append('0');
                 }
             }
         }
 
 
-    }
-
-    /**
-     * Convert a Unicode character (possibly >65536) to a String, using a surrogate pair if necessary
-     *
-     * @param ch the Unicode codepoint value
-     * @return a string representing the Unicode codepoint, either a string of one character or a surrogate pair
-     */
-
-    private static CharSequence unicodeChar(int ch) {
-        if (ch < 65536) {
-            return "" + (char) ch;
-        } else {  // output a surrogate pair
-            //To compute the numeric value of the character corresponding to a surrogate
-            //pair, use this formula (all numbers are hex):
-            //(FirstChar - D800) * 400 + (SecondChar - DC00) + 10000
-            ch -= 65536;
-            char[] sb = new char[2];
-            sb[0] = (char) ((ch / 1024) + 55296);
-            sb[1] = (char) ((ch % 1024) + 56320);
-            return new CharSlice(sb, 0, 2);
-        }
     }
 
     /**
@@ -883,7 +878,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
 
         if (picture != null) {
             // Decimal format and picture known statically
-            CharSequence result = formatNumber(number, subPictures, decimalSymbols);
+            String result = formatNumber(number, subPictures, decimalSymbols);
             return new StringValue(result);
 
         } else {
@@ -896,11 +891,11 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
                 if (arg2 == null) {
                     dfs = dfm.getDefaultDecimalFormat();
                 } else {
-                    String lexicalName = arg2.getStringValue();
+                    String lexicalName = arg2.getUnicodeStringValue().toString();
                     dfs = getNamedDecimalFormat(dfm, lexicalName);
                 }
             }
-            String format = arguments[1].head().getStringValue();
+            String format = arguments[1].head().getUnicodeStringValue().toString();
             SubPicture[] pics = getSubPictures(format, dfs);
             return new StringValue(formatNumber(number, pics, dfs));
         }
@@ -922,16 +917,12 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             qName = StructuredQName.fromLexicalQName(lexicalName, false,
                                                      true, getRetainedStaticContext());
         } catch (XPathException e) {
-            XPathException err = new XPathException("Invalid decimal format name. " + e.getMessage());
-            err.setErrorCode("FODF1280");
-            throw err;
+            throw new XPathException("Invalid decimal format name. " + e.getMessage(), "FODF1280");
         }
 
         dfs = dfm.getNamedDecimalFormat(qName);
         if (dfs == null) {
-            XPathException err = new XPathException("format-number function: decimal-format '" + lexicalName + "' is not defined");
-            err.setErrorCode("FODF1280");
-            throw err;
+            throw new XPathException("format-number function: decimal-format '" + lexicalName + "' is not defined", "FODF1280");
         }
         return dfs;
     }
@@ -960,7 +951,7 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
             DecimalSymbols dfs = new DecimalSymbols(HostLanguage.XSLT, 31);
             dfs.setInfinity("INF");
             SubPicture[] pics = getSubPictures("0.0##########################e0", dfs);
-            return formatNumber(value, pics, dfs).toString();
+            return formatNumber(value, pics, dfs);
         } catch (XPathException e) {
             return value.getStringValue();
         }
@@ -982,6 +973,19 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
         copy.subPictures = subPictures;
         return copy;
     }
+
+    /**
+     * Get a function to format a double as a string using a supplied picture
+     * @param picture the supplied picture
+     * @return a function that converts a double to a string
+     * @throws XPathException if the picture is invalid
+     */
+    public static java.util.function.Function<Double, String> getFormatter(String picture) throws XPathException {
+        DecimalSymbols symbols = new DecimalSymbols(HostLanguage.XSLT, 30);
+        SubPicture[] subPictures = getSubPictures(picture, symbols);
+        return dbl -> formatNumber(new DoubleValue(dbl), subPictures, symbols);
+    }
+
 
 }
 

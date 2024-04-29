@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,16 +9,16 @@ package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.CopyOptions;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.Untyped;
-import net.sf.saxon.value.UntypedAtomicValue;
+import net.sf.saxon.value.StringValue;
 
 /**
  * This class represents a virtual copy of a node with type annotations stripped
@@ -54,6 +54,8 @@ public class VirtualUntypedCopy extends VirtualCopy {
      * Protected constructor: create a virtual copy of a node
      *
      * @param base the node to be copied
+     * @param root the node in the source tree corresponding to the root of the virtual tree. This must be an ancestor
+     *             of the base node
      */
 
     protected VirtualUntypedCopy(NodeInfo base, NodeInfo root) {
@@ -96,7 +98,7 @@ public class VirtualUntypedCopy extends VirtualCopy {
         switch (getNodeKind()) {
             case Type.ELEMENT:
             case Type.ATTRIBUTE:
-                return new UntypedAtomicValue(getStringValueCS());
+                return StringValue.makeUntypedAtomic(getUnicodeStringValue());
             default:
                 return super.atomize();
         }

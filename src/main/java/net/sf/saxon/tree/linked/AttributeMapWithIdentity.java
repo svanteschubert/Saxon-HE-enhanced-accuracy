@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,9 @@ package net.sf.saxon.tree.linked;
 
 
 import net.sf.saxon.om.*;
+import net.sf.saxon.transpile.CSharpInjectMembers;
 import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.iter.ListIterator;
+import net.sf.saxon.tree.iter.NodeListIterator;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -27,9 +28,22 @@ import java.util.stream.Collectors;
  * is an immutable object.</p>
  */
 
+@CSharpInjectMembers(code={
+                  "        public System.Collections.Generic.IEnumerator<Saxon.Hej.om.AttributeInfo> GetEnumerator() {"
+                + "            foreach (Saxon.Hej.om.AttributeInfo att in attributes) {"
+                + "                if (att is not Saxon.Hej.om.AttributeInfo.Deleted) {"
+                + "                    yield return att;"
+                + "                }"
+                + "            }"
+                + "        }"
+                + ""
+                + "        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() {"
+                + "            return GetEnumerator();"
+                + "        }"
+})
 public class AttributeMapWithIdentity implements AttributeMap {
 
-    private List<AttributeInfo> attributes;
+    private final List<AttributeInfo> attributes;
 
     AttributeMapWithIdentity(List<AttributeInfo> attributes) {
         this.attributes = attributes;
@@ -60,7 +74,7 @@ public class AttributeMapWithIdentity implements AttributeMap {
                 list.add(new AttributeImpl(owner, i));
             }
         }
-        return new ListIterator.OfNodes(list);
+        return new NodeListIterator(list);
     }
 
     private boolean isDeleted(AttributeInfo info) {
@@ -78,7 +92,7 @@ public class AttributeMapWithIdentity implements AttributeMap {
     }
 
     @Override
-    public AttributeInfo get(String uri, String local) {
+    public AttributeInfo get(NamespaceUri uri, String local) {
         for (AttributeInfo info : attributes) {
             NodeName name = info.getNodeName();
             if (name.getLocalPart().equals(local) && name.hasURI(uri) && !(info instanceof AttributeInfo.Deleted)) {
@@ -86,17 +100,6 @@ public class AttributeMapWithIdentity implements AttributeMap {
             }
         }
         return null;
-    }
-
-    public int getIndex(String uri, String local) {
-        for (int i=0; i<attributes.size(); i++) {
-            AttributeInfo info = attributes.get(i);
-            NodeName name = info.getNodeName();
-            if (name.getLocalPart().equals(local) && name.hasURI(uri)) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     public AttributeMapWithIdentity set(int index, AttributeInfo info) {
@@ -148,8 +151,10 @@ public class AttributeMapWithIdentity implements AttributeMap {
     }
 
     @Override
-    public List<AttributeInfo> asList() {
-        return attributes.stream().filter(info -> !(info instanceof AttributeInfo.Deleted)).collect(Collectors.toList());
+    public ArrayList<AttributeInfo> asList() {
+        List<AttributeInfo> list = attributes.stream().filter(
+                info -> !(info instanceof AttributeInfo.Deleted)).collect(Collectors.toList());
+        return list instanceof ArrayList ? (ArrayList<AttributeInfo>)list : new ArrayList<>(list);
     }
 
     @Override

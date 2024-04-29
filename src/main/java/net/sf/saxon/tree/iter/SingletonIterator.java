@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,31 +8,32 @@
 package net.sf.saxon.tree.iter;
 
 import net.sf.saxon.expr.LastPositionFinder;
+import net.sf.saxon.om.FocusIterator;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.value.EmptySequence;
 
-import java.util.EnumSet;
-
 
 /**
- * SingletonIterator: an iterator over a sequence of zero or one values
+ * SingletonIterator: an iterator over a sequence exactly one value
  */
 
-public class SingletonIterator<T extends Item> implements SequenceIterator, UnfailingIterator,
+public class SingletonIterator implements SequenceIterator, FocusIterator,
         ReversibleIterator, LastPositionFinder, GroundedIterator, LookaheadIterator {
 
-    private final T item;
-    boolean gone = false;
+    private final Item item;
+    private int currentPosition = -1;
 
     /**
-     * Private constructor: external classes should use the factory method
+     * Constructor
      *
-     * @param value the item to iterate over
+     * @param value the item to iterate over. Must not be null.
      */
 
-    public SingletonIterator(T value) {
+    public SingletonIterator(Item value) {
+        assert value != null;
+        //Instrumentation.count("SINGLETON ITERATOR");
         this.item = value;
     }
 
@@ -45,26 +46,19 @@ public class SingletonIterator<T extends Item> implements SequenceIterator, Unfa
      */
 
     /*@NotNull*/
-    public static <T extends Item> UnfailingIterator makeIterator(T item) {
+    public static SequenceIterator makeIterator(Item item) {
         if (item == null) {
-            return EmptyIterator.emptyIterator();
+            return EmptyIterator.getInstance();
         } else {
-            return new SingletonIterator<>(item);
+            return new SingletonIterator(item);
         }
     }
 
-    /**
-     * Factory method for use when it is known the item will not be null
-     *
-     * @param item the item to iterate over; must not be null
-     * @return a SingletonIterator over the supplied item
-     */
-
-
-    public static <T extends Item> SingletonIterator<T> rawIterator(T item) {
-        assert item != null;
-        return new SingletonIterator<>(item);
+    @Override
+    public boolean supportsHasNext() {
+        return true;
     }
+
 
     /**
      * Determine whether there are more items to come. Note that this operation
@@ -77,18 +71,33 @@ public class SingletonIterator<T extends Item> implements SequenceIterator, Unfa
 
     @Override
     public boolean hasNext() {
-        return !gone;
+        return currentPosition < 0;
     }
 
     /*@Nullable*/
     @Override
-    public T next() {
-        if (gone) {
-            return null;
-        } else {
-            gone = true;
-            return item;
-        }
+    public Item next() {
+        return ++currentPosition == 0 ? item : null;
+    }
+
+    @Override
+    public Item current() {
+        return currentPosition == 0 ? item : null;
+    }
+
+    @Override
+    public int position() {
+        return currentPosition + 1;
+    }
+
+    @Override
+    public void close() {
+        // no action
+    }
+
+    @Override
+    public boolean supportsGetLength() {
+        return true;
     }
 
     @Override
@@ -96,13 +105,17 @@ public class SingletonIterator<T extends Item> implements SequenceIterator, Unfa
         return 1;
     }
 
-    /*@NotNull*/
-    @Override
-    public SingletonIterator<T> getReverseIterator() {
-        return new SingletonIterator<>(item);
+    public boolean isActuallyGrounded() {
+        return true;
     }
 
-    public T getValue() {
+    /*@NotNull*/
+    @Override
+    public SingletonIterator getReverseIterator() {
+        return new SingletonIterator(item);
+    }
+
+    public Item getValue() {
         return item;
     }
 
@@ -117,31 +130,12 @@ public class SingletonIterator<T extends Item> implements SequenceIterator, Unfa
     /*@NotNull*/
     @Override
     public GroundedValue materialize() {
-        if (item != null) {
-            return item;
-        } else {
-            return EmptySequence.getInstance();
-        }
+        return item;
     }
 
     @Override
     public GroundedValue getResidue() {
-        return gone ? EmptySequence.getInstance() : materialize();
-    }
-
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LOOKAHEAD, Property.GROUNDED, Property.LAST_POSITION_FINDER);
+        return currentPosition < 0 ? item : EmptySequence.getInstance();
     }
 
 }

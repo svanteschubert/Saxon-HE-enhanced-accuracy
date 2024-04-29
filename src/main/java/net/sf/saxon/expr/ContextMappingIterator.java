@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.expr;
 import net.sf.saxon.om.FocusIterator;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 
 /**
@@ -24,9 +25,9 @@ import net.sf.saxon.trans.XPathException;
 
 public final class ContextMappingIterator implements SequenceIterator {
 
-    private FocusIterator base;
-    private ContextMappingFunction action;
-    private XPathContext context;
+    private final FocusIterator base;
+    private final ContextMappingFunction action;
+    private final XPathContext context;
     private SequenceIterator stepIterator = null;
 
     /**
@@ -45,7 +46,7 @@ public final class ContextMappingIterator implements SequenceIterator {
     }
 
     @Override
-    public Item next() throws XPathException {
+    public Item next() {
         Item nextItem;
         while (true) {
             if (stepIterator != null) {
@@ -58,7 +59,11 @@ public final class ContextMappingIterator implements SequenceIterator {
             }
             if (base.next() != null) {
                 // Call the supplied mapping function
-                stepIterator = action.map(context);
+                try {
+                    stepIterator = action.map(context);
+                } catch (XPathException e) {
+                    throw new UncheckedXPathException(e);
+                }
                 nextItem = stepIterator.next();
                 if (nextItem == null) {
                     stepIterator = null;

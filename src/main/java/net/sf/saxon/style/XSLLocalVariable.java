@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,7 +20,7 @@ import java.util.EnumSet;
 
 public class XSLLocalVariable extends XSLGeneralVariable {
 
-    private static EnumSet<SourceBinding.BindingProperty> permittedAttributes = EnumSet.of(
+    private static final EnumSet<SourceBinding.BindingProperty> permittedAttributes = EnumSet.of(
             SourceBinding.BindingProperty.SELECT,
             SourceBinding.BindingProperty.AS);
 
@@ -53,13 +53,14 @@ public class XSLLocalVariable extends XSLGeneralVariable {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         sourceBinding.prepareAttributes(permittedAttributes);
     }
 
     /**
      * Get the static type of the variable. This is the declared type, unless the value
      * is statically known and constant, in which case it is the actual type of the value.
+     * @return the declared or inferred type
      */
 
     public SequenceType getRequiredType() {

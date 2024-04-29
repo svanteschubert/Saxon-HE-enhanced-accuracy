@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.pattern;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
@@ -32,10 +33,15 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
 
     Operand basePatternOp;
     Operand predicateOp;
+    BooleanEvaluator predicateEvaluator;
 
     public BasePatternWithPredicate(Pattern basePattern, Expression predicate) {
         basePatternOp = new Operand(this, basePattern, OperandRole.ATOMIC_SEQUENCE);
         predicateOp = new Operand(this, predicate, OperandRole.FOCUS_CONTROLLED_ACTION);
+        if (basePattern instanceof ItemTypePattern) {
+            // TODO: this is a pragmatic approximation to the actual rules
+            setPriority(basePattern.getDefaultPriority() - 1e-12);
+        }
         adoptChildExpression(getBasePattern());
         adoptChildExpression(getPredicate());
     }
@@ -113,6 +119,7 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
      */
     @Override
     public boolean matches(Item item, XPathContext context) throws XPathException {
+        //System.err.println("Testing " + this + " -- " + System.identityHashCode(this));
         if (!getBasePattern().matches(item, context)) {
             return false;
         }
@@ -120,18 +127,21 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
     }
 
     private boolean matchesPredicate(Item item, XPathContext context) throws XPathException {
+        if (predicateEvaluator == null)  {
+            predicateEvaluator = getPredicate().makeElaborator().elaborateForBoolean();
+        }
         XPathContext c2 = context.newMinorContext();
         ManualIterator si = new ManualIterator(item);
         c2.setCurrentIterator(si);
         c2.setCurrentOutputUri(null);
-        try {
-            return getPredicate().effectiveBooleanValue(c2);
-        } catch (XPathException.Circularity | XPathException.StackOverflow e) {
-            throw e;
-        } catch (XPathException ex) {
-            handleDynamicError(ex, c2);
-            return false;
-        }
+        //try {
+            return predicateEvaluator.eval(c2);
+//        } catch (XPathException.Circularity | XPathException.StackOverflow e) {
+//            throw e;
+//        } catch (XPathException ex) {
+//            handleDynamicError(ex, c2);
+//            return false;
+//        }
     }
 
     @Override
@@ -275,6 +285,8 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
                 getBasePattern().copy(rebindings), getPredicate().copy(rebindings));
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
+        //System.err.println("Copy " + this + " -- from " + System.identityHashCode(this) + " to " + System.identityHashCode(n));
+
         return n;
     }
 
@@ -286,7 +298,7 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
     }
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return getBasePattern().hashCode() ^ getPredicate().hashCode();
     }
 

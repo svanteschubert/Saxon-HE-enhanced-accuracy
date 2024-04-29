@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,15 @@ package net.sf.saxon.tree;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.NodePredicate;
+import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.*;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.NodeListIterator;
+import net.sf.saxon.tree.iter.PrependAxisIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
@@ -21,9 +26,7 @@ import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.function.Predicate;
 
 /**
  * This class represents a namespace node; it is used in several tree models.
@@ -223,18 +226,13 @@ public class NamespaceNode implements NodeInfo {
      */
 
     @Override
-    public String getStringValue() {
-        return nsBinding.getURI();
+    public UnicodeString getUnicodeStringValue() {
+        return nsBinding.getNamespaceUri().toUnicodeString();
     }
 
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
     @Override
-    public CharSequence getStringValueCS() {
-        return getStringValue();
+    public String getStringValue() {
+        return nsBinding.getNamespaceUri().toString();
     }
 
     /**
@@ -269,7 +267,8 @@ public class NamespaceNode implements NodeInfo {
             if (nsBinding.getPrefix().isEmpty()) {
                 return -1;
             } else {
-                fingerprint = element.getConfiguration().getNamePool().allocateFingerprint("", nsBinding.getPrefix());
+                fingerprint = element.getConfiguration().getNamePool().allocateFingerprint(
+                        NamespaceUri.NULL, nsBinding.getPrefix());
             }
         }
         return fingerprint;
@@ -297,8 +296,8 @@ public class NamespaceNode implements NodeInfo {
 
     /*@NotNull*/
     @Override
-    public String getURI() {
-        return "";
+    public NamespaceUri getNamespaceUri() {
+        return NamespaceUri.NULL;
     }
 
     /**
@@ -380,7 +379,7 @@ public class NamespaceNode implements NodeInfo {
      *
      * @param axisNumber an integer identifying the axis; one of the constants
      *                   defined in class net.sf.saxon.om.Axis
-     * @param nodeTest   A pattern to be matched by the returned nodes; nodes
+     * @param predicate  A pattern to be matched by the returned nodes; nodes
      *                   that do not match this pattern are not included in the result
      * @return a NodeEnumeration that scans the nodes reached by the axis in
      *         turn.
@@ -390,7 +389,8 @@ public class NamespaceNode implements NodeInfo {
      */
 
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate predicate) {
+        NodeTest nodeTest = Navigator.nodeTestFromPredicate(predicate);
         switch (axisNumber) {
             case AxisInfo.ANCESTOR:
                 return element.iterateAxis(AxisInfo.ANCESTOR_OR_SELF, nodeTest);
@@ -447,7 +447,7 @@ public class NamespaceNode implements NodeInfo {
      * @since 9.4
      */
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
         return null;
     }
 
@@ -485,10 +485,10 @@ public class NamespaceNode implements NodeInfo {
      */
 
     @Override
-    public void generateId(/*@NotNull*/ FastStringBuffer buffer) {
+    public void generateId(/*@NotNull*/ StringBuilder buffer) {
         element.generateId(buffer);
         buffer.append("n");
-        buffer.append(Integer.toString(position));
+        buffer.append(position);
     }
 
     /**
@@ -563,7 +563,7 @@ public class NamespaceNode implements NodeInfo {
     /*@NotNull*/
     @Override
     public AtomicSequence atomize() throws XPathException {
-        return new StringValue(getStringValueCS());
+        return new StringValue(getStringValue());
     }
 
     @Override
@@ -580,13 +580,11 @@ public class NamespaceNode implements NodeInfo {
      */
 
     /*@NotNull*/
-    public static AxisIterator makeIterator(final NodeInfo element, Predicate<? super NodeInfo> test) {
+    public static AxisIterator makeIterator(final NodeInfo element, NodePredicate test) {
         List<NodeInfo> nodes = new ArrayList<>();
-        Iterator<NamespaceBinding> bindings = element.getAllNamespaces().iterator();
         int position = 0;
         boolean foundXML = false;
-        while (bindings.hasNext()) {
-            NamespaceBinding binding = bindings.next();
+        for (NamespaceBinding binding : element.getAllNamespaces()) {
             if (binding.getPrefix().equals("xml")) {
                 foundXML = true;
             }
@@ -601,7 +599,7 @@ public class NamespaceNode implements NodeInfo {
                 nodes.add(node);
             }
         }
-        return new ListIterator.OfNodes(nodes);
+        return new NodeListIterator(nodes);
     }
 }
 

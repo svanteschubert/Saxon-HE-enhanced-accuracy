@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,9 @@
 package net.sf.saxon.tree.linked;
 
 import net.sf.saxon.event.BuilderMonitor;
-import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.om.NamespaceMap;
-import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -24,7 +22,7 @@ import net.sf.saxon.type.Type;
  */
 public class LinkedBuilderMonitor extends BuilderMonitor {
 
-    private LinkedTreeBuilder builder;
+    private final LinkedTreeBuilder builder;
     private int mark = -1;
     /*@Nullable*/ private NodeInfo markedNode;
 
@@ -57,7 +55,7 @@ public class LinkedBuilderMonitor extends BuilderMonitor {
     }
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         super.characters(chars, locationId, properties);
         if (mark == Type.TEXT) {
             markedNode = builder.getCurrentLeafNode();
@@ -66,7 +64,7 @@ public class LinkedBuilderMonitor extends BuilderMonitor {
     }
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         super.comment(chars, locationId, properties);
         if (mark == Type.COMMENT) {
             markedNode = builder.getCurrentLeafNode();
@@ -75,7 +73,7 @@ public class LinkedBuilderMonitor extends BuilderMonitor {
     }
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         super.processingInstruction(target, data, locationId, properties);
         if (mark == Type.PROCESSING_INSTRUCTION) {
             markedNode = builder.getCurrentLeafNode();

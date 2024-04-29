@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -38,8 +38,8 @@ import java.util.zip.ZipInputStream;
 
 public class JarCollection extends AbstractResourceCollection {
 
-    private XPathContext context;
-    private String collectionURI;
+    private final XPathContext context;
+    private final String collectionURI;
     private SpaceStrippingRule whitespaceRules;
 
 
@@ -105,14 +105,14 @@ public class JarCollection extends AbstractResourceCollection {
         boolean recurse = false;
         if (params != null) {
 
-            FilenameFilter f = params.getFilenameFilter();
-            if (f != null) {
-                filter = f;
+            Optional<FilenameFilter> f = params.getFilenameFilter();
+            if (f.isPresent()) {
+                filter = f.get();
             }
 
-            Boolean r = params.getRecurse();
-            if (r != null) {
-                recurse = r;
+            Optional<Boolean> r = params.getRecurse();
+            if (r.isPresent()) {
+                recurse = r.get();
             }
 
         }
@@ -184,19 +184,19 @@ public class JarCollection extends AbstractResourceCollection {
      */
 
     @Override
-    public Iterator<Resource> getResources(XPathContext context) throws XPathException {
+    public Iterator<? extends Resource> getResources(XPathContext context) throws XPathException {
         FilenameFilter filter = null;
         boolean recurse = false;
         if (params != null) {
 
-            FilenameFilter f = params.getFilenameFilter();
-            if (f != null) {
-                filter = f;
+            Optional<FilenameFilter> f = params.getFilenameFilter();
+            if (f.isPresent()) {
+                filter = f.get();
             }
 
-            Boolean r = params.getRecurse();
-            if (r != null) {
-                recurse = r;
+            Optional<Boolean> r = params.getRecurse();
+            if (r.isPresent()) {
+                recurse = r.get();
             }
 
         }
@@ -212,31 +212,31 @@ public class JarCollection extends AbstractResourceCollection {
     }
 
 
-    private class JarIterator implements Iterator<Resource>, Closeable {
-        private FilenameFilter filter;
-        private Resource next = null;
-        private XPathContext context;
-        private ZipInputStream zipInputStream;
+    public class JarIterator implements Iterator<Resource>, Closeable {
+        private final FilenameFilter filter;
+        private Resource nextItem = null;
+        private final XPathContext context;
+        private final ZipInputStream zipInputStream;
         private String dirStr = "";
-        private ParseOptions options;
-        private boolean metadata;
+        private final ParseOptions options;
+        private final boolean metadata;
 
 
         public JarIterator(XPathContext context, ZipInputStream zipInputStream, FilenameFilter filter) {
             this.context = context;
             this.filter = filter;
             this.zipInputStream = zipInputStream;
-            this.options = optionsFromQueryParameters(params, context);
-            this.options.setSpaceStrippingRule(whitespaceRules);
-            Boolean metadataParam = params == null ? null : params.getMetaData();
-            metadata = metadataParam != null && metadataParam;
+            this.options = optionsFromQueryParameters(params, context)
+                    .withSpaceStrippingRule(whitespaceRules);
+            Optional<Boolean> metadataParam = params == null ? Optional.empty() : params.getMetaData();
+            metadata = metadataParam.isPresent() && metadataParam.get();
 
             advance();
         }
 
         @Override
         public boolean hasNext() {
-            boolean more = next != null;
+            boolean more = nextItem != null;
             if (!more) {
                 try {
                     zipInputStream.close();
@@ -249,7 +249,7 @@ public class JarCollection extends AbstractResourceCollection {
 
         @Override
         public Resource next() {
-            Resource current = next;
+            Resource current = nextItem;
             advance();
             return current;
         }
@@ -265,11 +265,11 @@ public class JarCollection extends AbstractResourceCollection {
                 try {
                     entry = zipInputStream.getNextEntry();
                     if (entry == null) {
-                        next = null;
+                        nextItem = null;
                         return;
                     }
                 } catch (IOException e) {
-                    next = new FailedResource(null, new XPathException(e));
+                    nextItem = new FailedResource(null, new XPathException(e));
                     break;
                 }
                 if (entry.isDirectory()) {
@@ -305,13 +305,13 @@ public class JarCollection extends AbstractResourceCollection {
                             try {
                                 output.close();
                             } catch (IOException e) {
-                                next = new FailedResource(null, new XPathException(e));
+                                nextItem = new FailedResource(null, new XPathException(e));
                             }
                         }
                         InputDetails details = new InputDetails();
                         details.binaryContent = output.toByteArray();
-                        if (params != null && params.getContentType() != null) {
-                            details.contentType = params.getContentType();
+                        if (params != null && params.getContentType().isPresent()) {
+                            details.contentType = params.getContentType().get();
                         } else {
                             details.contentType = guessContentTypeFromName(entry.getName());
                         }
@@ -327,14 +327,14 @@ public class JarCollection extends AbstractResourceCollection {
                         details.parseOptions = options;
                         resourceURI = makeResourceURI(entry.getName());
                         details.resourceUri = resourceURI;
-                        next = makeResource(context.getConfiguration(), details);
+                        nextItem = makeResource(context, details);
                         if (metadata) {
                             Map<String, GroundedValue> properties = makeProperties(entry);
-                            next = new MetadataResource(resourceURI, next, properties);
+                            nextItem = new MetadataResource(resourceURI, nextItem, properties, context);
                         }
                         return;
                     } catch (XPathException e) {
-                        next = new FailedResource(resourceURI, e);
+                        nextItem = new FailedResource(resourceURI, e);
                     }
                 }
             }

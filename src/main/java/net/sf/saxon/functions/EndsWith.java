@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,9 +15,10 @@ import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.sort.CodepointCollator;
 import net.sf.saxon.lib.SubstringMatcher;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.StringValue;
 
 /**
  * Implements the fn:ends-with() function, with the collation already fixed
@@ -46,6 +47,7 @@ public class EndsWith extends CollatingFunctionFixed {
             // Performance fast path: bug 3209
             return new SystemFunctionCall.Optimized(this, arguments) {
                 @Override
+                @CSharpModifiers(code = {"public", "override"})
                 public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
                     String s0 = getArg(0).evaluateAsString(context).toString();
                     String s1 = getArg(1).evaluateAsString(context).toString();
@@ -58,18 +60,14 @@ public class EndsWith extends CollatingFunctionFixed {
     }
 
 
-    public static boolean endsWith(StringValue arg0, StringValue arg1, SubstringMatcher collator) {
-        if (arg1 == null || arg1.isZeroLength() || collator.comparesEqual(arg1.getPrimitiveStringValue(), "")) {
+    public static boolean endsWith(UnicodeString arg0, UnicodeString arg1, SubstringMatcher collator) {
+        if (arg1 == null || arg1.isEmpty() || collator.isEqualToEmpty(arg1)) {
             return true;
         }
-        if (arg0 == null || arg0.isZeroLength()) {
+        if (arg0 == null || arg0.isEmpty()) {
             return false;
         }
-
-        String s0 = arg0.getStringValue();
-        String s1 = arg1.getStringValue();
-
-        return collator.endsWith(s0, s1);
+        return collator.endsWith(arg0, arg1);
     }
 
     /**
@@ -83,15 +81,10 @@ public class EndsWith extends CollatingFunctionFixed {
      */
     @Override
     public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-        StringValue s0 = (StringValue) arguments[0].head();
-        StringValue s1 = (StringValue) arguments[1].head();
+        UnicodeString s0 = getUniStringArg(arguments[0]);
+        UnicodeString s1 = getUniStringArg(arguments[1]);
         return BooleanValue.get(endsWith(s0, s1, (SubstringMatcher)getStringCollator()));
     }
-
-    @Override
-    public String getCompilerName() {
-        return "StartsWithCompiler";
-    }   // sic
 
 
 }

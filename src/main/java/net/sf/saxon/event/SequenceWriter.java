@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,9 @@
 package net.sf.saxon.event;
 
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.linked.LinkedTreeBuilder;
 import net.sf.saxon.tree.util.Orphan;
@@ -17,7 +18,7 @@ import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
 /**
- * The <tt>SequenceWriter</tt> is used when writing a sequence of items, for
+ * The <code>SequenceWriter</code> is used when writing a sequence of items, for
  * example, when {@code xsl:variable} is used with content and an "as" attribute. The {@code SequenceWriter}
  * builds the sequence; the concrete subclass is responsible for deciding what to do with the
  * resulting items.
@@ -84,11 +85,13 @@ public abstract class SequenceWriter extends SequenceReceiver {
                 TreeModel model = pipe.getController().getModel();
                 if (model.isMutable()) {
                     builder = pipe.getController().makeBuilder();
+                    builder.setDurability(Durability.MUTABLE);
                 } else {
-                    builder = new LinkedTreeBuilder(pipe);
+                    builder = new LinkedTreeBuilder(pipe, Durability.MUTABLE);
                 }
             } else {
                 builder = pipe.getController().makeBuilder();
+                builder.setDurability(Durability.TEMPORARY);
             }
         } else {
             TreeModel model = getConfiguration().getParseOptions().getModel();
@@ -166,14 +169,17 @@ public abstract class SequenceWriter extends SequenceReceiver {
 
 
     @Override
-    public void characters(CharSequence s, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString s, Location locationId, int properties) throws XPathException {
         if (level == 0) {
             Orphan o = new Orphan(getConfiguration());
+            if (treeModel != null && treeModel.isMutable()) {
+                ((GenericTreeInfo) o.getTreeInfo()).setDurability(Durability.MUTABLE);
+            }
             o.setNodeKind(Type.TEXT);
-            o.setStringValue(s.toString());
+            o.setStringValue(s.tidy());
             write(o);
         } else {
-            if (s.length() > 0) {
+            if (!s.isEmpty()) {
                 builder.characters(s, locationId, properties);
             }
         }
@@ -181,11 +187,14 @@ public abstract class SequenceWriter extends SequenceReceiver {
     }
 
     @Override
-    public void comment(CharSequence comment, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString comment, Location locationId, int properties) throws XPathException {
         if (level == 0) {
             Orphan o = new Orphan(getConfiguration());
+            if (treeModel != null && treeModel.isMutable()) {
+                ((GenericTreeInfo) o.getTreeInfo()).setDurability(Durability.MUTABLE);
+            }
             o.setNodeKind(Type.COMMENT);
-            o.setStringValue(comment);
+            o.setStringValue(comment.tidy());
             write(o);
         } else {
             builder.comment(comment, locationId, properties);
@@ -194,12 +203,15 @@ public abstract class SequenceWriter extends SequenceReceiver {
     }
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (level == 0) {
             Orphan o = new Orphan(getConfiguration());
+            if (treeModel != null && treeModel.isMutable()) {
+                ((GenericTreeInfo) o.getTreeInfo()).setDurability(Durability.MUTABLE);
+            }
             o.setNodeName(new NoNamespaceName(target));
             o.setNodeKind(Type.PROCESSING_INSTRUCTION);
-            o.setStringValue(data);
+            o.setStringValue(data.tidy());
             write(o);
         } else {
             builder.processingInstruction(target, data, locationId, properties);

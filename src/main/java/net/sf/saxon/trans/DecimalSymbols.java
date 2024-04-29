@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,10 @@
 
 package net.sf.saxon.trans;
 
-import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.regex.UnicodeString;
+import net.sf.saxon.s9api.HostLanguage;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.z.IntHashMap;
 
@@ -39,8 +40,8 @@ public class DecimalSymbols {
     private static final int ERR_SAME_CHAR_IN_TWO_ROLES = 2;
     private static final int ERR_TWO_VALUES_FOR_SAME_PROPERTY = 3;
 
-    private static String[] XSLT_CODES = {"XTSE0020", "XTSE1295", "XTSE1300", "XTSE1290"};
-    private static String[] XQUERY_CODES = {"XQST0097", "XQST0097", "XQST0098", "XQST0114"};
+    private static final String[] XSLT_CODES = {"XTSE0020", "XTSE1295", "XTSE1300", "XTSE1290"};
+    private static final String[] XQUERY_CODES = {"XQST0097", "XQST0097", "XQST0098", "XQST0114"};
     private String[] errorCodes = XSLT_CODES;
 
 
@@ -61,9 +62,9 @@ public class DecimalSymbols {
         "NaN"
     };
 
-    private int[] intValues = new int[propertyNames.length - 2];
-    private int[] precedences = new int[propertyNames.length];
-    private boolean[] inconsistent = new boolean[propertyNames.length];
+    private final int[] intValues = new int[propertyNames.length - 2];
+    private final int[] precedences = new int[propertyNames.length];
+    private final boolean[] inconsistent = new boolean[propertyNames.length];
 
     /**
      * Create a DecimalSymbols object with default values for all properties
@@ -424,14 +425,14 @@ public class DecimalSymbols {
      * @throws XPathException if the supplied string is not a single character
      */
     private int singleChar(String name, String value) throws XPathException {
-        UnicodeString us = UnicodeString.makeUnicodeString(value);
-        if (us.uLength() != 1) {
+        UnicodeString us = StringView.of(value).tidy();
+        if (us.length() != 1) {
             XPathException err = new XPathException("Attribute " + name + " should be a single character",
                     errorCodes[ERR_NOT_SINGLE_CHAR]);
             err.setIsStaticError(true);
             throw err;
         }
-        return us.uCharAt(0);
+        return us.codePointAt(0);
     }
 
 
@@ -447,14 +448,13 @@ public class DecimalSymbols {
 
         for (int i = 0; i < 10; i++) {
             if (inconsistent[i]) {
-                XPathException err = new XPathException(
+                throw new XPathException(
                         "Inconsistency in " +
                                 (name == null ? "unnamed decimal format. " : "decimal format " + name.getDisplayName() + ". ") +
                                 "There are two inconsistent values for decimal-format property " + propertyNames[i] +
-                                " at the same import precedence");
-                err.setErrorCode(errorCodes[ERR_TWO_VALUES_FOR_SAME_PROPERTY]);
-                err.setIsStaticError(true);
-                throw err;
+                                " at the same import precedence")
+                        .withErrorCode(errorCodes[ERR_TWO_VALUES_FOR_SAME_PROPERTY])
+                        .asStaticError();
             }
         }
 
@@ -494,13 +494,12 @@ public class DecimalSymbols {
         int zero = getZeroDigit();
         for (int i = zero; i < zero + 10; i++) {
             if (map.get(i) != null) {
-                XPathException err = new XPathException(
+                throw new XPathException(
                     "Inconsistent properties in " +
                         (name == null ? "unnamed decimal format. " : "decimal format " + name.getDisplayName() + ". ") +
                         "The same character is used as digit " + (i - zero) +
-                        " in the chosen digit family, and as the " + map.get(i));
-                err.setErrorCode(errorCodes[ERR_SAME_CHAR_IN_TWO_ROLES]);
-                throw err;
+                        " in the chosen digit family, and as the " + map.get(i))
+                        .withErrorCode(errorCodes[ERR_SAME_CHAR_IN_TWO_ROLES]);
             }
         }
     }
@@ -515,12 +514,11 @@ public class DecimalSymbols {
      */
 
     private void duplicate(String role1, String role2, StructuredQName name) throws XPathException {
-        XPathException err = new XPathException(
+        throw new XPathException(
                 "Inconsistent properties in " +
                         (name == null ? "unnamed decimal format. " : "decimal format " + name.getDisplayName() + ". ") +
-                        "The same character is used as the " + role1 + " and as the " + role2);
-        err.setErrorCode(errorCodes[ERR_SAME_CHAR_IN_TWO_ROLES]);
-        throw err;
+                        "The same character is used as the " + role1 + " and as the " + role2)
+                .withErrorCode(errorCodes[ERR_SAME_CHAR_IN_TWO_ROLES]);
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -47,6 +47,7 @@ public class TraceEventMulticaster implements TraceListener {
      * resulting multicast listener.
      *
      * @param oldl the listener to be removed
+     * @return the resulting mulitcast listener
      */
     /*@Nullable*/
     protected TraceListener remove(TraceListener oldl) {
@@ -96,7 +97,7 @@ public class TraceEventMulticaster implements TraceListener {
 
     /**
      * Called after an element of the stylesheet got processed
-     * @param element
+     * @param element the element
      */
     @Override
     public void leave(Traceable element) {
@@ -133,8 +134,8 @@ public class TraceEventMulticaster implements TraceListener {
     /**
      * Called at the end of a rule search
      * @param rule the rule (or possible built-in ruleset) that has been selected
-     * @param mode
-     * @param item
+     * @param mode the mode in operation
+     * @param item the item that was checked against
      */
     public void endRuleSearch(Object rule, SimpleMode mode, Item item) {
         a.endRuleSearch(rule, mode, item);
@@ -147,9 +148,10 @@ public class TraceEventMulticaster implements TraceListener {
      *
      * @param a trace-listener-a
      * @param b trace-listener-b
+     * @return the resulting multicast listener
      */
     public static TraceListener add(TraceListener a, TraceListener b) {
-        return (TraceListener) addInternal(a, b);
+        return addInternal(a, b);
     }
 
     /**
@@ -158,9 +160,10 @@ public class TraceEventMulticaster implements TraceListener {
      *
      * @param l    trace-listener-l
      * @param oldl the trace-listener being removed
+     * @return the resulting multicast listener
      */
     public static TraceListener remove(TraceListener l, TraceListener oldl) {
-        return (TraceListener) removeInternal(l, oldl);
+        return removeInternal(l, oldl);
     }
 
     /**
@@ -173,6 +176,7 @@ public class TraceEventMulticaster implements TraceListener {
      *
      * @param a event listener-a
      * @param b event listener-b
+     * @return the resulting multicast listener
      */
     protected static TraceListener addInternal(TraceListener a, TraceListener b) {
         if (a == null) {
@@ -195,6 +199,7 @@ public class TraceEventMulticaster implements TraceListener {
      *
      * @param l    the listener being removed from
      * @param oldl the listener being removed
+     * @return the resulting multicast listener
      */
 
     protected static TraceListener removeInternal(TraceListener l, TraceListener oldl) {

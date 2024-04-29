@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.StringConverter;
 import net.sf.saxon.type.ValidationFailure;
@@ -25,6 +26,7 @@ import net.sf.saxon.value.Whitespace;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.function.Supplier;
 
 public abstract class XSLSortOrMergeKey extends StyleElement {
 
@@ -46,7 +48,7 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -72,7 +74,7 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
 
         StringCollator stringCollator = null;
         if (collationName instanceof StringLiteral) {
-            String collationString = ((StringLiteral) collationName).getStringValue();
+            String collationString = ((StringLiteral) collationName).stringify();
             try {
                 URI collationURI = new URI(collationString);
                 if (!collationURI.isAbsolute()) {
@@ -84,7 +86,12 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
                 compileError("Collation name '" + collationString + "' is not a valid URI");
                 collationString = NamespaceConstant.CODEPOINT_COLLATION_URI;
             }
-            stringCollator = findCollation(collationString, getBaseURI());
+            try {
+                stringCollator = findCollation(collationString, getBaseURI());
+            } catch (XPathException err) {
+                compileError("Failed to load collation " + collationString + ": " + err.getMessage(), "XTDE1035");
+                stringCollator = CodepointCollator.getInstance();     // for recovery paths
+            }
             if (stringCollator == null) {
                 compileError("Collation " + collationString + " has not been defined", "XTDE1035");
                 stringCollator = CodepointCollator.getInstance();     // for recovery paths
@@ -101,11 +108,10 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
 
         if (select != null) {
             try {
-                RoleDiagnostic role =
+                Supplier<RoleDiagnostic> role = () ->
                         new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, getDisplayName() + "//select", 0);
                 select = getConfiguration().getTypeChecker(false).staticTypeCheck(select,
-                        SequenceType.ATOMIC_SEQUENCE,
-                                                                                  role, makeExpressionVisitor());
+                        SequenceType.ATOMIC_SEQUENCE, role, makeExpressionVisitor());
             } catch (XPathException err) {
                 compileError(err);
             }
@@ -200,8 +206,8 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
         } else {
             useDefaultCollation = false;
             if (lang instanceof StringLiteral) {
-                String s = ((StringLiteral) lang).getStringValue();
-                if (s.length() != 0) {
+                UnicodeString s = ((StringLiteral) lang).getString();
+                if (!s.isEmpty()) {
                     ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(s);
                     if (vf != null) {
                         compileError("The lang attribute must be a valid language code", "XTDE0030");

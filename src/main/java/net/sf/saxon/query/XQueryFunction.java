@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,28 +9,33 @@ package net.sf.saxon.query;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.instruct.*;
+import net.sf.saxon.expr.instruct.GlobalVariable;
+import net.sf.saxon.expr.instruct.SlotManager;
+import net.sf.saxon.expr.instruct.UserFunction;
+import net.sf.saxon.expr.instruct.UserFunctionParameter;
 import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.functions.registry.FunctionDefinition;
 import net.sf.saxon.om.NamespaceResolver;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.trans.*;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.*;
 import net.sf.saxon.tree.jiter.PairIterator;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * A user-defined function in an XQuery module
  */
 
-public class XQueryFunction implements Declaration, Location {
+public class XQueryFunction implements Declaration, Location, FunctionDefinition {
     private StructuredQName functionName;
-    private List<UserFunctionParameter> arguments;
+    private final List<UserFunctionParameter> parameters;
     private SequenceType resultType;
     private Expression body = null;
     private List<UserFunctionResolvable> references = new ArrayList<>(10);
@@ -39,20 +44,22 @@ public class XQueryFunction implements Declaration, Location {
     private boolean memoFunction;
     private NamespaceResolver namespaceResolver;
     private QueryModule staticContext;
-    private boolean isUpdating = false;
+    private boolean updating = false;
     private AnnotationList annotations = AnnotationList.EMPTY;
+    private int mandatoryParams = 0;
 
     /**
      * Create an XQuery function
      */
 
     public XQueryFunction() {
-        arguments = new ArrayList<>(8);
+        parameters = new ArrayList<>(8);
     }
 
     /**
      * Get data about the unit of compilation (XQuery module, XSLT package) to which this
      * container belongs
+     * @return the package information
      */
     public PackageData getPackageData() {
         return staticContext.getPackageData();
@@ -69,13 +76,16 @@ public class XQueryFunction implements Declaration, Location {
     }
 
     /**
-     * Add an argument to the list of arguments
+     * Add an argument to the list of parameters
      *
-     * @param argument the formal declaration of the argument to be added
+     * @param param the formal declaration of the parameter to be added
      */
 
-    public void addArgument(UserFunctionParameter argument) {
-        arguments.add(argument);
+    public void addParameter(UserFunctionParameter param) {
+        parameters.add(param);
+        if (param.getDefaultValueExpression() == null) {
+            mandatoryParams++;
+        }
     }
 
     /**
@@ -151,7 +161,7 @@ public class XQueryFunction implements Declaration, Location {
 
     /*@NotNull*/
     public SymbolicName getIdentificationKey() {
-        return new SymbolicName.F(functionName, arguments.size());
+        return new SymbolicName.F(functionName, parameters.size());
     }
 
     /**
@@ -204,9 +214,9 @@ public class XQueryFunction implements Declaration, Location {
 
     /*@NotNull*/
     public SequenceType[] getArgumentTypes() {
-        SequenceType[] types = new SequenceType[arguments.size()];
-        for (int i = 0; i < arguments.size(); i++) {
-            types[i] = arguments.get(i).getRequiredType();
+        SequenceType[] types = new SequenceType[parameters.size()];
+        for (int i = 0; i < parameters.size(); i++) {
+            types[i] = parameters.get(i).getRequiredType();
         }
         return types;
     }
@@ -218,18 +228,66 @@ public class XQueryFunction implements Declaration, Location {
      */
 
     public UserFunctionParameter[] getParameterDefinitions() {
-        UserFunctionParameter[] params = new UserFunctionParameter[arguments.size()];
-        return arguments.toArray(params);
+        UserFunctionParameter[] params = new UserFunctionParameter[parameters.size()];
+        return parameters.toArray(params);
     }
 
     /**
-     * Get the arity of the function
-     *
-     * @return the arity (the number of arguments)
+     * Get the position in the parameter list of a given parameter name
+     * @param name the name of the required parameter
+     * @return the position of the parameter in the parameter list, or -1 if absent
      */
 
-    public int getNumberOfArguments() {
-        return arguments.size();
+    public int getPositionOfParameter(StructuredQName name) {
+        int pos = 0;
+        for (UserFunctionParameter p : parameters) {
+            if (p.getVariableQName().equals(name)) {
+                return pos;
+            }
+            pos++;
+        }
+        return -1;
+    }
+
+    /**
+     * Get the name of the Nth parameter, if any
+     *
+     * @param i the position of the required parameter
+     * @return the name (keyword) of the Nth parameter
+     */
+
+    public StructuredQName getParameterName(int i) {
+        return parameters.get(i).getVariableQName();
+    }
+
+
+    /**
+     * Get the default value expression of the Nth parameter, if any
+     *
+     * @param i the position of the required parameter
+     * @return the expression for computing the value of the Nth parameter, or null if there is none
+     */
+
+    public Expression getDefaultValueExpression(int i) {
+        return parameters.get(i).getDefaultValueExpression();
+    }
+
+    /**
+     * Get the maximum arity of the function
+     * @return the arity (the maximum number of arguments including optional arguments)
+     */
+
+    public int getNumberOfParameters() {
+        return parameters.size();
+    }
+
+    /**
+     * Get the minimum arity of the function
+     * @return the number of mandatory parameters
+     */
+
+    public int getMinimumArity() {
+        return mandatoryParams;
     }
 
     /**
@@ -270,7 +328,7 @@ public class XQueryFunction implements Declaration, Location {
      */
 
     public void setUpdating(boolean isUpdating) {
-        this.isUpdating = isUpdating;
+        this.updating = isUpdating;
     }
 
     /**
@@ -280,7 +338,7 @@ public class XQueryFunction implements Declaration, Location {
      */
 
     public boolean isUpdating() {
-        return isUpdating;
+        return updating;
     }
 
     /**
@@ -312,6 +370,7 @@ public class XQueryFunction implements Declaration, Location {
     /**
      * Ask whether the function has an annotation with a particular name
      * @param name the name of the required annotation
+     * @return true if the function has an annotation with this name
      */
 
     public boolean hasAnnotation(StructuredQName name) {
@@ -350,7 +409,7 @@ public class XQueryFunction implements Declaration, Location {
                 UserFunctionParameter[] params = getParameterDefinitions();
                 for (int i = 0; i < params.length; i++) {
                     params[i].setSlotNumber(i);
-                    map.allocateSlotNumber(params[i].getVariableQName());
+                    map.allocateSlotNumber(params[i].getVariableQName(), params[i]);
                 }
 
                 // type-check the body of the function
@@ -367,9 +426,8 @@ public class XQueryFunction implements Declaration, Location {
                     //body = config.getOptimizer().promoteExpressionsToGlobal(body, visitor);
 
                     //body.setContainer(this);
-                    RoleDiagnostic role =
+                    Supplier<RoleDiagnostic> role = () ->
                             new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, functionName.getDisplayName(), 0);
-                    //role.setSourceLocator(this);
                     body = config.getTypeChecker(false).staticTypeCheck(body, resultType, role, visitor);
 
                 } catch (XPathException e) {
@@ -394,13 +452,16 @@ public class XQueryFunction implements Declaration, Location {
                 compiledFunction.setColumnNumber(location.getColumnNumber());
                 compiledFunction.setSystemId(location.getSystemId());
                 compiledFunction.setStackFrameMap(map);
-                compiledFunction.setUpdating(isUpdating);
+                compiledFunction.setUpdating(updating);
                 compiledFunction.setAnnotations(annotations);
 
                 if (staticContext.getUserQueryContext().isCompileWithTracing()) {
                     namespaceResolver = staticContext.getNamespaceResolver();
                     staticContext.getCodeInjector().process(compiledFunction);
                     body = compiledFunction.getBody();
+//                    ComponentTracer trace = new ComponentTracer(compiledFunction);
+//                    trace.setLocation(location);
+//                    body = trace;
                 }
 
             }
@@ -424,7 +485,7 @@ public class XQueryFunction implements Declaration, Location {
 
     public void optimize() throws XPathException {
         body.checkForUpdatingSubexpressions();
-        if (isUpdating) {
+        if (updating) {
             if (ExpressionTool.isNotAllowedInUpdatingContext(body)) {
                 XPathException err = new XPathException(
                         "The body of an updating function must be an updating expression", "XUST0002");
@@ -443,7 +504,7 @@ public class XQueryFunction implements Declaration, Location {
         ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
         Configuration config = staticContext.getConfiguration();
         Optimizer opt = visitor.obtainOptimizer();
-        int arity = arguments.size();
+        int arity = parameters.size();
         if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS)) {
             body = body.optimize(visitor, ContextItemStaticInfo.ABSENT);
         }
@@ -452,16 +513,14 @@ public class XQueryFunction implements Declaration, Location {
             body = LoopLifter.process(body, visitor, ContextItemStaticInfo.ABSENT);
         }
         if (opt.isOptionSet(OptimizerOptions.EXTRACT_GLOBALS)) {
-            final Executable exec = ((QueryModule)getStaticContext()).getExecutable();
             GlobalVariableManager manager = new GlobalVariableManager() {
                 @Override
                 public void addGlobalVariable(GlobalVariable variable) throws XPathException {
                     PackageData pd = staticContext.getPackageData();
                     variable.setPackageData(pd);
-                    //exec.registerGlobalVariable(variable);
                     SlotManager sm = pd.getGlobalSlotManager();
-                    int slot = sm.allocateSlotNumber(variable.getVariableQName());
-                    variable.compile(exec, slot);
+                    int slot = sm.allocateSlotNumber(variable.getVariableQName(),  null);
+                    variable.compile(staticContext.getExecutable(), slot);
                     pd.addGlobalVariable(variable);
                 }
 
@@ -479,7 +538,7 @@ public class XQueryFunction implements Declaration, Location {
         }
 
         // mark tail calls within the function body
-        if (opt.getOptimizerOptions().isSet(OptimizerOptions.TAIL_CALLS) && !isUpdating) {
+        if (opt.getOptimizerOptions().isSet(OptimizerOptions.TAIL_CALLS) && !updating) {
             int tailCalls = ExpressionTool.markTailFunctionCalls(body, functionName, arity);
             if (tailCalls != 0) {
                 compiledFunction.setBody(body);
@@ -489,24 +548,9 @@ public class XQueryFunction implements Declaration, Location {
         }
         compiledFunction.setBody(body);
 
-        compiledFunction.computeEvaluationMode();
+        //compiledFunction.computeEvaluationMode();
         ExpressionTool.allocateSlots(body, arity, compiledFunction.getStackFrameMap());
-        if (config.isGenerateByteCode(HostLanguage.XQUERY)) {
-            if (config.getCountDown() == 0) {
-                ICompilerService compilerService = config.makeCompilerService(HostLanguage.XQUERY);
-                Expression cbody = opt.compileToByteCode(compilerService, body, getFunctionName().getDisplayName(),
-                                                         Expression.PROCESS_METHOD | Expression.ITERATE_METHOD);
-                if (cbody != null) {
-                    body = cbody;
-                }
-            } else {
-                opt.injectByteCodeCandidates(body);
-                body = opt.makeByteCodeCandidate(compiledFunction, body, getDisplayName(),
-                                                 Expression.PROCESS_METHOD | Expression.ITERATE_METHOD);
-            }
-            compiledFunction.setBody(body);
-            compiledFunction.computeEvaluationMode();
-        }
+
     }
 
     /**
@@ -523,6 +567,7 @@ public class XQueryFunction implements Declaration, Location {
      * Type-check references to this function
      *
      * @param visitor the expression visitor
+     * @throws XPathException if type errors are found
      */
 
     public void checkReferences(ExpressionVisitor visitor) throws XPathException {
@@ -543,11 +588,12 @@ public class XQueryFunction implements Declaration, Location {
      * Produce diagnostic output showing the compiled and optimized expression tree for a function
      *
      * @param out the destination to be used
+     * @throws XPathException if things go wrong
      */
     public void explain(/*@NotNull*/ ExpressionPresenter out) throws XPathException {
         out.startElement("declareFunction");
         out.emitAttribute("name", functionName.getDisplayName());
-        out.emitAttribute("arity", "" + getNumberOfArguments());
+        out.emitAttribute("arity", "" + getNumberOfParameters());
         if (compiledFunction == null) {
             out.emitAttribute("unreferenced", "true");
         } else {
@@ -574,6 +620,7 @@ public class XQueryFunction implements Declaration, Location {
     /**
      * Get a name identifying the object of the expression, for example a function name, template name,
      * variable name, key name, element name, etc. This is used only where the name is known statically.
+     * @return the function name
      */
 
     public StructuredQName getObjectName() {
@@ -642,6 +689,7 @@ public class XQueryFunction implements Declaration, Location {
     /**
      * Get the namespace context of the instruction. This will not always be available, in which
      * case the method returns null.
+     * @return a resolver representing the namespace context for the function
      */
 
     public NamespaceResolver getNamespaceResolver() {
@@ -672,6 +720,7 @@ public class XQueryFunction implements Declaration, Location {
      * Get an iterator over all the properties available. The values returned by the iterator
      * will be of type String, and each string can be supplied as input to the getProperty()
      * method to retrieve the value of the property.
+     * @return the properties available
      */
 
     /*@NotNull*/

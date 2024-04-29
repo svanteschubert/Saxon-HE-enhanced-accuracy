@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,20 +11,24 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.serialize.charcode.UTF8CharacterSet;
-import net.sf.saxon.serialize.codenorm.Normalizer;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.IntSingletonIterator;
+
+import java.text.Normalizer;
 
 /**
  * This class is used as a filter on the serialization pipeline; it performs the function
  * of escaping URI-valued attributes in HTML
  *
- * @author Michael H. Kay
  */
 
 public class HTMLURIEscaper extends ProxyReceiver {
@@ -35,8 +39,8 @@ public class HTMLURIEscaper extends ProxyReceiver {
 
     // we use two HashMaps to avoid unnecessary string concatenations
 
-    private static HTMLTagHashSet urlAttributes = new HTMLTagHashSet(47);
-    private static HTMLTagHashSet urlCombinations = new HTMLTagHashSet(101);
+    private static final HTMLTagHashSet urlAttributes = new HTMLTagHashSet(47);
+    private static final HTMLTagHashSet urlCombinations = new HTMLTagHashSet(101);
 
     static {
         setUrlAttribute("form", "action");
@@ -105,7 +109,9 @@ public class HTMLURIEscaper extends ProxyReceiver {
 
     /**
      * Start of a document node.
-     * @param properties
+     * @param properties bit-significant integer indicating properties of the document node.
+     *                   The definitions of the bits are in class {@link ReceiverOption}
+     * @throws XPathException if an error occurs
      */
 
     @Override
@@ -135,7 +141,7 @@ public class HTMLURIEscaper extends ProxyReceiver {
                                 return new AttributeInfo(
                                         att.getNodeName(),
                                         att.getType(),
-                                        escapeURL(value, true, getConfiguration()).toString(),
+                                        escapeURL(value, true, getConfiguration()),
                                         att.getLocation(),
                                         att.getProperties() | ReceiverOption.DISABLE_CHARACTER_MAPS);
                             } catch (XPathException e) {
@@ -164,50 +170,50 @@ public class HTMLURIEscaper extends ProxyReceiver {
      * its UTF-8 representation
      *
      * @param url       the URI to be escaped
-     * @param normalize
+     * @param normalize true if Unicode normalization (to NFC) is required
+     * @param config    the configuration
      * @return the URI after escaping non-ASCII characters
+     * @throws XPathException if any error occurs
      */
 
     /*@NotNull*/
-    public static CharSequence escapeURL(CharSequence url, boolean normalize, Configuration config) throws XPathException {
+    public static String escapeURL(String url, boolean normalize, Configuration config) throws XPathException {
         // optimize for the common case where the string is all ASCII characters
-        for (int i = url.length() - 1; i >= 0; i--) {
-            char ch = url.charAt(i);
+        IntIterator iter = StringTool.codePoints(url);
+        while (iter.hasNext()) {
+            int ch = iter.next();
             if (ch < 32 || ch > 126) {
                 if (normalize) {
-                    CharSequence normalized = Normalizer.make(Normalizer.C, config).normalize(url);
-                    return reallyEscapeURL(normalized);
+                    String normalized = Normalizer.normalize(url, Normalizer.Form.NFC);
+                    return reallyEscapeURL(normalized).toString();
                 } else {
-                    return reallyEscapeURL(url);
+                    return reallyEscapeURL(url).toString();
                 }
             }
         }
         return url;
     }
 
-    private static CharSequence reallyEscapeURL(CharSequence url) {
-        FastStringBuffer sb = new FastStringBuffer(url.length() + 20);
+    private static UnicodeString reallyEscapeURL(String url) {
+        UnicodeBuilder ub = new UnicodeBuilder(url.length() + 20);
         final String hex = "0123456789ABCDEF";
-        byte[] array = new byte[4];
+        byte[] array;
 
-        for (int i = 0; i < url.length(); i++) {
-            char ch = url.charAt(i);
+        IntIterator iter = StringTool.codePoints(url);
+        while (iter.hasNext()) {
+            int ch = iter.next();
             if (ch < 32 || ch > 126) {
-                int used = UTF8CharacterSet.getUTF8Encoding(ch,
-                        (i + 1 < url.length() ? url.charAt(i + 1) : ' '), array);
-                for (int b = 0; b < used; b++) {
-                    //int v = (array[b]>=0 ? array[b] : 256 + array[b]);
-                    int v = ((int) array[b]) & 0xff;
-                    sb.cat('%');
-                    sb.cat(hex.charAt(v / 16));
-                    sb.cat(hex.charAt(v % 16));
+                array = UTF8CharacterSet.encode(new IntSingletonIterator(ch));
+                for (byte value : array) {
+                    int v = ((int) value) & 0xff;
+                    ub.append('%').append(hex.charAt(v / 16)).append(hex.charAt(v % 16));
                 }
 
             } else {
-                sb.cat(ch);
+                ub.append(ch);
             }
         }
-        return sb;
+        return ub.toUnicodeString();
     }
 }
 

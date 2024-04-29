@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,17 +17,16 @@ import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
-import net.sf.saxon.functions.registry.XPath20FunctionSet;
+import net.sf.saxon.functions.registry.XPath31FunctionSet;
 import net.sf.saxon.lib.ErrorReporter;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
 import net.sf.saxon.trans.DecimalFormatManager;
-import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.trans.KeyManager;
-import net.sf.saxon.trans.SaxonErrorCode;
+import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 
@@ -52,17 +51,14 @@ public abstract class AbstractStaticContext implements StaticContext {
     private Location containingLocation = Loc.NONE;
     private String defaultCollationName;
     private FunctionLibraryList libraryList = new FunctionLibraryList();
-    private String defaultFunctionNamespace = NamespaceConstant.FN;
-    private String defaultElementNamespace = NamespaceConstant.NULL;
+    private NamespaceUri defaultFunctionNamespace = NamespaceUri.FN;
+    private NamespaceUri defaultElementNamespace = NamespaceUri.NULL;
     private boolean backwardsCompatible = false;
     private int xpathLanguageLevel = 31;
     protected boolean usingDefaultFunctionLibrary;
-    private Map<StructuredQName, ItemType> typeAliases = new HashMap<>();
+    private final Map<StructuredQName, ItemType> typeAliases = new HashMap<>();
     private UnprefixedElementMatchingPolicy unprefixedElementPolicy = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
-    private BiConsumer<String, Location> warningHandler = (message, locator) -> {
-        XmlProcessingIncident incident = new XmlProcessingIncident(message, SaxonErrorCode.SXWN9000, locator).asWarning();
-        config.makeErrorReporter().report(incident);
-    };
+    private WarningHandler warningHandler;
 
     /**
      * Set the Configuration. This is protected so it can be used only by subclasses;
@@ -74,6 +70,10 @@ public abstract class AbstractStaticContext implements StaticContext {
     protected void setConfiguration(Configuration config) {
         this.config = config;
         this.defaultCollationName = config.getDefaultCollationName();
+        warningHandler = (message, code, locator) -> {
+            XmlProcessingIncident incident = new XmlProcessingIncident(message, code, locator).asWarning();
+            config.makeErrorReporter().report(incident);
+        };
     }
 
     /**
@@ -134,8 +134,8 @@ public abstract class AbstractStaticContext implements StaticContext {
 
     protected final void setDefaultFunctionLibrary() {
         FunctionLibraryList lib = new FunctionLibraryList();
-        lib.addFunctionLibrary(config.getXPath31FunctionSet());
-        lib.addFunctionLibrary(getConfiguration().getBuiltInExtensionLibraryList());
+        lib.addFunctionLibrary(XPath31FunctionSet.getInstance());
+        lib.addFunctionLibrary(getConfiguration().getBuiltInExtensionLibraryList(31));
         lib.addFunctionLibrary(new ConstructorFunctionLibrary(getConfiguration()));
         lib.addFunctionLibrary(config.getIntegratedFunctionLibrary());
         config.addExtensionBinders(lib);
@@ -144,21 +144,9 @@ public abstract class AbstractStaticContext implements StaticContext {
 
     public final void setDefaultFunctionLibrary(int version) {
         FunctionLibraryList lib = new FunctionLibraryList();
-        switch (version) {
-            case 20:
-            default:
-                lib.addFunctionLibrary(XPath20FunctionSet.getInstance());
-                break;
-            case 30:
-            case 305:
-                lib.addFunctionLibrary(config.getXPath30FunctionSet());
-                break;
-            case 31:
-                lib.addFunctionLibrary(config.getXPath31FunctionSet());
-                break;
-        }
-        lib.addFunctionLibrary(getConfiguration().getBuiltInExtensionLibraryList());
-        lib.addFunctionLibrary(new ConstructorFunctionLibrary(getConfiguration()));
+        lib.addFunctionLibrary(config.getXPathFunctionSet(version));
+        lib.addFunctionLibrary(config.getBuiltInExtensionLibraryList(version));
+        lib.addFunctionLibrary(new ConstructorFunctionLibrary(config));
         lib.addFunctionLibrary(config.getIntegratedFunctionLibrary());
         config.addExtensionBinders(lib);
         setFunctionLibrary(lib);
@@ -267,18 +255,37 @@ public abstract class AbstractStaticContext implements StaticContext {
 
     /**
      * Set a callback function that will be called to handle any static warnings found while
-     * processing warnings from the XPath parser
+     * processing warnings from the XPath parser.
+     * <p>Superseded in 12.0 by {@link #setWarningHandler(WarningHandler)}, which allows the callback
+     * to receive the error code information as well as the error message and originating location.</p>
      * @param handler the function to be called to handle static warnings. When a warning is
      *                issued, the handler's {@code accept} method is called, supplying the string
-     *                of the warning message as the argument.  The default warning handler sends
+     *                of the warning message and a location as the arguments.  The default warning handler sends
      *                the information to the default {@link ErrorReporter} associated with the
      *                Saxon {@link Configuration}.
      * @since 10.0
      */
 
     public void setWarningHandler(BiConsumer<String, Location> handler) {
+        warningHandler = (message, code, loc) -> handler.accept(message, loc);
+    }
+
+    /**
+     * Set a callback function that will be called to handle any static warnings found while
+     * processing warnings from the XPath parser
+     *
+     * @param handler the function to be called to handle static warnings. When a warning is
+     *                issued, the handler's {@code accept} method is called, supplying the string
+     *                of the warning message, an error code, and a location as the arguments.  The default warning handler sends
+     *                the information to the default {@link ErrorReporter} associated with the
+     *                Saxon {@link Configuration}.
+     * @since 12.0
+     */
+
+    public void setWarningHandler(WarningHandler handler) {
         warningHandler = handler;
     }
+
 
     /**
      * Get the callback function that will be called to handle any static warnings found while
@@ -288,10 +295,11 @@ public abstract class AbstractStaticContext implements StaticContext {
      *                When a warning is
      *                issued, the handler's {@code accept} method is called, supplying the string
      *                of the warning message and the location information as the two arguments.
-     * @since 10.0
+     * @since 10.0. Modified in 12.0 to return a {@link WarningHandler}, which is a three-argument
+     * callback accepting the error message, error code, and location.
      */
 
-    public BiConsumer<String, Location> getWarningHandler() {
+    public WarningHandler getWarningHandler() {
         return warningHandler;
     }
 
@@ -302,8 +310,8 @@ public abstract class AbstractStaticContext implements StaticContext {
      */
 
     @Override
-    public void issueWarning(String s, Location locator) {
-        getWarningHandler().accept(s, locator);
+    public void issueWarning(String s, String errorCode, Location locator) {
+        getWarningHandler().accept(s, errorCode, locator);
     }
 
     /**
@@ -326,7 +334,7 @@ public abstract class AbstractStaticContext implements StaticContext {
      */
 
     @Override
-    public String getDefaultElementNamespace() {
+    public NamespaceUri getDefaultElementNamespace() {
         return defaultElementNamespace;
     }
 
@@ -337,7 +345,7 @@ public abstract class AbstractStaticContext implements StaticContext {
      *            The value "" (or NamespaceConstant.NULL) represents the non-namespace
      */
 
-    public void setDefaultElementNamespace(String uri) {
+    public void setDefaultElementNamespace(NamespaceUri uri) {
         defaultElementNamespace = uri;
     }
 
@@ -348,7 +356,7 @@ public abstract class AbstractStaticContext implements StaticContext {
      *            The value "" (or NamespaceConstant.NULL) represents the non-namespace
      */
 
-    public void setDefaultFunctionNamespace(String uri) {
+    public void setDefaultFunctionNamespace(NamespaceUri uri) {
         defaultFunctionNamespace = uri;
     }
 
@@ -360,13 +368,13 @@ public abstract class AbstractStaticContext implements StaticContext {
      */
 
     @Override
-    public String getDefaultFunctionNamespace() {
+    public NamespaceUri getDefaultFunctionNamespace() {
         return defaultFunctionNamespace;
     }
 
     /**
      * Set the XPath language level supported.
-     * The current levels supported are 20 (=2.0) and 31 (=3.1). The default is 3.1.
+     * The current levels supported are 20 (=2.0), 31 (=3.1), and 40 (=4.0). The default is 3.1.
      *
      * @param level the XPath language level
      * @since 9.3. From 9.8 this only affects the XPath syntax that is accepted;
@@ -375,7 +383,13 @@ public abstract class AbstractStaticContext implements StaticContext {
      */
 
     public void setXPathLanguageLevel(int level) {
+        if (level == 40) {
+            config.checkLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION, "XPath 4.0", -1);
+        }
         xpathLanguageLevel = level;
+        if (packageData.getHostLanguageVersion() != level) {
+            packageData.setHostLanguage(packageData.getHostLanguage(), level);
+        }
     }
 
     /**
@@ -474,8 +488,10 @@ public abstract class AbstractStaticContext implements StaticContext {
     /**
      * Register an alias for an ItemType. This is a Saxon extension. If {@code typename}
      * has been registered as an alias for, say, map{xs:string, xs:integer*}, then
-     * the syntax {@code ~typename} is accepted anywhere this ItemType would
+     * the syntax {@code type(typename)} is accepted anywhere this ItemType would
      * be accepted.
+     * @param name the alias name of the type
+     * @param type the type to which this alias refers
      */
 
     public void setTypeAlias(StructuredQName name, ItemType type) {
@@ -514,6 +530,15 @@ public abstract class AbstractStaticContext implements StaticContext {
     @Override
     public UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy() {
          return unprefixedElementPolicy;
+    }
+
+    /**
+     * Interface defining a callback for handling warnings
+     */
+
+    @FunctionalInterface
+    public interface WarningHandler {
+        void accept(String message, String errorCode, Location location);
     }
 }
 

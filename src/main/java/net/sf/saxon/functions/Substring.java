@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,17 +7,17 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.om.One;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.ZeroOrOne;
-import net.sf.saxon.regex.EmptyString;
-import net.sf.saxon.regex.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.NumericValue;
 import net.sf.saxon.value.StringValue;
@@ -66,16 +66,15 @@ public class Substring extends SystemFunction implements Callable {
      * @return the substring starting at this position.
      */
 
-    public static UnicodeString substring(StringValue sv, NumericValue start) {
-        UnicodeString s = sv.getUnicodeString();
-        int slength = s.uLength();
+    public static StringValue substring(StringValue sv, NumericValue start) {
+        long slength = sv.length();
 
         long lstart;
         if (start instanceof Int64Value) {
             //noinspection RedundantCast
             lstart = ((Int64Value) start).longValue();
             if (lstart > slength) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             } else if (lstart <= 0) {
                 lstart = 1;
             }
@@ -83,22 +82,20 @@ public class Substring extends SystemFunction implements Callable {
             //NumericValue rstart = start.round();
             // We need to be careful to handle cases such as plus/minus infinity
             if (start.isNaN()) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             } else if (start.signum() <= 0) {
-                return s;
+                return sv;
             } else if (start.compareTo(slength) > 0) {
-                // this works even where the string contains surrogate pairs,
-                // because the Java length is always >= the XPath length
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             } else {
                 lstart = Math.round(start.getDoubleValue());
             }
         }
 
-        if (lstart > s.uLength()) {
-            return EmptyString.THE_INSTANCE;
+        if (lstart > slength) {
+            return StringValue.EMPTY_STRING;
         }
-        return s.uSubstring((int) lstart - 1, s.uLength());
+        return new StringValue(sv.getContent().substring((int) lstart - 1, slength));
     }
 
     /**
@@ -112,25 +109,25 @@ public class Substring extends SystemFunction implements Callable {
      * @return the substring starting at this position.
      */
 
-    public static UnicodeString substring(StringValue sv, NumericValue start, /*@NotNull*/ NumericValue len) {
+    public static StringValue substring(StringValue sv, NumericValue start, /*@NotNull*/ NumericValue len) {
 
-        int slength = sv.getStringLengthUpperBound();
+        long slength = sv.length();
 
         long lstart;
         if (start instanceof Int64Value) {
             //noinspection RedundantCast
             lstart = ((Int64Value) start).longValue();
             if (lstart > slength) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             }
         } else {
             // We need to be careful to handle cases such as plus/minus infinity and NaN
             if (start.isNaN()) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             } else if (start.compareTo(slength) > 0) {
                 // this works even where the string contains surrogate pairs,
                 // because the Java length is always >= the XPath length
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             } else {
                 double dstart = start.getDoubleValue();
                 lstart = Double.isInfinite(dstart) ? -Integer.MAX_VALUE : Math.round(dstart);
@@ -141,14 +138,14 @@ public class Substring extends SystemFunction implements Callable {
         if (len instanceof Int64Value) {
             llen = ((Int64Value) len).longValue();
             if (llen <= 0) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             }
         } else {
             if (len.isNaN()) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             }
             if (len.signum() <= 0) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             }
             double dlen = len.getDoubleValue();
             if (Double.isInfinite(dlen)) {
@@ -159,24 +156,22 @@ public class Substring extends SystemFunction implements Callable {
         }
         long lend = lstart + llen;
         if (lend < lstart) {
-            return EmptyString.THE_INSTANCE;
+            return StringValue.EMPTY_STRING;
         }
 
-        UnicodeString us = sv.getUnicodeString();
-        int clength = us.uLength();
         int a1 = (int) lstart - 1;
-        if (a1 >= clength) {
-            return EmptyString.THE_INSTANCE;
+        if (a1 >= slength) {
+            return StringValue.EMPTY_STRING;
         }
-        int a2 = Math.min(clength, (int) lend - 1);
+        long a2 = Math.min(slength, (int) lend - 1);
         if (a1 < 0) {
             if (a2 < 0) {
-                return EmptyString.THE_INSTANCE;
+                return StringValue.EMPTY_STRING;
             } else {
                 a1 = 0;
             }
         }
-        return us.uSubstring(a1, a2);
+        return new StringValue(sv.getContent().substring(a1, a2));
     }
 
     /**
@@ -189,23 +184,81 @@ public class Substring extends SystemFunction implements Callable {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public StringValue call(XPathContext context, Sequence[] arguments) throws XPathException {
         StringValue arg0 = (StringValue) arguments[0].head();
         if (arg0 == null) {
-            return One.string("");
+            return StringValue.EMPTY_STRING;
         }
         NumericValue arg1 = (NumericValue) arguments[1].head();
         if (arguments.length == 2) {
-            return new ZeroOrOne(StringValue.makeStringValue(substring(arg0, arg1)));
+            return substring(arg0, arg1);
         } else {
             NumericValue arg2 = (NumericValue) arguments[2].head();
-            return new ZeroOrOne(StringValue.makeStringValue(substring(arg0, arg1, arg2)));
+            if (arg2 == null) {
+                // Third argument can be an empty sequence in 4.0
+                if (getRetainedStaticContext().getPackageData().getHostLanguageVersion() < 40) {
+                    XPathException err = new XPathException("3rd argument of substring() must not be an empty sequence (unless 4.0 is enabled)", "XPTY0004");
+                    err.setIsTypeError(true);
+                    throw err;
+                } else {
+                    return substring(arg0, arg1);
+                }
+            }
+            return substring(arg0, arg1, arg2);
         }
     }
 
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
     @Override
-    public String getCompilerName() {
-        return "SubstringCompiler";
+    public Elaborator getElaborator() {
+        return new SubstringFnElaborator();
+    }
+
+    public static class SubstringFnElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            final ItemEvaluator arg0Eval = fnc.getArg(0).makeElaborator().elaborateForItem();
+            final ItemEvaluator arg1Eval = fnc.getArg(1).makeElaborator().elaborateForItem();
+            final boolean nullable = Cardinality.allowsZero(fnc.getArg(0).getCardinality());
+            if (fnc.getArity() == 2) {
+                return context -> {
+                    StringValue sv = (StringValue)arg0Eval.eval(context);
+                    if (nullable && sv == null) {
+                        return StringValue.EMPTY_STRING;
+                    }
+                    NumericValue start = (NumericValue)arg1Eval.eval(context);
+                    return substring(sv, start);
+                };
+            } else {
+                final ItemEvaluator arg2Eval = fnc.getArg(2).makeElaborator().elaborateForItem();
+                final boolean disallowEmpty = fnc.getRetainedStaticContext().getPackageData().getHostLanguageVersion() < 40;
+                return context -> {
+                    StringValue sv = (StringValue) arg0Eval.eval(context);
+                    if (nullable && sv == null) {
+                        return StringValue.EMPTY_STRING;
+                    }
+                    NumericValue start = (NumericValue) arg1Eval.eval(context);
+                    NumericValue len = (NumericValue) arg2Eval.eval(context);
+                    if (len == null) {
+                        // Third argument can be an empty sequence in 4.0
+                        if (disallowEmpty) {
+                            XPathException err = new XPathException("3rd argument of substring() must not be an empty sequence (unless 4.0 is enabled)", "XPTY0004");
+                            err.setIsTypeError(true);
+                            throw err;
+                        } else {
+                            return substring(sv, start);
+                        }
+                    }
+                    return substring(sv, start, len);
+                };
+            }
+        }
+
     }
 }
 

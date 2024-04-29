@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can
@@ -123,8 +123,6 @@ public abstract class FeatureCode {
     public final static int OUTPUT_URI_RESOLVER_CLASS = 50;
     /** @see Feature#PRE_EVALUATE_DOC_FUNCTION  */
     public final static int PRE_EVALUATE_DOC_FUNCTION = 51;
-    /** @see Feature#PREFER_JAXP_PARSER  */
-    public final static int PREFER_JAXP_PARSER = 52;
     /** @see Feature#RECOGNIZE_URI_QUERY_PARAMETERS  */
     public final static int RECOGNIZE_URI_QUERY_PARAMETERS = 53;
     /** @see Feature#RECOVERY_POLICY  */
@@ -275,8 +273,12 @@ public abstract class FeatureCode {
     public final static int ALLOW_UNRESOLVED_SCHEMA_COMPONENTS = 126;
     /** @see Feature#ZIP_URI_PATTERN  */
     public final static int ZIP_URI_PATTERN = 127;
+    /** @see Feature#RESOURCE_RESOLVER  */
+    public final static int RESOURCE_RESOLVER = 128;
+    /** @see Feature#RESOURCE_RESOLVER_CLASS  */
+    public final static int RESOURCE_RESOLVER_CLASS = 129;
 
 
-    public final static int MAX = 128;
+    public final static int MAX = 129;
 
 }

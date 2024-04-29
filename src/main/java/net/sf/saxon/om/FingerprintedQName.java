@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,21 +15,25 @@ package net.sf.saxon.om;
  */
 public class FingerprintedQName implements NodeName {
 
-    private StructuredQName qName;
+    private final StructuredQName qName;
     private int fingerprint = -1;
 
-    public FingerprintedQName(String prefix, String uri, String localName) {
+    public FingerprintedQName(String prefix, NamespaceUri uri, String localName) {
         qName = new StructuredQName(prefix, uri, localName);
     }
 
-    public FingerprintedQName(String prefix, String uri, String localName, int fingerprint) {
+    public FingerprintedQName(String prefix, NamespaceUri uri, String localName, int fingerprint) {
         qName = new StructuredQName(prefix, uri, localName);
         this.fingerprint = fingerprint;
     }
 
-    public FingerprintedQName(String prefix, String uri, String localName, NamePool pool) {
+    public FingerprintedQName(String prefix, NamespaceUri uri, String localName, NamePool pool) {
         qName = new StructuredQName(prefix, uri, localName);
         this.fingerprint = pool.allocateFingerprint(uri, localName);
+    }
+
+    public FingerprintedQName(StructuredQName qName) {
+        this.qName = qName;
     }
 
     public FingerprintedQName(StructuredQName qName, int fingerprint) {
@@ -39,7 +43,7 @@ public class FingerprintedQName implements NodeName {
 
     public FingerprintedQName(StructuredQName qName, NamePool pool) {
         this.qName = qName;
-        this.fingerprint = pool.allocateFingerprint(qName.getURI(), qName.getLocalPart());
+        this.fingerprint = pool.allocateFingerprint(qName.getNamespaceUri(), qName.getLocalPart());
     }
 
     /**
@@ -68,7 +72,7 @@ public class FingerprintedQName implements NodeName {
             namespace = "";
             localName = expandedName;
         }
-        return new FingerprintedQName("", namespace, localName);
+        return new FingerprintedQName("", NamespaceUri.of(namespace), localName);
     }
 
     /**
@@ -97,7 +101,7 @@ public class FingerprintedQName implements NodeName {
             namespace = "";
             localName = expandedName;
         }
-        return new FingerprintedQName("", namespace, localName);
+        return new FingerprintedQName("", NamespaceUri.of(namespace), localName);
     }
 
 
@@ -133,7 +137,7 @@ public class FingerprintedQName implements NodeName {
     @Override
     public int obtainFingerprint(NamePool pool) {
         if (fingerprint == -1) {
-            fingerprint = pool.allocateFingerprint(getURI(), getLocalPart());
+            fingerprint = pool.allocateFingerprint(getNamespaceUri(), getLocalPart());
         }
         return fingerprint;
     }
@@ -164,8 +168,8 @@ public class FingerprintedQName implements NodeName {
      * @return the URI. Returns the empty string to represent the no-namespace
      */
     @Override
-    public String getURI() {
-        return qName.getURI();
+    public NamespaceUri getNamespaceUri() {
+        return qName.getNamespaceUri();
     }
 
     /**
@@ -195,7 +199,7 @@ public class FingerprintedQName implements NodeName {
      * @return true if the name is in the specified namespace
      */
     @Override
-    public boolean hasURI(String ns) {
+    public boolean hasURI(NamespaceUri ns) {
         return qName.hasURI(ns);
     }
 
@@ -230,7 +234,7 @@ public class FingerprintedQName implements NodeName {
                 return getFingerprint() == ((NodeName) other).getFingerprint();
             } else {
                 return getLocalPart().equals(((NodeName) other).getLocalPart()) &&
-                        hasURI(((NodeName) other).getURI());
+                        hasURI(((NodeName) other).getNamespaceUri());
             }
         } else {
             return false;
@@ -250,8 +254,8 @@ public class FingerprintedQName implements NodeName {
      * test than equality (even schema-equality); for example two dateTime values are not identical unless
      * they are in the same timezone.
      *
-     * @param other the other value
-     * @return true if the two values are indentical, false otherwise
+     * @param other the value to be compared with
+     * @return true if the two values are identical, false otherwise
      */
     @Override
     public boolean isIdentical(IdentityComparable other) {

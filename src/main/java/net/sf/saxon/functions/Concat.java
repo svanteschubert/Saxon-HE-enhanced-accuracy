@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,9 +15,13 @@ import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.str.UniStringConsumer;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.CharSequenceConsumer;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.FunctionItemType;
 import net.sf.saxon.type.SpecificFunctionType;
@@ -39,21 +43,6 @@ public class Concat extends SystemFunction implements PushableFunction {
     }
 
     /**
-     * Get the roles of the arguments, for the purposes of streaming
-     *
-     * @return an array of OperandRole objects, one for each argument
-     */
-    @Override
-    public OperandRole[] getOperandRoles() {
-        OperandRole[] roles = new OperandRole[getArity()];
-        OperandRole operandRole = new OperandRole(0, OperandUsage.ABSORPTION);
-        for (int i = 0; i < getArity(); i++) {
-            roles[i] = operandRole;
-        }
-        return roles;
-    }
-
-    /**
      * Get the item type of the function item
      *
      * @return the function item's type
@@ -61,7 +50,7 @@ public class Concat extends SystemFunction implements PushableFunction {
     @Override
     public FunctionItemType getFunctionItemType() {
         SequenceType[] argTypes = new SequenceType[getArity()];
-        Arrays.fill(argTypes, SequenceType.OPTIONAL_ATOMIC);
+        Arrays.fill(argTypes, SequenceType.ATOMIC_SEQUENCE);
         return new SpecificFunctionType(argTypes, SequenceType.SINGLE_STRING);
     }
 
@@ -84,22 +73,24 @@ public class Concat extends SystemFunction implements PushableFunction {
             visitor.getStaticContext().issueWarning(
                     "Did you intend to apply string concatenation to boolean operands? "
                             + "Perhaps you intended 'or' rather than '||'. "
-                            + "To suppress this warning, use string() on the arguments.", arguments[0].getLocation());
+                            + "To suppress this warning, use string() on the arguments.", SaxonErrorCode.SXWN9035, arguments[0].getLocation());
         }
         return new SystemFunctionCall.Optimized(this, arguments) {
             @Override
-            public CharSequence evaluateAsString(XPathContext context) throws XPathException {
-                FastStringBuffer buffer = new FastStringBuffer(256);
+            @CSharpModifiers(code = {"public", "override"})
+            public UnicodeString evaluateAsString(XPathContext context) throws XPathException {
+                UnicodeBuilder buffer = new UnicodeBuilder();
                 for (Operand o: operands()) {
-                    Item it = o.getChildExpression().evaluateItem(context);
-                    if (it != null) {
-                        buffer.cat(it.getStringValueCS());
+                    SequenceIterator iter = o.getChildExpression().iterate(context);
+                    for (Item item; (item = iter.next()) != null; ) {
+                        buffer.accept(item.getUnicodeStringValue());
                     }
                 }
-                return buffer;
+                return buffer.toUnicodeString();
             }
 
             @Override
+            @CSharpModifiers(code = {"public", "override"})
             public Item evaluateItem(XPathContext context) throws XPathException {
                 return new StringValue(evaluateAsString(context));
             }
@@ -107,31 +98,31 @@ public class Concat extends SystemFunction implements PushableFunction {
 
     }
 
-    private boolean isSingleBoolean(Expression arg) {
-        return arg.getCardinality() == StaticProperty.EXACTLY_ONE && arg.getItemType() == BuiltInAtomicType.BOOLEAN;
-    }
-
-
     @Override
     public StringValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        UnicodeBuilder builder = new UnicodeBuilder();
         for (Sequence arg : arguments) {
-            Item item = arg.head();
-            if (item != null) {
-                fsb.cat(item.getStringValueCS());
+            if (arg instanceof Item) {
+                // common case, avoid creating a singleton iterator
+                builder.accept(((Item)arg).getUnicodeStringValue());
+            } else {
+                SequenceIterator iter = arg.iterate();
+                for (Item item; (item = iter.next()) != null; ) {
+                    builder.accept(item.getUnicodeStringValue());
+                }
             }
         }
-        return new StringValue(fsb);
+        return new StringValue(builder.toUnicodeString());
     }
 
     @Override
     public void process(Outputter destination, XPathContext context, Sequence[] arguments) throws XPathException {
-        CharSequenceConsumer output = destination.getStringReceiver(false, Loc.NONE);
+        UniStringConsumer output = destination.getStringReceiver(false, Loc.NONE);
         output.open();
         for (Sequence arg : arguments) {
-            Item item = arg.head();
-            if (item != null) {
-                output.cat(item.getStringValueCS());
+            SequenceIterator iter = arg.iterate();
+            for (Item item; (item = iter.next()) != null; ) {
+                output.accept(item.getUnicodeStringValue());
             }
         }
         output.close();
@@ -143,15 +134,9 @@ public class Concat extends SystemFunction implements PushableFunction {
 
     @Override
     public SequenceType getRequiredType(int arg) {
-        return getDetails().argumentTypes[0];
+        return getDetails().paramTypes[0];
         // concat() is a special case
     }
-
-    @Override
-    public String getCompilerName() {
-        return "ConcatCompiler";
-    }
-
 
 
 }

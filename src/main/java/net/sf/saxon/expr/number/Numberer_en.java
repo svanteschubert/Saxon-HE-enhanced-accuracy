@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -100,28 +100,29 @@ public class Numberer_en extends AbstractNumberer {
      * Show the number as words in title case. (We choose title case because
      * the result can then be converted algorithmically to lower case or upper case).
      *
-     * @param number the number to be formatted
+     * @param cardinal
+     * @param number   the number to be formatted
      * @return the number formatted as English words
      */
 
     @Override
-    public String toWords(long number) {
+    public String toWords(String cardinal, long number) {
         if (number >= 1000000000) {
             long rem = number % 1000000000;
-            return toWords(number / 1000000000) + " Billion" +
-                    (rem == 0 ? "" : (rem < 100 ? " and " : " ") + toWords(rem));
+            return toWords(cardinal, number / 1000000000) + " Billion" +
+                    (rem == 0 ? "" : (rem < 100 ? " and " : " ") + toWords(cardinal, rem));
         } else if (number >= 1000000) {
             long rem = number % 1000000;
-            return toWords(number / 1000000) + " Million" +
-                    (rem == 0 ? "" : (rem < 100 ? " and " : " ") + toWords(rem));
+            return toWords(cardinal, number / 1000000) + " Million" +
+                    (rem == 0 ? "" : (rem < 100 ? " and " : " ") + toWords(cardinal, rem));
         } else if (number >= 1000) {
             long rem = number % 1000;
-            return toWords(number / 1000) + " Thousand" +
-                    (rem == 0 ? "" : (rem < 100 ? " and " : " ") + toWords(rem));
+            return toWords(cardinal, number / 1000) + " Thousand" +
+                    (rem == 0 ? "" : (rem < 100 ? " and " : " ") + toWords(cardinal, rem));
         } else if (number >= 100) {
             long rem = number % 100;
-            return toWords(number / 100) + " Hundred" +
-                    (rem == 0 ? "" : " and " + toWords(rem));
+            return toWords(cardinal, number / 100) + " Hundred" +
+                    (rem == 0 ? "" : " and " + toWords(cardinal, rem));
         } else {
             if (number < 20) {
                 return englishUnits[(int) number];
@@ -147,22 +148,22 @@ public class Numberer_en extends AbstractNumberer {
         String s;
         if (number >= 1000000000) {
             long rem = number % 1000000000;
-            s = toWords(number / 1000000000) + " Billion" +
+            s = toWords(ordinalParam, number / 1000000000) + " Billion" +
                     (rem == 0 ? "th" : (rem < 100 ? " and " : " ") +
                             toOrdinalWords(ordinalParam, rem, wordCase));
         } else if (number >= 1000000) {
             long rem = number % 1000000;
-            s = toWords(number / 1000000) + " Million" +
+            s = toWords(ordinalParam, number / 1000000) + " Million" +
                     (rem == 0 ? "th" : (rem < 100 ? " and " : " ") +
                             toOrdinalWords(ordinalParam, rem, wordCase));
         } else if (number >= 1000) {
             long rem = number % 1000;
-            s = toWords(number / 1000) + " Thousand" +
+            s = toWords(ordinalParam, number / 1000) + " Thousand" +
                     (rem == 0 ? "th" : (rem < 100 ? " and " : " ") +
                             toOrdinalWords(ordinalParam, rem, wordCase));
         } else if (number >= 100) {
             long rem = number % 100;
-            s = toWords(number / 100) + " Hundred" +
+            s = toWords(ordinalParam, number / 100) + " Hundred" +
                     (rem == 0 ? "th" : " and " +
                             toOrdinalWords(ordinalParam, rem, wordCase));
         } else {
@@ -186,21 +187,21 @@ public class Numberer_en extends AbstractNumberer {
         }
     }
 
-    private static String[] englishUnits = {
+    private static final String[] englishUnits = {
             "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
             "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
             "Seventeen", "Eighteen", "Nineteen"};
 
-    private static String[] englishTens = {
+    private static final String[] englishTens = {
             "", "Ten", "Twenty", "Thirty", "Forty", "Fifty",
             "Sixty", "Seventy", "Eighty", "Ninety"};
 
-    private static String[] englishOrdinalUnits = {
+    private static final String[] englishOrdinalUnits = {
             "Zeroth", "First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth",
             "Tenth", "Eleventh", "Twelfth", "Thirteenth", "Fourteenth", "Fifteenth", "Sixteenth",
             "Seventeenth", "Eighteenth", "Nineteenth"};
 
-    private static String[] englishOrdinalTens = {
+    private static final String[] englishOrdinalTens = {
             "", "Tenth", "Twentieth", "Thirtieth", "Fortieth", "Fiftieth",
             "Sixtieth", "Seventieth", "Eightieth", "Ninetieth"};
 
@@ -230,7 +231,7 @@ public class Numberer_en extends AbstractNumberer {
         return name;
     }
 
-    private static String[] englishMonths = {
+    private static final String[] englishMonths = {
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
     };
@@ -267,15 +268,15 @@ public class Numberer_en extends AbstractNumberer {
         return name;
     }
 
-    private static String[] englishDays = {
+    private static final String[] englishDays = {
             "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
     };
 
-    private static String[] englishDayAbbreviations = {
+    private static final String[] englishDayAbbreviations = {
             "Mon", "Tues", "Weds", "Thurs", "Fri", "Sat", "Sun"
     };
 
-    /*@NotNull*/ private static int[] minUniqueDayLength = {
+    /*@NotNull*/ private static final int[] minUniqueDayLength = {
             1, 2, 1, 2, 1, 2, 2
     };
 

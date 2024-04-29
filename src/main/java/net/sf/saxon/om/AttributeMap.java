@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -50,7 +50,7 @@ public interface AttributeMap extends Iterable<AttributeInfo> {
      * @return the required attribute if it exists
      */
 
-    default AttributeInfo get(String uri, String local) {
+    default AttributeInfo get(NamespaceUri uri, String local) {
         for (AttributeInfo att : this) {
             NodeName attName = att.getNodeName();
             if (attName.getLocalPart().equals(local) && attName.hasURI(uri)) {
@@ -78,10 +78,24 @@ public interface AttributeMap extends Iterable<AttributeInfo> {
      * @return the value of the required attribute if it exists, or null otherwise
      */
 
-    default String getValue(String uri, String local) {
+    default String getValue(NamespaceUri uri, String local) {
         AttributeInfo att = get(uri, local);
         return att==null ? null : att.getValue();
     }
+
+    /**
+     * Get the value of a no-namespace attribute with a given local name, if it exists
+     *
+     * @param local the local part of the name of the required attribute; the attribute
+     *              must be in no namespace
+     * @return the value of the required attribute if it exists, or null otherwise
+     */
+
+    default String getValue(String local) {
+        AttributeInfo att = get(NamespaceUri.NULL, local);
+        return att == null ? null : att.getValue();
+    }
+
 
     /**
      * Replace or add an attribute, to create a new AttributeMap
@@ -97,7 +111,7 @@ public interface AttributeMap extends Iterable<AttributeInfo> {
             }
         }
         list.add(att);
-        return AttributeMap.fromList(list);
+        return SequenceTool.attributeMapFromList(list);
     }
 
     /**
@@ -115,17 +129,32 @@ public interface AttributeMap extends Iterable<AttributeInfo> {
                 list.add(a);
             }
         }
-        return AttributeMap.fromList(list);
+        return SequenceTool.attributeMapFromList(list);
     }
 
-    default void verify() {};
+    /**
+     * Verify the consistency of the attribute map. This performs an implementation-defined
+     * set of checks that might include checking for duplicates, checking that names are
+     * well-formed, checking for inappropriate use of the xml and xmlns namespaces, and
+     * checking the constraint that attributes in a namespace have a prefix, and vice
+     * versa. The default implementation does nothing.
+     * @throws IllegalStateException if the attribute map is invalid.
+     */
+    default void verify() {}
 
+    /**
+     * Apply a function to every attribute in an attribute map, returning a new
+     * attribute map
+     * @param mapper the mapping function to be applied to each attribute in the attribute map
+     * @return the attribute containing the attributes after the mapping function has been
+     * applied
+     */
     default AttributeMap apply(java.util.function.Function<AttributeInfo, AttributeInfo> mapper) {
         List<AttributeInfo> list = new ArrayList<>(size());
         for (AttributeInfo a : this) {
             list.add(mapper.apply(a));
         }
-        return AttributeMap.fromList(list);
+        return SequenceTool.attributeMapFromList(list);
     }
 
     /**
@@ -138,8 +167,8 @@ public interface AttributeMap extends Iterable<AttributeInfo> {
      * @return a list of attributes in the AttributeMap
      */
 
-    default List<AttributeInfo> asList() {
-        List<AttributeInfo> list = new ArrayList<>(size());
+    default ArrayList<AttributeInfo> asList() {
+        ArrayList<AttributeInfo> list = new ArrayList<>(size());
         for (AttributeInfo a : this) {
             list.add(a);
         }
@@ -158,32 +187,6 @@ public interface AttributeMap extends Iterable<AttributeInfo> {
 
     default AttributeInfo itemAt(int index) {
         return asList().get(index);
-    }
-
-    /**
-     * Construct an AttributeMap given a list of {@link AttributeInfo} objects
-     * representing the individual attributes.
-     * @param list the list of attributes. It is the caller's responsibility
-     *             to ensure that this list contains no duplicates. The method
-     *             may detect this, but is not guaranteed to do so. Calling
-     *             {@link #verify} after constructing the attribute map verifies
-     *             that there are no duplicates. The order of items in the input
-     *             list is not necessarily preserved.
-     * @return an AttributeMap containing the specified attributes.
-     * @throws IllegalArgumentException if duplicate attributes are detected
-     */
-
-    static AttributeMap fromList(List<AttributeInfo> list) {
-        int n = list.size();
-        if (n == 0) {
-            return EmptyAttributeMap.getInstance();
-        } else if (n == 1) {
-            return SingletonAttributeMap.of(list.get(0));
-        } else if (n <= SmallAttributeMap.LIMIT) {
-            return new SmallAttributeMap(list);
-        } else {
-            return new LargeAttributeMap(list);
-        }
     }
 
 }

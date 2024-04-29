@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.z;
 
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+import java.util.Arrays;
 
 /**
  * Set of int values. This class is modelled on the java.net.Set interface, but it does
@@ -18,7 +18,7 @@ import net.sf.saxon.tree.util.FastStringBuffer;
  * @author Dominique Devienne
  * @author Michael Kay: retrofitted to JDK 1.4, added iterator()
  */
-public class IntHashSet implements IntSet {
+public class IntHashSet extends IntSet {
 
     private static final int NBIT = 30; // MAX_SIZE = 2^NBIT
 
@@ -226,7 +226,7 @@ public class IntHashSet implements IntSet {
         _size = 0;
         int[] values = _values;
         _values = new int[nmax];
-        java.util.Arrays.fill(_values, ndv); // empty all values
+        Arrays.fill(_values, ndv); // empty all values
         if (values != null) {
             for (int i = 0; i < nold; ++i) {
                 int value = values[i];
@@ -247,12 +247,16 @@ public class IntHashSet implements IntSet {
 
     @Override
     public IntIterator iterator() {
-        return new IntHashSetIterator();
+        return new IntHashSetIterator(this);
     }
 
 
     /**
      * Test if one set has overlapping membership with another set
+     *
+     * @param one the first set
+     * @param two the second set
+     * @return true if the sets overlap
      */
 
     public static boolean containsSome(IntSet one, IntSet two) {
@@ -276,6 +280,8 @@ public class IntHashSet implements IntSet {
 
     /**
      * Test whether this set has exactly the same members as another set
+     *
+     * @param other the other set
      */
 
     public boolean equals(Object other) {
@@ -302,60 +308,19 @@ public class IntHashSet implements IntSet {
     }
 
     public String toString() {
-        return toString(iterator());
+        return stringify(iterator());
     }
 
-    public static String toString(IntIterator it) {
-        FastStringBuffer sb = new FastStringBuffer(100);
+    public static String stringify(IntIterator it) {
+        StringBuilder sb = new StringBuilder(100);
         while (it.hasNext()) {
-            if (sb.isEmpty()) {
-                sb.append("" + it.next());
+            if (sb.length() == 0) {
+                sb.append(it.next());
             } else {
-                sb.append(" " + it.next());
+                sb.append(' ').append(it.next());
             }
         }
         return sb.toString();
-    }
-
-    /**
-     * Diagnostic output
-     */
-
-    public void diagnosticDump() {
-        System.err.println("Contents of IntHashSet");
-        FastStringBuffer sb = new FastStringBuffer(100);
-        for (int i = 0; i < _values.length; i++) {
-            if (i % 10 == 0) {
-                System.err.println(sb.toString());
-                sb.setLength(0);
-            }
-            if (_values[i] == ndv) {
-                sb.append("*, ");
-            } else {
-                sb.append(_values[i] + ", ");
-            }
-        }
-        System.err.println(sb.toString());
-        sb.setLength(0);
-        System.err.println("size: " + _size);
-        System.err.println("ndv: " + ndv);
-        System.err.println("nlo: " + _nlo);
-        System.err.println("nhi: " + _nhi);
-        System.err.println("nmax: " + _nmax);
-        System.err.println("shift: " + _shift);
-        System.err.println("mask: " + _mask);
-        System.err.println("Result of iterator:");
-        IntIterator iter = iterator();
-        int i = 0;
-        while (iter.hasNext()) {
-            if (i++ % 10 == 0) {
-                System.err.println(sb.toString());
-                sb.setLength(0);
-            }
-            sb.append(iter.next() + ", ");
-        }
-        System.err.println(sb.toString());
-        System.err.println("=====================");
     }
 
     /**
@@ -374,22 +339,23 @@ public class IntHashSet implements IntSet {
 
     /**
      * Iterator class
-     *
-     * @author Saxonica Limited
+     * @implNote implemented as a static inner class for ease of conversion to C#
      */
 
-    private class IntHashSetIterator implements IntIterator {
+    private static class IntHashSetIterator implements IntIterator {
 
+        private final IntHashSet container;
         private int i;
 
-        IntHashSetIterator() {
+        IntHashSetIterator(IntHashSet container) {
+            this.container = container;
             i = 0;
         }
 
         @Override
         public boolean hasNext() {
-            while (i < _values.length) {
-                if (_values[i] != ndv) {
+            while (i < container._values.length) {
+                if (container._values[i] != container.ndv) {
                     return true;
                 } else {
                     i++;
@@ -400,7 +366,7 @@ public class IntHashSet implements IntSet {
 
         @Override
         public int next() {
-            return _values[i++];
+            return container._values[i++];
         }
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.expr.parser.XPathParser;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.TypeHierarchy;
@@ -42,11 +43,11 @@ public abstract class AttributeValueTemplate {
      * @param env the static context
      * @return an expression that computes the value of the attribute / content, as a string.
      * In the case of a TVT this must be further processed to create a text node.
+     * @throws XPathException if a static error is found
      */
 
     public static Expression make(String avt, StaticContext env) throws XPathException {
 
-        int languageLevel = env.getXPathVersion();
         List<Expression> components = new ArrayList<>(5);
 
         int i0, i1, i8, i9;
@@ -64,10 +65,8 @@ public abstract class AttributeValueTemplate {
                 break;
             } else if (i8 >= 0 && (i0 < 0 || i8 < i0)) {             // found a "}"
                 if (i8 != i9) {                        // a "}" that isn't a "}}"
-                    XPathException err = new XPathException("Closing curly brace in attribute value template \"" + avt.substring(0, len) + "\" must be doubled");
-                    err.setErrorCode("XTSE0370");
-                    err.setIsStaticError(true);
-                    throw err;
+                    throw new XPathException("Closing curly brace in attribute value template \"" + avt.substring(0, len) + "\" must be doubled")
+                            .withErrorCode("XTSE0370").asStaticError();
                 }
                 addStringComponent(components, avt, last, i8 + 1);
                 last = i8 + 2;
@@ -79,9 +78,9 @@ public abstract class AttributeValueTemplate {
                     addStringComponent(components, avt, last, i0);
                 }
                 Expression exp;
-                XPathParser parser = env.getConfiguration().newExpressionParser("XP", false, languageLevel);
+                XPathParser parser = env.getConfiguration().newExpressionParser("XP", false, env);
                 //parser.setDefaultContainer(container);
-                parser.setLanguage(XPathParser.ParsedLanguage.XPATH, languageLevel);
+                //parser.setLanguage(XPathParser.ParsedLanguage.XPATH, 31);
                 parser.setAllowAbsentExpression(true);
                 exp = parser.parse(avt, i0 + 1, Token.RCURLY, env);
                 exp.setRetainedStaticContext(env.makeRetainedStaticContext());
@@ -91,7 +90,7 @@ public abstract class AttributeValueTemplate {
                 if (env instanceof ExpressionContext && ((ExpressionContext)env).getStyleElement() instanceof XSLAnalyzeString
                         && isIntegerOrIntegerPair(exp)) {
                     env.issueWarning("Found {" + showIntegers(exp) + "} in regex attribute: perhaps {{" +
-                        showIntegers(exp) + "}} was intended? (The attribute is an AVT, so curly braces should be doubled)", exp.getLocation());
+                        showIntegers(exp) + "}} was intended? (The attribute is an AVT, so curly braces should be doubled)", SaxonErrorCode.SXWN9036, exp.getLocation());
                 }
 
                 if (env.isInBackwardsCompatibleMode()) {
@@ -125,7 +124,7 @@ public abstract class AttributeValueTemplate {
 
         else {
             Expression[] args = new Expression[components.size()];
-            components.toArray(args);
+            args = components.toArray(args);
             Expression fn = SystemFunction.makeCall("concat", new RetainedStaticContext(env), args);
             result = fn.simplify();
         }
@@ -144,7 +143,7 @@ public abstract class AttributeValueTemplate {
 
     private static boolean isIntegerOrIntegerPair(Expression exp) {
         if (exp instanceof Literal) {
-            GroundedValue val = ((Literal) exp).getValue();
+            GroundedValue val = ((Literal) exp).getGroundedValue();
             if (val instanceof IntegerValue) {
                 return true;
             }
@@ -164,7 +163,7 @@ public abstract class AttributeValueTemplate {
 
     private static String showIntegers(Expression exp) {
         if (exp instanceof Literal) {
-            GroundedValue val = ((Literal) exp).getValue();
+            GroundedValue val = ((Literal) exp).getGroundedValue();
             if (val instanceof IntegerValue) {
                 return val.toString();
             }
@@ -185,6 +184,9 @@ public abstract class AttributeValueTemplate {
 
     /**
      * Make an expression that extracts the first item of a sequence, after atomization
+     * @param exp an expression that evaluates to a sequence
+     * @param env the static context of the expression
+     * @return an expression that returns the first item in the sequence returned by {@code exp}
      */
 
     /*@NotNull*/

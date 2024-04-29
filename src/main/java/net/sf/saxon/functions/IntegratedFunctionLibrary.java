@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,18 +11,19 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.lib.ExtensionFunctionCall;
 import net.sf.saxon.lib.ExtensionFunctionDefinition;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 
 /**
  * A library of integrated function calls, that is, user-written extension functions implemented
- * as instances of the class IntegratedFunction.
+ * as instances of the class {@link ExtensionFunctionDefinition}.
  */
 public class IntegratedFunctionLibrary implements FunctionLibrary {
 
@@ -55,6 +56,8 @@ public class IntegratedFunctionLibrary implements FunctionLibrary {
      *                     example, the result of f(4) is expected to be the same as f(2+2). The actual expression is supplied
      *                     here to enable the binding mechanism to select the most efficient possible implementation (including
      *                     compile-time pre-evaluation where appropriate).</p>
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          The static context of the function call
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
@@ -64,9 +67,13 @@ public class IntegratedFunctionLibrary implements FunctionLibrary {
      */
 
     @Override
-    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, StaticContext env, List<String> reasons) {
+    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons) {
         ExtensionFunctionDefinition defn = functions.get(functionName.getComponentName());
         if (defn == null) {
+            return null;
+        }
+        if (keywords != null && !keywords.isEmpty()) {
+            reasons.add("Calls to external Java functions cannot use keyword arguments");
             return null;
         }
         return makeFunctionCall(defn, staticArgs);
@@ -95,17 +102,13 @@ public class IntegratedFunctionLibrary implements FunctionLibrary {
      *          that is private
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
         ExtensionFunctionDefinition defn = functions.get(functionName.getComponentName());
         if (defn == null) {
             return null;
         }
         try {
-            return defn.asFunction();
-//            ExtensionFunctionCall f = defn.makeCallExpression();
-//            FunctionItemType type = new SpecificFunctionType(
-//                    defn.getArgumentTypes(), defn.getResultType(defn.getArgumentTypes()));
-//            return new CallableFunction(functionName, f, type);
+            return defn.asFunction(functionName.getArity());
         } catch (Exception err) {
             throw new XPathException("Failed to create call to extension function " + functionName.getComponentName().getDisplayName(), err);
         }
@@ -118,10 +121,11 @@ public class IntegratedFunctionLibrary implements FunctionLibrary {
      * <p>This supports the function-available() function in XSLT.</p>
      *
      * @param functionName the qualified name of the function being called
+     * @param languageLevel the XPath language level, times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         ExtensionFunctionDefinition defn = functions.get(functionName.getComponentName());
         int arity = functionName.getArity();
         return defn != null && defn.getMaximumNumberOfArguments() >= arity && defn.getMinimumNumberOfArguments() <= arity;
@@ -138,8 +142,14 @@ public class IntegratedFunctionLibrary implements FunctionLibrary {
     @Override
     public FunctionLibrary copy() {
         IntegratedFunctionLibrary lib = new IntegratedFunctionLibrary();
-        lib.functions = new HashMap<>(functions);
+        // Type parameters needed for C#
+        lib.functions = copyHashMap(functions);
         return lib;
+    }
+
+    private HashMap<StructuredQName, ExtensionFunctionDefinition> copyHashMap(HashMap<StructuredQName, ExtensionFunctionDefinition> functions) {
+        // Separate method for C# type inference
+        return new HashMap<>(functions);
     }
 
 }

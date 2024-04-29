@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,7 @@
 
 package net.sf.saxon.expr.number;
 
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.UnicodeString;
 
 
 /**
@@ -37,7 +36,7 @@ public abstract class NumericGroupFormatter {
      * @return the reformatted number
      */
 
-    public abstract String format(FastStringBuffer value);
+    public abstract String format(String value);
 
     /**
      * Get the grouping separator to be used, as a Unicode codepoint. If more than one is used, return the last.

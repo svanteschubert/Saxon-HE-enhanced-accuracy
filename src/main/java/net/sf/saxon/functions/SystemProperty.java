@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,16 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Version;
-import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.Callable;
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.StringLiteral;
+import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
@@ -40,21 +44,22 @@ public class SystemProperty extends SystemFunction implements Callable {
      */
     @Override
     public Expression makeOptimizedFunctionCall(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo, Expression... arguments) throws XPathException {
-        if (arguments[0] instanceof Literal) {
+        if (arguments[0] instanceof StringLiteral &&
+                visitor.getTargetEdition().equals(visitor.getConfiguration().getEditionCode())) {
             try {
-                StringValue name = (StringValue) ((Literal) arguments[0]).getValue();
-                StructuredQName qName = StructuredQName.fromLexicalQName(name.getStringValue(),
+                String name = ((StringLiteral) arguments[0]).stringify();
+                StructuredQName qName = StructuredQName.fromLexicalQName(name,
                                                                          false, true,
                                                                          getRetainedStaticContext());
-                String uri = qName.getURI();
-                String local = qName.getLocalPart();
-                if (uri.equals(NamespaceConstant.XSLT) &&
-                        (local.equals("version") || local.equals("vendor") ||
+                if (qName.hasURI(NamespaceUri.XSLT)) {
+                    String local = qName.getLocalPart();
+                    if (local.equals("version") || local.equals("vendor") ||
                                 local.equals("vendor-url") || local.equals("product-name") ||
                                 local.equals("product-version") || local.equals("supports-backwards-compatibility") ||
-                                local.equals("xpath-version") || local.equals("xsd-version"))) {
-                    String result = getProperty(uri, local, getRetainedStaticContext());
-                    return new StringLiteral(result);
+                                local.equals("xpath-version") || local.equals("xsd-version")) {
+                        String result = getProperty(NamespaceConstant.XSLT, local, getRetainedStaticContext());
+                        return new StringLiteral(result);
+                    }
                 }
             } catch (XPathException e) {
                 // no action
@@ -75,38 +80,18 @@ public class SystemProperty extends SystemFunction implements Callable {
     @Override
     public StringValue call(XPathContext context, Sequence[] arguments) throws XPathException {
 
-        StringValue name = (StringValue) arguments[0].head();
+        String name = arguments[0].head().getStringValue();
         try {
-            StructuredQName qName = StructuredQName.fromLexicalQName(name.getStringValue(),
+            StructuredQName qName = StructuredQName.fromLexicalQName(name,
                     false, true,
                     getRetainedStaticContext());
 
             return new StringValue(getProperty(
-                        qName.getURI(), qName.getLocalPart(), getRetainedStaticContext()));
+                    qName.getNamespaceUri().toString(), qName.getLocalPart(), getRetainedStaticContext()));
 
         } catch (XPathException err) {
             throw new XPathException("Invalid system property name. " + err.getMessage(), "XTDE1390", context);
         }
-    }
-
-    private boolean allowsEarlyEvaluation(Sequence[] arguments, XPathContext context) throws XPathException {
-        StringValue name = (StringValue) arguments[0].head();
-        try {
-            StructuredQName qName = StructuredQName.fromLexicalQName(name.getStringValue(),
-                                                                     false, true,
-                                                                     getRetainedStaticContext());
-            String uri = qName.getURI();
-            String local = qName.getLocalPart();
-            return uri.equals(NamespaceConstant.XSLT) &&
-                    (local.equals("version") || local.equals("vendor") ||
-                            local.equals("vendor-url") || local.equals("product-name") ||
-                            local.equals("product-version") || local.equals("supports-backwards-compatibility") ||
-                            local.equals("xpath-version") || local.equals("xsd-version"));
-
-        } catch (XPathException err) {
-            throw new XPathException("Invalid system property name. " + err.getMessage(), "XTDE1390", context);
-        }
-
     }
 
     public static String yesOrNo(boolean whatever) {
@@ -141,7 +126,7 @@ public class SystemProperty extends SystemFunction implements Callable {
                     boolean schemaAware = rsc.getPackageData().isSchemaAware();
                     return yesOrNo(schemaAware);
                 case "supports-serialization":
-                    return yesOrNo(!"JS".equals(edition));
+                    return "yes";
                 case "supports-backwards-compatibility":
                     return "yes";
                 case "supports-namespace-axis":

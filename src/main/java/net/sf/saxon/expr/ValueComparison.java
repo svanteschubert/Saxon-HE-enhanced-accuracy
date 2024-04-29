@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,16 +8,25 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.expr.sort.*;
+import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.ComparisonException;
+import net.sf.saxon.expr.sort.GenericAtomicComparer;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * ValueComparison: a boolean expression that compares two atomic values
@@ -27,7 +36,6 @@ import net.sf.saxon.value.SequenceType;
 
 public final class ValueComparison extends BinaryExpression implements ComparisonExpression, Negatable {
 
-    private AtomicComparer comparer;
     /*@Nullable*/ private BooleanValue resultWhenEmpty = null;
     private boolean needsRuntimeCheck;
 
@@ -57,23 +65,44 @@ public final class ValueComparison extends BinaryExpression implements Compariso
     }
 
     /**
-     * Set the AtomicComparer used to compare atomic values
-     *
-     * @param comparer the AtomicComparer
-     */
-
-    public void setAtomicComparer(AtomicComparer comparer) {
-        this.comparer = comparer;
-    }
-
-    /**
      * Get the AtomicComparer used to compare atomic values. This encapsulates any collation that is used.
      * Note that the comparer is always known at compile time.
      */
 
     @Override
     public AtomicComparer getAtomicComparer() {
-        return comparer;
+        // TODO: this is scaffolding. ValueComparison no longer uses an AtomicComparer, but this method
+        // is retained for paths that require one, e.g. EqualityPatternOptimizer
+        ItemType t0 = getLhsExpression().getItemType().getPrimitiveItemType();
+        if (!(t0 instanceof BuiltInAtomicType)) {
+            // This can happen after loading from a SEF file; the static type information is not always available
+            t0 = BuiltInAtomicType.ANY_ATOMIC;
+        }
+        ItemType t1 = getRhsExpression().getItemType().getPrimitiveItemType();
+        if (!(t1 instanceof BuiltInAtomicType)) {
+            // This can happen after loading from a SEF file; the static type information is not always available
+            t1 = BuiltInAtomicType.ANY_ATOMIC;
+        }
+        return GenericAtomicComparer.makeAtomicComparer(
+                (BuiltInAtomicType)t0,
+                (BuiltInAtomicType)t1,
+                getStringCollator(),
+                getConfiguration().getConversionContext());
+
+    }
+
+    /**
+     * Get the StringCollator used to compare string values.
+     *
+     * @return the collator. May return null if the expression will never be used to compare strings
+     */
+    @Override
+    public StringCollator getStringCollator() {
+        try {
+            return getConfiguration().getCollation((getRetainedStaticContext().getDefaultCollationName()));
+        } catch (XPathException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**
@@ -95,7 +124,7 @@ public final class ValueComparison extends BinaryExpression implements Compariso
 
     @Override
     public boolean convertsUntypedToOther() {
-        return comparer instanceof UntypedNumericComparer;
+        return false;
     }
 
     /**
@@ -142,7 +171,6 @@ public final class ValueComparison extends BinaryExpression implements Compariso
         getRhs().typeCheck(visitor, contextInfo);
 
         Configuration config = visitor.getConfiguration();
-        StaticContext env = visitor.getStaticContext();
 
         if (Literal.isEmptySequence(getLhsExpression())) {
             return resultWhenEmpty == null ? getLhsExpression() : Literal.makeLiteral(resultWhenEmpty, this);
@@ -152,28 +180,25 @@ public final class ValueComparison extends BinaryExpression implements Compariso
             return resultWhenEmpty == null ? getRhsExpression() : Literal.makeLiteral(resultWhenEmpty, this);
         }
 
-        if (comparer instanceof UntypedNumericComparer) {
+        if (convertsUntypedToOther()) {
             return this; // we've already done all that needs to be done
         }
 
         final SequenceType optionalAtomic = SequenceType.OPTIONAL_ATOMIC;
         TypeChecker tc = config.getTypeChecker(false);
 
-        RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+        Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), optionalAtomic, role0, visitor));
 
-        RoleDiagnostic role1 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
+        Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), optionalAtomic, role1, visitor));
 
         PlainType t0 = getLhsExpression().getItemType().getAtomizedItemType();
         PlainType t1 = getRhsExpression().getItemType().getAtomizedItemType();
 
         if (t0.getUType().union(t1.getUType()).overlaps(UType.EXTENSION)) {
-            XPathException err = new XPathException("Cannot perform comparisons involving external objects");
-            err.setIsTypeError(true);
-            err.setErrorCode("XPTY0004");
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("Cannot perform comparisons involving external objects")
+                    .asTypeError().withErrorCode("XPTY0004").withLocation(getLocation());
         }
 
         BuiltInAtomicType p0 = (BuiltInAtomicType) t0.getPrimitiveItemType();
@@ -188,7 +213,7 @@ public final class ValueComparison extends BinaryExpression implements Compariso
         needsRuntimeCheck =
                 p0.equals(BuiltInAtomicType.ANY_ATOMIC) || p1.equals(BuiltInAtomicType.ANY_ATOMIC);
 
-        if (!needsRuntimeCheck && !Type.isPossiblyComparable(p0, p1, Token.isOrderedOperator(operator))) {
+        if (!needsRuntimeCheck && !Type.isPossiblyComparable(p0, p1, visitor.getStaticContext().getXPathVersion())) {
             boolean opt0 = Cardinality.allowsZero(getLhsExpression().getCardinality());
             boolean opt1 = Cardinality.allowsZero(getRhsExpression().getCardinality());
             if (opt0 || opt1) {
@@ -207,45 +232,30 @@ public final class ValueComparison extends BinaryExpression implements Compariso
                     which = "one or both operands are";
                 }
 
-                visitor.getStaticContext().issueWarning("Comparison of " + t0.toString() +
-                        (opt0 ? "?" : "") + " to " + t1.toString() +
-                        (opt1 ? "?" : "") + " will fail unless " + which + " empty", getLocation());
+                visitor.getStaticContext().issueWarning("Comparison of " + t0 +
+                        (opt0 ? "?" : "") + " to " + t1 +
+                        (opt1 ? "?" : "") + " will fail unless " + which + " empty", SaxonErrorCode.SXWN9026, getLocation());
                 needsRuntimeCheck = true;
             } else {
                 String message = "In {" + toShortString() + "}: cannot compare " +
-                        t0.toString() + " to " + t1.toString();
-                XPathException err = new XPathException(message);
-                err.setIsTypeError(true);
-                err.setErrorCode("XPTY0004");
-                err.setLocation(getLocation());
-                throw err;
+                        t0 + " to " + t1;
+                throw new XPathException(message)
+                        .asTypeError().withErrorCode("XPTY0004").withLocation(getLocation());
             }
         }
         if (!(operator == Token.FEQ || operator == Token.FNE)) {
             mustBeOrdered(t0, p0);
             mustBeOrdered(t1, p1);
         }
-
-        if (comparer == null) {
-            // In XSLT, only do this the first time through, otherwise the default-collation attribute may be missed
-            final String defaultCollationName = env.getDefaultCollationName();
-            StringCollator comp = config.getCollation(defaultCollationName);
-            if (comp == null) {
-                comp = CodepointCollator.getInstance();
-            }
-            comparer = GenericAtomicComparer.makeAtomicComparer(
-                    p0, p1, comp, env.getConfiguration().getConversionContext());
-        }
         return this;
     }
 
     private void mustBeOrdered(PlainType t1, BuiltInAtomicType p1) throws XPathException {
         if (!p1.isOrdered(true)) {
-            XPathException err = new XPathException("Type " + t1.toString() + " is not an ordered type");
-            err.setErrorCode("XPTY0004");
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("Type " + t1.toString() + " is not an ordered type")
+                    .withErrorCode("XPTY0004")
+                    .asTypeError()
+                    .withLocation(getLocation());
         }
     }
 
@@ -307,12 +317,12 @@ public final class ValueComparison extends BinaryExpression implements Compariso
     @Override
     public Expression negate() {
         ValueComparison vc = new ValueComparison(getLhsExpression(), Token.negate(operator), getRhsExpression());
-        vc.comparer = comparer;
         if (resultWhenEmpty == null || resultWhenEmpty == BooleanValue.FALSE) {
             vc.resultWhenEmpty = BooleanValue.TRUE;
         } else {
             vc.resultWhenEmpty = BooleanValue.FALSE;
         }
+        vc.needsRuntimeCheck = needsRuntimeCheck;
         ExpressionTool.copyLocationInfo(this, vc);
         return vc;
     }
@@ -322,8 +332,18 @@ public final class ValueComparison extends BinaryExpression implements Compariso
     @Override
     public boolean equals(Object other) {
         return other instanceof ValueComparison &&
-                super.equals(other) &&
-                comparer.equals(((ValueComparison) other).comparer);
+                super.equals(other)
+                //&& comparer.equals(((ValueComparison) other).comparer)
+        ;
+    }
+
+    /**
+     * Get a hashCode for comparing two expressions. Note that this hashcode gives the same
+     * result for (A op B) and for (B op A), whether or not the operator is commutative.
+     */
+    @Override
+    protected int computeHashCode() {
+        return super.computeHashCode();
     }
 
     /**
@@ -338,7 +358,6 @@ public final class ValueComparison extends BinaryExpression implements Compariso
     public Expression copy(RebindingMap rebindings) {
         ValueComparison vc = new ValueComparison(getLhsExpression().copy(rebindings), operator, getRhsExpression().copy(rebindings));
         ExpressionTool.copyLocationInfo(this, vc);
-        vc.comparer = comparer;
         vc.resultWhenEmpty = resultWhenEmpty;
         vc.needsRuntimeCheck = needsRuntimeCheck;
         return vc;
@@ -353,22 +372,7 @@ public final class ValueComparison extends BinaryExpression implements Compariso
 
     @Override
     public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
-        try {
-            AtomicValue v0 = (AtomicValue) getLhsExpression().evaluateItem(context);
-            if (v0 == null) {
-                return resultWhenEmpty == BooleanValue.TRUE;  // normally false
-            }
-            AtomicValue v1 = (AtomicValue) getRhsExpression().evaluateItem(context);
-            if (v1 == null) {
-                return resultWhenEmpty == BooleanValue.TRUE;  // normally false
-            }
-            return compare(v0, operator, v1, comparer.provideContext(context), needsRuntimeCheck);
-        } catch (XPathException e) {
-            // re-throw the exception with location information added
-            e.maybeSetLocation(getLocation());
-            e.maybeSetContext(context);
-            throw e;
-        }
+        return makeElaborator().elaborateForBoolean().eval(context);
     }
 
     /**
@@ -389,11 +393,8 @@ public final class ValueComparison extends BinaryExpression implements Compariso
             throws XPathException {
         if (checkTypes &&
                 !Type.isGuaranteedComparable(v0.getPrimitiveType(), v1.getPrimitiveType(), Token.isOrderedOperator(op))) {
-            XPathException e2 = new XPathException("Cannot compare " + Type.displayTypeName(v0) +
-                    " to " + Type.displayTypeName(v1));
-            e2.setErrorCode("XPTY0004");
-            e2.setIsTypeError(true);
-            throw e2;
+            throw new XPathException("Cannot compare " + Type.displayTypeName(v0) +
+                    " to " + Type.displayTypeName(v1)).withErrorCode("XPTY0004").asTypeError();
         }
         if (v0.isNaN() || v1.isNaN()) {
             return op == Token.FNE;
@@ -416,14 +417,11 @@ public final class ValueComparison extends BinaryExpression implements Compariso
                     throw new UnsupportedOperationException("Unknown operator " + op);
             }
         } catch (ComparisonException err) {
-            throw err.getCause();
+            throw err.getReason();
         } catch (ClassCastException err) {
-            err.printStackTrace();
-            XPathException e2 = new XPathException("Cannot compare " + Type.displayTypeName(v0) +
-                    " to " + Type.displayTypeName(v1));
-            e2.setErrorCode("XPTY0004");
-            e2.setIsTypeError(true);
-            throw e2;
+            //err.printStackTrace();
+            throw new XPathException("Cannot compare " + Type.displayTypeName(v0) +
+                    " to " + Type.displayTypeName(v1)).withErrorCode("XPTY0004").asTypeError();
         }
     }
 
@@ -437,22 +435,7 @@ public final class ValueComparison extends BinaryExpression implements Compariso
 
     @Override
     public BooleanValue evaluateItem(XPathContext context) throws XPathException {
-        try {
-            AtomicValue v0 = (AtomicValue) getLhsExpression().evaluateItem(context);
-            if (v0 == null) {
-                return resultWhenEmpty;
-            }
-            AtomicValue v1 = (AtomicValue) getRhsExpression().evaluateItem(context);
-            if (v1 == null) {
-                return resultWhenEmpty;
-            }
-            return BooleanValue.get(compare(v0, operator, v1, comparer.provideContext(context), needsRuntimeCheck));
-        } catch (XPathException e) {
-            // re-throw the exception with location information added
-            e.maybeSetLocation(getLocation());
-            e.maybeSetContext(context);
-            throw e;
-        }
+        return (BooleanValue)makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -484,7 +467,7 @@ public final class ValueComparison extends BinaryExpression implements Compariso
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         if (resultWhenEmpty != null) {
             return StaticProperty.EXACTLY_ONE;
         } else {
@@ -493,7 +476,7 @@ public final class ValueComparison extends BinaryExpression implements Compariso
     }
 
     @Override
-    public String tag() {
+    protected String tag() {
         return "vc";
     }
 
@@ -502,10 +485,145 @@ public final class ValueComparison extends BinaryExpression implements Compariso
         if (resultWhenEmpty != null) {
             out.emitAttribute("onEmpty", resultWhenEmpty.getBooleanValue() ? "1" : "0");
         }
-        out.emitAttribute("comp", comparer.save());
+        if ("JS".equals(out.getOptions().target) && out.getOptions().targetVersion == 2) {
+            // for backwards compatibility, output a comp attribute
+            AtomicComparer comparer = getAtomicComparer();
+            out.emitAttribute("comp", comparer.save());
+        }
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new ValueComparisonElaborator();
+    }
+
+    /**
+     * Elaborator for a value comparison (such as {@code A eq B}), including the case
+     * where a general comparison is reduced to a value comparison by the optimiser
+     */
+
+    public static class ValueComparisonElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final ValueComparison expr = (ValueComparison) getExpression();
+            final ItemEvaluator p0 = expr.getLhsExpression().makeElaborator().elaborateForItem();
+            final ItemEvaluator p1 = expr.getRhsExpression().makeElaborator().elaborateForItem();
+            final BooleanValue resultWhenEmpty = expr.getResultWhenEmpty();
+
+            StringCollator defaultCollation;
+            try {
+                defaultCollation = expr.getConfiguration().getCollation(expr.getRetainedStaticContext().getDefaultCollationName());
+            } catch (XPathException e) {
+                throw new IllegalStateException("Unknown default collation in static context: " + expr.getRetainedStaticContext().getDefaultCollationName());
+            }
+            final int operator = expr.getOperator();
+
+            final int card0 = expr.getLhsExpression().getCardinality();
+            final int card1 = expr.getRhsExpression().getCardinality();
+            if (card0 == StaticProperty.ALLOWS_ZERO || card1 == StaticProperty.ALLOWS_ZERO) {
+                return context -> resultWhenEmpty;
+            }
+
+            GenericAtomicComparer.AtomicComparisonFunction comparer =
+                    GenericAtomicComparer.makeAtomicComparisonFunction(
+                        operandType(expr.getLhsExpression()),
+                        operandType(expr.getRhsExpression()),
+                        defaultCollation,
+                        operator, true, expr.getRetainedStaticContext().getPackageData().getHostLanguageVersion());
 
 
+            final boolean nullable0 = Cardinality.allowsZero(card0);
+            final boolean nullable1 = Cardinality.allowsZero(card1);
+
+            if (!nullable0 && !nullable1) {
+                return context -> BooleanValue.get(
+                        comparer.compare((AtomicValue) p0.eval(context), (AtomicValue) p1.eval(context), context));
+            } else {
+                return context -> {
+                    AtomicValue v0 = (AtomicValue) p0.eval(context);
+                    if (v0 == null) {
+                        return resultWhenEmpty;  // normally false
+                    }
+                    AtomicValue v1 = (AtomicValue) p1.eval(context);
+                    if (v1 == null) {
+                        return resultWhenEmpty;  // normally false
+                    }
+                    return BooleanValue.get(comparer.compare(v0, v1, context));
+                };
+            }
+
+        }
+
+        private BuiltInAtomicType operandType(Expression operand) {
+            ItemType type = operand.getItemType();
+            if (type == AnyItemType.getInstance()) {
+                return BuiltInAtomicType.ANY_ATOMIC;
+            } else {
+                return (BuiltInAtomicType) type.getPrimitiveItemType();
+            }
+        }
+
+        public BooleanEvaluator elaborateForBoolean() {
+            final ValueComparison expr = (ValueComparison) getExpression();
+            final ItemEvaluator p0 = expr.getLhsExpression().makeElaborator().elaborateForItem();
+            final ItemEvaluator p1 = expr.getRhsExpression().makeElaborator().elaborateForItem();
+            StringCollator defaultCollation;
+            try {
+                defaultCollation = expr.getConfiguration().getCollation(expr.getRetainedStaticContext().getDefaultCollationName());
+            } catch (XPathException e) {
+                throw new IllegalStateException("Unknown default collation in static context: " + expr.getRetainedStaticContext().getDefaultCollationName());
+            }
+            final int operator = expr.getOperator();
+            final boolean resultWhenEmpty = expr.getResultWhenEmpty() != null && expr.getResultWhenEmpty().getBooleanValue();
+
+            final int card0 = expr.getLhsExpression().getCardinality();
+            final int card1 = expr.getRhsExpression().getCardinality();
+            if (card0 == StaticProperty.ALLOWS_ZERO || card1 == StaticProperty.ALLOWS_ZERO) {
+                return context -> resultWhenEmpty;
+            }
+
+            ItemType t0 = expr.getLhsExpression().getItemType().getPrimitiveItemType();
+            if (!(t0 instanceof BuiltInAtomicType)) {
+                // This can happen after loading from a SEF file; the static type information is not always available
+                t0 = BuiltInAtomicType.ANY_ATOMIC;
+            }
+            ItemType t1 = expr.getRhsExpression().getItemType().getPrimitiveItemType();
+            if (!(t1 instanceof BuiltInAtomicType)) {
+                // This can happen after loading from a SEF file; the static type information is not always available
+                t1 = BuiltInAtomicType.ANY_ATOMIC;
+            }
+            final GenericAtomicComparer.AtomicComparisonFunction comparer = GenericAtomicComparer.makeAtomicComparisonFunction(
+                    (BuiltInAtomicType) t0, (BuiltInAtomicType) t1, defaultCollation, operator, true,
+                    expr.getRetainedStaticContext().getPackageData().getHostLanguageVersion());
+
+            final boolean nullable0 = Cardinality.allowsZero(card0);
+            final boolean nullable1 = Cardinality.allowsZero(card1);
+            if (!nullable0 && !nullable1) {
+                return context -> comparer.compare((AtomicValue) p0.eval(context), (AtomicValue) p1.eval(context), context);
+            } else {
+                return context -> {
+                    AtomicValue v0 = (AtomicValue) p0.eval(context);
+                    if (v0 == null) {
+                        return resultWhenEmpty;  // normally false
+                    }
+                    AtomicValue v1 = (AtomicValue) p1.eval(context);
+                    if (v1 == null) {
+                        return resultWhenEmpty;  // normally false
+                    }
+                    return comparer.compare(v0, v1, context);
+                };
+            }
+
+        }
+
+
+
+    }
 }
 

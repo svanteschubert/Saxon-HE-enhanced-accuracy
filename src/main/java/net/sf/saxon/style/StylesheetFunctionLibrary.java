@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,11 +14,16 @@ import net.sf.saxon.expr.UserFunctionCall;
 import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.functions.FunctionLibrary;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 
 /**
@@ -30,8 +35,9 @@ import java.util.List;
 
 public class StylesheetFunctionLibrary implements FunctionLibrary {
 
-    private StylesheetPackage pack;
-    private boolean overrideExtensionFunction;
+    private final StylesheetPackage pack;
+    private final boolean overrideExtensionFunction;
+    private HashMap<StructuredQName, List<Component>> functionIndex = null;
 
     /**
      * Create a FunctionLibrary that provides access to stylesheet functions
@@ -75,6 +81,8 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
      * @param staticArgs   The expressions supplied statically in the function call. The intention is
      *                     that the static type of the arguments (obtainable via getItemType() and getCardinality() may
      *                     be used as part of the binding algorithm.
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          The static context
      * @param reasons In the event that a function cannot be bound, this output parameter may be populated with one
      *                or more diagnostic messages indicating possible reasons why no function binding was possible.
@@ -83,19 +91,28 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
      */
 
     @Override
-    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, StaticContext env, List<String> reasons) {
-        UserFunction fn = pack.getFunction(functionName);
-        if (fn == null) {
+    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons)
+    throws XPathException {
+        Component c = getFunction(functionName.getComponentName(), staticArgs.length);
+        if (c == null) {
             return null;
         }
+        UserFunction fn = (UserFunction)c.getActor();
+        fn.incrementReferenceCount();
         if (fn.isOverrideExtensionFunction() != this.overrideExtensionFunction) {
             return null;
         }
 
-        final UserFunctionCall fc = new UserFunctionCall();
-        fc.setFunctionName(functionName.getComponentName());
-        fc.setArguments(staticArgs);
+        UserFunctionCall fc = new UserFunctionCall();
         fc.setFunction(fn);
+        fc.setFunctionName(fn.getFunctionName());
+        int maxArity = fn.getArity();
+        if (staticArgs.length == maxArity && (keywords == null || keywords.isEmpty())) {
+            fc.setArguments(staticArgs);
+        } else {
+            Expression[] expandedArgs = UserFunction.makeExpandedArgumentArray(staticArgs, keywords, fn);
+            fc.setArguments(expandedArgs);
+        }
 
         if (env instanceof ExpressionContext) {
             // compile-time binding of a static function call in XSLT
@@ -124,6 +141,41 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
         return fc;
     }
 
+    private void buildFunctionIndex() {
+        HashMap<SymbolicName, Component> allComponents = pack.getComponentIndex();
+        functionIndex = new HashMap<>();
+        for (Map.Entry<SymbolicName, Component> entry : allComponents.entrySet()) {
+            if (entry.getValue().getComponentKind() == StandardNames.XSL_FUNCTION) {
+                UserFunction uf = (UserFunction)entry.getValue().getActor();
+                StructuredQName functionName = entry.getKey().getComponentName();
+                if (functionIndex.containsKey(functionName)) {
+                    functionIndex.get(functionName).add(entry.getValue());
+                } else {
+                    List<Component> functionList = new ArrayList<>();
+                    functionList.add(entry.getValue());
+                    functionIndex.put(functionName, functionList);
+                }
+            }
+        }
+    }
+
+    private Component getFunction(StructuredQName name, int actualArgs) {
+        if (functionIndex == null) {
+            buildFunctionIndex();
+        }
+        List<Component> candidates = functionIndex.get(name);
+        if (candidates == null) {
+            return null;
+        }
+        for (Component c : candidates) {
+            UserFunction fn = (UserFunction)c.getActor();
+            if (fn.getMinimumArity() <= actualArgs && fn.getArity() >= actualArgs) {
+                return c;
+            }
+        }
+        return null;
+    }
+
     /**
      * Test whether a function with a given name and arity is available; if so, return a function
      * item that can be dynamically called.
@@ -139,7 +191,7 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
      *          that is private
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
         return pack.getFunction(functionName);
     }
 
@@ -147,11 +199,12 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
      * Test whether a function with a given name and arity is available
      * <p>This supports the function-available() function in XSLT.</p>
      *
-     * @param functionName the qualified name of the function being called
+     * @param functionName  the qualified name of the function being called
+     * @param languageLevel the XPath language level (times 10, e.g. 31 for XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         return pack.getFunction(functionName) != null;
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,10 @@
 
 package net.sf.saxon.om;
 
-import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AtomizingIterator;
-import net.sf.saxon.value.SequenceExtent;
+import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.tree.iter.UnparsedTextIterator;
 
 import java.io.Closeable;
-import java.util.EnumSet;
 
 /**
  * A SequenceIterator is used to iterate over any XPath 2 sequence (of values or nodes).
@@ -28,7 +26,9 @@ import java.util.EnumSet;
  * iterator in an XPathContext. SequenceIterators than maintain the value of position()
  * and last() are represented by the interface {@link FocusIterator}.</p>
  *
- * @since 8.4. Significant changes in 9.6. Generics added in 9.9, removed again in 10.0
+ * @since 8.4. Significant changes in 9.6. Generics added in 9.9, removed again in 10.0.
+ * getProperties() method dropped in 11 (instead, callers should check whether the
+ * iterator implements a more specific interface such as {@link net.sf.saxon.expr.LastPositionFinder})
  */
 
 public interface SequenceIterator extends Closeable {
@@ -38,15 +38,16 @@ public interface SequenceIterator extends Closeable {
      * iterator.
      *
      * @return the next item, or null if there are no more items. Once a call
-     *         on next() has returned null, no further calls should be made. The preferred
-     *         action for an iterator if subsequent calls on next() are made is to return
-     *         null again, and all implementations within Saxon follow this rule.
-     * @throws XPathException if an error occurs retrieving the next item
-     * @since 8.4
+     * on next() has returned null, no further calls should be made. The preferred
+     * action for an iterator if subsequent calls on next() are made is to return
+     * null again, and all implementations within Saxon follow this rule.
+     * @throws UncheckedXPathException if an error occurs retrieving the next item
+     * @since 8.4. Changed in 11 so it no longer throws a checked exception;
+     * instead, any error that occurs is thrown as an unchecked exception.
      */
 
     /*@Nullable*/
-    Item next() throws XPathException;
+    Item next();
 
     /**
      * Close the iterator. This indicates to the supplier of the data that the client
@@ -60,103 +61,26 @@ public interface SequenceIterator extends Closeable {
      * another thread. Closing the iterator terminates that thread and means that it needs to do
      * no additional work. Indeed, failing to close the iterator may cause the push thread to hang
      * waiting for the buffer to be emptied.</p>
+     * <p>Closing an iterator is not necessary if the iterator is read to completion: if a call
+     * on {@link #next()} returns null, the iterator will be closed automatically. An explicit
+     * call on {@link #close()} is needed only when iteration is abandoned prematurely.</p>
+     * <p>It is not possible to guarantee that an iterator that is not read to completion or
+     * will be closed. For example, if a lazy-evaluated variable <code>$var</code> is passed to a user-written function,
+     * the function may access <code>$var[1]</code> only; we have no way of knowing whether further items
+     * will be read. For this reason, any <code>SequenceIterator</code> that holds resources which need
+     * to be closed should use the <code>Cleaner</code> mechanism. The <code>Configuration</code> holds
+     * a <code>Cleaner</code>, and resources held by a <code>SequenceIterator</code> should be registered
+     * with the <code>Cleaner</code>; if the <code>SequenceIterator</code> is then garbage-collected
+     * without being closed, the <code>Cleaner</code> will ensure that the underlying resources are
+     * closed. (An example of a <code>SequenceIterator</code> that uses this mechanism is the
+     * {@link UnparsedTextIterator}).</p>
      *
      * @since 9.1. Default implementation added in 9.9.
      */
 
     @Override
-    default void close() {}
-
-    /**
-     * Get properties of this iterator.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link Property#GROUNDED}, {@link Property#LAST_POSITION_FINDER},
-     *         and {@link Property#LOOKAHEAD}. It is always
-     *         acceptable to return the default value {@code EnumSet.noneOf(Property.class)},
-     *         indicating that there are no known special properties.
-     *         It is acceptable (though unusual) for the properties of the iterator to change depending
-     *         on its state.
-     * @since 8.6. Default implementation added in 9.9.
-     */
-
-    default EnumSet<Property> getProperties() {
-        return EnumSet.noneOf(Property.class);
+    default void close() {
     }
-
-    enum Property {
-
-        /**
-         * Property value: the iterator is "grounded". This means that (a) the
-         * iterator must be an instance of {@link net.sf.saxon.tree.iter.GroundedIterator}, and (b) the
-         * implementation of the materialize() method must be efficient (in particular,
-         * it should not involve the creation of new objects)
-         */
-
-        GROUNDED,
-
-        /**
-         * Property value: the iterator knows the number of items that it will deliver.
-         * This means that (a) the iterator must be an instance of {@link net.sf.saxon.expr.LastPositionFinder},
-         * and (b) the implementation of the getLastPosition() method must be efficient (in particular,
-         * it should take constant time, rather than time proportional to the length of the sequence)
-         */
-
-        LAST_POSITION_FINDER,
-
-        /**
-         * Property value: the iterator knows whether there are more items still to come. This means
-         * that (a) the iterator must be an instance of {@link net.sf.saxon.tree.iter.LookaheadIterator}, and (b) the
-         * implementation of the hasNext() method must be efficient (more efficient than the client doing
-         * it)
-         */
-
-        LOOKAHEAD,
-
-        /**
-         * Property value: the iterator can deliver an atomized result. This means that the iterator
-         * must be an instance of {@link AtomizingIterator}.
-         */
-
-        ATOMIZING
-
-    }
-
-    /**
-     * Process all the remaining items delivered by the SequenceIterator using a supplied consumer function.
-     *
-     * @param consumer the supplied consumer function
-     * @throws XPathException if either (a) an error occurs obtaining an item from the input sequence,
-     *                        or (b) the consumer throws an exception.
-     */
-
-    default void forEachOrFail(ItemConsumer<? super Item> consumer) throws XPathException {
-        Item item;
-        while ((item = next()) != null) {
-            consumer.accept(item);
-        }
-    }
-
-    /**
-     * Create a GroundedValue (a sequence materialized in memory) containing all the values delivered
-     * by this SequenceIterator. The method must only be used when the SequenceIterator is positioned
-     * at the start. If it is not positioned at the start, then it is implementation-dependant whether
-     * the returned sequence contains all the nodes delivered by the SequenceIterator from the beginning,
-     * or only those delivered starting at the current position.
-     * <p>It is implementation-dependant whether this method consumes the SequenceIterator. (More specifically,
-     * in the current implementation: if the iterator is backed by a {@link GroundedValue}, then that
-     * value is returned and the iterator is not consumed; otherwise, the iterator is consumed and the
-     * method returns the remaining items after the current position only).</p>
-     *
-     * @return a sequence containing all the items delivered by this SequenceIterator.
-     * @throws XPathException if reading the SequenceIterator throws an error
-     */
-
-    default GroundedValue materialize() throws XPathException {
-        return new SequenceExtent(this).reduce();
-    }
-
-
 
 }
 

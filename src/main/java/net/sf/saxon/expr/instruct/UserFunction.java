@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,29 +7,37 @@
 
 package net.sf.saxon.expr.instruct;
 
-
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.elab.SequenceEvaluator;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.expr.sort.AtomicComparer;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.functions.DeepEqual40;
+import net.sf.saxon.functions.registry.FunctionDefinition;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.query.AnnotationList;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trace.TraceableComponent;
-import net.sf.saxon.trans.FunctionStreamability;
-import net.sf.saxon.trans.SymbolicName;
-import net.sf.saxon.trans.Visibility;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.*;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 /**
  * This object represents the compiled form of a user-written function
@@ -41,9 +49,12 @@ import java.util.function.BiConsumer;
  * convert the supplied arguments.</p>
  */
 
-public class UserFunction extends Actor implements Function, ContextOriginator, TraceableComponent {
+public class UserFunction extends Actor implements FunctionItem, FunctionDefinition, ContextOriginator, TraceableComponent {
 
+
+    @CSharpSimpleEnum
     public enum Determinism {DETERMINISTIC, PROACTIVE, ELIDABLE}
+
     private final static int MAX_INLININGS = 100;
 
     private StructuredQName functionName;  // null for an anonymous function
@@ -54,8 +65,10 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     private UserFunctionParameter[] parameterDefinitions;
     private SequenceType resultType;
     private SequenceType declaredResultType;
-    protected Evaluator evaluator = null;
-    private boolean isUpdating = false;
+    protected SequenceEvaluator bodyEvaluator = null;
+    protected PushEvaluator pushEvaluator = null;
+    private boolean updating = false;
+    private boolean ixslUpdating = false;
     private int inlineable = -1; // 0:no 1:yes -1:don't know
     private int inliningCount = 0;
     private boolean overrideExtensionFunction = true;
@@ -63,6 +76,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     private FunctionStreamability declaredStreamability = FunctionStreamability.UNCLASSIFIED;
     private Determinism determinism = Determinism.PROACTIVE;
     private int refCount = 0;
+    private int minimumArity = 0;
 
 
     /**
@@ -104,30 +118,38 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     @Override
     public String getDescription() {
         StructuredQName name = getFunctionName();
-        if (name.hasURI(NamespaceConstant.ANONYMOUS)) {
+        if (name.hasURI(NamespaceUri.ANONYMOUS)) {
             boolean first = true;
-             StringBuilder sb = new StringBuilder("function(");
-             for (UserFunctionParameter param : getParameterDefinitions()) {
-                 if (first) {
-                     first = false;
-                 } else {
-                     sb.append(", ");
-                 }
-                 sb.append("$").append(param.getVariableQName().getDisplayName());
-             }
-             sb.append("){");
-             Expression body = getBody();
-             if (body == null) {
-                 sb.append("...");
-             } else {
-                 sb.append(body.toShortString());
-             }
-             sb.append("}");
-             return sb.toString();
+            StringBuilder sb = new StringBuilder("function");
+            if (getParameterDefinitions().length != 1 ||
+                    !getParameterDefinitions()[0].getVariableQName().getEQName().equals(saxonDotEqName)) {
+                sb.append("(");
+                for (UserFunctionParameter param : getParameterDefinitions()) {
+                    if (first) {
+                        first = false;
+                    } else {
+                        sb.append(", ");
+                    }
+                    sb.append("$").append(param.getVariableQName().getDisplayName());
+                }
+                sb.append(")");
+            }
+            sb.append("{");
+            Expression body = getBody();
+            if (body == null) {
+                sb.append("...");
+            } else {
+                String bodyText = body.toShortString().replace("$saxon:dot!", "");
+                sb.append(bodyText);
+            }
+            sb.append("}");
+            return sb.toString();
         } else {
             return name.getDisplayName();
         }
     }
+
+    private static String saxonDotEqName = "Q{" + NamespaceUri.SAXON + "}dot";
 
     @Override
     public String getTracingTag() {
@@ -187,7 +209,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     @Override
     public OperandRole[] getOperandRoles() {
         OperandRole[] roles = new OperandRole[getArity()];
-        OperandUsage first = null;
+        OperandUsage first = OperandUsage.TRANSMISSION;
         switch (declaredStreamability) {
             case UNCLASSIFIED:
                 SequenceType required = getArgumentType(0);
@@ -256,6 +278,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
 
     /**
      * Get the annotations defined on this function
+     *
      * @return the list of annotations defined on this function
      */
 
@@ -289,13 +312,13 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      */
 
     public void computeEvaluationMode() {
-        if (tailRecursive) {
+        if (tailRecursive || declaredStreamability != FunctionStreamability.UNCLASSIFIED) {
             // If this function contains tail calls, we evaluate it eagerly, because
             // the caller needs to know whether a tail call was returned or not: if we
             // return a Closure, the tail call escapes into the wild and can reappear anywhere...
-            evaluator = ExpressionTool.eagerEvaluator(getBody());
+            bodyEvaluator = getBody().makeElaborator().eagerly();
         } else {
-            evaluator = ExpressionTool.lazyEvaluator(getBody(), true);
+            bodyEvaluator = getBody().makeElaborator().lazily(true, false);
         }
     }
 
@@ -306,32 +329,32 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      */
 
     /*@Nullable*/
-    public Boolean isInlineable() {
+    public Optional<Boolean> isInlineable() {
         if (inlineable != -1) {
-            return inlineable > 0 && inliningCount < MAX_INLININGS;
+            return Optional.of(inlineable > 0 && inliningCount < MAX_INLININGS);
         }
         if (body == null) {
             // bug 2226
-            return null;
+            return Optional.empty();
         }
         if (body.hasSpecialProperty(StaticProperty.HAS_SIDE_EFFECTS) || tailCalls) {
             // This is mainly to handle current-output-uri()
-            return false;
+            return Optional.of(false);
         }
         Component component = getDeclaringComponent();
         if (component != null) {
             Visibility visibility = getDeclaringComponent().getVisibility();
             if (visibility == Visibility.PRIVATE || visibility == Visibility.FINAL) {
                 if (inlineable < 0) {
-                    return null;
+                    return Optional.empty();
                 } else {
-                    return inlineable > 0;
+                    return Optional.of(inlineable > 0);
                 }
             } else {
-                return false;
+                return Optional.of(false);
             }
         } else {
-            return null;
+            return Optional.empty();
         }
     }
 
@@ -356,13 +379,29 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     }
 
     /**
-     * Set the definitions of the declared parameters for this function
+     * Set the definitions of the declared parameters for this function.
+     * Note that at the time this is called, full analysis of the xsl:param element is yet to be done.
      *
      * @param params an array of parameter definitions
      */
 
     public void setParameterDefinitions(UserFunctionParameter[] params) {
         parameterDefinitions = params;
+        minimumArity = 0;
+        for (UserFunctionParameter param : params) {
+            if (param.isRequired()) {
+                minimumArity++;
+            }
+        }
+    }
+
+    public void setMinimumArity(int minimumArity) {
+        this.minimumArity = minimumArity;
+    }
+
+    public void setArityRange(int min, int max) {
+        this.minimumArity = min;
+        this.parameterDefinitions = new UserFunctionParameter[max];
     }
 
     /**
@@ -373,6 +412,16 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
 
     public UserFunctionParameter[] getParameterDefinitions() {
         return parameterDefinitions;
+    }
+
+    /**
+     * Get the minumum arity of this function, that is, the number of mandatory parameters
+     *
+     * @return the minimum arity
+     */
+
+    public int getMinimumArity() {
+        return minimumArity;
     }
 
     /**
@@ -425,7 +474,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      */
 
     public void setUpdating(boolean isUpdating) {
-        this.isUpdating = isUpdating;
+        this.updating = isUpdating;
     }
 
     /**
@@ -435,7 +484,18 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      */
 
     public boolean isUpdating() {
-        return isUpdating;
+        return updating;
+    }
+
+    /**
+     * Set whether this is an ixsl:updating function, as defined for use with IXSL promises in SaxonJS,
+     * allowing the function to have updating side effects
+     *
+     * @param isUpdating true if this is an updating function
+     */
+
+    public void setIxslUpdating(boolean isUpdating) {
+        this.ixslUpdating = isUpdating;
     }
 
     /**
@@ -523,11 +583,11 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      * @return the computed evaluation mode
      */
 
-    public Evaluator getEvaluator() {
-        if (evaluator == null) {
+    public SequenceEvaluator getBodyEvaluator() {
+        if (bodyEvaluator == null) {
             computeEvaluationMode();
         }
-        return evaluator;
+        return bodyEvaluator;
     }
 
     /**
@@ -536,8 +596,8 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      * @param mode the evaluation mode
      */
 
-    public void setEvaluationMode(EvaluationMode mode) {
-        evaluator = mode.getEvaluator();
+    public void setBodyEvaluator(SequenceEvaluator mode) {
+        bodyEvaluator = mode;
     }
 
     /**
@@ -564,12 +624,12 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     public void typeCheck(ExpressionVisitor visitor) throws XPathException {
         Expression exp = getBody();
         if (exp instanceof ValueOf
-                && ((ValueOf)exp).getSelect().getItemType().isAtomicType()
+                && ((ValueOf) exp).getSelect().getItemType().isAtomicType()
                 && declaredResultType.getPrimaryType().isAtomicType()
                 && declaredResultType.getPrimaryType() != BuiltInAtomicType.STRING) {
             visitor.getStaticContext().issueWarning(
                     "A function that computes atomic values should use xsl:sequence rather than xsl:value-of",
-                    getLocation());
+                    SaxonErrorCode.SXWN9032, getLocation());
         }
         ExpressionTool.resetPropertiesWithinSubtree(exp);
         Expression exp2 = exp;
@@ -579,15 +639,14 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
             ContextItemStaticInfo info = ContextItemStaticInfo.ABSENT;
             exp2 = exp.typeCheck(visitor, info);
             if (resultType != null) {
-                RoleDiagnostic role =
+                Supplier<RoleDiagnostic> role = () ->
                         new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT,
-                                           functionName == null ? "" : functionName.getDisplayName() + "#" + getArity(), 0);
-                role.setErrorCode(getPackageData().isXSLT() && getFunctionName() != null ? "XTTE0780" : "XPTY0004");
+                                           functionName == null ? "" : functionName.getDisplayName() + "#" + getArity(), 0,
+                                           getPackageData().isXSLT() && getFunctionName() != null ? "XTTE0780" : "XPTY0004");
                 exp2 = visitor.getConfiguration().getTypeChecker(false).staticTypeCheck(exp2, resultType, role, visitor);
             }
         } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            throw err;
+            throw err.maybeWithLocation(getLocation());
         }
         if (exp2 != exp) {
             setBody(exp2);
@@ -598,7 +657,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      * Create a context for evaluating this function
      *
      * @param oldContext the existing context of the caller
-     * @param originator
+     * @param originator identifies the location of the caller for diagnostics
      * @return a new context which should be supplied to the call() method.
      */
 
@@ -618,7 +677,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      * Call this function to return a value.
      *
      * @param context    This provides the run-time context for evaluating the function. This should be created
-     *                   using {@link Function#makeNewContext(XPathContext, ContextOriginator)}. It must be an instance of XPathContextMajor.
+     *                   using {@link FunctionItem#makeNewContext(XPathContext, ContextOriginator)}. It must be an instance of XPathContextMajor.
      * @param actualArgs the arguments supplied to the function. These must have the correct
      *                   types required by the function signature (it is the caller's responsibility to check this).
      *                   It is acceptable to supply a {@link net.sf.saxon.value.Closure} to represent a value whose
@@ -631,21 +690,22 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
     @Override
     public Sequence call(XPathContext context, Sequence[] actualArgs)
             throws XPathException {
-//        long start = System.nanoTime();
-        if (evaluator == null) {
-            // should have been done at compile time
-            computeEvaluationMode();
+        synchronized (this) {
+            if (bodyEvaluator == null) {
+                // first time through
+                computeEvaluationMode();
+            }
         }
 
         XPathContextMajor c2 = (XPathContextMajor) context;
         c2.setStackFrame(getStackFrameMap(), actualArgs);
         Sequence result;
         try {
-            result = evaluator.evaluate(getBody(), c2);
+            result = bodyEvaluator.evaluate(c2);
         } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            err.maybeSetContext(c2);
-            throw err;
+            throw err.maybeWithLocation(getLocation()).maybeWithContext(c2);
+        } catch (UncheckedXPathException uxe) {
+            throw uxe.getXPathException().maybeWithLocation(getLocation()).maybeWithContext(c2);
         } catch (Exception err2) {
             String message = "Internal error evaluating function "
                     + (functionName == null ? "(unnamed)" : functionName.getDisplayName())
@@ -653,10 +713,6 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
                     + (getSystemId() != null ? " in module " + getSystemId() : "");
             throw new RuntimeException(message, err2);
         }
-//        result = result.materialize();
-//        long end = System.nanoTime();
-//        Instrumentation.count(functionName.getLocalPart());
-//        Instrumentation.count(functionName.getLocalPart() + "--nanosecs", end - start);
         return result;
     }
 
@@ -671,13 +727,20 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      *                   It is acceptable to supply a {@link net.sf.saxon.value.Closure} to represent a value whose
      *                   evaluation will be delayed until it is needed. The array must be the correct size to match
      *                   the number of arguments: again, it is the caller's responsibility to check this.
+     * @param output     the destination for the result
      * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs while evaluating the function
      */
 
     public void process(XPathContextMajor context, Sequence[] actualArgs, Outputter output)
             throws XPathException {
         context.setStackFrame(getStackFrameMap(), actualArgs);
-        getBody().process(output, context);
+        synchronized(this) {
+            if (pushEvaluator == null) {
+                pushEvaluator = getBody().makeElaborator().elaborateForPush();
+            }
+        }
+        TailCall tc = pushEvaluator.processLeavingTail(output, context);
+        Expression.dispatchTailCall(tc);
     }
 
     /**
@@ -717,10 +780,9 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
             throws XPathException {
         context.setStackFrame(getStackFrameMap(), actualArgs);
         try {
-            getBody().evaluatePendingUpdates(context, pul);
+            getBody().makeElaborator().elaborateForUpdate().registerUpdates(context, pul);
         } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            throw err;
+            throw err.maybeWithLocation(getLocation()).maybeWithContext(context);
         }
     }
 
@@ -737,7 +799,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
             presenter.emitAttribute("name", getFunctionName());
             presenter.emitAttribute("line", getLineNumber() + "");
             presenter.emitAttribute("module", getSystemId());
-            presenter.emitAttribute("eval", getEvaluator().getEvaluationMode().getCode() + "");
+            //presenter.emitAttribute("eval", getEvaluator().getCode() + "");
         }
         String flags = "";
         if (determinism == Determinism.PROACTIVE) {
@@ -749,6 +811,9 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
         }
         if (isMemoFunction()) {
             flags += "m";
+        }
+        if (ixslUpdating) {
+            flags += "u";
         }
         switch (declaredStreamability) {
             case UNCLASSIFIED:
@@ -789,12 +854,8 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
 
     @Override
     public boolean isExportable() {
-        if (!(getPackageData() instanceof StylesheetPackage)) {
-            // this must be an imported XQuery function
-            return false;
-        }
         return refCount > 0 ||
-                (getDeclaredVisibility() != null && getDeclaredVisibility() != Visibility.PRIVATE) ||
+                (getDeclaredVisibility() != Visibility.UNDEFINED && getDeclaredVisibility() != Visibility.PRIVATE) ||
                 ((StylesheetPackage) getPackageData()).isRetainUnusedFunctions();
     }
 
@@ -845,11 +906,17 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      * @throws net.sf.saxon.trans.XPathException if the comparison cannot be performed
      */
     @Override
-    public boolean deepEquals(Function other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
-        XPathException err = new XPathException("Cannot compare functions using deep-equal", "FOTY0015");
-        err.setIsTypeError(true);
-        err.setXPathContext(context);
-        throw err;
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
+        throw new XPathException("Cannot compare functions using deep-equal", "FOTY0015")
+                .asTypeError()
+                .withXPathContext(context);
+    }
+
+    @Override
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) throws XPathException {
+        throw new XPathException("Cannot compare functions using deep-equal", "FOTY0015")
+                .asTypeError()
+                .withXPathContext(context);
     }
 
     /**
@@ -859,7 +926,7 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      * @return the n'th item if it exists, or null otherwise
      */
     @Override
-    public Function itemAt(int n) {
+    public FunctionItem itemAt(int n) {
         return n == 0 ? this : null;
     }
 
@@ -877,7 +944,8 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      */
     @Override
     public GroundedValue subsequence(int start, int length) {
-        return start <= 0 && (start + length) > 0 ? this : EmptySequence.getInstance();
+        //noinspection RedundantCast
+        return start <= 0 && (start + length) > 0 ? (GroundedValue) this : (GroundedValue) EmptySequence.getInstance();
     }
 
     /**
@@ -931,41 +999,16 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
      * node as defined in the XPath 2.0 data model, except that all nodes are treated as being
      * untyped: it is not an error to get the string value of a node with a complex type.
      * For atomic values, the method returns the result of casting the atomic value to a string.
-     * <p>If the calling code can handle any CharSequence, the method {@link #getStringValueCS} should
-     * be used. If the caller requires a string, this method is preferred.</p>
      *
      * @return the string value of the item
      * @throws UnsupportedOperationException if the item is a function item (an unchecked exception
      *                                       is used here to avoid introducing exception handling to a large number of paths where it is not
      *                                       needed)
-     * @see #getStringValueCS
      * @since 8.4
      */
     @Override
-    public String getStringValue() {
+    public UnicodeString getUnicodeStringValue() {
         throw new UnsupportedOperationException("A function has no string value");
-    }
-
-    /**
-     * Get the string value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String. The method satisfies the rule that
-     * <code>X.getStringValueCS().toString()</code> returns a string that is equal to
-     * <code>X.getStringValue()</code>.
-     * <p>Note that two CharSequence values of different types should not be compared using equals(), and
-     * for the same reason they should not be used as a key in a hash table.</p>
-     * <p>If the calling code can handle any CharSequence, this method should
-     * be used. If the caller requires a string, the {@link #getStringValue} method is preferred.</p>
-     *
-     * @return the string value of the item
-     * @throws UnsupportedOperationException if the item is a function item (an unchecked exception
-     *                                       is used here to avoid introducing exception handling to a large number of paths where it is not
-     *                                       needed)
-     * @see #getStringValue
-     * @since 8.4
-     */
-    @Override
-    public CharSequence getStringValueCS() {
-        return getStringValue();
     }
 
     /**
@@ -990,6 +1033,113 @@ public class UserFunction extends Actor implements Function, ContextOriginator, 
 
     public void prepareForStreaming() throws XPathException {
         // method is defined in streamable subclass
+    }
+
+    /**
+     * Get the number of declared parameters (the upper bound of the arity range)
+     *
+     * @return the number of declared parameters
+     */
+    @Override
+    public int getNumberOfParameters() {
+        return getArity();
+    }
+
+    /**
+     * Get the name (keyword) of the Nth parameter
+     *
+     * @param i the position of the required parameter
+     * @return the expression for computing the value of the Nth parameter
+     */
+    @Override
+    public StructuredQName getParameterName(int i) {
+        return getParameterDefinitions()[i].getVariableQName();
+    }
+
+    /**
+     * Get the default value expression of the Nth parameter, if any
+     *
+     * @param i the position of the required parameter
+     * @return the expression for computing the value of the Nth parameter, or null if there is none
+     */
+    @Override
+    public Expression getDefaultValueExpression(int i) {
+        return getParameterDefinitions()[i].getDefaultValueExpression();
+    }
+
+    /**
+     * Get the position in the parameter list of a given parameter name
+     *
+     * @param name the name of the required parameter
+     * @return the position of the parameter in the parameter list, or -1 if absent
+     */
+    @Override
+    public int getPositionOfParameter(StructuredQName name) {
+        for (int i = 0; i < parameterDefinitions.length; i++) {
+            if (parameterDefinitions[i].getVariableQName().equals(name)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Combine supplied positional and keyword arguments into a single array of positional arguments,
+     * completing the array using the default value expression for any unsupplied arguments
+     *
+     * @param arguments the expressions supplied in the function call, including both positional and keyword arguments,
+     *                  in the order supplied
+     * @param keywords  a list of keywords used in the function call, with the 0-based position at which each keyword was used;
+     *                  or null if no keywords were used
+     * @param fd        the XQuery function definition, used to identify the position in the list of declared parameters
+     *                  at which a particular parameter name appears
+     * @return the expanded list of positional parameters
+     * @throws XPathException in the event of duplicate or undeclared keywords, or keywords that duplicate positional
+     *                        arguments
+     */
+
+    public static Expression[] makeExpandedArgumentArray(
+            Expression[] arguments, Map<StructuredQName, Integer> keywords, FunctionDefinition fd) throws XPathException {
+        // 4.0: handle keyword arguments and default arguments
+        Expression[] expandedArgs;
+        int maxArity = fd.getNumberOfParameters();
+        // If there are keyword arguments, reposition them to the correct position in the argument sequence
+        if (keywords != null) {
+            expandedArgs = new Expression[maxArity];
+            int positionalArgs = arguments.length - keywords.size();
+            System.arraycopy(arguments, 0, expandedArgs, 0, positionalArgs);
+            for (Map.Entry<StructuredQName, Integer> entry : keywords.entrySet()) {
+                StructuredQName key = entry.getKey();
+                int argPos = entry.getValue();
+                int paramPos = fd.getPositionOfParameter(key);
+                if (paramPos < 0) {
+                    throw new XPathException("Keyword " + key +
+                                                     " does not match the name of any declared parameter of function "
+                                                     + fd.getFunctionName(), "XPST0142");
+                }
+                if (paramPos < positionalArgs) {
+                    throw new XPathException("Parameter " + key + " of function " + fd.getFunctionName() +
+                                                     " is supplied both by position and by keyword", "XPST0141");
+                }
+                Expression supplied = arguments[argPos];
+                expandedArgs[paramPos] = supplied;
+            }
+        } else {
+            expandedArgs = Arrays.copyOf(arguments, maxArity);
+        }
+        for (int a = 0; a < maxArity; a++) {
+            if (expandedArgs[a] == null) {
+                Expression defaultVal = new DefaultedArgumentExpression(); // to be fixed up later
+                expandedArgs[a] = defaultVal;
+//                Expression defaultVal = fd.getDefaultValueExpression(a);
+//                if (defaultVal == null) {
+//                    defaultVal = new DefaultedArgumentExpression(); // to be fixed up later
+//                }
+//                expandedArgs[a] = defaultVal.copy(new RebindingMap());
+                //expandedArgs[a] = new ErrorExpression("UseDefault", "UseDefault", false); // for now
+            }
+        }
+        return expandedArgs;
     }
 
 }

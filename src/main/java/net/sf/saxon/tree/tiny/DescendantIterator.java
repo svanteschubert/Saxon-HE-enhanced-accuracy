@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,7 @@ import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
-
-import java.util.function.IntPredicate;
+import net.sf.saxon.z.IntPredicateProxy;
 
 /**
  * This class supports both the descendant:: and descendant-or-self:: axes, which are
@@ -27,7 +26,7 @@ final class DescendantIterator implements AxisIterator {
     private final TinyTree tree;
     private int nextNodeNr;
     private final int startDepth;
-    private final IntPredicate matcher;
+    private final IntPredicateProxy matcher;
     private NodeInfo pending = null;
 
     /**

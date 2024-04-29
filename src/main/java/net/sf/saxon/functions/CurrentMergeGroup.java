@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -29,9 +29,9 @@ import java.util.Set;
 
 public class CurrentMergeGroup extends SystemFunction {
 
-    private boolean isInLoop = false;
+    private boolean inLoop = false;
     private MergeInstr controllingInstruction = null; // may be unknown, when current group has dynamic scope
-    private Set<String> allowedNames = new HashSet<>();
+    private final Set<String> allowedNames = new HashSet<>();
 
     /**
      * Set the containing xsl:merge instruction, if there is one
@@ -42,7 +42,7 @@ public class CurrentMergeGroup extends SystemFunction {
 
     public void setControllingInstruction(MergeInstr instruction, boolean isInLoop) {
         this.controllingInstruction = instruction;
-        this.isInLoop = isInLoop;
+        this.inLoop = isInLoop;
         for (MergeInstr.MergeSource m : instruction.getMergeSources()) {
             String name = m.sourceName;
             if (name != null) {
@@ -67,7 +67,7 @@ public class CurrentMergeGroup extends SystemFunction {
      */
 
     public boolean isInLoop() {
-        return isInLoop;
+        return inLoop;
     }
 
     /**
@@ -140,7 +140,7 @@ public class CurrentMergeGroup extends SystemFunction {
             throw new XPathException("There is no current merge group", "XTDE3480");
         }
         if (source == null) {
-            return gi.iterateCurrentGroup();
+            return gi.currentGroup().iterate();
         } else {
             if (!allowedNames.contains(source)) {
                 throw new XPathException("Supplied argument (" + source +

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,8 @@
 package net.sf.saxon.lib;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 
 /**
  * This interface represents a "collation" as defined in XPath, that is, a set of rules for comparing strings
@@ -32,7 +34,7 @@ public interface StringCollator {
      *         a positive integer if the first string is greater than the second
      */
 
-    int compareStrings(CharSequence o1, CharSequence o2);
+    int compareStrings(UnicodeString o1, UnicodeString o2);
 
     /**
      * Compare two strings for equality. This may be more efficient than using compareStrings and
@@ -43,7 +45,16 @@ public interface StringCollator {
      * @return true if and only if the strings are considered equal,
      */
 
-    boolean comparesEqual(CharSequence s1, CharSequence s2);
+    boolean comparesEqual(UnicodeString s1, UnicodeString s2);
+
+    /**
+     * Test if a supplied string compares equal to the empty string
+     * @param s1 the supplied string
+     */
+
+    default boolean isEqualToEmpty(UnicodeString s1) {
+        return comparesEqual(s1, EmptyUnicodeString.getInstance());
+    }
 
     /**
      * Get a collation key for a String. The essential property of collation keys
@@ -54,7 +65,7 @@ public interface StringCollator {
      * @return the collation key
      */
 
-    AtomicMatchKey getCollationKey(CharSequence s);
+    AtomicMatchKey getCollationKey(UnicodeString s);
 
 
 }

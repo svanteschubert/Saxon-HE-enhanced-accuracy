@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,10 @@ package net.sf.saxon.dom;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.AxisInfo;
+import net.sf.saxon.om.NamespaceBinding;
+import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.tree.NamespaceNode;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
@@ -25,7 +28,7 @@ import org.w3c.dom.Node;
 
 class DOMAttributeMap implements NamedNodeMap {
 
-    private NodeInfo element;
+    private final NodeInfo element;
     private NamespaceBinding[] namespaceDeltas;
     private boolean excludeNamespaceUndeclarations;
 
@@ -89,9 +92,14 @@ class DOMAttributeMap implements NamedNodeMap {
             }
             return null;
         } else {
-            AxisIterator atts = element.iterateAxis(AxisInfo.ATTRIBUTE, att -> att.getDisplayName().equals(name));
-            NodeInfo att = atts.next();
-            return att == null ? null : NodeOverNodeInfo.wrap(att);
+            AxisIterator atts = element.iterateAxis(AxisInfo.ATTRIBUTE);
+            NodeInfo att;
+            while ((att = atts.next()) != null) {
+                if (att.getDisplayName().equals(name)) {
+                    return NodeOverNodeInfo.wrap(att);
+                }
+            }
+            return null;
         }
     }
 
@@ -195,7 +203,7 @@ class DOMAttributeMap implements NamedNodeMap {
             if (att == null) {
                 return null;
             }
-            if (uri.equals(att.getURI()) && localName.equals(att.getLocalPart())) {
+            if (uri.equals(att.getNamespaceUri().toString()) && localName.equals(att.getLocalPart())) {
                 return NodeOverNodeInfo.wrap(att);
             }
         }

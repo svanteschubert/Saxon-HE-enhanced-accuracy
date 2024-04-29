@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,8 +15,8 @@ import java.util.NoSuchElementException;
  */
 public class PairIterator<T> implements Iterator<T> {
 
-    private T one;
-    private T two;
+    private final T one;
+    private final T two;
     private int pos = 0;
 
     /**
@@ -32,11 +32,11 @@ public class PairIterator<T> implements Iterator<T> {
     }
 
     /**
-     * Returns <tt>true</tt> if the iteration has more elements. (In other
-     * words, returns <tt>true</tt> if <tt>next</tt> would return an element
+     * Returns <code>true</code> if the iteration has more elements. (In other
+     * words, returns <code>true</code> if <code>next</code> would return an element
      * rather than throwing an exception.)
      *
-     * @return <tt>true</tt> if the iterator has more elements.
+     * @return <code>true</code> if the iterator has more elements.
      */
 
     @Override

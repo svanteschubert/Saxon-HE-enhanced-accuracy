@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,12 @@
 
 package net.sf.saxon.expr.sort;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.SubstringMatcher;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.StringConverter;
 import net.sf.saxon.type.ValidationFailure;
 import net.sf.saxon.value.AnyURIValue;
@@ -36,27 +39,30 @@ import static java.text.Collator.TERTIARY;
  */
 public class UcaCollatorUsingJava implements SubstringMatcher {
 
-    private String uri;
+    private final String uri;
     private RuleBasedCollator uca;
     private Strength strengthLevel;
     private Properties properties;
+    private Configuration config;
 
 
-    private static String keywords[] = {"fallback", "lang", "version", "strength",
+    private static final String[] keywords = {"fallback", "lang", "version", "strength",
             "alternate", "backwards", "normalization", "maxVariable",
             "caseLevel", "caseFirst", "numeric", "reorder"}; //, "hiraganaQuaternary"
-    private static Set<String> keys = new HashSet<String>(Arrays.asList(keywords));
+    private static final Set<String> keys = new HashSet<>(Arrays.asList(keywords));
 
     /**
      * Create a collation from a given collation URI
      * @param uri the collation URI, in the format defined in the W3C <i>Functions and Operators</i>
      *            specification
+     * @param config the Saxon Configuration, used for diagnostics
      * @throws XPathException if the collation URI does not conform to the W3C rules, or if it
      * requires features that Saxon-HE does not support
      */
 
-    public UcaCollatorUsingJava(String uri) throws XPathException {
+    public UcaCollatorUsingJava(String uri, Configuration config) throws XPathException {
         this.uri = uri;
+        this.config = config;
         uca = (RuleBasedCollator) RuleBasedCollator.getInstance();
         setProps(parseProps(uri));
     }
@@ -133,7 +139,11 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
                 case "yes":
                     break;
                 case "no":
-                    error("fallback=no is not supported in Saxon-HE");
+                    if (config.getEditionCode().equals("HE")) {
+                        error("fallback=no is not supported in Saxon-HE");
+                    } else {
+                        error("fallback=no is not available with JDK-based collations");
+                    }
                     break;
                 default:
                     error("fallback", "yes|no");
@@ -143,7 +153,7 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
 
         String lang = props.getProperty("lang");
         if (lang != null && !lang.isEmpty()) {
-            ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(lang);
+            ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(StringView.tidy(lang));
             if (vf != null) {
                 error("lang", "a valid language code");
             }
@@ -213,7 +223,7 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
         } catch (URISyntaxException err) {
             throw new XPathException(err);
         }
-        ArrayList<String> unknownKeys = new ArrayList<String>();
+        ArrayList<String> unknownKeys = new ArrayList<>();
         Properties props = new Properties();
         String query = AnyURIValue.decode(uuri.getRawQuery());
         if (query != null && !query.isEmpty()) {
@@ -261,12 +271,8 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      * @return true if the strings are considered equal
      */
     @Override
-    public boolean comparesEqual(CharSequence s1, CharSequence s2) {
-        if (!(s1 instanceof String) || !(s2 instanceof String)) {
-            return uca.compare(s1.toString(), s2.toString()) == 0;
-        } else {
-            return uca.compare(s1, s2) == 0;
-        }
+    public boolean comparesEqual(UnicodeString s1, UnicodeString s2) {
+        return uca.compare(s1.toString(), s2.toString()) == 0;
     }
 
     /**
@@ -287,8 +293,8 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
 
     @Override
-    public int compareStrings(CharSequence o1, CharSequence o2) {
-        return uca.compare(o1, o2);
+    public int compareStrings(UnicodeString o1, UnicodeString o2) {
+        return uca.compare(o1.toString(), o2.toString());
     }
 
     /**
@@ -298,7 +304,7 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
 
     @Override
-    public AtomicMatchKey getCollationKey(CharSequence s) {
+    public AtomicMatchKey getCollationKey(UnicodeString s) {
         CollationKey ck = uca.getCollationKey(s.toString());
         return new CollationMatchKey(ck);
     }
@@ -313,10 +319,10 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
 
     @Override
-    public boolean contains(String s1, String s2) {
+    public boolean contains(UnicodeString s1, UnicodeString s2) {
         RuleBasedCollator collator = getRuleBasedCollator();
-        CollationElementIterator iter1 = collator.getCollationElementIterator(s1);
-        CollationElementIterator iter2 = collator.getCollationElementIterator(s2);
+        CollationElementIterator iter1 = collator.getCollationElementIterator(s1.toString());
+        CollationElementIterator iter2 = collator.getCollationElementIterator(s2.toString());
         return collationContains(iter1, iter2, null, false);
     }
 
@@ -330,10 +336,10 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
 
     @Override
-    public boolean endsWith(String s1, String s2) {
+    public boolean endsWith(UnicodeString s1, UnicodeString s2) {
         RuleBasedCollator collator = getRuleBasedCollator();
-        CollationElementIterator iter1 = collator.getCollationElementIterator(s1);
-        CollationElementIterator iter2 = collator.getCollationElementIterator(s2);
+        CollationElementIterator iter1 = collator.getCollationElementIterator(s1.toString());
+        CollationElementIterator iter2 = collator.getCollationElementIterator(s2.toString());
         return collationContains(iter1, iter2, null, true);
     }
 
@@ -347,10 +353,10 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
 
     @Override
-    public boolean startsWith(String s1, String s2) {
+    public boolean startsWith(UnicodeString s1, UnicodeString s2) {
         RuleBasedCollator collator = getRuleBasedCollator();
-        CollationElementIterator iter1 = collator.getCollationElementIterator(s1);
-        CollationElementIterator iter2 = collator.getCollationElementIterator(s2);
+        CollationElementIterator iter1 = collator.getCollationElementIterator(s1.toString());
+        CollationElementIterator iter2 = collator.getCollationElementIterator(s2.toString());
         return collationStartsWith(iter1, iter2);
     }
 
@@ -364,16 +370,17 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
 
     @Override
-    public String substringAfter(String s1, String s2) {
+    public UnicodeString substringAfter(UnicodeString s1, UnicodeString s2) {
         RuleBasedCollator collator = getRuleBasedCollator();
-        CollationElementIterator iter1 = collator.getCollationElementIterator(s1);
-        CollationElementIterator iter2 = collator.getCollationElementIterator(s2);
+        final String g1 = s1.toString();
+        CollationElementIterator iter1 = collator.getCollationElementIterator(g1);
+        CollationElementIterator iter2 = collator.getCollationElementIterator(s2.toString());
         int[] ia = new int[2];
         boolean ba = collationContains(iter1, iter2, ia, false);
         if (ba) {
             return s1.substring(ia[1]);
         } else {
-            return "";
+            return EmptyUnicodeString.getInstance();
         }
     }
 
@@ -387,16 +394,17 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
      */
 
     @Override
-    public String substringBefore(String s1, String s2) {
+    public UnicodeString substringBefore(UnicodeString s1, UnicodeString s2) {
         RuleBasedCollator collator = getRuleBasedCollator();
-        CollationElementIterator iter1 = collator.getCollationElementIterator(s1);
-        CollationElementIterator iter2 = collator.getCollationElementIterator(s2);
+        final String g1 = s1.toString();
+        CollationElementIterator iter1 = collator.getCollationElementIterator(g1);
+        CollationElementIterator iter2 = collator.getCollationElementIterator(s2.toString());
         int[] ib = new int[2];
         boolean bb = collationContains(iter1, iter2, ib, false);
         if (bb) {
-            return s1.substring(0, ib[0]);
+            return s1.prefix(ib[0]);
         } else {
-            return "";
+            return EmptyUnicodeString.getInstance();
         }
     }
 
@@ -539,7 +547,7 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
         public int compare(int ce1, int ce2) {
             int c1 = Integer.compare(CollationElementIterator.primaryOrder(ce1), CollationElementIterator.primaryOrder(ce2));
             if (c1 == 0) {
-                return Integer.compare((int) CollationElementIterator.secondaryOrder(ce1), (int) CollationElementIterator.secondaryOrder(ce2));
+                return Integer.compare(CollationElementIterator.secondaryOrder(ce1), CollationElementIterator.secondaryOrder(ce2));
             } else {
                 return c1;
             }
@@ -552,9 +560,9 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
         public int compare(int ce1, int ce2) {
             int c1 = Integer.compare(CollationElementIterator.primaryOrder(ce1), CollationElementIterator.primaryOrder(ce2));
             if (c1 == 0) {
-                int c2 = Integer.compare((int) CollationElementIterator.secondaryOrder(ce1), (int) CollationElementIterator.secondaryOrder(ce2));
+                int c2 = Integer.compare(CollationElementIterator.secondaryOrder(ce1), CollationElementIterator.secondaryOrder(ce2));
                 if (c2 == 0) {
-                    return Integer.compare((int) CollationElementIterator.tertiaryOrder(ce1), (int) CollationElementIterator.tertiaryOrder(ce2));
+                    return Integer.compare(CollationElementIterator.tertiaryOrder(ce1), CollationElementIterator.tertiaryOrder(ce2));
                 } else {
                     return c2;
                 }

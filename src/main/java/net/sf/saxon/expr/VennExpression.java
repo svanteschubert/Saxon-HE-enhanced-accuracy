@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.parser.*;
@@ -22,8 +25,11 @@ import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 
 /**
@@ -134,7 +140,7 @@ public class VennExpression extends BinaryExpression {
      */
 
     @Override
-    public final int computeCardinality() {
+    protected final int computeCardinality() {
         final int c1 = getLhsExpression().getCardinality();
         final int c2 = getRhsExpression().getCardinality();
         switch (operator) {
@@ -176,7 +182,7 @@ public class VennExpression extends BinaryExpression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         final int prop0 = getLhsExpression().getSpecialProperties();
         final int prop1 = getRhsExpression().getSpecialProperties();
         int props = StaticProperty.ORDERED_NODESET;
@@ -283,12 +289,12 @@ public class VennExpression extends BinaryExpression {
         getRhs().typeCheck(visitor, contextInfo);
 
         if (!(getLhsExpression() instanceof Pattern)) {
-            final RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+            Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
             setLhsExpression(tc.staticTypeCheck(getLhsExpression(), SequenceType.NODE_SEQUENCE, role0, visitor));
         }
 
         if (!(getRhsExpression() instanceof Pattern)) {
-            final RoleDiagnostic role1 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
+            Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
             setRhsExpression(tc.staticTypeCheck(getRhsExpression(), SequenceType.NODE_SEQUENCE, role1, visitor));
         }
 
@@ -409,7 +415,11 @@ public class VennExpression extends BinaryExpression {
             final AxisExpression a2 = (AxisExpression) rhs;
             if (a1.getAxis() == a2.getAxis()) {
                 if (a1.getNodeTest().equals(a2.getNodeTest())) {
-                    return operator == Token.EXCEPT ? Literal.makeEmptySequence() : a1;
+                    if (operator == Token.EXCEPT) {
+                        return Literal.makeEmptySequence();
+                    } else {
+                        return a1;
+                    }
                 } else {
                     AxisExpression ax = new AxisExpression(a1.getAxis(),
                                                            new CombinedNodeTest(a1.getNodeTest(),
@@ -430,7 +440,8 @@ public class VennExpression extends BinaryExpression {
         // fix, the optimization has been retained for "union" but dropped for "intersect" and "except". Need to
         // do a more rigorous analysis of the conditions under which it is safe.
 
-        // TODO: generalize this code to handle all distributive operators
+        // TODO: generalize this code to handle all distributive operators, and expressions involving multiple
+        //   unions (p/x | p/y | p/z)
 
         if (lhs instanceof SlashExpression && rhs instanceof SlashExpression && operator == Token.UNION) {
             final SlashExpression path1 = (SlashExpression) lhs;
@@ -518,10 +529,16 @@ public class VennExpression extends BinaryExpression {
         return this;
     }
 
+    private boolean operandsAreDisjoint(TypeHierarchy th) {
+        return th.relationship(getLhsExpression().getItemType(), getRhsExpression().getItemType()) == Affinity.DISJOINT;
+    }
+
+
     /**
      * Return true if the operands are, respectively, "." and "current-group()", and
      * if the context-setting scope for both operands is the same. This implies that the context
      * item must necessarily be a member of the current group.
+     *
      * @param lhs the left-hand operand
      * @param rhs the right-hand operand
      * @return true if the LHS is "." and the RHS is "current-group()" and they the focus
@@ -531,14 +548,10 @@ public class VennExpression extends BinaryExpression {
     private boolean contextItemWithCurrentGroup(Expression lhs, Expression rhs) {
         if (lhs instanceof ContextItemExpression && rhs instanceof CurrentGroupCall) {
             Expression focusSetter = ExpressionTool.getFocusSettingContainer(lhs);
-            Expression forEachGroup = ((CurrentGroupCall)rhs).getControllingInstruction();
+            Expression forEachGroup = ((CurrentGroupCall) rhs).getControllingInstruction();
             return forEachGroup != null && focusSetter == forEachGroup;
         }
         return false;
-    }
-
-    private boolean operandsAreDisjoint(TypeHierarchy th) {
-        return th.relationship(getLhsExpression().getItemType(), getRhsExpression().getItemType()) == Affinity.DISJOINT;
     }
 
     /**
@@ -629,7 +642,7 @@ public class VennExpression extends BinaryExpression {
     }
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return getLhsExpression().hashCode() ^ getRhsExpression().hashCode();
     }
 
@@ -671,7 +684,7 @@ public class VennExpression extends BinaryExpression {
                             getRhsExpression().toPattern(config));
                 }
             }
-            return new GeneralNodePattern(this, (NodeTest) getItemType());
+            return new GeneralNodePattern(this, (NodeTest)getItemType());
         }
     }
 
@@ -710,20 +723,43 @@ public class VennExpression extends BinaryExpression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(final XPathContext c) throws XPathException {
-        SequenceIterator i1 = getLhsExpression().iterate(c);
-        SequenceIterator i2 = getRhsExpression().iterate(c);
         switch (operator) {
-            case Token.UNION:
-                return new UnionEnumeration(i1, i2,
-                        GlobalOrderComparer.getInstance());
-            case Token.INTERSECT:
-                return new IntersectionEnumeration(i1, i2,
-                        GlobalOrderComparer.getInstance());
-            case Token.EXCEPT:
-                return new DifferenceEnumeration(i1, i2,
-                        GlobalOrderComparer.getInstance());
+            case Token.UNION: {
+                // If either of the operands is a union expression, then we merge its component
+                // iterators into a single multi-way union iterator
+                List<SequenceIterator> operands = new ArrayList<>();
+                gatherUnionLeafIterators(operands, c);
+                return new UnionIterator(operands, GlobalOrderComparer.getInstance());
+            }
+            case Token.INTERSECT: {
+                SequenceIterator i1 = getLhsExpression().iterate(c);
+                SequenceIterator i2 = getRhsExpression().iterate(c);
+                return new IntersectionIterator(i1, i2,
+                                                GlobalOrderComparer.getInstance());
+            }
+            case Token.EXCEPT: {
+                SequenceIterator i1 = getLhsExpression().iterate(c);
+                SequenceIterator i2 = getRhsExpression().iterate(c);
+                return new DifferenceIterator(i1, i2,
+                                              GlobalOrderComparer.getInstance());
+            }
         }
         throw new UnsupportedOperationException("Unknown operator in Venn Expression");
+    }
+
+    private void gatherUnionLeafIterators(List<SequenceIterator> leafIterators, XPathContext context) throws XPathException {
+        Expression e1 = getLhsExpression();
+        if (e1 instanceof VennExpression && ((VennExpression)e1).operator == Token.UNION) {
+            ((VennExpression)e1).gatherUnionLeafIterators(leafIterators, context);
+        } else {
+            leafIterators.add(e1.iterate(context));
+        }
+        Expression e2 = getRhsExpression();
+        if (e2 instanceof VennExpression && ((VennExpression) e2).operator == Token.UNION) {
+            ((VennExpression) e2).gatherUnionLeafIterators(leafIterators, context);
+        } else {
+            leafIterators.add(e2.iterate(context));
+        }
     }
 
     /**
@@ -750,6 +786,68 @@ public class VennExpression extends BinaryExpression {
     @Override
     public String getStreamerName() {
         return "VennExpression";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new VennElaborator();
+    }
+
+    /**
+     * Elaborator for a Venn expression: that is {@code A union B}, {@code A intersect B},
+     * or {@code A except B}
+     */
+
+    public static class VennElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+
+            final VennExpression exp = (VennExpression)getExpression();
+
+            if (exp.getOperator() == Token.UNION) {
+                final List<PullEvaluator> leafEvaluators = new ArrayList<>();
+                gatherUnionLeafEvaluators(exp, leafEvaluators);
+                return context -> {
+                    List<SequenceIterator> iterators = new ArrayList<>(leafEvaluators.size());
+                    for (PullEvaluator evaluator : leafEvaluators) {
+                        iterators.add(evaluator.iterate(context));
+                    }
+                    return new UnionIterator(iterators, GlobalOrderComparer.getInstance());
+                };
+            } else {
+                PullEvaluator p1 = exp.getLhsExpression().makeElaborator().elaborateForPull();
+                PullEvaluator p2 = exp.getRhsExpression().makeElaborator().elaborateForPull();
+                if (exp.getOperator() == Token.INTERSECT) {
+                    return context -> new IntersectionIterator(
+                            p1.iterate(context), p2.iterate(context), GlobalOrderComparer.getInstance());
+                } else {
+                    return context -> new DifferenceIterator(
+                            p1.iterate(context), p2.iterate(context), GlobalOrderComparer.getInstance());
+                }
+            }
+        }
+
+        private static void gatherUnionLeafEvaluators(VennExpression exp, List<PullEvaluator> leafEvaluators) {
+            Expression e1 = exp.getLhsExpression();
+            if (e1 instanceof VennExpression && ((VennExpression) e1).getOperator() == Token.UNION) {
+                gatherUnionLeafEvaluators(((VennExpression) e1), leafEvaluators);
+            } else {
+                leafEvaluators.add(e1.makeElaborator().elaborateForPull());
+            }
+            Expression e2 = exp.getRhsExpression();
+            if (e2 instanceof VennExpression && ((VennExpression) e2).getOperator() == Token.UNION) {
+                gatherUnionLeafEvaluators(((VennExpression) e2), leafEvaluators);
+            } else {
+                leafEvaluators.add(e2.makeElaborator().elaborateForPull());
+            }
+        }
+
     }
 }
 

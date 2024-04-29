@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.s9api;
 
-import net.sf.saxon.value.ExternalObject;
+import net.sf.saxon.value.AnyExternalObject;
 import net.sf.saxon.value.ObjectValue;
 
 /**
@@ -18,8 +18,6 @@ import net.sf.saxon.value.ObjectValue;
  */
 public class XdmExternalObject extends XdmItem {
 
-    private XdmExternalObject(){}
-
     /**
      * Create an XdmExternalObject that wraps a supplied Java object
      * @param value the supplied Java object. Must not be null.
@@ -27,7 +25,7 @@ public class XdmExternalObject extends XdmItem {
      */
 
     public XdmExternalObject(Object value) {
-        super(value instanceof ObjectValue ? (ObjectValue)value : new ObjectValue<>(value));
+        super(value instanceof AnyExternalObject ? (AnyExternalObject)value : new ObjectValue<>(value));
     }
 
     /**
@@ -37,7 +35,7 @@ public class XdmExternalObject extends XdmItem {
      */
 
     public Object getExternalObject() {
-        return ((ExternalObject) getUnderlyingValue()).getObject();
+        return ((AnyExternalObject) getUnderlyingValue()).getWrappedObject();
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,16 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.ArrayIterator;
+import net.sf.saxon.tree.iter.TwoItemIterator;
 import net.sf.saxon.value.Cardinality;
+
+import java.util.function.Supplier;
 
 /**
  * CardinalityCheckingIterator returns the items in an underlying sequence
@@ -26,8 +29,8 @@ import net.sf.saxon.value.Cardinality;
 
 public final class CardinalityCheckingIterator implements SequenceIterator {
 
-    private SequenceIterator base;
-    private Location locator;
+    private final SequenceIterator base;
+    private final Location locator;
     /*@Nullable*/ private Item first = null;
     private Item second = null;
     private int position = 0;
@@ -38,39 +41,45 @@ public final class CardinalityCheckingIterator implements SequenceIterator {
      *
      * @param base                the base iterator
      * @param requiredCardinality the required Cardinality
-     * @param role information for use if a failure occurs
+     * @param roleSupplier information for use if a failure occurs
      * @param locator the location in the source stylesheet or query
      * @throws XPathException if a failure is detected
      */
 
     public CardinalityCheckingIterator(SequenceIterator base, int requiredCardinality,
-                                       RoleDiagnostic role, Location locator)
+                                       Supplier<RoleDiagnostic> roleSupplier, Location locator)
             throws XPathException {
         this.base = base;
         this.locator = locator;
-        first = base.next();
-        if (first == null) {
-            if (!Cardinality.allowsZero(requiredCardinality)) {
-                typeError("An empty sequence is not allowed as the " +
-                        role.getMessage(), role.getErrorCode());
+        try {
+            first = base.next();
+            if (first == null) {
+                RoleDiagnostic role = roleSupplier.get();
+                if (!Cardinality.allowsZero(requiredCardinality)) {
+                    typeError("An empty sequence is not allowed as the " +
+                            role.getMessage(), role.getErrorCode());
+                }
+            } else {
+                if (requiredCardinality == StaticProperty.EMPTY) {
+                    RoleDiagnostic role = roleSupplier.get();
+                    typeError("The only value allowed for the " +
+                            role.getMessage() + " is an empty sequence", role.getErrorCode());
+                }
+                second = base.next();
+                if (second != null && !Cardinality.allowsMany(requiredCardinality)) {
+                    RoleDiagnostic role = roleSupplier.get();
+                    typeError("A sequence of more than one item is not allowed as the " +
+                            role.getMessage() + CardinalityChecker.depictSequenceStart(new TwoItemIterator(first, second), 2),
+                            role.getErrorCode());
+                }
             }
-        } else {
-            if (requiredCardinality == StaticProperty.EMPTY) {
-                typeError("The only value allowed for the " +
-                        role.getMessage() + " is an empty sequence", role.getErrorCode());
-            }
-            second = base.next();
-            if (second != null && !Cardinality.allowsMany(requiredCardinality)) {
-                Item[] leaders = new Item[]{first, second};
-                typeError("A sequence of more than one item is not allowed as the " +
-                        role.getMessage() + CardinalityChecker.depictSequenceStart(new ArrayIterator<>(leaders), 2),
-                        role.getErrorCode());
-            }
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
     }
 
     @Override
-    public Item next() throws XPathException {
+    public Item next() {
         if (position < 2) {
             if (position == 0) {
                 Item current = first;
@@ -85,13 +94,13 @@ public final class CardinalityCheckingIterator implements SequenceIterator {
                 return null;
             }
         }
-        Item current = base.next();
-        if (current == null) {
+        Item nextBase = base.next();
+        if (nextBase == null) {
             position = -1;
         } else {
             position++;
         }
-        return current;
+        return nextBase;
     }
 
     @Override

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,21 +24,21 @@ public class Numberer_it extends AbstractNumberer {
 
     private static final long serialVersionUID = 1L;
 
-    private static String[] italianOrdinalUnits = {
+    private static final String[] italianOrdinalUnits = {
             "", "primo", "secondo", "terzo", "quarto", "quinto", "sesto", "settimo", "ottavo", "nono",
             "decimo", "undicesimo ", "dodicesimo", "tredicesimo", "quattordicesimo", "quindiczesimo", "sedicesimo",
             "diciassettesimo", "diciottesimo", "novantesimo"};
 
-    private static String[] italianOrdinalTens = {
+    private static final String[] italianOrdinalTens = {
             "", "decimo", "ventesimo", "trentesimo", "quarantesimo", "cinquantesimo",
             "sessantesimo", "settantesimo", "ottantesimo", "novantesimo"};
 
-    private static String[] italianUnits = {
+    private static final String[] italianUnits = {
             "", "uno", "due", "tre", "quattro", "cinque", "sei", "sette", "otto", "nove",
             "dieci", "undici", "dodici", "tredici", "quattordici", "quindici", "sedici",
             "diciassette", "diciotto", "diciannove"};
 
-    private static String[] italianTens = {
+    private static final String[] italianTens = {
             "", "dieci", "venti", "trenta", "quaranta", "cinquanta",
             "sessanta", "settanta", "ottanta", "novanta"};
 
@@ -55,12 +55,12 @@ public class Numberer_it extends AbstractNumberer {
         if (number >= 1000000000) {
             long rem = number % 1000000000;
             long num = number / 1000000000;
-            s = (num == 1 ? "un" : toWords(num)) +
+            s = (num == 1 ? "un" : toWords("", num)) +
                     (rem == 0 ? " miliardesimo" : (num == 1 ? " miliardo " : " miliardi ") + toOrdinalWords(ordinalParam, rem, wordCase));
         } else if (number >= 1000000) {
             long rem = number % 1000000;
             long num = number / 1000000;
-            s = (num == 1 ? "un" : toWords(num)) +
+            s = (num == 1 ? "un" : toWords("", num)) +
                     (rem == 0 ? " milionesimo" : (num == 1 ? " milione " : " milioni ") + toOrdinalWords(ordinalParam, rem, wordCase));
         } else if (number >= 1000) {
             if (number == 100000) {
@@ -70,7 +70,7 @@ public class Numberer_it extends AbstractNumberer {
             } else {
                 long rem = number % 1000;
                 long num = number / 1000;
-                s = (num == 1 ? "" : toWords(num)) +
+                s = (num == 1 ? "" : toWords("", num)) +
                         (rem == 0 ? "millesimo" : (num == 1 ? "mille" : "mila") + toOrdinalWords(ordinalParam, rem, wordCase));
             }
         } else if (number >= 100) {
@@ -80,9 +80,9 @@ public class Numberer_it extends AbstractNumberer {
                 s = "centesimo";
             } else {
                 if (rem == 0 && num != 1) {
-                    s = toWords(num) + "centesimo";
+                    s = toWords("", num) + "centesimo";
                 } else {
-                    s = (num == 1 ? "" : toWords(num)) + "cento" + toOrdinalWords(ordinalParam, rem, wordCase);
+                    s = (num == 1 ? "" : toWords("", num)) + "cento" + toOrdinalWords(ordinalParam, rem, wordCase);
                 }
             }
         } else {
@@ -104,12 +104,13 @@ public class Numberer_it extends AbstractNumberer {
                             break;
                         default:
                             s = s + italianUnits[rem].substring(0, italianUnits[rem].length() - 1) + "esimo";
+                            break;
                     }
                 }
             }
         }
         s = s.toLowerCase();
-        s = s.replaceAll("centoun", "centun");
+        s = s.replace("centoun", "centun");
         if (wordCase == UPPER_CASE) {
             s = s.toUpperCase();
         }
@@ -117,24 +118,24 @@ public class Numberer_it extends AbstractNumberer {
     }
 
     @Override
-    public String toWords(long number) {
+    public String toWords(String cardinal, long number) {
         if (number >= 1000000000) {
             long rem = number % 1000000000;
             long num = number / 1000000000;
-            return (num == 1 ? "un miliardo" : toWords(num) + " miliardi") +
-                    (rem == 0 ? "" : " ") + toWords(rem);
+            return (num == 1 ? "un miliardo" : toWords(cardinal, num) + " miliardi") +
+                    (rem == 0 ? "" : " ") + toWords(cardinal, rem);
         } else if (number >= 1000000) {
             long rem = number % 1000000;
             long num = number / 1000000;
-            return (num == 1 ? "un milione" : toWords(num) + " milioni") +
-                    (rem == 0 ? "" : " ") + toWords(rem);
+            return (num == 1 ? "un milione" : toWords(cardinal, num) + " milioni") +
+                    (rem == 0 ? "" : " ") + toWords(cardinal, rem);
         } else if (number >= 1000) {
             long rem = number % 1000;
             long num = number / 1000;
-            return (num == 1 ? "mille" : toWords(num) + "mila") + toWords(rem);
+            return (num == 1 ? "mille" : toWords(cardinal, num) + "mila") + toWords(cardinal, rem);
         } else if (number >= 100) {
             long rem = number % 100;
-            return (number / 100 == 1 ? "" : toWords(number / 100)) + "cento" + toWords(rem);
+            return (number / 100 == 1 ? "" : toWords(cardinal, number / 100)) + "cento" + toWords(cardinal, rem);
         } else {
             if (number < 20) {
                 return italianUnits[(int) number];
@@ -156,12 +157,12 @@ public class Numberer_it extends AbstractNumberer {
     }
 
     @Override
-    public String toWords(long number, int wordCase) {
+    public String toWords(String cardinal, long number, int wordCase) {
         String s;
         if (number == 0) {
             s = "zero";
         } else {
-            s = toWords(number);
+            s = toWords(cardinal, number);
         }
         if (wordCase == UPPER_CASE) {
             return s.toUpperCase();
@@ -173,12 +174,12 @@ public class Numberer_it extends AbstractNumberer {
     }
 
 
-    private static String[] italianMonths = {
+    private static final String[] italianMonths = {
             "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
             "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"
     };
 
-    private static String[] italianMonthAbbreviations = {
+    private static final String[] italianMonthAbbreviations = {
             "gen", "feb", "mar", "apr", "mag", "giu",
             "lug", "ago", "set", "ott", "nov", "dic"
     };
@@ -240,15 +241,15 @@ public class Numberer_it extends AbstractNumberer {
         return name;
     }
 
-    private static String[] italianDays = {
+    private static final String[] italianDays = {
             "luned\u00ec", "marted\u00ec ", "mercoled\u00ec", "gioved\u00ec", "venerd\u00ec", "sabato", "domenica"
     };
 
-    private static String[] italianDayAbbreviations = {
+    private static final String[] italianDayAbbreviations = {
             "lun", "mar", "mer", "gio", "ven", "sab", "dom"
     };
 
-    /*@NotNull*/ private static int[] minUniqueDayLength = {
+    /*@NotNull*/ private static final int[] minUniqueDayLength = {
             1, 2, 2, 1, 1, 1, 1
     };
 

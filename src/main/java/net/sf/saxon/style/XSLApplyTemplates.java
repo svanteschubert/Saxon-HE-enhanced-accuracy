@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,15 +15,13 @@ import net.sf.saxon.expr.sort.SortKeyDefinitionList;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.trans.Err;
-import net.sf.saxon.trans.Mode;
-import net.sf.saxon.trans.SymbolicName;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.rules.RuleManager;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.Whitespace;
 
 import java.util.HashMap;
+import java.util.function.Supplier;
 
 
 /**
@@ -54,7 +52,7 @@ public class XSLApplyTemplates extends StyleElement {
 
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String selectAtt;
 
@@ -72,8 +70,9 @@ public class XSLApplyTemplates extends StyleElement {
                     defaultedSelectExpression = false;
                     break;
                 case "separator":
-                    requireSyntaxExtensions("separator");
-                    separator = makeAttributeValueTemplate(value, att);
+                    if (requireXslt40Attribute("separator")) {
+                        separator = makeAttributeValueTemplate(value, att);
+                    }
                     break;
                 default:
                     checkUnknownAttribute(attName);
@@ -106,7 +105,8 @@ public class XSLApplyTemplates extends StyleElement {
         if (useCurrentMode) {
             // give a warning if we're not inside an xsl:template
             if (iterateAxis(AxisInfo.ANCESTOR, new NameTest(Type.ELEMENT, StandardNames.XSL_TEMPLATE, getNamePool())).next() == null) {
-                issueWarning("Specifying mode=\"#current\" when not inside an xsl:template serves no useful purpose", this);
+                issueWarning("Specifying mode=\"#current\" when not inside an xsl:template serves no useful purpose",
+                             SaxonErrorCode.SXWN9023);
             }
         } else {
             PrincipalStylesheetModule psm = getPrincipalStylesheetModule();
@@ -143,7 +143,7 @@ public class XSLApplyTemplates extends StyleElement {
         for (NodeInfo child : children()) {
             if (child.getNodeKind() == Type.TEXT) {
                 // with xml:space=preserve, white space nodes may still be there
-                if (!Whitespace.isWhite(child.getStringValueCS())) {
+                if (!Whitespace.isAllWhite(child.getUnicodeStringValue())) {
                     compileError("No character data is allowed within xsl:apply-templates", "XTSE0010");
                 }
             } else if (!(child instanceof XSLSort || child instanceof XSLWithParam)){
@@ -154,12 +154,10 @@ public class XSLApplyTemplates extends StyleElement {
 
         if (select == null) {
             Expression here = new ContextItemExpression();
-            RoleDiagnostic role =
-                    new RoleDiagnostic(RoleDiagnostic.CONTEXT_ITEM, "", 0);
-            role.setErrorCode("XTTE0510");
+            Supplier<RoleDiagnostic> role =
+                    () -> new RoleDiagnostic(RoleDiagnostic.CONTEXT_ITEM, "", 0, "XTTE0510");
             here = new ItemChecker(here, AnyNodeTest.getInstance(), role);
             select = new SimpleStepExpression(here, new AxisExpression(AxisInfo.CHILD, null));
-            //select = new AxisExpression(AxisInfo.CHILD, null);
             select.setLocation(allocateLocation());
             select.setRetainedStaticContext(makeRetainedStaticContext());
         }
@@ -178,7 +176,7 @@ public class XSLApplyTemplates extends StyleElement {
      */
 
     @Override
-    public boolean markTailCalls() {
+    protected boolean markTailCalls() {
         useTailRecursion = true;
         return true;
     }
@@ -205,6 +203,7 @@ public class XSLApplyTemplates extends StyleElement {
                 isWithinDeclaredStreamableConstruct(),
                 mode,
                 rm);
+        app.setLocation(saveLocation());
         app.setActualParams(getWithParamInstructions(app, compilation, decl, false));
         app.setTunnelParams(getWithParamInstructions(app, compilation, decl, true));
         if (separator != null) {

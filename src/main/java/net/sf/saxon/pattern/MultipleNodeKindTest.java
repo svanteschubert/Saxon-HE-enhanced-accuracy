@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,13 @@ package net.sf.saxon.pattern;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.tree.tiny.NodeVectorTree;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.type.*;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import java.util.LinkedList;
 import java.util.function.Function;
-import java.util.function.IntPredicate;
 
 /**
  * An MultipleNodeKindTest is a nodetest that matches nodes belonging to any subset of possible
@@ -96,15 +97,15 @@ public final class MultipleNodeKindTest extends NodeTest {
     }
 
     @Override
-    public IntPredicate getMatcher(final NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
         final byte[] nodeKindArray = tree.getNodeKindArray();
-        return nodeNr -> {
+        return IntPredicateLambda.of(nodeNr -> {
             int nodeKind = nodeKindArray[nodeNr] & 0x0f;
             if (nodeKind == Type.WHITESPACE_TEXT) {
                 nodeKind = Type.TEXT;
             }
             return (nodeKindMask & (1 << nodeKind)) != 0;
-        };
+        });
     }
 
     /**
@@ -134,42 +135,42 @@ public final class MultipleNodeKindTest extends NodeTest {
 
     /*@NotNull*/
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         LinkedList<PrimitiveUType> types = new LinkedList<>(uType.decompose());
         format(types, fsb, ItemType::toString);
         return fsb.toString();
     }
 
-    @Override
-    public String toExportString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
-        LinkedList<PrimitiveUType> types = new LinkedList<>(uType.decompose());
-        format(types, fsb, ItemType::toExportString);
-        return fsb.toString();
-    }
-
-    @Override
+    /*@NotNull*/
     public String toShortString() {
         if (nodeKindMask == CHILD_NODE.nodeKindMask) {
             return "node()";
         }
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         LinkedList<PrimitiveUType> types = new LinkedList<>(uType.decompose());
         format(types, fsb, it -> ((NodeKindTest)it).toShortString());
         return fsb.toString();
     }
 
-    private void format(LinkedList<PrimitiveUType> list, FastStringBuffer fsb, Function<ItemType, String> show) {
+    @Override
+    public String toExportString() {
+        StringBuilder fsb = new StringBuilder(64);
+        LinkedList<PrimitiveUType> types = new LinkedList<>(uType.decompose());
+        format(types, fsb, ItemType::toExportString);
+        return fsb.toString();
+    }
+
+    private void format(LinkedList<PrimitiveUType> list, StringBuilder fsb, Function<ItemType, String> show) {
         if (list.size() == 1) {
-            fsb.append(list.get(0).toItemType().toString());
+            fsb.append(show.apply(list.getFirst().toItemType()));
         } else {
             boolean first = true;
             for (PrimitiveUType pu : list) {
-                fsb.cat(first ? '(' : '|');
+                fsb.append(first ? '(' : '|');
                 first = false;
-                fsb.append(((NodeKindTest)pu.toItemType()).toShortString());
+                fsb.append(show.apply(pu.toItemType()));
             }
-            fsb.cat(')');
+            fsb.append(')');
         }
     }
 

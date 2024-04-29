@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,8 @@ import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -22,7 +24,6 @@ import java.util.List;
  * CharacterMapExpander: This ProxyReceiver expands characters occurring in a character map,
  * as specified by the XSLT 2.0 xsl:character-map declaration
  *
- * @author Michael Kay
  */
 
 
@@ -59,6 +60,8 @@ public class CharacterMapExpander extends ProxyReceiver {
      * characters to prevent subsequent XML or HTML character escaping. The default value
      * is true (used for the XML and HTML output methods); the value false is used by the text
      * output method.
+     *
+     * @param use true if the result of character mapping should be marked using NUL characters
      */
 
     public void setUseNullMarkers(boolean use) {
@@ -82,9 +85,9 @@ public class CharacterMapExpander extends ProxyReceiver {
     public void startElement(NodeName elemName, SchemaType type, AttributeMap attributes, NamespaceMap namespaces, Location location, int properties) throws XPathException {
         List<AttributeInfo> atts2 = new ArrayList<>(attributes.size());
         for (AttributeInfo att : attributes) {
-            String oldValue = att.getValue();
+            UnicodeString oldValue = StringView.of(att.getValue()).tidy();
             if (!ReceiverOption.contains(att.getProperties(), ReceiverOption.DISABLE_CHARACTER_MAPS)) {
-                CharSequence mapped = charMap.map(oldValue, useNullMarkers);
+                UnicodeString mapped = charMap.map(oldValue, useNullMarkers);
                 if (mapped != oldValue) {
                     // mapping was done
                     int p2 = (att.getProperties() | ReceiverOption.USE_NULL_MARKERS)
@@ -103,7 +106,7 @@ public class CharacterMapExpander extends ProxyReceiver {
             }
 
         }
-        nextReceiver.startElement(elemName, type, AttributeMap.fromList(atts2), namespaces, location, properties);
+        nextReceiver.startElement(elemName, type, SequenceTool.attributeMapFromList(atts2), namespaces, location, properties);
     }
 
     /**
@@ -111,10 +114,10 @@ public class CharacterMapExpander extends ProxyReceiver {
      */
 
     @Override
-    public void characters(/*@NotNull*/ CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(/*@NotNull*/ UnicodeString chars, Location locationId, int properties) throws XPathException {
 
         if (!ReceiverOption.contains(properties, ReceiverOption.DISABLE_CHARACTER_MAPS)) {
-            CharSequence mapped = charMap.map(chars, useNullMarkers);
+            UnicodeString mapped = charMap.map(chars, useNullMarkers);
             if (mapped != chars) {
                 properties = (properties | ReceiverOption.USE_NULL_MARKERS)
                          &~ ReceiverOption.NO_SPECIAL_CHARS;

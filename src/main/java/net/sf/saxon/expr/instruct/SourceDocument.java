@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,10 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.accum.Accumulator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.elab.StringEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.DocumentFn;
 import net.sf.saxon.lib.ParseOptions;
@@ -22,16 +26,14 @@ import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.QuitParsingException;
-import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.tree.iter.ManualIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.SequenceType;
 
-import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Non-streamable implementation of the xsl:source-document instruction
@@ -43,13 +45,22 @@ public class SourceDocument extends Instruction {
     protected Operand bodyOp;
 
     protected ParseOptions parseOptions;
-    protected Set<? extends Accumulator> accumulators = new HashSet<>();
+    protected Set<? extends Accumulator> accumulators;
 
     public SourceDocument(Expression hrefExp, Expression body, ParseOptions options) {
         hrefOp = new Operand(this, hrefExp, OperandRole.SINGLE_ATOMIC);
         bodyOp = new Operand(this, body, new OperandRole(OperandRole.HAS_SPECIAL_FOCUS_RULES, OperandUsage.TRANSMISSION));
         this.parseOptions = options;
         this.accumulators = options.getApplicableAccumulators();
+    }
+
+    /**
+     * Set the whitespace stripping rule to be used. (This method is used when
+     * reloading the instruction from a SEF file)
+     * @param rule the whitespace stripping rule
+     */
+    public void setSpaceStrippingRule(SpaceStrippingRule rule) {
+        parseOptions = parseOptions.withSpaceStrippingRule(rule);
     }
 
 
@@ -114,7 +125,7 @@ public class SourceDocument extends Instruction {
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         hrefOp.typeCheck(visitor, contextInfo);
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:stream/href", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:stream/href", 0);
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
         hrefOp.setChildExpression(tc.staticTypeCheck(
                 hrefOp.getChildExpression(), SequenceType.SINGLE_STRING, role, visitor));
@@ -192,7 +203,7 @@ public class SourceDocument extends Instruction {
      * @return a set of flags indicating static properties of this expression
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         // Not sure of the general rules here but we'll pick up some special cases which are useful for XQuery streaming
         // use cases written using saxon:stream() - where the body is always a call on snapshot()
         Expression body = getBody();
@@ -210,10 +221,7 @@ public class SourceDocument extends Instruction {
      */
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
-        ExpressionPresenter.ExportOptions options = (ExpressionPresenter.ExportOptions) out.getOptions();
-        if ("JS".equals(options.target) && options.targetVersion == 1) {
-            throw new XPathException("xsl:source-document is not supported in Saxon-JS 1.*", SaxonErrorCode.SXJS0001);
-        }
+        ExpressionPresenter.ExportOptions options = out.getOptions();
         out.startElement(getExportTag(), this);
         int validation = parseOptions.getSchemaValidationMode();
         if (validation != Validation.SKIP && validation != Validation.BY_TYPE) {
@@ -246,9 +254,9 @@ public class SourceDocument extends Instruction {
         }
         out.emitAttribute("flags", flags);
         if (accumulators != null && !accumulators.isEmpty()) {
-            FastStringBuffer fsb = new FastStringBuffer(256);
+            StringBuilder fsb = new StringBuilder(256);
             for (Accumulator acc : accumulators) {
-                if (!fsb.isEmpty()) {
+                if (fsb.length() != 0) {
                     fsb.append(" ");
                 }
                 fsb.append(acc.getAccumulatorName().getEQName());
@@ -277,37 +285,8 @@ public class SourceDocument extends Instruction {
     }
 
     /**
-     * ProcessLeavingTail: called to do the real work of this instruction. This method
-     * must be implemented in each subclass. The results of the instruction are written
-     * to the current Receiver, which can be obtained via the Controller.
-     *
-     *
-     * @param output the destination for the result
-     * @param context The dynamic context of the transformation, giving access to the current node,
-     *                the current variables, etc.
-     * @return null if the instruction has completed execution; or a TailCall indicating
-     *         a function call or template call that is delegated to the caller, to be made after the stack has
-     *         been unwound so as to save stack space.
-     */
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        try {
-            push(output, context);
-        } catch (QuitParsingException q) {
-            // no action, this is an early exit indicating success
-            //throw q;
-        } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            if (e.getErrorCodeQName() == null) {
-                e.setErrorCode("FODC0002");
-            }
-            throw e;
-        }
-        return null;
-    }
-
-    /**
      * Evaluate the instruction in push mode
+     * @param output  the destination for the result
      * @param context the evaluation context
      * @throws XPathException in the event of a failure
      * @throws QuitParsingException if there was an early exit, that is, if the instruction was evaluated
@@ -330,6 +309,36 @@ public class SourceDocument extends Instruction {
         }
     }
 
+    @Override
+    public Elaborator getElaborator() {
+        return new SourceDocumentElaborator();
+    }
 
+    private static class SourceDocumentElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            SourceDocument expr = (SourceDocument) getExpression();
+            StringEvaluator hrefEval = expr.getHref().makeElaborator().elaborateForString(false);
+            PushEvaluator bodyPush = expr.getBody().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+                String href = hrefEval.eval(context);
+                NodeInfo doc = DocumentFn.makeDoc(href, expr.getStaticBaseURIString(), expr.getPackageData(),
+                                                  expr.parseOptions, context, expr.getLocation(), false);
+                if (doc != null) {
+                    Controller controller = context.getController();
+                    if (expr.accumulators != null && controller instanceof XsltController) {
+                        ((XsltController) controller).getAccumulatorManager().setApplicableAccumulators(
+                                doc.getTreeInfo(), expr.accumulators);
+                    }
+                    XPathContext c2 = context.newMinorContext();
+                    c2.setCurrentIterator(new ManualIterator(doc));
+                    return bodyPush.processLeavingTail(output, c2);
+                } else {
+                    return null;
+                }
+            };
+        }
+    }
 }
 

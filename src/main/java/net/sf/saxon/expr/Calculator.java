@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.expr;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Converter;
@@ -100,6 +101,12 @@ public abstract class Calculator {
             new DoubleModDouble(),
             new DoubleIdivDouble()
     };
+
+    /**
+     * Marker interface for operations on doubles
+     */
+
+    public interface DoubleOpDouble {};
 
     public final static Calculator[] DOUBLE_FLOAT = DOUBLE_DOUBLE;
     public final static Calculator[] DOUBLE_DECIMAL = DOUBLE_DOUBLE;
@@ -222,8 +229,8 @@ public abstract class Calculator {
      * Table mapping argument types to the Calculator class used to implement them
      */
 
-    private static IntHashMap<Calculator[]> table = new IntHashMap<>(100);
-    private static IntHashMap<String> nameTable = new IntHashMap<>(100);
+    private static final IntHashMap<Calculator[]> table = new IntHashMap<>(100);
+    private static final IntHashMap<String> nameTable = new IntHashMap<>(100);
 
     private static void def(int typeA, int typeB, Calculator[] calculatorSet, String setName) {
         int key = (typeA & 0xffff) << 16 | (typeB & 0xffff);
@@ -545,7 +552,7 @@ public abstract class Calculator {
      * Arithmetic: double + double (including types that promote to double)
      */
 
-    public static class DoublePlusDouble extends Calculator {
+    public static class DoublePlusDouble extends Calculator implements DoubleOpDouble {
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
             return new DoubleValue(((NumericValue) a).getDoubleValue() + ((NumericValue) b).getDoubleValue());
@@ -561,7 +568,7 @@ public abstract class Calculator {
      * Arithmetic: double - double (including types that promote to double)
      */
 
-    public static class DoubleMinusDouble extends Calculator {
+    public static class DoubleMinusDouble extends Calculator implements DoubleOpDouble{
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
             return new DoubleValue(((NumericValue) a).getDoubleValue() - ((NumericValue) b).getDoubleValue());
@@ -577,7 +584,7 @@ public abstract class Calculator {
      * Arithmetic: double * double (including types that promote to double)
      */
 
-    public static class DoubleTimesDouble extends Calculator {
+    public static class DoubleTimesDouble extends Calculator implements DoubleOpDouble {
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
             return new DoubleValue(((NumericValue) a).getDoubleValue() * ((NumericValue) b).getDoubleValue());
@@ -593,7 +600,7 @@ public abstract class Calculator {
      * Arithmetic: double div double (including types that promote to double)
      */
 
-    public static class DoubleDivDouble extends Calculator {
+    public static class DoubleDivDouble extends Calculator implements DoubleOpDouble {
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
             return new DoubleValue(((NumericValue) a).getDoubleValue() / ((NumericValue) b).getDoubleValue());
@@ -609,7 +616,7 @@ public abstract class Calculator {
      * Arithmetic: double mod double (including types that promote to double)
      */
 
-    public static class DoubleModDouble extends Calculator {
+    public static class DoubleModDouble extends Calculator implements DoubleOpDouble {
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
             return new DoubleValue(((NumericValue) a).getDoubleValue() % ((NumericValue) b).getDoubleValue());
@@ -625,7 +632,7 @@ public abstract class Calculator {
      * Arithmetic: double idiv double (including types that promote to double)
      */
 
-    private static class DoubleIdivDouble extends Calculator {
+    private static class DoubleIdivDouble extends Calculator implements DoubleOpDouble {
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
             double A = ((NumericValue) a).getDoubleValue();
@@ -639,7 +646,7 @@ public abstract class Calculator {
             if (Double.isNaN(B)) {
                 throw new XPathException("Second operand of idiv is NaN", "FOAR0002", c);
             }
-            return IntegerValue.makeIntegerValue(new DoubleValue(A / B)).asAtomic();
+            return IntegerValue.fromDouble(A / B).asAtomic();
         }
 
         @Override
@@ -844,22 +851,20 @@ public abstract class Calculator {
     }
 
     public static BigDecimalValue decimalDivide(NumericValue a, NumericValue b) throws XPathException {
+        if (b.signum() == 0) {
+            throw new XPathException("Decimal divide by zero", "FOAR0001");
+        }
         final BigDecimal A = a.getDecimalValue();
         final BigDecimal B = b.getDecimalValue();
-//        int scale = Math.max(DecimalValue.DIVIDE_PRECISION,
-//                Math.max(A.scale(), B.scale()));
-        int scale = Math.max(BigDecimalValue.DIVIDE_PRECISION, A.scale() - B.scale() + BigDecimalValue.DIVIDE_PRECISION);
+        BigDecimal result = internalDecimalDivide(A, B);
+        return new BigDecimalValue(result);
 
-        try {
-            BigDecimal result = A.divide(B, scale, RoundingMode.HALF_DOWN);
-            return new BigDecimalValue(result);
-        } catch (ArithmeticException err) {
-            if (b.compareTo(0) == 0) {
-                throw new XPathException("Decimal divide by zero", "FOAR0001");
-            } else {
-                throw err;
-            }
-        }
+    }
+
+    @CSharpReplaceBody(code="return Singulink.Numerics.BigDecimal.Divide(A, B, 18, Singulink.Numerics.RoundingMode.MidpointToZero);")
+    private static BigDecimal internalDecimalDivide(BigDecimal A, BigDecimal B) {
+        int scale = Math.max(BigDecimalValue.DIVIDE_PRECISION, A.scale() - B.scale() + BigDecimalValue.DIVIDE_PRECISION);
+        return A.divide(B, scale, RoundingMode.HALF_DOWN);
     }
 
     /**
@@ -872,20 +877,12 @@ public abstract class Calculator {
             if (a instanceof IntegerValue && b instanceof IntegerValue) {
                 return ((IntegerValue) a).mod((IntegerValue) b);
             }
-
+            if (((NumericValue)b).signum() == 0) {
+                throw new XPathException("Decimal modulo zero", "FOAR0001", c);
+            }
             final BigDecimal A = ((NumericValue) a).getDecimalValue();
             final BigDecimal B = ((NumericValue) b).getDecimalValue();
-            try {
-                //BigDecimal quotient = A.divide(B, 0, BigDecimal.ROUND_DOWN);
-                //BigDecimal remainder = A.subtract(quotient.multiply(B));
-                return new BigDecimalValue(A.remainder(B));
-            } catch (ArithmeticException err) {
-                if (((NumericValue) b).compareTo(0) == 0) {
-                    throw new XPathException("Decimal modulo zero", "FOAR0001", c);
-                } else {
-                    throw err;
-                }
-            }
+            return new BigDecimalValue(A.remainder(B));
         }
 
         @Override
@@ -910,7 +907,6 @@ public abstract class Calculator {
             if (B.signum() == 0) {
                 throw new XPathException("Integer division by zero", "FOAR0001", c);
             }
-            //BigInteger quot = A.divide(B, 0, BigDecimal.ROUND_DOWN).toBigInteger();
             BigInteger quot = A.divideToIntegralValue(B).toBigInteger();
             return BigIntegerValue.makeIntegerValue(quot);
         }
@@ -1138,6 +1134,8 @@ public abstract class Calculator {
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
             if (b instanceof Int64Value) {
                 return ((DurationValue) a).multiply(((Int64Value) b).longValue());
+            } else if (b instanceof DecimalValue) {
+                return ((DurationValue) a).multiply(((DecimalValue) b).getDecimalValue());
             } else {
                 return ((DurationValue) a).multiply(((NumericValue) b).getDoubleValue());
             }

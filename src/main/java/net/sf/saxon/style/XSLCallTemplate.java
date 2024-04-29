@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,6 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.CallTemplate;
 import net.sf.saxon.expr.instruct.NamedTemplate;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
@@ -26,8 +25,8 @@ import java.util.List;
 
 public class XSLCallTemplate extends StyleElement {
 
-    private static StructuredQName ERROR_TEMPLATE_NAME =
-            new StructuredQName("saxon", NamespaceConstant.SAXON, "error-template");
+    private static final StructuredQName ERROR_TEMPLATE_NAME =
+            new StructuredQName("saxon", NamespaceUri.SAXON, "error-template");
 
     private StructuredQName calledTemplateName;   // the name of the called template
     private NamedTemplate template = null;             // the template to be called (which may subsequently be overridden in another package)
@@ -45,7 +44,7 @@ public class XSLCallTemplate extends StyleElement {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String nameAttribute = null;
 
@@ -78,13 +77,16 @@ public class XSLCallTemplate extends StyleElement {
                 // xsl:fallback is not allowed on xsl:call-template, but is allowed on saxon:call-template (cheat!)
             } else if (child.getNodeKind() == Type.TEXT) {
                 // with xml:space=preserve, white space nodes may still be there
-                if (!Whitespace.isWhite(child.getStringValueCS())) {
+                if (!Whitespace.isAllWhite(child.getUnicodeStringValue())) {
                     compileError("No character data is allowed within xsl:call-template", "XTSE0010");
                 }
             } else {
                 compileError("Child element " + Err.wrap(child.getDisplayName(), Err.ELEMENT) +
                         " is not allowed as a child of xsl:call-template", "XTSE0010");
             }
+        }
+        if (calledTemplateName == null) {
+            calledTemplateName = ERROR_TEMPLATE_NAME;
         }
         if (!calledTemplateName.equals(ERROR_TEMPLATE_NAME)) {
             template = findTemplate(calledTemplateName);
@@ -151,7 +153,7 @@ public class XSLCallTemplate extends StyleElement {
         PrincipalStylesheetModule pack = getPrincipalStylesheetModule();
         NamedTemplate template = pack.getNamedTemplate(templateName);
         if (template == null) {
-            if (templateName.hasURI(NamespaceConstant.XSLT) && templateName.getLocalPart().equals("original")) {
+            if (templateName.hasURI(NamespaceUri.XSLT) && templateName.getLocalPart().equals("original")) {
                 // Handle xsl:original
                 return (NamedTemplate) getXslOriginal(StandardNames.XSL_TEMPLATE);
             }
@@ -166,7 +168,7 @@ public class XSLCallTemplate extends StyleElement {
      */
 
     @Override
-    public boolean markTailCalls() {
+    protected boolean markTailCalls() {
         useTailRecursion = true;
         return true;
     }

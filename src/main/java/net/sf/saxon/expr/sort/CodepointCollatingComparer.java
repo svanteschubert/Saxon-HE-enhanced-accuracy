@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -29,9 +29,9 @@ import net.sf.saxon.value.StringValue;
 
 public class CodepointCollatingComparer implements AtomicComparer {
 
-    private static CodepointCollator collator = CodepointCollator.getInstance();
+    private static final CodepointCollator collator = CodepointCollator.getInstance();
 
-    private static CodepointCollatingComparer THE_INSTANCE = new CodepointCollatingComparer();
+    private static final CodepointCollatingComparer THE_INSTANCE = new CodepointCollatingComparer();
 
     /**
      * Get the singular instance of this class
@@ -86,12 +86,7 @@ public class CodepointCollatingComparer implements AtomicComparer {
         }
         StringValue as = (StringValue) a;
         StringValue bs = (StringValue) b;
-        //if (as.containsSurrogatePairs() || bs.containsSurrogatePairs()) {
-        return CodepointCollator.compareCS(as.getStringValueCS(), bs.getStringValueCS());
-        //} else {
-        // optimize to use UTF-16 binary comparison
-        //    return as.getStringValue().compareTo(bs.getStringValue());
-        //}
+        return collator.compareStrings(as.getUnicodeStringValue(), bs.getUnicodeStringValue());
     }
 
     /**
@@ -106,7 +101,7 @@ public class CodepointCollatingComparer implements AtomicComparer {
 
     @Override
     public boolean comparesEqual(AtomicValue a, AtomicValue b) {
-        return ((StringValue)a).codepointEquals((StringValue)b);
+        return ((StringValue)a).equals((StringValue)b);
     }
 
     /**

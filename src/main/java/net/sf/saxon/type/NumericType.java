@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,12 +11,17 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.transpile.CSharpReplaceMethod;
 import net.sf.saxon.value.*;
 
 import java.util.Arrays;
+import java.util.List;
 
-import static net.sf.saxon.type.SchemaComponent.ValidationStatus.VALIDATED;
+import static net.sf.saxon.type.SchemaValidationStatus.VALIDATED;
 
 /**
  * Singleton class representing the class xs:numeric as defined in XPath 3.1: a union type
@@ -47,13 +52,14 @@ public class NumericType extends LocalUnionType implements SimpleType {
         }
     }
 
+    @CSharpReplaceMethod(code="private NumericType() : base (Saxon.Ejava.util.Arrays.asList<Saxon.Hej.type.AtomicType>(Saxon.Hej.type.BuiltInAtomicType.DOUBLE, Saxon.Hej.type.BuiltInAtomicType.FLOAT, Saxon.Hej.type.BuiltInAtomicType.DECIMAL)) {}")
     private NumericType() {
         super(Arrays.asList(BuiltInAtomicType.DOUBLE, BuiltInAtomicType.FLOAT, BuiltInAtomicType.DECIMAL));
-    }
+   }
 
     @Override
     public StructuredQName getTypeName() {
-        return new StructuredQName("xs", NamespaceConstant.SCHEMA, "numeric");
+        return new StructuredQName("xs", NamespaceUri.SCHEMA, "numeric");
     }
 
     /**
@@ -95,7 +101,8 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * @return the atomic types and plain union types in the transitive membership of the union type.
      */
     @Override
-    public synchronized Iterable<AtomicType> getPlainMemberTypes() {
+    @CSharpReplaceBody(code = "return new System.Collections.Generic.List<Saxon.Hej.type.PlainType>(getMemberTypes());")
+    public List<? extends PlainType> getPlainMemberTypes() {
         return getMemberTypes();
     }
 
@@ -284,17 +291,17 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * @return an iterator over the atomic sequence comprising the typed value. The objects
      *         returned by this SequenceIterator will all be of type {@link net.sf.saxon.value.AtomicValue},
      *         The next() method on the iterator throws no checked exceptions, although it is not actually
-     *         declared as an UnfailingIterator.
+     *         declared as an SequenceIterator.
      * @throws net.sf.saxon.type.ValidationException
      *          if the supplied value is not in the lexical space of the data type
      */
     @Override
-    public DoubleValue getTypedValue(CharSequence value, NamespaceResolver resolver, ConversionRules rules) throws ValidationException {
+    public DoubleValue getTypedValue(UnicodeString value, NamespaceResolver resolver, ConversionRules rules) throws ValidationException {
         try {
             double d = StringToDouble.getInstance().stringToNumber(value);
             return new DoubleValue(d);
         } catch (NumberFormatException e) {
-            String message = String.format("Cannot convert string \"%s\" to xs:numeric", value);
+            String message = "Cannot convert string \"" + value + "\" to xs:numeric";
             throw new ValidationFailure(message).makeException();
         }
     }
@@ -313,7 +320,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      *                                       resolver is supplied
      */
     @Override
-    public ValidationFailure validateContent(CharSequence value, NamespaceResolver nsResolver, ConversionRules rules) {
+    public ValidationFailure validateContent(UnicodeString value, NamespaceResolver nsResolver, ConversionRules rules) {
         try {
             StringToDouble.getInstance().stringToNumber(value);
             return null;
@@ -368,7 +375,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * @return the value after preprocessing
      */
     @Override
-    public CharSequence preprocess(CharSequence input) {
+    public UnicodeString preprocess(UnicodeString input) {
         return input;
     }
 
@@ -382,7 +389,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * @return the value after postprocessing
      */
     @Override
-    public CharSequence postprocess(CharSequence input) {
+    public UnicodeString postprocess(UnicodeString input) {
         return input;
     }
 
@@ -404,8 +411,8 @@ public class NumericType extends LocalUnionType implements SimpleType {
      *         of an anonymous type, and in the case of a global type defined in a no-namespace schema.
      */
     @Override
-    public String getTargetNamespace() {
-        return NamespaceConstant.SCHEMA;
+    public NamespaceUri getTargetNamespace() {
+        return NamespaceUri.SCHEMA;
     }
 
     /**
@@ -447,8 +454,9 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * name is returned
      */
     @Override
+    @CSharpModifiers(code = {"public", "override"})
     public StructuredQName getStructuredQName() {
-        return new StructuredQName("xs", NamespaceConstant.SCHEMA, "numeric");
+        return new StructuredQName("xs", NamespaceUri.SCHEMA, "numeric");
     }
 
     /**
@@ -483,7 +491,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
 
     /**
      * Returns the value of the 'block' attribute for this type, as a bit-significant
-     * integer with fields such as {@link net.sf.saxon.type.SchemaType#DERIVATION_LIST} and {@link net.sf.saxon.type.SchemaType#DERIVATION_EXTENSION}.
+     * integer with fields such as {@link net.sf.saxon.type.Derivation#DERIVATION_LIST} and {@link net.sf.saxon.type.Derivation#DERIVATION_EXTENSION}.
      * This corresponds to the property "prohibited substitutions" in the schema component model.
      *
      * @return the value of the 'block' attribute for this type
@@ -509,18 +517,18 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * Gets the integer code of the derivation method used to derive this type from its
      * parent. Returns zero for primitive types.
      *
-     * @return a numeric code representing the derivation method, for example {@link net.sf.saxon.type.SchemaType#DERIVATION_RESTRICTION}
+     * @return a numeric code representing the derivation method, for example {@link Derivation#DERIVATION_RESTRICTION}
      */
     @Override
     public int getDerivationMethod() {
-        return SchemaType.DERIVATION_RESTRICTION;
+        return Derivation.DERIVATION_RESTRICTION;
     }
 
     /**
      * Get the types of derivation that are not permitted, by virtue of the "final" property.
      *
      * @return the types of derivation that are not permitted, as a bit-significant integer
-     *         containing bits such as {@link net.sf.saxon.type.SchemaType#DERIVATION_EXTENSION}
+     *         containing bits such as {@link net.sf.saxon.type.Derivation#DERIVATION_EXTENSION}
      */
     @Override
     public int getFinalProhibitions() {
@@ -531,7 +539,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * Determines whether derivation (of a particular kind)
      * from this type is allowed, based on the "final" property
      *
-     * @param derivation the kind of derivation, for example {@link net.sf.saxon.type.SchemaType#DERIVATION_LIST}
+     * @param derivation the kind of derivation, for example {@link net.sf.saxon.type.Derivation#DERIVATION_LIST}
      * @return true if this kind of derivation is allowed
      */
     @Override
@@ -591,6 +599,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * @return text identifing the type, for use in a phrase such as "the type XXXX".
      */
     @Override
+    @CSharpModifiers(code = {"public", "override"})
     public String getDescription() {
         return "xs:numeric";
     }
@@ -636,7 +645,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * Get the validation status of this component.
      */
     @Override
-    public ValidationStatus getValidationStatus() {
+    public SchemaValidationStatus getValidationStatus() {
         return VALIDATED;
     }
 

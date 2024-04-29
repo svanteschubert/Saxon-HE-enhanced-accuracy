@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,10 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.*;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.CharSequenceConsumer;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpInnerClass;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
 import net.sf.saxon.value.StringValue;
@@ -139,8 +140,8 @@ public abstract class Outputter implements Receiver {
 
     /**
      * Notify the start of an element. This version of <code>startElement()</code> must be followed
-     * by calls on {@link #attribute(NodeName, SimpleType, CharSequence, Location, int)} and
-     * {@link #namespace(String, String, int)} to supply the attributes and namespaces; these calls
+     * by calls on {@link #attribute(NodeName, SimpleType, String, Location, int)} and
+     * {@link #namespace(String, NamespaceUri, int)} to supply the attributes and namespaces; these calls
      * may be terminated by a call on {@link #startContent()} but this is not mandatory.
      *
      * @param elemName   the name of the element.
@@ -173,7 +174,7 @@ public abstract class Outputter implements Receiver {
         // directly into a Receiver should try to avoid decomposing the attributes and namespaces.
         startElement(elemName, type, location, properties);
         for (NamespaceBinding ns : namespaces) {
-            namespace(ns.getPrefix(), ns.getURI(), properties);
+            namespace(ns.getPrefix(), ns.getNamespaceUri(), properties);
         }
         for (AttributeInfo att : attributes) {
             attribute(att.getNodeName(), att.getType(), att.getValue(), att.getLocation(), att.getProperties());
@@ -202,11 +203,11 @@ public abstract class Outputter implements Receiver {
      * in a single call.
      */
 
-    abstract public void namespace(String prefix, String namespaceUri, int properties) throws XPathException;
+    abstract public void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException;
 
     /**
      * Output a set of namespace bindings. This should have the same effect as outputting the
-     * namespace bindings individually using {@link #namespace(String, String, int)}, but it
+     * namespace bindings individually using {@link #namespace(String, NamespaceUri, int)}, but it
      * may be more efficient. It is used only when copying an element node together with
      * all its namespaces, so less checking is needed that the namespaces form a consistent
      * and complete set
@@ -219,7 +220,7 @@ public abstract class Outputter implements Receiver {
     public void namespaces(NamespaceBindingSet bindings, int properties) throws XPathException {
         // Optimized in ComplexContentOutputter subclass
         for (NamespaceBinding nb: bindings) {
-            namespace(nb.getPrefix(), nb.getURI(), properties);
+            namespace(nb.getPrefix(), nb.getNamespaceUri(), properties);
         }
     }
 
@@ -241,7 +242,7 @@ public abstract class Outputter implements Receiver {
      * @throws XPathException         if an error occurs
      */
 
-    abstract public void attribute(NodeName attName, SimpleType typeCode, CharSequence value, Location location, int properties)
+    abstract public void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties)
             throws XPathException;
 
     /**
@@ -280,7 +281,7 @@ public abstract class Outputter implements Receiver {
      */
 
     @Override
-    abstract public void characters(CharSequence chars, Location location, int properties)
+    abstract public void characters(UnicodeString chars, Location location, int properties)
             throws XPathException;
 
     /**
@@ -295,7 +296,7 @@ public abstract class Outputter implements Receiver {
      */
 
     @Override
-    abstract public void processingInstruction(String name, CharSequence data, Location location, int properties)
+    abstract public void processingInstruction(String name, UnicodeString data, Location location, int properties)
             throws XPathException;
 
     /**
@@ -309,7 +310,7 @@ public abstract class Outputter implements Receiver {
      */
 
     @Override
-    abstract public void comment(CharSequence content, Location location, int properties) throws XPathException;
+    abstract public void comment(UnicodeString content, Location location, int properties) throws XPathException;
 
     /**
      * Append an arbitrary item (node, atomic value, or function) to the output. The default
@@ -346,34 +347,50 @@ public abstract class Outputter implements Receiver {
      * output large strings to avoid building the entire string in memory. The default
      * implementation, however, simply assembles the string in a buffer and releases
      * the entire string on completion.
-     * @param asTextNode set to true if the concatenated string values are to be treated as a text node
-     * @param loc the location of the instruction generating the content
      * @return an object that accepts xs:string values via a sequence of append() calls
+     * @param asTextNode set to true if the concatenated string values are to be treated
+     *                   as a text node item rather than a string
      */
 
-    public CharSequenceConsumer getStringReceiver(boolean asTextNode, Location loc) {
-        return new CharSequenceConsumer() {
+    @CSharpInnerClass(outer = true, extra = {"Saxon.Hej.s9api.Location loc"})
+    public UniStringConsumer getStringReceiver(boolean asTextNode, Location loc) {
+        if (asTextNode) {
+            return new AbstractUniStringConsumer() {
 
-            private final FastStringBuffer buffer = new FastStringBuffer(256);
-            @Override
-            public CharSequenceConsumer cat(CharSequence chars) {
-                return buffer.cat(chars);
-            }
+                final UnicodeBuilder buffer = new UnicodeBuilder();
 
-            @Override
-            public CharSequenceConsumer cat(char c) {
-                return buffer.cat(c);
-            }
-
-            @Override
-            public void close() throws XPathException {
-                if (asTextNode) {
-                    Outputter.this.characters(buffer, loc, ReceiverOption.NONE);
-                } else {
-                    Outputter.this.append(new StringValue(buffer.condense()), loc, ReceiverOption.ALL_NAMESPACES);
+                @Override
+                @CSharpModifiers(code={"public", "override"})
+                public UniStringConsumer accept(UnicodeString chars) {
+                    buffer.accept(chars);
+                    return this;
                 }
-            }
-        };
+
+                @Override
+                @CSharpModifiers(code = {"public", "override"})
+                public void close() throws XPathException {
+                    Outputter.this.characters(buffer.toUnicodeString(), loc, ReceiverOption.NONE);
+                }
+            };
+        } else {
+            return new AbstractUniStringConsumer() {
+
+                final UnicodeBuilder buffer = new UnicodeBuilder();
+
+                @Override
+                @CSharpModifiers(code = {"public", "override"})
+                public UniStringConsumer accept(UnicodeString chars) {
+                    buffer.accept(chars);
+                    return this;
+                }
+
+                @Override
+                @CSharpModifiers(code = {"public", "override"})
+                public void close() throws XPathException {
+                    Outputter.this.append(new StringValue(buffer.toUnicodeString()));
+                }
+            };
+        }
     }
 
     /**

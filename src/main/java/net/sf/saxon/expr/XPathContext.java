@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,14 +12,16 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.sort.GroupIterator;
 import net.sf.saxon.lib.ErrorReporter;
+import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.regex.RegexIterator;
+import net.sf.saxon.trace.ContextStackFrame;
 import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.value.DateTimeValue;
 
-import javax.xml.transform.URIResolver;
 import java.util.Iterator;
 
 /**
@@ -115,10 +117,19 @@ public interface XPathContext {
     XPathContext getCaller();
 
     /**
+     * Get the nearest XPathContextMajor (the next one down the stack, or this one if currently positioned
+     * on an XPathContextMajor). This will be null if unknown, or if the bottom of the stack has been reached.
+     * @return the nearest XPathContextMajor
+     */
+
+    XPathContextMajor getMajorContext();
+
+    /**
      * Create, set, and return a focus tracking iterator that wraps a supplied sequence iterator.
      *
      * @param iter the current iterator. The context item, position, and size are determined by reference
      *             to the current iterator.
+     * @return the required focus tracking iterator
      */
 
     FocusIterator trackFocus(SequenceIterator iter);
@@ -154,10 +165,11 @@ public interface XPathContext {
      * Get the context size (the position of the last item in the current node list)
      *
      * @return the context size
-     * @throws XPathException if the context position is undefined
+     * @throws UncheckedXPathException if the context position is undefined. This is an unchecked
+     * exception to allow use of functional interfaces for lazy evaluation.
      */
 
-    int getLast() throws XPathException;
+    int getLast() throws UncheckedXPathException;
 
     /**
      * Determine whether the context position is the same as the context size
@@ -166,20 +178,21 @@ public interface XPathContext {
      * sequence.
      *
      * @return true if the context position is the same as the context size.
+     * @throws XPathException if a dynamic error occurs while determining the result
      */
 
     boolean isAtLast() throws XPathException;
 
     /**
-     * Get the URI resolver. This gets the local URIResolver set in the XPathContext if there
-     * is one; if not, it gets the URIResolver from the Controller (which itself defaults to the
+     * Get the resource resolver. This gets the local resource resolver set in the XPathContext if there
+     * is one; if not, it gets the Resolver from the Controller (which itself defaults to the
      * one set in the Configuration).
      *
      * @return the user-supplied URI resolver if there is one, or null otherwise.
      * @since 9.6
      */
 
-    URIResolver getURIResolver();
+    ResourceResolver getResourceResolver();
 
     /**
      * Get the error reporter. If no ErrorReporter
@@ -194,6 +207,7 @@ public interface XPathContext {
 
     /**
      * Get the current component
+     * @return the current component
      */
 
     Component getCurrentComponent();
@@ -208,6 +222,7 @@ public interface XPathContext {
      * @param slotNumber  Slot number of the parameter within the stack frame of the called template
      * @param isTunnel    True if a tunnel parameter is required, else false
      * @return ParameterSet.NOT_SUPPLIED, ParameterSet.SUPPLIED, or ParameterSet.SUPPLIED_AND_CHECKED
+     * @throws XPathException if an error is detected
      */
 
     int useLocalParameter(
@@ -235,9 +250,11 @@ public interface XPathContext {
 
     /**
      * Set the value of a local variable, identified by its slot number
-     *  @param slotNumber the slot number allocated at compile time to the variable,
+     * @param slotNumber the slot number allocated at compile time to the variable,
      *                   which identifies its position within the local stack frame
      * @param value      the value of the variable
+     * @throws XPathException if, for example, the value is supplied in a form that requires
+     * lazy evaluation, and the delayed evaluation fails
      */
 
     void setLocalVariable(int slotNumber, Sequence value) throws XPathException;
@@ -320,6 +337,8 @@ public interface XPathContext {
      *
      * @return the current date and time. All calls within a single query or transformation
      *         will return the same value
+     * @throws NoDynamicContextException if this context object is one used only for early evaluation of constant
+     * expressions; the current date and time are not available in this case
      */
 
     DateTimeValue getCurrentDateTime() throws NoDynamicContextException;
@@ -344,7 +363,7 @@ public interface XPathContext {
      * @return an iterator over a copy of the run-time call stack
      */
 
-    Iterator iterateStackFrames();
+    Iterator<ContextStackFrame> iterateStackFrames();
 
     /**
      * Get the current exception (in saxon:catch)

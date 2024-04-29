@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.om.NamespaceResolver;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
@@ -27,6 +28,8 @@ public class ListCastableFunction extends ListConstructorFunction {
      *
      * @param targetType the type to which the function will convert its input
      * @param resolver   namespace resolver for use if the target type is namespace-sensitive
+     * @param allowEmpty if the operand can be an empty sequence
+     * @throws MissingComponentException if the item type has not been declared
      */
 
     public ListCastableFunction(ListType targetType, NamespaceResolver resolver, boolean allowEmpty) throws MissingComponentException {
@@ -79,7 +82,7 @@ public class ListCastableFunction extends ListConstructorFunction {
         }
 
         ConversionRules rules = context.getConfiguration().getConversionRules();
-        CharSequence cs = val.getStringValueCS();
+        UnicodeString cs = val.getUnicodeStringValue();
         ValidationFailure failure = targetType.validateContent(cs, nsResolver, rules);
         return BooleanValue.get(failure == null);
     }

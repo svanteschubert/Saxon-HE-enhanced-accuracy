@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,7 +23,7 @@ import net.sf.saxon.trans.packages.PackageDetails;
 import net.sf.saxon.trans.packages.PackageLibrary;
 import net.sf.saxon.trans.packages.UsePack;
 import net.sf.saxon.trans.packages.VersionedPackageName;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.NestedIntegerValue;
@@ -38,24 +38,25 @@ public class Compilation {
 
     // diagnostic switch to control output of timing information
     public static boolean TIMING = false;
-    private Configuration config;
-    private CompilerInfo compilerInfo;
+    private final Configuration config;
+    private final CompilerInfo compilerInfo;
     private PrincipalStylesheetModule principalStylesheetModule;
     private int errorCount = 0;
     private boolean schemaAware;
-    private QNameParser qNameParser;
-    private Map<StructuredQName, ValueAndPrecedence> staticVariables = new HashMap<>();
-    private Map<DocumentKey, TreeInfo> stylesheetModules = new HashMap<>();
-    private Stack<DocumentKey> importStack = new Stack<>(); // handles both include and import
+    private final QNameParser qNameParser;
+    private final Map<StructuredQName, ValueAndPrecedence> staticVariables = new HashMap<>();
+    private final Map<DocumentKey, TreeInfo> stylesheetModules = new HashMap<>();
+    private final Stack<DocumentKey> importStack = new Stack<>(); // handles both include and import
     private PackageData packageData;
     private boolean preScan = true;
     private boolean createsSecondaryResultDocuments = false;
     private boolean libraryPackage = false;
     private VersionedPackageName expectedNameAndVersion = null;
-    private List<UsePack> packageDependencies = new ArrayList<>();
+    private final List<UsePack> packageDependencies = new ArrayList<>();
     private List<VersionedPackageName> usingPackages = new ArrayList<>();
     private GlobalParameterSet suppliedParameters;
     private boolean fallbackToNonStreaming = false;
+    private Set<StructuredQName> referencedModes = new HashSet<>();
     public Timer timer = null;
 
     private static class ValueAndPrecedence {
@@ -83,6 +84,7 @@ public class Compilation {
         schemaAware = info.isSchemaAware();
         preScan = info.isJustInTimeCompilation();
         suppliedParameters = compilerInfo.getParameters();
+        referencedModes.add(Mode.UNNAMED_MODE_NAME);
 
         qNameParser = new QNameParser(null)
                 .withAcceptEQName(true)
@@ -139,7 +141,7 @@ public class Compilation {
         if (getPackageData() == null) {
             // Create a temporary PackageData for use during use-when processing
             PackageData pd = new PackageData(getConfiguration());
-            pd.setHostLanguage(HostLanguage.XSLT);
+            pd.setHostLanguage(HostLanguage.XSLT, compilerInfo.getXsltVersion());
             pd.setTargetEdition(compilerInfo.getTargetEdition());
             pd.setSchemaAware(schemaAware);
             packageData = pd;
@@ -163,6 +165,8 @@ public class Compilation {
      * After the first phase of processing, we have gathered information about the xsl:use-package elements in the stylesheet.
      * We now ensure that these dependencies are satisfied and are bound to actual loaded packages, invoking the compiler
      * recursively to load the package if necessary. If there are cyclic references, these must be detected.
+     * @param thisPackage the package being checked
+     * @throws XPathException if errors are found
      */
 
     public void satisfyPackageDependencies(XSLPackage thisPackage) throws XPathException {
@@ -187,7 +191,7 @@ public class Compilation {
                         new VersionedPackageName(used.getPackageName(), used.getPackageVersion());
                 if (usingPackages.contains(existing)) {
                     // Report a cycle of package dependencies
-                    FastStringBuffer buffer = new FastStringBuffer(1024);
+                    StringBuilder buffer = new StringBuilder(1024);
                     for (VersionedPackageName n : usingPackages) {
                         buffer.append(n.packageName);
                         buffer.append(", ");
@@ -197,11 +201,10 @@ public class Compilation {
                     throw new XPathException("There is a cycle of package dependencies involving " + buffer, "XTSE3005");
                 }
             }
-            StylesheetPackage used;
             try {
                 List<VersionedPackageName> disallowed = new ArrayList<>(usingPackages);
                 disallowed.add(details.nameAndVersion);
-                used = library.obtainLoadedPackage(details, disallowed);
+                library.obtainLoadedPackage(details, disallowed);
             } catch (XPathException err) {
                 if (!err.hasBeenReported()) {
                     reportError(err);
@@ -229,8 +232,13 @@ public class Compilation {
         setMinimalPackageData();
         NodeInfo document;
         NodeInfo outermost = null;
-        if (source instanceof NodeInfo) {
-            NodeInfo root = (NodeInfo)source;
+        NodeInfo root = null;
+        if (source instanceof NodeSource) {
+            root = ((NodeSource)source).getNode();
+        } else if (source instanceof NodeInfo) {
+            root = ((NodeInfo)source);
+        }
+        if (root != null) {
             if (root.getNodeKind() == Type.DOCUMENT) {
                 document = root;
                 outermost = document.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
@@ -239,9 +247,13 @@ public class Compilation {
                 outermost = root;
             }
         }
+
         if (!(outermost instanceof XSLPackage)) {
             document = StylesheetModule.loadStylesheetModule(source, true, this, NestedIntegerValue.TWO);
             outermost = document.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+        }
+        if (outermost == null) {
+            throw new XPathException("No stylesheet element found at " + source.getSystemId(), "XPST0010");
         }
 
         if (outermost instanceof LiteralResultElement) {
@@ -254,7 +266,10 @@ public class Compilation {
             if (outermost instanceof XSLPackage) {
                 xslpackage = (XSLPackage) outermost;
             } else {
-                throw new XPathException("Outermost element must be xsl:package, xsl:stylesheet, or xsl:transform");
+                throw new XPathException(
+                        "Outermost element must be xsl:package, xsl:stylesheet, or xsl:transform (found "
+                                + outermost.getDisplayName() + ")", "XPST0010")
+                        .withLocation(outermost);
             }
         } catch (XPathException e) {
             if (!e.hasBeenReported()) {
@@ -269,10 +284,11 @@ public class Compilation {
         StyleNodeFactory factory = getStyleNodeFactory(true);
         PrincipalStylesheetModule psm = factory.newPrincipalModule(xslpackage);
         StylesheetPackage pack = psm.getStylesheetPackage();
-        pack.setVersion(xslpackage.getVersion());
+        pack.setLanguageVersion(xslpackage.getVersion());
         pack.setPackageVersion(xslpackage.getPackageVersion());
         pack.setPackageName(xslpackage.getName());
         pack.setSchemaAware(info.isSchemaAware() || isSchemaAware());
+        pack.setLanguageVersion(info.getXsltVersion());
         pack.createFunctionLibrary();
         psm.getRuleManager().setCompilerInfo(info);
         setPrincipalStylesheetModule(psm);
@@ -447,8 +463,8 @@ public class Compilation {
             reporter.report(err);
         }
         errorCount++;
-        if (err.getFatalErrorMessage() != null) {
-            throw new XmlProcessingAbort(err.getFatalErrorMessage());
+        if (err.getTerminationMessage() != null) {
+            throw new XmlProcessingAbort(err.getTerminationMessage());
         }
     }
 
@@ -756,6 +772,16 @@ public class Compilation {
 
     public void setFallbackToNonStreaming(boolean fallbackToNonStreaming) {
         this.fallbackToNonStreaming = fallbackToNonStreaming;
+    }
+
+    /**
+     * Get all mode names referenced anywhere in the stylesheet (including the unnamed mode).
+     * This list is built up during the static use-when phase of processing. It is used to expand
+     * {@code mode="#all"} appearing on {@code xsl:template}.
+     * @return the set of all mode names used.
+     */
+    public Set<StructuredQName> getAllKnownModeNames() {
+        return referencedModes;
     }
 
 

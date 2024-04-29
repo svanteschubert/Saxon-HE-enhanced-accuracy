@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,11 +15,13 @@ import net.sf.saxon.expr.instruct.GlobalParameterSet;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.NodeSource;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.serialize.SerializationProperties;
-import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XsltController;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.linked.DocumentImpl;
 
 import javax.xml.transform.Source;
@@ -35,12 +37,14 @@ import java.net.URI;
  * stylesheet several times. Running the stylesheet does not change the context
  * that has been established. Some of the public methods are synchronized: this is not because
  * multi-threaded execution is supported, rather it is to reduce the damage if multi-threaded
- * execution is attempted.
- * <p>
- * An {@code XsltTransformer} is always constructed by running the {@code Load}
- * method of an {@link XsltExecutable}.
- * <p>
- * An {@code XsltTransformer} is itself a {@link Destination}. This means it is possible to use
+ * execution is attempted.</p>
+ *
+ * <p>The date/time value returned by <code>fn:current-dateTime()</code> remains constant for the
+ * duration of an <code>Xslt30Transformer</code>.</p>
+ * <p>An {@code XsltTransformer} is always constructed by running the {@code Load}
+ * method of an {@link XsltExecutable}.</p>
+ *
+ * <p>An {@code XsltTransformer} is itself a {@link Destination}. This means it is possible to use
  * one {@code XsltTransformer} as the destination to receive the results of another transformation,
  * this providing a simple way for transformations to be chained into a pipeline. Note however that a
  * when the input to a transformation is supplied in this way, it will always be built as a tree in
@@ -48,17 +52,18 @@ import java.net.URI;
  * performs <i>Sequence Normalization</i> on its input; that is, it converts the input to a single
  * document node. (The main reason for this is that when chaining XSLT transformations, the raw
  * output of the first stylesheet is often an element node, but the second stylesheet traditionally
- * expects a document node.)
+ * expects a document node.)</p>
  *
  * @since 9.0
  */
+@CSharpModifiers(code = {"internal"})
 public class XsltTransformer extends AbstractXsltTransformer implements Destination {
 
     private QName initialTemplateName;
     private GlobalParameterSet parameters;
     private Source initialSource;
     private Destination destination;
-    private DestinationHelper destinationHelper = new DestinationHelper(this);
+    private final DestinationHelper destinationHelper;
     private URI destinationBaseUri;
 
     /**
@@ -72,6 +77,7 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
     protected XsltTransformer(Processor processor, XsltController controller, GlobalParameterSet staticParameters) {
         super(processor, controller);
         parameters = new GlobalParameterSet(/*staticParameters*/);
+        destinationHelper = new DestinationHelper(this);
     }
 
     /**
@@ -191,7 +197,7 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
                 initialSource = null;
                 controller.setGlobalContextItem(null);
             } else {
-                initialSource = node.getUnderlyingNode();
+                initialSource = node.getUnderlyingNode().asActiveSource();
                 controller.setGlobalContextItem(node.getUnderlyingNode().getRoot());
             }
         } catch (XPathException e) {
@@ -210,6 +216,9 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
     public XdmNode getInitialContextNode() {
         if (initialSource instanceof NodeInfo) {
             return (XdmNode) XdmValue.wrap((NodeInfo) initialSource);
+        } else if (initialSource instanceof NodeSource) {
+            NodeInfo n = ((NodeSource)initialSource).getNode();
+            return (XdmNode) XdmValue.wrap(n);
         } else {
             return null;
         }
@@ -330,11 +339,11 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
                 } else if (initialSelection instanceof DOMSource) {
                     NodeInfo node = controller.prepareInputTree(initialSelection);
                     reset = maybeSetGlobalContextItem(node);
-                    initialSelection = node;
+                    initialSelection = node.asActiveSource();
                 } else {
                     NodeInfo node = controller.makeSourceTree(initialSelection, getSchemaValidationMode().getNumber());
                     reset = maybeSetGlobalContextItem(node);
-                    initialSelection = node;
+                    initialSelection = node.asActiveSource();
                 }
             }
 

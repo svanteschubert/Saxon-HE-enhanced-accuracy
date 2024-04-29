@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,11 +13,14 @@ import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.Feature;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UniStringConsumer;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.CharSequenceConsumer;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.StringValue;
 
 import java.io.File;
@@ -42,14 +45,21 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne<StringValue> call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         StringValue hrefVal = (StringValue) arguments[0].head();
-        String encoding = getArity() == 2 ? arguments[1].head().getStringValue() : null;
+        String encoding;
+        if (getArity() == 2) {
+            Item enc = arguments[1].head();
+            encoding = enc == null ? null : enc.getStringValue();
+        } else {
+            encoding = null;
+        }
         try {
-            return new ZeroOrOne<>(evalUnparsedText(hrefVal, getStaticBaseUriString(), encoding, context));
+            return SequenceTool.itemOrEmpty(evalUnparsedText(hrefVal, getStaticBaseUriString(), encoding, context));
         } catch (XPathException e) {
-            if (getArity() == 2 && e.getErrorCodeLocalPart().equals("FOUT1200")) {
-                e.setErrorCode("FOUT1190");
+            e.maybeSetErrorCode("FOUT1170");
+            if (getArity() == 2) {
+                throw e.replacingErrorCode("FOUT1200", "FOUT1190");
             }
             throw e;
         }
@@ -59,8 +69,8 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
     public void process(Outputter destination, XPathContext context, Sequence[] arguments) throws XPathException {
         boolean stable = context.getConfiguration().getBooleanProperty(Feature.STABLE_UNPARSED_TEXT);
         if (stable) {
-            ZeroOrOne<StringValue> result = call(context, arguments);
-            StringValue value = result.head();
+            Sequence result = call(context, arguments);
+            StringValue value = (StringValue)result.head();
             if (value != null) {
                 destination.append(value, Loc.NONE, ReceiverOption.NONE);
             }
@@ -68,13 +78,13 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
             StringValue href = (StringValue) arguments[0].head();
             URI absoluteURI = getAbsoluteURI(href.getStringValue(), getStaticBaseUriString(), context);
             String encoding = getArity() == 2 ? arguments[1].head().getStringValue() : null;
-            CharSequenceConsumer consumer = destination.getStringReceiver(false, Loc.NONE);
+            UniStringConsumer consumer = destination.getStringReceiver(false, Loc.NONE);
             consumer.open();
             try {
                 readFile(absoluteURI, encoding, consumer, context);
                 consumer.close();
             } catch (XPathException e) {
-                if (getArity() == 2 && e.getErrorCodeLocalPart().equals("FOUT1200")) {
+                if (getArity() == 2 && e.hasErrorCode("FOUT1200")) {
                     e.setErrorCode("FOUT1190");
                 }
                 throw e;
@@ -82,7 +92,7 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
         }
     }
 
-    private static final String errorValue = "\u0000";
+    private static final int errorValue = 0;
 
     /**
      * Evaluation of the unparsed-text function
@@ -96,7 +106,7 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
      */
 
     public static StringValue evalUnparsedText(StringValue hrefVal, String base, String encoding, XPathContext context) throws XPathException {
-        CharSequence content;
+        UnicodeString content;
         StringValue result;
         boolean stable = context.getConfiguration().getBooleanProperty(Feature.STABLE_UNPARSED_TEXT);
         try {
@@ -109,38 +119,38 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
                 final Controller controller = context.getController();
                 //noinspection SynchronizationOnLocalVariableOrMethodParameter
                 synchronized(controller) {
-                    Map<URI, String> cache = (Map<URI, String>)controller.getUserData("unparsed-text-cache", "");
+                    Map<URI, UnicodeString> cache = (Map<URI, UnicodeString>)controller.getUserData("unparsed-text-cache", "");
                     if (cache != null) {
-                        String existing = cache.get(absoluteURI);
+                        UnicodeString existing = cache.get(absoluteURI);
                         if (existing != null) {
-                            if (existing.startsWith(errorValue)) {
-                                throw new XPathException(existing.substring(1), "FOUT1170");
+                            if (existing.length() > 0 && existing.codePointAt(0) == errorValue) {
+                                throw new XPathException(existing.substring(1).toString(), "FOUT1170");
                             }
                             return new StringValue(existing);
                         }
                     }
                     XPathException error = null;
                     try {
-                        StringValue.Builder consumer = new StringValue.Builder();
+                        UnicodeBuilder consumer = new UnicodeBuilder();
                         readFile(absoluteURI, encoding, consumer, context);
-                        content = consumer.getStringValue().getStringValueCS();
+                        content = consumer.toUnicodeString();
                     } catch (XPathException e) {
                         error = e;
-                        content = errorValue + e.getMessage();
+                        content = StringView.tidy((char)errorValue + e.getMessage());
                     }
                     if (cache == null) {
                         cache = new HashMap<>();
                         controller.setUserData("unparsed-text-cache", "", cache);
-                        cache.put(absoluteURI, content.toString());
+                        cache.put(absoluteURI, content);
                     }
                     if (error != null) {
                         throw error;
                     }
                 }
             } else {
-                StringValue.Builder consumer = new StringValue.Builder();
+                UnicodeBuilder consumer = new UnicodeBuilder();
                 readFile(absoluteURI, encoding, consumer, context);
-                return consumer.getStringValue();
+                return new StringValue(consumer.toUnicodeString());
             }
             result = new StringValue(content);
         } catch (XPathException err) {
@@ -151,10 +161,9 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
     }
 
     // diagnostic method to output the octets of a file
-
     public static void main(String[] args) throws Exception {
-        FastStringBuffer sb1 = new FastStringBuffer(FastStringBuffer.C256);
-        FastStringBuffer sb2 = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder sb1 = new StringBuilder(256);
+        StringBuilder sb2 = new StringBuilder(256);
         File file = new File(args[0]);
         InputStream is = new FileInputStream(file);
         while (true) {
@@ -169,11 +178,10 @@ public class UnparsedText extends UnparsedTextFunction implements PushableFuncti
             if (sb1.length() > 80) {
                 System.out.println(sb1);
                 System.out.println(sb2);
-                sb1 = new FastStringBuffer(FastStringBuffer.C256);
-                sb2 = new FastStringBuffer(FastStringBuffer.C256);
+                sb1 = new StringBuilder(256);
+                sb2 = new StringBuilder(256);
             }
         }
         is.close();
     }
-
 }

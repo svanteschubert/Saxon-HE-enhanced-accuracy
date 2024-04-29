@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
 
@@ -24,9 +25,9 @@ import net.sf.saxon.value.AtomicValue;
  * an {@link UntypedAtomizingIterator} is used in preference.</p>
  */
 
-public class AtomizingIterator implements SequenceIterator /* of AtomicValue */ {
+public class AtomizingIterator implements SequenceIterator {
 
-    private SequenceIterator base;
+    private final SequenceIterator base;
     /*@Nullable*/ private AtomicSequence currentValue = null;
     private int currentValuePosition = 1;
     private int currentValueSize = 1;
@@ -48,7 +49,7 @@ public class AtomizingIterator implements SequenceIterator /* of AtomicValue */ 
 
     /*@Nullable*/
     @Override
-    public AtomicValue next() throws XPathException {
+    public AtomicValue next() {
         while (true) {
             if (currentValue != null) {
                 if (currentValuePosition < currentValueSize) {
@@ -71,10 +72,10 @@ public class AtomizingIterator implements SequenceIterator /* of AtomicValue */ 
                     }
                 } catch (XPathException e) {
                     if (roleDiagnostic == null) {
-                        throw e;
+                        throw new UncheckedXPathException(e);
                     } else {
                         String message = e.getMessage() + ". Failed while atomizing the " + roleDiagnostic.getMessage();
-                        throw new XPathException(message, e.getErrorCodeLocalPart(), e.getLocator());
+                        throw new UncheckedXPathException(e.withMessage(message));
                     }
                 }
             } else {

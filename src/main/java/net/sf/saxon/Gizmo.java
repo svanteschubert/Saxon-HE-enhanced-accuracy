@@ -18,7 +18,6 @@ import net.sf.saxon.gizmo.DefaultTalker;
 import net.sf.saxon.gizmo.JLine2Talker;
 import net.sf.saxon.gizmo.Talker;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
@@ -30,7 +29,9 @@ import net.sf.saxon.query.StaticQueryContext;
 import net.sf.saxon.query.XQueryExpression;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
 import net.sf.saxon.serialize.SerializationProperties;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.sxpath.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.NamespaceNode;
 import net.sf.saxon.tree.iter.AxisIterator;
@@ -59,15 +60,15 @@ import java.util.*;
 
 public class Gizmo {
 
-    private Configuration config;
-    private IndependentContext env;
+    private final Configuration config;
+    private final IndependentContext env;
     private DocumentImpl currentDoc;
     private boolean unsaved = false;
-    private Map<StructuredQName, Sequence> variables = new HashMap<>();
-    private Map<String, SubCommand> subCommands = new HashMap<>();
-    private Talker talker;
+    private final Map<StructuredQName, GroundedValue> variables = new HashMap<>();
+    private final Map<String, SubCommand> subCommands = new HashMap<>();
+    private final Talker talker;
     private boolean typed = false;
-    private List<DocumentImpl> undoBuffer = new LinkedList<>();
+    private final List<DocumentImpl> undoBuffer = new LinkedList<>();
     private PrintStream sysOut = System.out;
 
     private static class SubCommand {
@@ -78,7 +79,7 @@ public class Gizmo {
 
     @FunctionalInterface
     private interface Action {
-        void perform(StringBuffer subCommand) throws XPathException;
+        void perform(StringBuilder subCommand) throws XPathException;
     }
 
     private void addCommand(String name, String helpText, Action action) {
@@ -116,7 +117,7 @@ public class Gizmo {
                    this::namespace);
         addCommand("paths",
                    "paths -- display all distinct element paths in the document",
-                   (cmd) -> list(new StringBuffer("distinct-values(//*!('/'||string-join(ancestor-or-self::*!name(),'/')))")));
+                   (cmd) -> list(new StringBuilder("distinct-values(//*!('/'||string-join(ancestor-or-self::*!name(),'/')))")));
         addCommand("precede",
                    "precede {expression} with {query} -- add result of query before each selected node",
                    (cmd) -> update(cmd, "precede"));
@@ -146,7 +147,7 @@ public class Gizmo {
                    this::show);
         addCommand("strip",
                    "strip -- delete whitespace text nodes",
-                   (cmd -> this.delete(new StringBuffer("//text()[not(normalize-space())]"))));
+                   (cmd -> this.delete(new StringBuilder("//text()[not(normalize-space())]"))));
         addCommand("suffix",
                    "suffix {expression} with {query} -- add result of query as last child of each selected node",
                    (cmd) -> update(cmd, "suffix"));
@@ -174,6 +175,7 @@ public class Gizmo {
         config = Configuration.newConfiguration();
         config.setConfigurationProperty(Feature.ALLOW_SYNTAX_EXTENSIONS, true);
         env = new IndependentContext(config);
+        env.setXPathLanguageLevel(40);
         String source = null;
         String script = null;
         boolean interactive = true;
@@ -195,7 +197,7 @@ public class Gizmo {
 
         if (source != null) {
             try {
-                load(new StringBuffer(source));
+                load(new StringBuilder(source));
             } catch (XPathException e) {
                 System.err.println(e.getMessage());
                 System.exit(2);
@@ -204,9 +206,9 @@ public class Gizmo {
             try {
                 String dummy = "<dummy/>";
                 StreamSource ss = new StreamSource(new StringReader(dummy));
-                ParseOptions options = new ParseOptions();
-                options.setModel(TreeModel.LINKED_TREE);
-                options.setLineNumbering(true);
+                ParseOptions options = new ParseOptions()
+                        .withModel(TreeModel.LINKED_TREE)
+                        .withLineNumbering(true);
                 currentDoc = (DocumentImpl) config.buildDocumentTree(ss, options).getRootNode();
                 typed = false;
             } catch (XPathException e) {
@@ -215,16 +217,16 @@ public class Gizmo {
             }
         }
 
-        env.declareNamespace("xml", NamespaceConstant.XML);
-        env.declareNamespace("xsl", NamespaceConstant.XSLT);
-        env.declareNamespace("saxon", NamespaceConstant.SAXON);
-        env.declareNamespace("xs", NamespaceConstant.SCHEMA);
-        env.declareNamespace("xsi", NamespaceConstant.SCHEMA_INSTANCE);
-        env.declareNamespace("fn", NamespaceConstant.FN);
-        env.declareNamespace("math", NamespaceConstant.MATH);
-        env.declareNamespace("map", NamespaceConstant.MAP_FUNCTIONS);
-        env.declareNamespace("array", NamespaceConstant.ARRAY_FUNCTIONS);
-        env.declareNamespace("", "");
+        env.declareNamespace("xml", NamespaceUri.XML);
+        env.declareNamespace("xsl", NamespaceUri.XSLT);
+        env.declareNamespace("saxon", NamespaceUri.SAXON);
+        env.declareNamespace("xs", NamespaceUri.SCHEMA);
+        env.declareNamespace("xsi", NamespaceUri.SCHEMA_INSTANCE);
+        env.declareNamespace("fn", NamespaceUri.FN);
+        env.declareNamespace("math", NamespaceUri.MATH);
+        env.declareNamespace("map", NamespaceUri.MAP_FUNCTIONS);
+        env.declareNamespace("array", NamespaceUri.ARRAY_FUNCTIONS);
+        env.declareNamespace("", NamespaceUri.NULL);
 
         env.setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy.ANY_NAMESPACE);
 
@@ -241,17 +243,18 @@ public class Gizmo {
         config = Configuration.newConfiguration();
         config.setConfigurationProperty(Feature.ALLOW_SYNTAX_EXTENSIONS, true);
         env = new IndependentContext(config);
+        env.setXPathLanguageLevel(40);
 
-        env.declareNamespace("xml", NamespaceConstant.XML);
-        env.declareNamespace("xsl", NamespaceConstant.XSLT);
-        env.declareNamespace("saxon", NamespaceConstant.SAXON);
-        env.declareNamespace("xs", NamespaceConstant.SCHEMA);
-        env.declareNamespace("xsi", NamespaceConstant.SCHEMA_INSTANCE);
-        env.declareNamespace("fn", NamespaceConstant.FN);
-        env.declareNamespace("math", NamespaceConstant.MATH);
-        env.declareNamespace("map", NamespaceConstant.MAP_FUNCTIONS);
-        env.declareNamespace("array", NamespaceConstant.ARRAY_FUNCTIONS);
-        env.declareNamespace("", "");
+        env.declareNamespace("xml", NamespaceUri.XML);
+        env.declareNamespace("xsl", NamespaceUri.XSLT);
+        env.declareNamespace("saxon", NamespaceUri.SAXON);
+        env.declareNamespace("xs", NamespaceUri.SCHEMA);
+        env.declareNamespace("xsi", NamespaceUri.SCHEMA_INSTANCE);
+        env.declareNamespace("fn", NamespaceUri.FN);
+        env.declareNamespace("math", NamespaceUri.MATH);
+        env.declareNamespace("map", NamespaceUri.MAP_FUNCTIONS);
+        env.declareNamespace("array", NamespaceUri.ARRAY_FUNCTIONS);
+        env.declareNamespace("", NamespaceUri.NULL);
 
         env.setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy.ANY_NAMESPACE);
 
@@ -263,7 +266,6 @@ public class Gizmo {
 
     /**
      * Set the current document (for testing purposes)
-     *
      * @param doc the current document
      */
     public void setCurrentDoc(DocumentImpl doc) {
@@ -272,7 +274,6 @@ public class Gizmo {
 
     /**
      * Get the current document (for testing purposes)
-     *
      * @return the current document
      */
     public DocumentImpl getCurrentDoc() {
@@ -281,7 +282,6 @@ public class Gizmo {
 
     /**
      * Execute a test command
-     *
      * @param command the command to be executed
      * @return the output of the command, if any
      * @throws XPathException if the command execution fails
@@ -299,7 +299,7 @@ public class Gizmo {
         if (cmd == null) {
             throw new XPathException("\"Unknown command \" + cmd + \"");
         } else {
-            cmd.action.perform(new StringBuffer(remainder));
+            cmd.action.perform(new StringBuilder(remainder));
         }
         try {
             return outStream.toString("utf-8");
@@ -307,7 +307,6 @@ public class Gizmo {
             throw new XPathException(e);
         }
     }
-
 
     protected Talker initTalker(String script) {
         if (script == null) {
@@ -374,16 +373,20 @@ public class Gizmo {
                 if (cmd == null) {
                     if (interactive) {
                         sysOut.println("Unknown command " + keyword + " (Use 'quit' to exit)");
-                        help(new StringBuffer("?"));
+                        help(new StringBuilder("?"));
                     } else {
                         throw new XPathException("\"Unknown command \" + cmd + \"");
                     }
                 } else {
-                    cmd.action.perform(new StringBuffer(remainder));
+                    try {
+                        cmd.action.perform(new StringBuilder(remainder));
+                    } catch (UncheckedXPathException e) {
+                        throw e.getXPathException();
+                    }
                 }
 
             } catch (XPathException e) {
-                sysOut.println(e.getErrorCodeLocalPart() + ": " + e.getMessage());
+                sysOut.println(e.showErrorCode() + ": " + e.getMessage());
                 if (interactive) {
                     //sysOut.print("|>");
                 } else {
@@ -393,7 +396,7 @@ public class Gizmo {
         }
     }
 
-    private void help(StringBuffer command) {
+    private void help(StringBuilder command) {
         String cmd = command == null ? null : command.toString().trim();
         if (cmd == null || cmd.isEmpty() || cmd.equals("help") || cmd.equals("?")) {
             sysOut.println("Commands available:");
@@ -414,19 +417,19 @@ public class Gizmo {
 
     /**
      * Read an XPath expression from a supplied input string, execute the expression,
-     * and return an iterator over the result. As a side-effect, modify the supplied
-     * StringBuffer so it contains whatever remains after parsing the expression.
+     * and return an iterator over the result. As a side effect, modify the supplied
+     * StringBuilder so that it contains whatever remains after parsing the expression.
      *
      * @param selection the input buffer, which is modified as a side-effect
      * @return an iterator over the results of the expression
      * @throws XPathException if evaluation of the expression fails
      */
-    private SequenceIterator getSelectedItems(StringBuffer selection, int terminator) throws XPathException {
+    private SequenceIterator getSelectedItems(StringBuilder selection, int terminator) throws XPathException {
         XPathExpression expr = getExpression(selection, terminator);
         return evaluateExpression(expr, currentDoc);
     }
 
-    private List<NodeInfo> listOfSelectedItems(StringBuffer selection, int terminator) throws XPathException {
+    private List<NodeInfo> listOfSelectedItems(StringBuilder selection, int terminator) throws XPathException {
         // Gather all the items first, then delete them. See bug 5106
         List<NodeInfo> nodes = new ArrayList<>();
         Item node;
@@ -437,14 +440,13 @@ public class Gizmo {
         return nodes;
     }
 
-
-    private XPathExpression getExpression(StringBuffer selection, int terminator) throws XPathException {
+    private XPathExpression getExpression(StringBuilder selection, int terminator) throws XPathException {
         XPathEvaluator evaluator = new XPathEvaluator(config);
         evaluator.setStaticContext(env);
         for (StructuredQName var : variables.keySet()) {
             env.declareVariable(var);
         }
-        XPathParser scanner = config.newExpressionParser("XP", false, 31);
+        XPathParser scanner = config.newExpressionParser("XP", false, env);
         scanner.parse(selection.toString(), 0, terminator, env);
         int endPoint = scanner.getTokenizer().currentTokenStartOffset;
         XPathExpression expr = evaluator.createExpression(selection.substring(0, endPoint));
@@ -452,7 +454,7 @@ public class Gizmo {
         return expr;
     }
 
-    private XQueryExpression getQuery(StringBuffer query) throws XPathException {
+    private XQueryExpression getQuery(StringBuilder query) throws XPathException {
         StaticQueryContext sqc = config.makeStaticQueryContext(true);
         for (StructuredQName var : variables.keySet()) {
             sqc.declareGlobalVariable(var, SequenceType.ANY_SEQUENCE, variables.get(var), false);
@@ -470,7 +472,7 @@ public class Gizmo {
 
     private SequenceIterator evaluateExpression(XPathExpression expr, Item contextItem) throws XPathException {
         XPathDynamicContext context = expr.createDynamicContext(contextItem);
-        for (Map.Entry<StructuredQName, Sequence> var : variables.entrySet()) {
+        for (Map.Entry<StructuredQName, GroundedValue> var : variables.entrySet()) {
             XPathVariable v = env.getExternalVariable(var.getKey());
             context.setVariable(v, var.getValue());
         }
@@ -494,7 +496,7 @@ public class Gizmo {
     }
 
     private void saveCurrentDoc() throws XPathException {
-        Builder builder = new LinkedTreeBuilder(config.makePipelineConfiguration());
+        Builder builder = new LinkedTreeBuilder(config.makePipelineConfiguration(), Durability.MUTABLE);
         currentDoc.copy(builder, CopyOptions.ALL_NAMESPACES, Loc.NONE);
         final DocumentImpl copy = (DocumentImpl) builder.getCurrentRoot();
         undoBuffer.add(currentDoc);
@@ -504,14 +506,13 @@ public class Gizmo {
         }
     }
 
-    private void copy(StringBuffer buffer) throws XPathException {
+    private void copy(StringBuilder buffer) throws XPathException {
         needCurrentDoc();
         SequenceIterator iter = getSelectedItems(buffer, Token.EOF);
-        Builder builder = new LinkedTreeBuilder(config.makePipelineConfiguration());
+        Builder builder = new LinkedTreeBuilder(config.makePipelineConfiguration(), Durability.MUTABLE);
         builder.open();
         builder.startDocument(0);
-        Item item;
-        while ((item = iter.next()) != null) {
+        for (Item item; (item = iter.next()) != null; ) {
             if (item instanceof NodeInfo) {
                 ((NodeInfo) item).copy(builder, CopyOptions.ALL_NAMESPACES, Loc.NONE);
             } else {
@@ -522,10 +523,16 @@ public class Gizmo {
         unsaved = true;
     }
 
-    private void delete(StringBuffer buffer) throws XPathException {
+    private void dropElementIndexes() {
+        currentDoc.resetIndexes();
+    }
+
+    private void delete(StringBuilder buffer) throws XPathException {
         needCurrentDoc();
         saveCurrentDoc();
+        // Gather all the items first, then delete them. See bug 5106
         List<NodeInfo> nodes = listOfSelectedItems(buffer, Token.EOF);
+        // Drop element indexes
         dropElementIndexes();
         for (Item item : nodes) {
             if (item instanceof MutableNodeInfo) {
@@ -557,13 +564,13 @@ public class Gizmo {
         "union"
     };
 
-    private void load(StringBuffer source) throws XPathException {
+    private void load(StringBuilder source) throws XPathException {
         String fileName = source.toString();
         fileName = fileName.replaceFirst("^~", System.getProperty("user.home"));
         StreamSource ss = new StreamSource(new File(fileName));
-        ParseOptions options = new ParseOptions();
-        options.setModel(TreeModel.LINKED_TREE);
-        options.setLineNumbering(true);
+        ParseOptions options = new ParseOptions()
+                .withModel(TreeModel.LINKED_TREE)
+                .withLineNumbering(true);
         currentDoc = (DocumentImpl) config.buildDocumentTree(ss, options).getRootNode();
         typed = false;
         Set<String> names = new HashSet<>();
@@ -583,7 +590,7 @@ public class Gizmo {
         talker.setAutoCompletion(sortedNames);
     }
 
-    private void call(StringBuffer source) throws XPathException {
+    private void call(StringBuilder source) throws XPathException {
         try {
             InputStream is = new FileInputStream(source.toString());
             DefaultTalker talker = new DefaultTalker(is, new PrintStream(sysOut));
@@ -593,17 +600,17 @@ public class Gizmo {
         }
     }
 
-    private void namespace(StringBuffer buffer) throws XPathException {
+    private void namespace(StringBuilder buffer) throws XPathException {
         int ws = buffer.indexOf(" ");
         if (ws < 0) {
             throw new XPathException("No namespace prefix supplied");
         }
         String prefix = buffer.substring(0, ws).trim();
         String uri = buffer.substring(ws).trim();
-        env.declareNamespace(prefix, uri);
+        env.declareNamespace(prefix, NamespaceUri.of(uri));
     }
 
-    private void rename(StringBuffer buffer) throws XPathException {
+    private void rename(StringBuilder buffer) throws XPathException {
         needCurrentDoc();
         saveCurrentDoc();
         List<NodeInfo> nodes = listOfSelectedItems(buffer, Token.AS);
@@ -628,7 +635,7 @@ public class Gizmo {
         }
     }
 
-    private void replace(StringBuffer buffer) throws XPathException {
+    private void replace(StringBuilder buffer) throws XPathException {
         needCurrentDoc();
         saveCurrentDoc();
         List<NodeInfo> nodes = listOfSelectedItems(buffer, Token.WITH);
@@ -638,11 +645,11 @@ public class Gizmo {
         for (NodeInfo item : nodes) {
             if (item instanceof MutableNodeInfo) {
                 MutableNodeInfo target = (MutableNodeInfo) item;
-                GroundedValue newValue = evaluateQuery(replacement, item).materialize();
+                GroundedValue newValue = SequenceTool.toGroundedValue(evaluateQuery(replacement, item));
                 if (newValue instanceof AtomicValue) {
                     Orphan orphan = new Orphan(config);
                     orphan.setNodeKind(Type.TEXT);
-                    orphan.setStringValue(newValue.getStringValue());
+                    orphan.setStringValue(((AtomicValue)newValue).getUnicodeStringValue());
                     newValue = orphan;
                 }
                 switch (target.getNodeKind()) {
@@ -672,7 +679,7 @@ public class Gizmo {
                             } else if (it instanceof AtomicValue) {
                                 Orphan orphan = new Orphan(config);
                                 orphan.setNodeKind(Type.TEXT);
-                                orphan.setStringValue(it.getStringValue());
+                                orphan.setStringValue(it.getUnicodeStringValue());
                                 newChildren.add(orphan);
                             }
                         }
@@ -690,7 +697,7 @@ public class Gizmo {
                                 ((NodeInfo)newValue.itemAt(0)).getNodeKind() == Type.ATTRIBUTE) {
                             NodeInfo att = ((NodeInfo) newValue.itemAt(0));
                             ((MutableNodeInfo) target.getParent()).addAttribute(
-                                    NameOfNode.makeName(att), (SimpleType)att.getSchemaType(), att.getStringValueCS(), 0, true);
+                                    NameOfNode.makeName(att), (SimpleType)att.getSchemaType(), att.getStringValue(), 0, true);
                         } else {
                             throw new XPathException("Replacement for an attribute must be an attribute");
                         }
@@ -706,7 +713,7 @@ public class Gizmo {
         unsaved = true;
     }
 
-    private void undo(StringBuffer buffer) throws XPathException {
+    private void undo(StringBuilder buffer) throws XPathException {
         int len= undoBuffer.size();
         if (len > 0) {
             currentDoc = undoBuffer.remove(len - 1);
@@ -715,7 +722,7 @@ public class Gizmo {
         }
     }
 
-    private void update(StringBuffer buffer, String where) throws XPathException {
+    private void update(StringBuilder buffer, String where) throws XPathException {
         needCurrentDoc();
         saveCurrentDoc();
         List<NodeInfo> nodes = listOfSelectedItems(buffer, Token.WITH);
@@ -725,9 +732,9 @@ public class Gizmo {
         for (NodeInfo item : nodes) {
             if (item instanceof MutableNodeInfo) {
                 MutableNodeInfo target = (MutableNodeInfo) item;
-                GroundedValue newValue = evaluateQuery(newContent, item).materialize();
+                GroundedValue newValue = SequenceTool.toGroundedValue(evaluateQuery(newContent, item));
                 if (newValue instanceof AtomicValue && where.equals("content")) {
-                    target.replaceStringValue(((AtomicValue) newValue).getStringValueCS());
+                    target.replaceStringValue(((AtomicValue) newValue).getUnicodeStringValue());
                 } else {
                     List<NodeInfo> replacement = new ArrayList<>();
                     List<NodeInfo> replacementAtts = new ArrayList<>();
@@ -751,7 +758,7 @@ public class Gizmo {
                         } else if (it instanceof AtomicValue) {
                             Orphan orphan = new Orphan(config);
                             orphan.setNodeKind(Type.TEXT);
-                            orphan.setStringValue(it.getStringValue());
+                            orphan.setStringValue(it.getUnicodeStringValue());
                             replacement.add(orphan);
                         }
                     }
@@ -798,14 +805,9 @@ public class Gizmo {
     }
 
 
-    private void dropElementIndexes() {
-        currentDoc.resetIndexes();
-    }
-
-
-    private void save(StringBuffer buffer) throws XPathException {
+    private void save(StringBuilder buffer) throws XPathException {
         needCurrentDoc();
-        Whitespace.Tokenizer tokens = new Whitespace.Tokenizer(buffer);
+        Whitespace.Tokenizer tokens = new Whitespace.Tokenizer(StringView.tidy(buffer.toString()));
         StringValue fileName = tokens.next();
         if (fileName == null) {
             throw new XPathException("No file name supplied");
@@ -842,7 +844,7 @@ public class Gizmo {
         unsaved = false;
     }
 
-    private void schema(StringBuffer buffer) throws XPathException {
+    private void schema(StringBuilder buffer) throws XPathException {
         if (!config.isLicensedFeature(Configuration.LicenseFeature.SCHEMA_VALIDATION)) {
             throw new XPathException("Schema processing is not supported in this Saxon configuration");
         }
@@ -851,7 +853,7 @@ public class Gizmo {
         config.loadSchema(new File(fileName).getAbsoluteFile().toURI().toString());
     }
 
-    private void set(StringBuffer buffer) throws XPathException {
+    private void set(StringBuilder buffer) throws XPathException {
         int ws = buffer.indexOf("=");
         if (ws < 0 || ws == buffer.length() - 1) {
             throw new XPathException("Format: set name = value");
@@ -862,14 +864,14 @@ public class Gizmo {
         }
         DocumentImpl saved = currentDoc;
 
-        GroundedValue value = getSelectedItems(new StringBuffer(buffer.substring(ws + 1)), Token.EOF).materialize();
+        GroundedValue value = SequenceTool.toGroundedValue(getSelectedItems(new StringBuilder(buffer.substring(ws + 1)), Token.EOF));
         if (varName.equals(".")) {
             saveCurrentDoc();
             if (value.getLength() == 1 && value.itemAt(0) instanceof DocumentImpl) {
                 currentDoc = (DocumentImpl) value.itemAt(0);
             } else {
                 try {
-                    Builder builder = new LinkedTreeBuilder(config.makePipelineConfiguration());
+                    Builder builder = new LinkedTreeBuilder(config.makePipelineConfiguration(), Durability.MUTABLE);
                     ComplexContentOutputter cco = new ComplexContentOutputter(builder);
                     cco.open();
                     cco.startDocument(0);
@@ -891,17 +893,16 @@ public class Gizmo {
         }
     }
 
-    private void validate(StringBuffer buffer) throws XPathException {
+    private void validate(StringBuilder buffer) throws XPathException {
         if (!config.isLicensedFeature(Configuration.LicenseFeature.SCHEMA_VALIDATION)) {
             throw new XPathException("Schema processing is not supported in this Saxon configuration");
         }
         needCurrentDoc();
         saveCurrentDoc();
         PipelineConfiguration pipe = config.makePipelineConfiguration();
-        Builder builder = new LinkedTreeBuilder(pipe);
+        Builder builder = new LinkedTreeBuilder(pipe, Durability.MUTABLE);
         builder.open();
-        ParseOptions options = new ParseOptions();
-        options.setSchemaValidationMode(Validation.STRICT);
+        ParseOptions options = new ParseOptions().withSchemaValidationMode(Validation.STRICT);
         Receiver val = config.getDocumentValidator(builder, currentDoc.getSystemId(), options, Loc.NONE);
         currentDoc.copy(val, CopyOptions.ALL_NAMESPACES, Loc.NONE);
         builder.close();
@@ -910,10 +911,10 @@ public class Gizmo {
         typed = true;
     }
 
-    private void list(StringBuffer buffer) throws XPathException {
+    private void list(StringBuilder buffer) throws XPathException {
         needCurrentDoc();
         SequenceIterator iter = getSelectedItems(buffer, Token.EOF);
-        GroundedValue value = iter.materialize();
+        GroundedValue value = SequenceTool.toGroundedValue(iter);
         int size = value.getLength();
         if (size != 1) {
             sysOut.println("Found " + size + " items");
@@ -925,18 +926,18 @@ public class Gizmo {
                 String prefix = lineNumber >= 0 ? ("Line " + lineNumber + ": ") : "";
                 sysOut.println(prefix + Navigator.getPath(((NodeInfo) item)));
             } else {
-                sysOut.println(item.getStringValue());
+                sysOut.println(item.getUnicodeStringValue());
             }
         }
     }
 
-    private void show(StringBuffer buffer) throws XPathException {
+    private void show(StringBuilder buffer) throws XPathException {
         needCurrentDoc();
         if (buffer.toString().trim().isEmpty()) {
-            buffer = new StringBuffer(".");
+            buffer = new StringBuilder(".");
         }
         SequenceIterator iter = getSelectedItems(buffer, Token.EOF);
-        GroundedValue value = iter.materialize();
+        GroundedValue value = SequenceTool.toGroundedValue(iter);
         int size = value.getLength();
         if (size != 1) {
             sysOut.println("Found " + size + " items");
@@ -945,7 +946,7 @@ public class Gizmo {
             if (item instanceof NodeInfo) {
                 sysOut.println(QueryResult.serialize((NodeInfo) item));
             } else if (item instanceof AtomicValue) {
-                sysOut.println(item.getStringValue());
+                sysOut.println(item.getUnicodeStringValue());
             } else {
                 StringWriter sw = new StringWriter();
                 SerializationProperties props = new SerializationProperties();
@@ -957,7 +958,7 @@ public class Gizmo {
         }
     }
 
-    private void transform(StringBuffer buffer) throws XPathException {
+    private void transform(StringBuilder buffer) throws XPathException {
         try {
             needCurrentDoc();
             saveCurrentDoc();
@@ -966,9 +967,9 @@ public class Gizmo {
             StreamSource ss = new StreamSource(new File(fileName));
             Templates templates = new TransformerFactoryImpl(config).newTemplates(ss);
             Transformer transformer = templates.newTransformer();
-            Builder result = new LinkedTreeBuilder(config.makePipelineConfiguration());
+            Builder result = new LinkedTreeBuilder(config.makePipelineConfiguration(), Durability.MUTABLE);
             result.open();
-            transformer.transform(currentDoc, result);
+            transformer.transform(currentDoc.asActiveSource(), result);
             result.close();
             currentDoc = (DocumentImpl)result.getCurrentRoot();
         } catch (TransformerException e) {

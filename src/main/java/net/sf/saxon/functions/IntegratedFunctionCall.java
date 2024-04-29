@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,7 +21,10 @@ import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * Expression representing a call to a user-written extension
@@ -29,8 +32,8 @@ import net.sf.saxon.value.SequenceType;
  */
 public class IntegratedFunctionCall extends FunctionCall implements Callable {
 
-    private StructuredQName name;
-    private ExtensionFunctionCall function;
+    private final StructuredQName name;
+    private final ExtensionFunctionCall function;
     private SequenceType resultType = SequenceType.ANY_SEQUENCE;
     private int state = 0;
 
@@ -65,7 +68,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
      * @return the target function, or null if unknown
      */
     @Override
-    public Function getTargetFunction(XPathContext context) {
+    public FunctionItem getTargetFunction(XPathContext context) {
         return null;
     }
 
@@ -93,7 +96,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
      */
 
     @Override
-    public void checkArguments(/*@NotNull*/ ExpressionVisitor visitor) throws XPathException {
+    protected void checkArguments(/*@NotNull*/ ExpressionVisitor visitor) throws XPathException {
         ExtensionFunctionDefinition definition = function.getDefinition();
         checkArgumentCount(definition.getMinimumNumberOfArguments(), definition.getMaximumNumberOfArguments());
         final int args = getArity();
@@ -105,12 +108,15 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
         SequenceType[] actualArgumentTypes = new SequenceType[args];
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
         for (int i = 0; i < args; i++) {
+            final int pos = i;
+            Supplier<RoleDiagnostic> role =
+                    () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, getFunctionName().getDisplayName(), pos);
             setArg(i, tc.staticTypeCheck(
                     getArg(i),
                     i < declaredArgumentTypes.length ?
                             declaredArgumentTypes[i] :
                             declaredArgumentTypes[declaredArgumentTypes.length - 1],
-                    new RoleDiagnostic(RoleDiagnostic.FUNCTION, getFunctionName().getDisplayName(), i),
+                    role,
                     visitor));
 
             actualArgumentTypes[i] = SequenceType.makeSequenceType(
@@ -229,10 +235,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        ExtensionFunctionCall newCall = function.getDefinition().makeCallExpression();
-        newCall.setDefinition(function.getDefinition());
-        function.copyLocalData(newCall);
-        IntegratedFunctionCall copy = new IntegratedFunctionCall(getFunctionName(), newCall);
+        IntegratedFunctionCall copy = new IntegratedFunctionCall(getFunctionName(), function);
         Expression[] args = new Expression[getArity()];
         for (int i = 0; i < args.length; i++) {
             args[i] = getArg(i).copy(rebindings);
@@ -284,7 +287,8 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
         for (int i = 0; i < argValues.length; i++) {
             argValues[i] = SequenceTool.toLazySequence(getArg(i).iterate(context));
         }
-        final RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, getFunctionName().getDisplayName(), 0);
+        final Supplier<RoleDiagnostic> role =
+                () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, getFunctionName().getDisplayName(), 0);
         final Configuration config = context.getConfiguration();
         final TypeHierarchy th = config.getTypeHierarchy();
 
@@ -292,8 +296,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
         try {
             result = function.call(context, argValues).iterate();
         } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            throw e;
+            throw e.maybeWithLocation(getLocation());
         }
         if (!definition.trustResultType()) {
             int card = resultType.getCardinality();
@@ -302,21 +305,51 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
             }
             final ItemType type = resultType.getPrimaryType();
             if (type != AnyItemType.getInstance()) {
-                result = new ItemMappingIterator(result,
-                                                 item -> {
-                                                     if (!type.matches(item, th)) {
-                                                         String msg = role.composeErrorMessage(type, item, th);
-                                                         XPathException err = new XPathException(msg, "XPTY0004");
-                                                         err.setLocation(getLocation());
-                                                         throw err;
-                                                     }
-                                                     return item;
-                                                 }, true);
+                result = new ItemMappingIterator(result, ItemMapper.of(item -> {
+                     if (!type.matches(item, th)) {
+                         String msg = role.get().composeErrorMessage(type, item, th);
+                         throw new XPathException(msg, "XPTY0004").withLocation(getLocation());
+                     }
+                     return item;
+                 }), true);
             }
             if (th.relationship(type, AnyNodeTest.getInstance()) != Affinity.DISJOINT) {
                 result = new ItemMappingIterator(
                         result,
                         new ConfigurationCheckingFunction(context.getConfiguration()), true);
+            }
+        }
+        return result;
+    }
+
+
+    @Override
+    public Item evaluateItem(final XPathContext context) throws XPathException {
+        ExtensionFunctionDefinition definition = function.getDefinition();
+        Sequence[] argValues = new Sequence[getArity()];
+        for (int i = 0; i < argValues.length; i++) {
+            argValues[i] = SequenceTool.toLazySequence(getArg(i).iterate(context));
+        }
+        final RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, getFunctionName().getDisplayName(), 0);
+        final Configuration config = context.getConfiguration();
+        final TypeHierarchy th = config.getTypeHierarchy();
+
+        Item result;
+        try {
+            result = function.call(context, argValues).head();
+        } catch (XPathException e) {
+            throw e.maybeWithLocation(getLocation());
+        }
+        if (!definition.trustResultType()) {
+            final ItemType type = resultType.getPrimaryType();
+            if (result == null ? !Cardinality.allowsZero(resultType.getCardinality()) : !type.matches(result, th)) {
+                String msg = role.composeErrorMessage(type, result, th);
+                throw new XPathException(msg, "XPTY0004")
+                    .withLocation(getLocation());
+            }
+            if (result instanceof NodeInfo && !config.isCompatible(((NodeInfo) result).getConfiguration())) {
+                throw new XPathException(
+                        "Node returned by extension function was created with an incompatible Configuration", SaxonErrorCode.SXXP0004);
             }
         }
         return result;
@@ -343,8 +376,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
         try {
             return function.effectiveBooleanValue(context, argValues);
         } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            throw e;
+            throw e.maybeWithLocation(getLocation());
         }
     }
 
@@ -361,7 +393,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
 
     public static class ConfigurationCheckingFunction implements ItemMappingFunction {
 
-        private Configuration config;
+        private final Configuration config;
 
         public ConfigurationCheckingFunction(Configuration config) {
             this.config = config;

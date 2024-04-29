@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,16 +7,12 @@
 
 package net.sf.saxon.type;
 
-import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.om.Function;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
 import net.sf.saxon.value.*;
 
@@ -204,17 +200,17 @@ public abstract class Type {
                 default:
                     throw new IllegalArgumentException("Unknown node kind " + node.getNodeKind());
             }
-        } else if (item instanceof ExternalObject) {
+        } else if (item.getGenre() == Genre.EXTERNAL) {
             if (th == null) {
                 throw new IllegalArgumentException("typeHierarchy is required for an external object");
             }
-            return ((ExternalObject<?>) item).getItemType(th);
+            return ((AnyExternalObject) item).getItemType(th);
         } else if (item instanceof MapItem) {
             return th == null ? MapType.ANY_MAP_TYPE : ((MapItem)item).getItemType(th);
         } else if (item instanceof ArrayItem) {
             return th == null ? ArrayItemType.ANY_ARRAY_TYPE : new ArrayItemType(((ArrayItem) item).getMemberType(th));
         } else { //if (item instanceof FunctionItem) {
-            return ((Function) item).getFunctionItemType();
+            return ((FunctionItem) item).getFunctionItemType();
         }
     }
 
@@ -235,14 +231,22 @@ public abstract class Type {
                     return "document-node()";
                 case ELEMENT:
                     SchemaType annotation = node.getSchemaType();
-                    return "element(" +
-                            ((NodeInfo) item).getDisplayName() + ", " +
-                            annotation.getDisplayName() + ')';
+                    if (annotation.isAnonymousType()) {
+                        return "element(" + ((NodeInfo) item).getDisplayName() + ')';
+                    } else {
+                        return "element(" +
+                                ((NodeInfo) item).getDisplayName() + ", " +
+                                annotation.getDisplayName() + ')';
+                    }
                 case ATTRIBUTE:
                     SchemaType annotation2 = node.getSchemaType();
-                    return "attribute(" +
-                            ((NodeInfo) item).getDisplayName() + ", " +
-                            annotation2.getDisplayName() + ')';
+                    if (annotation2.isAnonymousType()) {
+                        return "attribute(" + ((NodeInfo) item).getDisplayName() + ')';
+                    } else {
+                        return "attribute(" +
+                                ((NodeInfo) item).getDisplayName() + ", " +
+                                annotation2.getDisplayName() + ')';
+                    }
                 case TEXT:
                     return "text()";
                 case COMMENT:
@@ -254,11 +258,11 @@ public abstract class Type {
                 default:
                     return "";
             }
-        } else if (item instanceof ExternalObject) {
-            return ObjectValue.displayTypeName(((ExternalObject) item).getObject());
+        } else if (item.getGenre() == Genre.EXTERNAL) {
+            return ObjectValue.displayTypeName(((AnyExternalObject) item).getWrappedObject());
         } else if (item instanceof AtomicValue) {
             return ((AtomicValue) item).getItemType().toString();
-        } else if (item instanceof Function) {
+        } else if (item instanceof FunctionItem) {
             return "function(*)";
         } else {
             return item.getClass().toString();
@@ -274,7 +278,7 @@ public abstract class Type {
      */
 
     /*@Nullable*/
-    public static ItemType getBuiltInItemType(String namespace, String localName) {
+    public static ItemType getBuiltInItemType(NamespaceUri namespace, String localName) {
         SchemaType t = BuiltInType.getSchemaType(
                 StandardNames.getFingerprint(namespace, localName));
         if (t instanceof ItemType) {
@@ -293,7 +297,7 @@ public abstract class Type {
      */
 
     /*@Nullable*/
-    public static SimpleType getBuiltInSimpleType(String namespace, String localName) {
+    public static SimpleType getBuiltInSimpleType(NamespaceUri namespace, String localName) {
         SchemaType t = BuiltInType.getSchemaType(
                 StandardNames.getFingerprint(namespace, localName));
         if (t instanceof SimpleType && ((SimpleType) t).isBuiltInType()) {
@@ -347,10 +351,9 @@ public abstract class Type {
             return t1;
         }
         if (t1 instanceof JavaExternalObjectType && t2 instanceof JavaExternalObjectType) {
-            Configuration config = ((JavaExternalObjectType) t1).getConfiguration();
-            Class c1 = ((JavaExternalObjectType) t1).getJavaClass();
-            Class c2 = ((JavaExternalObjectType) t2).getJavaClass();
-            return config.getJavaExternalObjectType(leastCommonSuperClass(c1, c2));
+            Class<?> c1 = ((JavaExternalObjectType) t1).getJavaClass();
+            Class<?> c2 = ((JavaExternalObjectType) t2).getJavaClass();
+            return JavaExternalObjectType.of(leastCommonSuperClass(c1, c2));
         }
         if (t1 instanceof MapType && t2 instanceof MapType) {
             if (t1 == MapType.EMPTY_MAP_TYPE) {
@@ -409,6 +412,12 @@ public abstract class Type {
         ItemType p1 = t1.getPrimitiveItemType();
         ItemType p2 = t2.getPrimitiveItemType();
         if (p1 == p2) {
+            if (t1.getGenre() == Genre.ARRAY && t2.getGenre() == Genre.ARRAY) {
+                return ArrayItemType.ANY_ARRAY_TYPE;
+            }
+            if (t1.getGenre() == Genre.MAP && t2.getGenre() == Genre.MAP) {
+                return MapType.ANY_MAP_TYPE;
+            }
             return p1;
         }
         if ((p1 == BuiltInAtomicType.DECIMAL && p2 == BuiltInAtomicType.INTEGER) ||
@@ -426,10 +435,9 @@ public abstract class Type {
             return AnyNodeTest.getInstance();
         }
         if (t1 instanceof JavaExternalObjectType && t2 instanceof JavaExternalObjectType) {
-            Configuration config = ((JavaExternalObjectType) t1).getConfiguration();
-            Class c1 = ((JavaExternalObjectType) t1).getJavaClass();
-            Class c2 = ((JavaExternalObjectType) t2).getJavaClass();
-            return config.getJavaExternalObjectType(leastCommonSuperClass(c1, c2));
+            Class<?> c1 = ((JavaExternalObjectType) t1).getJavaClass();
+            Class<?> c2 = ((JavaExternalObjectType) t2).getJavaClass();
+            return JavaExternalObjectType.of(leastCommonSuperClass(c1, c2));
         }
         return AnyItemType.getInstance();
 
@@ -465,7 +473,6 @@ public abstract class Type {
         return leastCommonSuperClass(class1.getSuperclass(), class2.getSuperclass());
     }
 
-
     /**
      * Determine whether a given atomic type is a primitive type. The primitive types are
      * the 19 primitive types of XML Schema, plus xs:integer, xs:dayTimeDuration and xs:yearMonthDuration;
@@ -499,9 +506,9 @@ public abstract class Type {
      * Determine whether two primitive atomic types are comparable under the rules for ValueComparisons
      * (that is, untyped atomic values treated as strings)
      *
-     * @param t1      the first type to compared.
+     * @param t1      the first type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
-     * @param t2      the second type to compared.
+     * @param t2      the second type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
      * @param ordered true if testing for an ordering comparison (lt, gt, le, ge). False
      *                if testing for an equality comparison (eq, ne)
@@ -545,18 +552,17 @@ public abstract class Type {
      * Determine whether two primitive atomic types are comparable under the rules for ValueComparisons
      * (that is, untyped atomic values treated as strings)
      *
-     * @param t1      the first type to compared.
+     * @param t1      the first type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
-     * @param t2      the second type to compared.
+     * @param t2      the second type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
-     * @param ordered true if testing for an ordering comparison (lt, gt, le, ge). False
-     *                if testing for an equality comparison (eq, ne)
+     * @param version the XPath language level (either 20, 30, 305, 31 or 40)
      * @return true if the types are guaranteed comparable, as defined by the rules of the "eq" operator,
      *         or if we don't yet know (because some subtypes of the static type are comparable
      *         and others are not). False if they are definitely not comparable.
      */
 
-    public static boolean isPossiblyComparable(/*@NotNull*/ BuiltInAtomicType t1, /*@NotNull*/ BuiltInAtomicType t2, boolean ordered) {
+    public static boolean isPossiblyComparable(/*@NotNull*/ BuiltInAtomicType t1, /*@NotNull*/ BuiltInAtomicType t2, int version) {
         if (t1 == t2) {
             return true; // short cut
         }
@@ -584,6 +590,14 @@ public abstract class Type {
         if (t2.equals(BuiltInAtomicType.YEAR_MONTH_DURATION)) {
             t2 = BuiltInAtomicType.DURATION;
         }
+        if (version >= 40) {
+            if (t1.equals(BuiltInAtomicType.BASE64_BINARY)) {
+                t1 = BuiltInAtomicType.HEX_BINARY;
+            }
+            if (t2.equals(BuiltInAtomicType.BASE64_BINARY)) {
+                t2 = BuiltInAtomicType.HEX_BINARY;
+            }
+        }
         return t1 == t2;
     }
 
@@ -592,9 +606,9 @@ public abstract class Type {
      * Determine whether two primitive atomic types are comparable under the rules for GeneralComparisons
      * (that is, untyped atomic values treated as comparable to anything)
      *
-     * @param t1      the first type to compared.
+     * @param t1      the first type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
-     * @param t2      the second type to compared.
+     * @param t2      the second type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
      * @param ordered true if testing for an ordering comparison (lt, gt, le, ge). False
      *                if testing for an equality comparison (eq, ne)
@@ -614,9 +628,9 @@ public abstract class Type {
      * (that is, untyped atomic values treated as comparable to anything). This method returns false if a run-time
      * check is necessary.
      *
-     * @param t1      the first type to compared.
+     * @param t1      the first type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
-     * @param t2      the second type to compared.
+     * @param t2      the second type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
      * @param ordered true if testing for an ordering comparison (lt, gt, le, ge). False
      *                if testing for an equality comparison (eq, ne)

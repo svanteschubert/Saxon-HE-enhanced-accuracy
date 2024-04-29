@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,6 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.value.SequenceType;
 
 import java.util.Optional;
 
@@ -62,27 +60,13 @@ public interface ItemType {
     boolean isPlainType();
 
     /**
-     * Ask whether this {@code ItemType} actually represents an item type in the XDM sense
-     * of the term. The only instances that aren't true item types are user-defined union types
-     * derived by restriction from other union types or containing list types in their transitive
-     * membership ("impure union types")
-     * @return true if this is a true item type in the XDM sense
-     */
-
-    default boolean isTrueItemType() {
-        return true;
-    }
-
-    /**
      * Test whether a given item conforms to this type
-     *
-     *
      * @param item    The item to be tested
      * @param th      The type hierarchy cache. Currently used only when matching function items.
      * @return true if the item is an instance of this type; false otherwise
      */
 
-    boolean matches(Item item, TypeHierarchy th) throws XPathException;
+    boolean matches(Item item, TypeHierarchy th);
 
     /**
      * Get the primitive item type corresponding to this item type. For item(),
@@ -171,6 +155,7 @@ public interface ItemType {
      * Get the full alpha code for this item type. As well as the basic alpha code, this contains
      * additional information, for example <code>element(EFG)</code> has a basic alpha code of
      * <code>NE</code>, but the full alpha code of <code>NE nQ{}EFG</code>.
+     * @return the alpha code for the type
      */
 
     default String getFullAlphaCode() {
@@ -190,52 +175,6 @@ public interface ItemType {
         return toString();
     }
 
-
-    /**
-     * Extension of the ItemType interface implemented by some item types, to provide
-     * a cache of SequenceType objects based on this item type, with different
-     * occurrence indicators.
-     */
-
-    interface WithSequenceTypeCache extends ItemType {
-        /**
-         * Get a sequence type representing exactly one instance of this atomic type
-         *
-         * @return a sequence type representing exactly one instance of this atomic type
-         * @since 9.8.0.2
-         */
-
-        SequenceType one();
-        /**
-         * Get a sequence type representing zero or one instances of this atomic type
-         *
-         * @return a sequence type representing zero or one instances of this atomic type
-         * @since 9.8.0.2
-         */
-
-        SequenceType zeroOrOne();
-
-        /**
-         * Get a sequence type representing one or more instances of this atomic type
-         *
-         * @return a sequence type representing one or more instances of this atomic type
-         * @since 9.8.0.2
-         */
-
-        SequenceType oneOrMore();
-
-        /**
-         * Get a sequence type representing one or more instances of this atomic type
-         *
-         * @return a sequence type representing one or more instances of this atomic type
-         * @since 9.8.0.2
-         */
-
-        SequenceType zeroOrMore();
-
-    }
-
-    String toString();
 
     /**
      * Get extra diagnostic information about why a supplied item does not conform to this

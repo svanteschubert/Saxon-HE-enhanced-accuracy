@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,8 @@
 package net.sf.saxon.tree.util;
 
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -19,10 +21,10 @@ import java.util.Iterator;
  */
 public class NamespaceResolverWithDefault implements NamespaceResolver {
 
-    private NamespaceResolver baseResolver;
-    private String defaultNamespace;
+    private final NamespaceResolver baseResolver;
+    private final NamespaceUri defaultNamespace;
 
-    public NamespaceResolverWithDefault(NamespaceResolver base, String defaultNamespace) {
+    public NamespaceResolverWithDefault(NamespaceResolver base, NamespaceUri defaultNamespace) {
         this.baseResolver = base;
         this.defaultNamespace = defaultNamespace;
     }
@@ -42,7 +44,7 @@ public class NamespaceResolverWithDefault implements NamespaceResolver {
 
     /*@Nullable*/
     @Override
-    public String getURIForPrefix(/*@NotNull*/ String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(/*@NotNull*/ String prefix, boolean useDefault) {
         if (useDefault && prefix.isEmpty()) {
             return defaultNamespace;
         } else {
@@ -56,8 +58,9 @@ public class NamespaceResolverWithDefault implements NamespaceResolver {
      */
 
     @Override
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public Iterator<String> iteratePrefixes() {
-        ArrayList<String> list = new ArrayList<String>(10);
+        ArrayList<String> list = new ArrayList<>(10);
         for (Iterator<String> it = baseResolver.iteratePrefixes(); it.hasNext(); ) {
             String p = it.next();
             if (p.length() != 0) {

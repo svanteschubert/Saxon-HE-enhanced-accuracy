@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,14 +8,13 @@
 package net.sf.saxon.type;
 
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.Invalidity;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.AbsolutePath;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.AtomicValue;
 
 import javax.xml.transform.SourceLocator;
@@ -51,7 +50,7 @@ public class ValidationFailure
     private SchemaType schemaType;
     /*@Nullable*/ private StructuredQName errorCode;
     private ValidationException exception;
-    private boolean hasBeenReported;
+    private boolean errorHasBeenReported;
 
 
     /**
@@ -62,6 +61,11 @@ public class ValidationFailure
     public ValidationFailure(String message) {
         this.message = message;
         setErrorCode("FORG0001");
+    }
+
+    public ValidationFailure(String message, String errorCode) {
+        this.message = message;
+        setErrorCode(errorCode);
     }
 
     /**
@@ -257,7 +261,7 @@ public class ValidationFailure
      * @return the String representation of this Exception
      */
     public String toString() {
-        FastStringBuffer sb = new FastStringBuffer("ValidationException: ");
+        StringBuilder sb = new StringBuilder("ValidationException: ");
         String message = getMessage();
         if (message != null) {
             sb.append(message);
@@ -358,7 +362,7 @@ public class ValidationFailure
         if (errorCode == null) {
             this.errorCode = null;
         } else {
-            this.errorCode = new StructuredQName("err", NamespaceConstant.ERR, errorCode);
+            this.errorCode = new StructuredQName("err", NamespaceUri.ERR, errorCode);
         }
     }
 
@@ -368,7 +372,7 @@ public class ValidationFailure
 
     /**
      * Get the error code associated with the validity error. This is relevant only when validation
-     * is run from within XSLT or XQuery, which define different error codes for validation errors.
+     * is run from within XSLT or XQuery, which define different error codes for validation errors
      *
      * @return the error code associated with the error, if any. The error is returned as a simple
      * string if it is in the standard error namespace, or as an EQName (that is Q{uri}local) otherwise.
@@ -377,7 +381,7 @@ public class ValidationFailure
     public String getErrorCode() {
         if (errorCode == null) {
             return null;
-        } else if (errorCode.hasURI(NamespaceConstant.ERR)) {
+        } else if (errorCode.hasURI(NamespaceUri.ERR)) {
             return errorCode.getLocalPart();
         } else {
             return errorCode.getEQName();
@@ -409,7 +413,7 @@ public class ValidationFailure
         } else {
             ve.setErrorCodeQName(errorCode);
         }
-        ve.setHasBeenReported(hasBeenReported);
+        ve.setHasBeenReported(errorHasBeenReported);
         exception = ve;
         return ve;
     }
@@ -433,11 +437,11 @@ public class ValidationFailure
     }
 
     public boolean hasBeenReported() {
-        return hasBeenReported;
+        return errorHasBeenReported;
     }
 
     public void setHasBeenReported(boolean reported) {
-        hasBeenReported = reported;
+        errorHasBeenReported = reported;
         if (exception != null) {
             exception.setHasBeenReported(reported);
         }
@@ -456,7 +460,7 @@ public class ValidationFailure
      */
 
     public String getValidationLocationText() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         AbsolutePath valPath = getAbsolutePath();
         if (valPath != null) {
             fsb.append("Validating ");
@@ -483,7 +487,7 @@ public class ValidationFailure
      */
 
     public String getContextLocationText() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
+        StringBuilder fsb = new StringBuilder(256);
         AbsolutePath contextPath = getContextPath();
         if (contextPath != null) {
             fsb.append("Currently processing ");

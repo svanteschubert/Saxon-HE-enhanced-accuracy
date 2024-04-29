@@ -9,7 +9,6 @@ package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.AbstractFunction;
-import net.sf.saxon.om.Function;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.XQueryFunction;
@@ -41,12 +40,12 @@ public class UnresolvedXQueryFunctionItem extends AbstractFunction {
 
     @Override
     public int getArity() {
-        return fd.getNumberOfArguments();
+        return functionName.getArity();
     }
 
     @Override
     public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
-        return ((Function) ref.evaluateItem(context)).call(context, args);
+        return ref.evaluateItem(context).call(context, args);
     }
 
     @Override
@@ -59,5 +58,5 @@ public class UnresolvedXQueryFunctionItem extends AbstractFunction {
     }
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -98,7 +98,11 @@ public class XPathFactoryImpl extends XPathFactory implements Configuration.ApiP
     }
 
     private boolean silentIsObjectModelSupported(String model) {
-        return model.equals(NamespaceConstant.OBJECT_MODEL_SAXON) || config.getExternalObjectModel(model) != null;
+        try {
+            return model.equals(NamespaceConstant.OBJECT_MODEL_SAXON) || config.getExternalObjectModel(model) != null;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -213,7 +217,7 @@ public class XPathFactoryImpl extends XPathFactory implements Configuration.ApiP
         return xpath;
     }
 
-    private static String FEATURE_SECURE_PROCESSING = XMLConstants.FEATURE_SECURE_PROCESSING;
+    private static final String FEATURE_SECURE_PROCESSING = XMLConstants.FEATURE_SECURE_PROCESSING;
     // "http://javax.xml.XMLConstants/feature/secure-processing";
 
 }

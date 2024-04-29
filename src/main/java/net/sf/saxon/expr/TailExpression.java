@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,18 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 
@@ -43,13 +47,17 @@ public class TailExpression extends UnaryExpression {
     /*@NotNull*/
     @Override
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
-        getOperand().optimize(visitor, contextInfo);
-        if (getBaseExpression() instanceof Literal) {
-            GroundedValue value =
-                    iterate(visitor.getStaticContext().makeEarlyEvaluationContext()).materialize();
-            return Literal.makeLiteral(value, this);
+        try {
+            getOperand().optimize(visitor, contextInfo);
+            if (getBaseExpression() instanceof Literal) {
+                GroundedValue value =
+                        SequenceTool.toGroundedValue(iterate(visitor.getStaticContext().makeEarlyEvaluationContext()));
+                return Literal.makeLiteral(value, this);
+            }
+            return this;
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
-        return this;
     }
 
     /**
@@ -87,7 +95,7 @@ public class TailExpression extends UnaryExpression {
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality() | StaticProperty.ALLOWS_ZERO;
     }
 
@@ -120,7 +128,7 @@ public class TailExpression extends UnaryExpression {
     }
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode() ^ start;
     }
 
@@ -198,6 +206,37 @@ public class TailExpression extends UnaryExpression {
         } else {
             return getBaseExpression().toShortString() + "[position() ge " + start + "]";
         }
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new TailExprElaborator();
+    }
+
+    /**
+     * Elaborator for a tail expression
+     */
+
+    public static class TailExprElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final TailExpression expr = (TailExpression) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            final int start = expr.getStart();
+
+            return context -> {
+                SequenceIterator baseIter = baseEval.iterate(context);
+                return TailIterator.make(baseIter, start);
+            };
+
+        }
+
     }
 }
 

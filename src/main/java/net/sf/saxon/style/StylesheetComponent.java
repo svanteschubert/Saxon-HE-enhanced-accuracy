@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,6 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.expr.parser.Optimizer;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 
@@ -36,17 +35,10 @@ public interface StylesheetComponent {
      *
      * @param declaration the combination of the source XSLT element defining the component, and the
      * module in which it appears
+     * @throws XPathException if an error is found at this stage (which shouldn't really happen)
      */
 
     void optimize(ComponentDeclaration declaration) throws XPathException;
-
-    /**
-     * Generate byte code if appropriate
-     * @param opt the optimizer
-     * @throws XPathException if bytecode generation fails
-     */
-
-    void generateByteCode(Optimizer opt) throws XPathException;
 
     /**
      * Get the corresponding Actor object that results from the compilation of this

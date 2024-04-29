@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,7 @@ public class OptimizerOptions {
     public static final int INLINE_FUNCTIONS = 8;
     public static final int INDEX_VARIABLES = 16;
     public static final int CREATE_KEYS = 32;
-    public static final int BYTE_CODE = 64;
+    public static final int BYTE_CODE_NOT_USED = 64;
     public static final int COMMON_SUBEXPRESSIONS = 128;
     public static final int MISCELLANEOUS = 256;
     public static final int SWITCH = 512;
@@ -29,8 +29,9 @@ public class OptimizerOptions {
     public static final int VOID_EXPRESSIONS = 8192;
     public static final int TAIL_CALLS = 16384;
     public static final int CONSTANT_FOLDING = 32768;
+    public static final int REORDER_PREDICATES = 65536;
 
-    private int options;
+    private final int options;
 
     public final static OptimizerOptions FULL_HE_OPTIMIZATION = new OptimizerOptions("lvmt");
     public final static OptimizerOptions FULL_EE_OPTIMIZATION = new OptimizerOptions(-1);
@@ -43,7 +44,7 @@ public class OptimizerOptions {
         int opt = 0;
         if (flags.startsWith("-")) {
             opt = -1;
-            for (int i = 0; i < flags.length(); i++) {
+            for (int i = 1; i < flags.length(); i++) {
                 char c = flags.charAt(i);
                 opt &= ~decodeFlag(c);
             }
@@ -59,7 +60,7 @@ public class OptimizerOptions {
     private int decodeFlag(char flag) {
         switch (flag) {
             case 'c':
-                return BYTE_CODE;
+                return BYTE_CODE_NOT_USED;
             case 'd':
                 return VOID_EXPRESSIONS;
             case 'e':
@@ -78,6 +79,8 @@ public class OptimizerOptions {
                 return MISCELLANEOUS;
             case 'n':
                 return CONSTANT_FOLDING;
+            case 'p':
+                return REORDER_PREDICATES;
             case 'r':
                 return RULE_SET;
             case 's':
@@ -109,9 +112,6 @@ public class OptimizerOptions {
 
     public String toString() {
         String result = "";
-        if (isSet(BYTE_CODE)) {
-            result += "c";
-        }
         if (isSet(VOID_EXPRESSIONS)) {
             result += "d";
         }
@@ -138,6 +138,9 @@ public class OptimizerOptions {
         }
         if (isSet(CONSTANT_FOLDING)) {
             result += "n";
+        }
+        if (isSet(REORDER_PREDICATES)) {
+            result += "p";
         }
         if (isSet(RULE_SET)) {
             result += "r";

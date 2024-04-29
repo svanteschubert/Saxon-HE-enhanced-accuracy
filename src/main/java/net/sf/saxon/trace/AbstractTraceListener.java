@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,15 +10,17 @@ package net.sf.saxon.trace;
 import net.sf.saxon.Controller;
 import net.sf.saxon.Version;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.instruct.ApplyTemplates;
 import net.sf.saxon.expr.instruct.Instruction;
-import net.sf.saxon.expr.parser.CodeInjector;
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.*;
+import net.sf.saxon.lib.Logger;
+import net.sf.saxon.lib.StandardDiagnostics;
+import net.sf.saxon.lib.StandardLogger;
+import net.sf.saxon.lib.TraceListener;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.Mode;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.Whitespace;
@@ -35,15 +37,7 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
     protected int indent = 0;
     private int detail = 2; // none=0; low=1; normal=2; high=3
     protected Logger out = new StandardLogger();
-    /*@NotNull*/ private static StringBuffer spaceBuffer = new StringBuffer("                ");
-
-    /**
-     * Get the associated CodeInjector to be used at compile time to generate the tracing calls
-     */
-
-    public CodeInjector getCodeInjector() {
-        return new TraceCodeInjector();
-    }
+    /*@NotNull*/ private static final StringBuilder spaceBuffer = new StringBuilder("                ");
 
     /**
      * Set the level of detail required
@@ -86,15 +80,14 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
     public void enter(Traceable info, Map<String, Object> properties, XPathContext context) {
         if (isApplicable(info)) {
             Location loc = info.getLocation();
-            String tag = tag(info);
             String file = abbreviateLocationURI(loc.getSystemId());
-            StringBuilder msg = new StringBuilder(AbstractTraceListener.spaces(indent) + '<' + tag);
+            StringBuilder msg = new StringBuilder(AbstractTraceListener.spaces(indent) + '<' + tag(info));
             for (Map.Entry<String, Object> entry : properties.entrySet()) {
                 Object val = entry.getValue();
                 if (val instanceof StructuredQName) {
                     val = ((StructuredQName)val).getDisplayName();
                 } else if (val instanceof StringValue) {
-                    val = ((StringValue)val).getStringValue();
+                    val = ((StringValue)val).getUnicodeStringValue();
                 }
                 if (val != null) {
                     msg.append(' ').append(entry.getKey()).append("=\"").append(escape(val.toString())).append('"');
@@ -119,14 +112,16 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
      * Escape a string for XML output (in an attribute delimited by double quotes).
      * This method also collapses whitespace (since the value may be an XPath expression that
      * was originally written over several lines).
+     * @param in the input string
+     * @return the escaped string
      */
 
     public String escape(/*@Nullable*/ String in) {
         if (in == null) {
             return "";
         }
-        CharSequence collapsed = Whitespace.collapseWhitespace(in);
-        FastStringBuffer sb = new FastStringBuffer(collapsed.length() + 10);
+        String collapsed = Whitespace.collapseWhitespace(in);
+        StringBuilder sb = new StringBuilder(collapsed.length() + 10);
         for (int i = 0; i < collapsed.length(); i++) {
             char c = collapsed.charAt(i);
             if (c == '<') {
@@ -144,7 +139,7 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
             } else if (c == '\t') {
                 sb.append("&#x9;");
             } else {
-                sb.cat(c);
+                sb.append(c);
             }
         }
         return sb.toString();
@@ -152,15 +147,14 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
 
     /**
      * Called after an instruction of the stylesheet got processed
-     * @param info
+     * @param info trace information
      */
 
     @Override
     public void leave(Traceable info) {
         if (isApplicable(info)) {
-            String tag = tag(info);
             indent--;
-            out.info(AbstractTraceListener.spaces(indent) + "</" + tag + '>');
+            out.info(AbstractTraceListener.spaces(indent) + "</" + tag(info) + '>');
         }
     }
 
@@ -171,7 +165,7 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
     protected abstract String tag(Traceable info);
 
     protected int level(Traceable info) {
-        if (info instanceof TraceableComponent) {
+        if (info instanceof TraceableComponent || info instanceof ApplyTemplates) {
             return 1;
         } if (info instanceof Instruction) {
             return 2;
@@ -212,6 +206,8 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
 
     /**
      * Get n spaces
+     * @param n the requested number of spaces
+     * @return a string containing the requested number of spaces
      */
 
     protected static String spaces(int n) {
@@ -234,6 +230,7 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
 
     /**
      * Get the output destination
+     * @return the output destination for tracing output
      */
 
     public Logger getOutputDestination() {
@@ -242,7 +239,7 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
 
     /**
      * Method called when a rule search has completed.
-     *  @param rule the rule (or possible built-in ruleset) that has been selected
+     * @param rule the rule (or possible built-in ruleset) that has been selected
      * @param mode the mode in operation
      * @param item the item that was checked against
      */

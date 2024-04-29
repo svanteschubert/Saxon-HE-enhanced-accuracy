@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -48,7 +48,7 @@ public class LiteralResultElement extends StyleElement {
     private int validation = Validation.STRIP;
     private boolean inheritNamespaces = true;
 
-    private static IntHashSet STANDARD_ATTRIBUTES = IntHashSet.of(
+    private static final IntHashSet STANDARD_ATTRIBUTES = IntHashSet.of(
             StandardNames.XSL_USE_ATTRIBUTE_SETS,
             StandardNames.XSL_DEFAULT_COLLATION,
             StandardNames.XSL_DEFAULT_MODE,
@@ -62,6 +62,7 @@ public class LiteralResultElement extends StyleElement {
             StandardNames.XSL_USE_WHEN,
             StandardNames.XSL_VALIDATION);
 
+    public LiteralResultElement() {}
 
     /**
      * Determine whether this type of element is allowed to contain a sequence constructor
@@ -70,7 +71,7 @@ public class LiteralResultElement extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -84,11 +85,44 @@ public class LiteralResultElement extends StyleElement {
     }
 
     /**
+     * Ask whether the element is in the XSLT namespace
+     *
+     * @return true if the element is in the XSLT namespace
+     */
+    @Override
+    public boolean isInXsltNamespace() {
+        return false;
+    }
+
+    @Override
+    public void processStandardAttributes(NamespaceUri namespace) {
+        int processorVersion = getCompilation().getCompilerInfo().getXsltVersion();
+        if (getParent() instanceof DocumentImpl && processorVersion >= 40) {
+            if (getAttributeValue(namespace, "version") == null) {
+                version = processorVersion;
+            } else {
+                processVersionAttribute(namespace);
+            }
+            if (version >= 40 && getAttributeValue(namespace, "expand-text") == null) {
+                expandText = true;
+            } else {
+                processExpandTextAttribute(namespace);
+            }
+            processExtensionElementAttribute(namespace);
+            processExcludedNamespaces(namespace);
+            processDefaultXPathNamespaceAttribute(namespace);
+            processDefaultValidationAttribute(namespace);
+        } else {
+            super.processStandardAttributes(namespace);
+        }
+    }
+
+    /**
      * Process the attribute list
      */
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         // Process the values of all attributes. At this stage we deal with attribute
         // values (especially AVTs), but we do not apply namespace aliasing to the
@@ -107,9 +141,9 @@ public class LiteralResultElement extends StyleElement {
             for (AttributeInfo att : atts) {
                 NodeName name = att.getNodeName();
                 int fp = name.getFingerprint();
-                String attURI = name.getURI();
+                NamespaceUri attURI = name.getNamespaceUri();
 
-                if (attURI.equals(NamespaceConstant.XSLT)) {
+                if (attURI.equals(NamespaceUri.XSLT)) {
                     if (!STANDARD_ATTRIBUTES.contains(fp)) {
                         // Standard attributes have already been dealt with
                         if (fp == StandardNames.XSL_INHERIT_NAMESPACES) {
@@ -141,8 +175,6 @@ public class LiteralResultElement extends StyleElement {
 
     /**
      * Validate that this node is OK
-     *
-     * @param decl
      */
 
     @Override
@@ -152,13 +184,11 @@ public class LiteralResultElement extends StyleElement {
 
         resultNodeName = getNodeName();
 
-        String elementURI = getURI();
-
         if (toplevel) {
             // A top-level element can never be a "real" literal result element,
             // but this class gets used for unknown elements found at the top level
 
-            if (elementURI.isEmpty()) {
+            if (getNamespaceUri().isEmpty()) {
                 compileError("Top level elements must have a non-null namespace URI", "XTSE0130");
                 // Now gets caught earlier - such elements are built as DataElement instances
             }
@@ -182,13 +212,13 @@ public class LiteralResultElement extends StyleElement {
             if (sheet.hasNamespaceAliases()) {
                 NamespaceMap aliasedNamespaces = retainedNamespaces;
                 for (NamespaceBinding nb : retainedNamespaces) {
-                    String suri = nb.getURI();
+                    NamespaceUri suri = nb.getNamespaceUri();
                     NamespaceBinding ncode = sheet.getNamespaceAlias(suri);
-                    if (ncode != null && !ncode.getURI().equals(suri)) {
+                    if (ncode != null && !ncode.getNamespaceUri().equals(suri)) {
                         // apply the namespace alias.
                         aliasedNamespaces = aliasedNamespaces.remove(nb.getPrefix());
-                        if (!ncode.getURI().isEmpty()) {
-                            aliasedNamespaces = aliasedNamespaces.put(ncode.getPrefix(), ncode.getURI());
+                        if (!ncode.getNamespaceUri().isEmpty()) {
+                            aliasedNamespaces = aliasedNamespaces.put(ncode.getPrefix(), ncode.getNamespaceUri());
                         }
                     }
                 }
@@ -196,23 +226,24 @@ public class LiteralResultElement extends StyleElement {
 
                 // determine if there is an alias for the namespace of the element name
 
+                NamespaceUri elementURI = getNamespaceUri();
                 NamespaceBinding elementAlias = sheet.getNamespaceAlias(elementURI);
-                if (elementAlias != null && !elementAlias.getURI().equals(elementURI)) {
+                if (elementAlias != null && !elementAlias.getNamespaceUri().equals(elementURI)) {
                     resultNodeName = new FingerprintedQName(elementAlias.getPrefix(),
-                            elementAlias.getURI(),
+                            elementAlias.getNamespaceUri(),
                             getLocalPart());
                 }
             }
 
             // deal with special attributes
 
-            String useAttSets = getAttributeValue(NamespaceConstant.XSLT, "use-attribute-sets");
+            String useAttSets = getAttributeValue(NamespaceUri.XSLT, "use-attribute-sets");
             if (useAttSets != null) {
                 attributeSets = getUsedAttributeSets(useAttSets);
             }
 
             validation = getDefaultValidation();
-            String type = getAttributeValue(NamespaceConstant.XSLT, "type");
+            String type = getAttributeValue(NamespaceUri.XSLT, "type");
             if (type != null) {
                 if (!isSchemaAware()) {
                     compileError("The xsl:type attribute is available only with a schema-aware XSLT processor", "XTSE1660");
@@ -221,7 +252,7 @@ public class LiteralResultElement extends StyleElement {
                 validation = Validation.BY_TYPE;
             }
 
-            String validate = getAttributeValue(NamespaceConstant.XSLT, "validation");
+            String validate = getAttributeValue(NamespaceUri.XSLT, "validation");
             if (validate != null) {
                 validation = validateValidationAttribute(validate);
                 if (schemaType != null) {
@@ -238,14 +269,14 @@ public class LiteralResultElement extends StyleElement {
 
                     NodeName anameCode = attributeNames[i];
                     NodeName alias = anameCode;
-                    String attURI = anameCode.getURI();
+                    NamespaceUri attURI = anameCode.getNamespaceUri();
 
                     if (!attURI.isEmpty()) {    // attribute has a namespace prefix
                         NamespaceBinding newBinding = sheet.getNamespaceAlias(attURI);
-                        if (newBinding != null && !newBinding.getURI().equals(attURI)) {
+                        if (newBinding != null && !newBinding.getNamespaceUri().equals(attURI)) {
                             alias = new FingerprintedQName(
                                     newBinding.getPrefix(),
-                                    newBinding.getURI(),
+                                    newBinding.getNamespaceUri(),
                                     anameCode.getLocalPart());
                             changed = true;
                         }
@@ -274,7 +305,7 @@ public class LiteralResultElement extends StyleElement {
 
             NamespaceMap afterExclusions = retainedNamespaces;
             for (NamespaceBinding nb : retainedNamespaces) {
-                String uri = nb.getURI();
+                NamespaceUri uri = nb.getNamespaceUri();
                 if (isExcludedNamespace(uri) && !sheet.isAliasResultNamespace(uri)) {
                     afterExclusions = afterExclusions.remove(nb.getPrefix());
                 }
@@ -286,9 +317,6 @@ public class LiteralResultElement extends StyleElement {
     /**
      * Validate the children of this node, recursively. Overridden for top-level
      * data elements.
-     *
-     * @param decl
-     * @param excludeStylesheet
      */
 
     @Override
@@ -316,6 +344,7 @@ public class LiteralResultElement extends StyleElement {
                 true, schemaType,
                 validation);
 
+        inst.setLocation(allocateLocation());
         Expression content = compileSequenceConstructor(exec, decl, true);
 
         if (numberOfAttributes > 0) {
@@ -378,33 +407,34 @@ public class LiteralResultElement extends StyleElement {
         // the implementation grafts the LRE node onto a containing xsl:template and
         // xsl:stylesheet
 
+        int processorVersion = getCompilation().getCompilerInfo().getXsltVersion();
         StyleNodeFactory nodeFactory = getCompilation().getStyleNodeFactory(topLevel);
-        if (!isInScopeNamespace(NamespaceConstant.XSLT)) {
+        if (!isInScopeNamespace(NamespaceUri.XSLT) && processorVersion < 40) {
             String message;
             if (getLocalPart().equals("stylesheet") || getLocalPart().equals("transform")) {
                 message = "Namespace for stylesheet element should be " + NamespaceConstant.XSLT;
             } else {
                 message = "The supplied file does not appear to be a stylesheet";
             }
-            XPathException err = new XPathException(message);
-            err.setLocation(allocateLocation());
-            err.setErrorCode("XTSE0150");
-            err.setIsStaticError(true);
+            XPathException err = new XPathException(message)
+                    .withLocation(allocateLocation())
+                    .withErrorCode("XTSE0150")
+                    .asStaticError();
             //noinspection EmptyCatchBlock
             compileError(err);
             throw err;
 
         }
 
-        // check there is an xsl:version attribute (it's mandatory), and copy
+        // check there is an xsl:version attribute (it's mandatory until 4.0), and copy
         // it to the new xsl:stylesheet element
 
-        String version = getAttributeValue(NamespaceConstant.XSLT, "version");
-        if (version == null) {
-            XPathException err = new XPathException("Simplified stylesheet: xsl:version attribute is missing");
-            err.setErrorCode("XTSE0150");
-            err.setIsStaticError(true);
-            err.setLocation(allocateLocation());
+        String version = getAttributeValue(NamespaceUri.XSLT, "version");
+        if (version == null && processorVersion < 40) {
+            XPathException err = new XPathException("Simplified stylesheet: xsl:version attribute is missing")
+                    .withErrorCode("XTSE0150")
+                    .asStaticError()
+                    .withLocation(allocateLocation());
             //noinspection EmptyCatchBlock
             compileError(err);
             throw err;
@@ -412,7 +442,8 @@ public class LiteralResultElement extends StyleElement {
 
         try {
             DocumentImpl oldRoot = (DocumentImpl) getRoot();
-            LinkedTreeBuilder builder = new LinkedTreeBuilder(getConfiguration().makePipelineConfiguration());
+            LinkedTreeBuilder builder = new LinkedTreeBuilder(
+                    getConfiguration().makePipelineConfiguration(), Durability.LASTING);
             builder.setNodeFactory(nodeFactory);
             builder.setSystemId(this.getSystemId());
 
@@ -421,11 +452,14 @@ public class LiteralResultElement extends StyleElement {
 
             final Location loc = Loc.NONE;
 
-            NamespaceMap map = getAllNamespaces().put("xsl", NamespaceConstant.XSLT);
+            NamespaceMap map = getAllNamespaces().put("xsl", NamespaceUri.XSLT);
             AttributeMap atts = EmptyAttributeMap.getInstance();
             atts = atts.put(new AttributeInfo(
-                    new NoNamespaceName("version"), BuiltInAtomicType.UNTYPED_ATOMIC, version, loc, ReceiverOption.NONE));
-
+                    new NoNamespaceName("version"), BuiltInAtomicType.UNTYPED_ATOMIC, version==null ? "4.0" : version, loc, ReceiverOption.NONE));
+            if (processorVersion >= 40 && getAttributeValue(NamespaceUri.XSLT, "expand-text") == null) {
+                atts = atts.put(new AttributeInfo(
+                        new NoNamespaceName("expand-text"), BuiltInAtomicType.UNTYPED_ATOMIC, "yes", loc, ReceiverOption.NONE));
+            }
             int st = StandardNames.XSL_STYLESHEET;
             builder.startElement(new CodedName(st, "xsl", getNamePool()), Untyped.getInstance(),
                                  atts, map, loc, ReceiverOption.NONE);
@@ -448,9 +482,7 @@ public class LiteralResultElement extends StyleElement {
             newRoot.graftLocationMap(oldRoot);
             return newRoot;
         } catch (XPathException err) {
-            //TransformerConfigurationException e = new TransformerConfigurationException(err);
-            err.setLocation(allocateLocation());
-            throw err;
+            throw err.withLocation(allocateLocation());
         }
 
     }
@@ -465,7 +497,7 @@ public class LiteralResultElement extends StyleElement {
 
     @Override
     public StructuredQName getObjectName() {
-        return new StructuredQName(getPrefix(), getURI(), getLocalPart());
+        return new StructuredQName(getPrefix(), getNamespaceUri(), getLocalPart());
     }
 
 }

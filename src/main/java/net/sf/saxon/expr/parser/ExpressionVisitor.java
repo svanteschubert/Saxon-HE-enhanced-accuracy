@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,10 +23,10 @@ public class ExpressionVisitor  {
     private StaticContext staticContext;
     private boolean optimizeForStreaming = false;
     private boolean optimizeForPatternMatching = false;
-    private Configuration config;
+    private final Configuration config;
     private Optimizer optimizer;
     private int depth = 0;
-
+    private boolean inliningFunctions = false;
     private boolean suppressWarnings = false;
 
     private final static int MAX_DEPTH = 500;
@@ -86,14 +86,14 @@ public class ExpressionVisitor  {
 
     /**
      * Issue a warning message
-     *
-     * @param message the message
+     *  @param message the message
+     * @param errorCode the error code associated with the message
      * @param locator the query/stylesheet location associated with the message
      */
 
-    public void issueWarning(String message, Location locator) {
+    public void issueWarning(String message, String errorCode, Location locator) {
         if (!isSuppressWarnings()) {
-            staticContext.issueWarning(message, locator);
+            staticContext.issueWarning(message, errorCode, locator);
         }
     }
 
@@ -205,6 +205,15 @@ public class ExpressionVisitor  {
 
     public void setSuppressWarnings(boolean suppressWarnings) {
         this.suppressWarnings = suppressWarnings;
+    }
+
+
+    public boolean isInliningFunctions() {
+        return inliningFunctions;
+    }
+
+    public void setInliningFunctions(boolean inliningFunctions) {
+        this.inliningFunctions = inliningFunctions;
     }
 
 }

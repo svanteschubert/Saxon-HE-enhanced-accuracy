@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,9 @@
 package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.Controller;
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.*;
 import net.sf.saxon.functions.CurrentGroupCall;
@@ -29,6 +29,7 @@ import net.sf.saxon.value.StringValue;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.function.Supplier;
 
 
 /**
@@ -37,23 +38,24 @@ import java.net.URISyntaxException;
  */
 
 public class ForEachGroup extends Instruction
-        implements SortKeyEvaluator, ContextMappingFunction, ContextSwitchingExpression {
+        implements SortKeyEvaluator, ContextSwitchingExpression {
 
     public static final int GROUP_BY = 0;
     public static final int GROUP_ADJACENT = 1;
     public static final int GROUP_STARTING = 2;
     public static final int GROUP_ENDING = 3;
+    public static final int GROUP_SPLIT_WHEN = 4;
 
-    private byte algorithm;
-    private int keyItemType;
-    private StringCollator collator = null;             // collation used for the grouping comparisons
-    private transient AtomicComparer[] sortComparators = null;    // comparators used for sorting the groups
+    private final byte algorithm;
+    private StringCollator collator;             // collation used for the grouping comparisons
+    private AtomicComparer[] sortComparators = null;    // comparators used for sorting the groups
+    private ItemEvaluator[] sortKeyEvaluators = null;
     private boolean composite = false;
-    private boolean isInFork = false;
+    private boolean inFork = false;
 
-    private Operand selectOp;
-    private Operand actionOp;
-    private Operand keyOp;
+    private final Operand selectOp;
+    private final Operand actionOp;
+    private final Operand keyOp;
     private Operand collationOp;
     private Operand sortKeysOp;
 
@@ -153,16 +155,6 @@ public class ForEachGroup extends Instruction
     }
 
     /**
-     * Get the primitive item type of the key
-     *
-     * @return the primitive item type of the grouping key
-     */
-
-    public int getKeyItemType() {
-        return keyItemType;
-    }
-
-    /**
      * Get the sort keys defined at the for-each-group level, that is, the keys for sorting the groups
      *
      * @return the definitions of the sort keys defined as children of the xsl:for-each-group element,
@@ -219,11 +211,11 @@ public class ForEachGroup extends Instruction
     }
 
     public boolean isInFork() {
-        return isInFork;
+        return inFork;
     }
 
     public void setIsInFork(boolean inFork) {
-        isInFork = inFork;
+        this.inFork = inFork;
     }
 
     /**
@@ -253,9 +245,7 @@ public class ForEachGroup extends Instruction
             return Literal.makeEmptySequence();
         }
 
-        for (Operand o : operands()) {
-            fixupGroupReferences(this, this, selectedItemType, false);
-        }
+        fixupGroupReferences(this, this, selectedItemType, false);
 
         ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(selectedItemType, false);
         cit.setContextSettingExpression(getSelectExpression());
@@ -278,9 +268,8 @@ public class ForEachGroup extends Instruction
                 if (sk.isBackwardsCompatible()) {
                     sortKey = FirstItemExpression.makeFirstItemExpression(sortKey);
                 } else {
-                    RoleDiagnostic role =
-                            new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:sort/select", 0);
-                    role.setErrorCode("XTTE1020");
+                    Supplier<RoleDiagnostic> role =
+                            () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:sort/select", 0, "XTTE1020");
                     sortKey = CardinalityChecker.makeCardinalityChecker(sortKey, StaticProperty.ALLOWS_ZERO_OR_ONE, role);
                 }
                 sk.setSortKey(sortKey, true);
@@ -300,7 +289,6 @@ public class ForEachGroup extends Instruction
                 }
             }
         }
-        keyItemType = getGroupingKey().getItemType().getPrimitiveType();
 
         return this;
     }
@@ -366,7 +354,7 @@ public class ForEachGroup extends Instruction
             collationOp.optimize(visitor, contextItemType);
         }
         if (collator == null && (getCollationNameExpression() instanceof StringLiteral)) {
-            String collation = ((StringLiteral) getCollationNameExpression()).getStringValue();
+            String collation = ((StringLiteral) getCollationNameExpression()).stringify();
             URI collationURI;
             try {
                 collationURI = new URI(collation);
@@ -376,17 +364,13 @@ public class ForEachGroup extends Instruction
                     setCollationNameExpression(new StringLiteral(collationNameString));
                     collator = visitor.getConfiguration().getCollation(collationNameString);
                     if (collator == null) {
-                        XPathException err = new XPathException("Unknown collation " + Err.wrap(collationURI.toString(), Err.URI));
-                        err.setErrorCode("XTDE1110");
-                        err.setLocation(getLocation());
-                        throw err;
+                        throw new XPathException("Unknown collation " + Err.wrap(collationURI.toString(), Err.URI))
+                                .withErrorCode("XTDE1110").withLocation(getLocation());
                     }
                 }
             } catch (URISyntaxException err) {
-                XPathException e = new XPathException("Collation name '" + getCollationNameExpression() + "' is not a valid URI");
-                e.setErrorCode("XTDE1110");
-                e.setLocation(getLocation());
-                throw e;
+                throw new XPathException("Collation name '" + getCollationNameExpression() + "' is not a valid URI")
+                        .withErrorCode("XTDE1110").withLocation(getLocation());
             }
         }
         return this;
@@ -488,7 +472,7 @@ public class ForEachGroup extends Instruction
      * @return a set of flags indicating static properties of this expression
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         p |= getActionExpression().getSpecialProperties() & StaticProperty.ALL_NODES_UNTYPED;
         return p;
@@ -546,26 +530,7 @@ public class ForEachGroup extends Instruction
         if (getSortKeyDefinitions() != null) {
             for (SortKeyDefinition skd : getSortKeyDefinitions()) {
                 skd.getSortKey().addToPathMap(pathMap, target);
-                Expression e = skd.getOrder();
-                if (e != null) {
-                    e.addToPathMap(pathMap, pathMapNodeSet);
-                }
-                e = skd.getCaseOrder();
-                if (e != null) {
-                    e.addToPathMap(pathMap, pathMapNodeSet);
-                }
-                e = skd.getDataTypeExpression();
-                if (e != null) {
-                    e.addToPathMap(pathMap, pathMapNodeSet);
-                }
-                e = skd.getLanguage();
-                if (e != null) {
-                    e.addToPathMap(pathMap, pathMapNodeSet);
-                }
-                e = skd.getCollationNameExpression();
-                if (e != null) {
-                    e.addToPathMap(pathMap, pathMapNodeSet);
-                }
+                SortExpression.addSortKeyDetailsToPathMap(pathMap, pathMapNodeSet, skd);
             }
         }
         return getActionExpression().addToPathMap(pathMap, target);
@@ -583,39 +548,6 @@ public class ForEachGroup extends Instruction
     @Override
     public void checkPermittedContents(SchemaType parentType, boolean whole) throws XPathException {
         getActionExpression().checkPermittedContents(parentType, false);
-    }
-
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        assert controller != null;
-        PipelineConfiguration pipe = output.getPipelineConfiguration();
-
-        GroupIterator groupIterator = getGroupIterator(context);
-        XPathContextMajor c2 = context.newContext();
-        c2.setOrigin(this);
-        FocusIterator focusIterator = c2.trackFocus(groupIterator);
-        c2.setCurrentGroupIterator(groupIterator);
-        c2.setCurrentTemplateRule(null);
-        pipe.setXPathContext(c2);
-
-        if (controller.isTracing()) {
-            TraceListener listener = controller.getTraceListener();
-            assert listener != null;
-            Item item;
-            while ((item = focusIterator.next()) != null) {
-                listener.startCurrentItem(item);
-                getActionExpression().process(output, c2);
-                listener.endCurrentItem(item);
-            }
-        } else {
-            while (focusIterator.next() != null) {
-                getActionExpression().process(output, c2);
-            }
-        }
-
-        pipe.setXPathContext(context);
-        return null;
     }
 
     /**
@@ -644,8 +576,7 @@ public class ForEachGroup extends Instruction
             try {
                 return context.getConfiguration().getCollation(cname, getStaticBaseURIString(), "FOCH0002");
             } catch (XPathException e) {
-                e.setLocation(getLocation());
-                throw e;
+                throw e.withLocation(getLocation());
             }
 
         } else {
@@ -654,11 +585,7 @@ public class ForEachGroup extends Instruction
         }
     }
 
-    private GroupIterator getGroupIterator(XPathContext context) throws XPathException {
-        return getGroupIterator(getSelectExpression(), context);
-    }
-
-    public GroupIterator getGroupIterator(Expression select, XPathContext context) throws XPathException {
+    public GroupIterator getGroupIterator(PullEvaluator selectPull, XPathContext context) throws XPathException {
 
         // get an iterator over the groups in "order of first appearance"
 
@@ -671,7 +598,7 @@ public class ForEachGroup extends Instruction
                     coll = getCollator(context);
                 }
                 XPathContext c2 = context.newMinorContext();
-                FocusIterator population = c2.trackFocus(select.iterate(context));
+                FocusIterator population = c2.trackFocus(selectPull.iterate(context));
                 groupIterator = new GroupByIterator(population, getGroupingKey(), c2, coll, composite);
                 break;
             }
@@ -681,14 +608,18 @@ public class ForEachGroup extends Instruction
                     // The collation is determined at run-time
                     coll = getCollator(context);
                 }
-                groupIterator = new GroupAdjacentIterator(select, getGroupingKey(), context, coll, composite);
+                groupIterator = new GroupAdjacentIterator(selectPull, getGroupingKey(), context, coll, composite);
                 break;
             }
             case GROUP_STARTING:
-                groupIterator = new GroupStartingIterator(select, (Pattern) getGroupingKey(), context);
+                groupIterator = new GroupStartingIterator(selectPull, (Pattern) getGroupingKey(), context);
                 break;
             case GROUP_ENDING:
-                groupIterator = new GroupEndingIterator(select, (Pattern) getGroupingKey(), context);
+                groupIterator = new GroupEndingIterator(selectPull, (Pattern) getGroupingKey(), context);
+                break;
+            case GROUP_SPLIT_WHEN:
+                FunctionItem breakWhen = (FunctionItem)getGroupingKey().evaluateItem(context);
+                groupIterator = new GroupBreakingIterator(selectPull, breakWhen, context);
                 break;
             default:
                 throw new AssertionError("Unknown grouping algorithm");
@@ -705,11 +636,22 @@ public class ForEachGroup extends Instruction
                     comps[s] = getSortKeyDefinitions().getSortKeyDefinition(s).makeComparator(xpc);
                 }
             }
+            makeSortKeyEvaluators();
             groupIterator = new SortedGroupIterator(xpc, groupIterator, this, comps);
 
         }
 
         return groupIterator;
+    }
+
+    private void makeSortKeyEvaluators() {
+        if (sortKeyEvaluators == null && getSortKeyDefinitions() != null) {
+            sortKeyEvaluators = new ItemEvaluator[getSortKeyDefinitions().size()];
+            for (int s = 0; s < getSortKeyDefinitions().size(); s++) {
+                sortKeyEvaluators[s] = getSortKeyDefinitions().getSortKeyDefinition(s)
+                        .getSortKey().makeElaborator().elaborateForItem();
+            }
+        }
     }
 
     /**
@@ -731,37 +673,21 @@ public class ForEachGroup extends Instruction
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        GroupIterator master = getGroupIterator(context);
-        XPathContextMajor c2 = context.newContext();
-        c2.setOrigin(this);
-        c2.trackFocus(master);
-        c2.setCurrentGroupIterator(master);
-        c2.setCurrentTemplateRule(null);
-        return new ContextMappingIterator(this, c2);
-    }
-
-    /**
-     * Map one item to a sequence.
-     *
-     * @param context The processing context. This is supplied only for mapping constructs that
-     *                set the context node, position, and size. Otherwise it is null.
-     * @return either (a) a SequenceIterator over the sequence of items that the supplied input
-     *         item maps to, or (b) an Item if it maps to a single item, or (c) null if it maps to an empty
-     *         sequence.
-     */
-
-    @Override
-    public SequenceIterator map(XPathContext context) throws XPathException {
-        return getActionExpression().iterate(context);
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
      * Callback for evaluating the sort keys
+     *
+     * @param n the requested index
+     * @param c the XPath context
+     * @return the evaluated sort key
+     * @throws XPathException if any error occurs
      */
 
     @Override
     public AtomicValue evaluateSortKey(int n, XPathContext c) throws XPathException {
-        return (AtomicValue) getSortKeyDefinitions().getSortKeyDefinition(n).getSortKey().evaluateItem(c);
+        return (AtomicValue) sortKeyEvaluators[n].eval(c);
     }
 
 
@@ -793,13 +719,9 @@ public class ForEachGroup extends Instruction
         }
         out.setChildRole("select");
         getSelectExpression().export(out);
-        if (algorithm == GROUP_BY || algorithm == GROUP_ADJACENT) {
-            out.setChildRole("key");
-            getGroupingKey().export(out);
-        } else {
-            out.setChildRole("match");
-            getGroupingKey().export(out);
-        }
+        out.setChildRole(algorithm == GROUP_BY || algorithm == GROUP_ADJACENT || algorithm == GROUP_SPLIT_WHEN
+                                 ? "key" : "match");
+        getGroupingKey().export(out);
         if (getSortKeyDefinitions() != null) {
             out.setChildRole("sort");
             getSortKeyDefinitionList().export(out);
@@ -823,6 +745,8 @@ public class ForEachGroup extends Instruction
                 return "starting";
             case GROUP_ENDING:
                 return "ending";
+            case GROUP_SPLIT_WHEN:
+                return "split";
             default:
                 return "** unknown algorithm **";
         }
@@ -848,11 +772,145 @@ public class ForEachGroup extends Instruction
         }
     }
 
-    public void setSortKeyDefinitions(SortKeyDefinitionList sortKeyDefinitions) {
-        if (sortKeysOp == null) {
-            sortKeysOp = new Operand(this, sortKeyDefinitions, OperandRole.SINGLE_ATOMIC);
-        } else {
-            sortKeysOp.setChildExpression(sortKeyDefinitions);
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new ForEachGroupElaborator();
+    }
+
+    public static class ForEachGroupElaborator extends PushElaborator {
+
+        private PullEvaluator getGroupIteratorProvider() {
+            // get an iterator over the groups in "order of first appearance"
+
+            ForEachGroup expr = (ForEachGroup)getExpression();
+            Expression select = expr.getSelectExpression();
+            PullEvaluator selectPull = select.makeElaborator().elaborateForPull();
+            int algorithm = expr.getAlgorithm();
+            switch (algorithm) {
+                case GROUP_BY: {
+                    return context -> {
+                        StringCollator coll = expr.collator;
+                        if (coll == null) {
+                            // The collation is determined at run-time
+                            coll = expr.getCollator(context);
+                        }
+                        XPathContext c2 = context.newMinorContext();
+                        FocusIterator population = c2.trackFocus(selectPull.iterate(context));
+                        return new GroupByIterator(population, expr.getGroupingKey(), c2, coll, expr.composite);
+                    };
+                }
+                case GROUP_ADJACENT: {
+                    return context -> {
+                        StringCollator coll = expr.collator;
+                        if (coll == null) {
+                            // The collation is determined at run-time
+                            coll = expr.getCollator(context);
+                        }
+                        return new GroupAdjacentIterator(selectPull, expr.getGroupingKey(), context, coll, expr.composite);
+                    };
+                }
+                case GROUP_STARTING:
+                    return context -> new GroupStartingIterator(selectPull, (Pattern) expr.getGroupingKey(), context);
+
+                case GROUP_ENDING:
+                    return context -> new GroupEndingIterator(selectPull, (Pattern) expr.getGroupingKey(), context);
+
+                case GROUP_SPLIT_WHEN:
+                    return context -> {
+                        FunctionItem breakWhen = (FunctionItem) expr.getGroupingKey().evaluateItem(context);
+                        return new GroupBreakingIterator(selectPull, breakWhen, context);
+                    };
+                default:
+                    throw new AssertionError("Unknown grouping algorithm");
+            }
+        }
+
+        private PullEvaluator getSortedGroupIteratorProvider() {
+
+            // now iterate over the leading nodes of the groups
+
+            ForEachGroup expr = (ForEachGroup) getExpression();
+
+            if (expr.getSortKeyDefinitions() != null) {
+                final AtomicComparer[] comps = expr.sortComparators == null
+                    ? new AtomicComparer[expr.getSortKeyDefinitions().size()]
+                    : expr.sortComparators;
+                PullEvaluator grouper = getGroupIteratorProvider();
+                return context -> {
+                    XPathContext xpc = context.newMinorContext();
+                    if (comps[0] == null) {
+                        for (int s = 0; s < expr.getSortKeyDefinitions().size(); s++) {
+                            comps[s] = expr.getSortKeyDefinitions().getSortKeyDefinition(s).makeComparator(xpc);
+                        }
+                    }
+                    return new SortedGroupIterator(xpc, (GroupIterator) grouper.iterate(xpc), expr, comps);
+                };
+            } else {
+                return getGroupIteratorProvider();
+            }
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            ForEachGroup expr = (ForEachGroup)getExpression();
+            expr.makeSortKeyEvaluators();
+            PullEvaluator grouper = getSortedGroupIteratorProvider();
+            PushEvaluator action = expr.getActionExpression().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+                Controller controller = context.getController();
+                assert controller != null;
+                PipelineConfiguration pipe = output.getPipelineConfiguration();
+
+                GroupIterator groupIterator = (GroupIterator)grouper.iterate(context);
+                XPathContextMajor c2 = context.newContext();
+                c2.setOrigin(expr);
+                FocusIterator focusIterator = c2.trackFocus(groupIterator);
+                c2.setCurrentGroupIterator(groupIterator);
+                c2.setCurrentTemplateRule(null);
+                pipe.setXPathContext(c2);
+
+                if (controller.isTracing()) {
+                    TraceListener listener = controller.getTraceListener();
+                    assert listener != null;
+                    Item item;
+                    while ((item = focusIterator.next()) != null) {
+                        listener.startCurrentItem(item);
+                        TailCall tc = action.processLeavingTail(output, c2);
+                        Expression.dispatchTailCall(tc);
+                        listener.endCurrentItem(item);
+                    }
+                } else {
+                    while (focusIterator.next() != null) {
+                        TailCall tc = action.processLeavingTail(output, c2);
+                        Expression.dispatchTailCall(tc);
+                    }
+                }
+
+                pipe.setXPathContext(context);
+                return null;
+            };
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            ForEachGroup expr = (ForEachGroup) getExpression();
+            expr.makeSortKeyEvaluators();
+            PullEvaluator grouper = getSortedGroupIteratorProvider();
+            PullEvaluator action = expr.getActionExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                GroupIterator master = (GroupIterator)grouper.iterate(context);
+                XPathContextMajor c2 = context.newContext();
+                c2.setOrigin(expr);
+                c2.trackFocus(master);
+                c2.setCurrentGroupIterator(master);
+                c2.setCurrentTemplateRule(null);
+                return new ContextMappingIterator(cxt -> action.iterate(cxt), c2);
+            };
         }
     }
 }

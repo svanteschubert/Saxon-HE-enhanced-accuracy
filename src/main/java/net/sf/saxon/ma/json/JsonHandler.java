@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,17 +9,17 @@ package net.sf.saxon.ma.json;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.SpecificFunctionType;
+import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
-
-import java.util.function.IntPredicate;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import java.util.Map;
 
@@ -29,10 +29,10 @@ import java.util.Map;
 public class JsonHandler {
 
     public boolean escape;
-    protected IntPredicate charChecker;
+    protected IntPredicateProxy charChecker;
     private XPathContext context;
 
-    private Function fallbackFunction = null;
+    private FunctionItem fallbackFunction = null;
     private static final String REPLACEMENT = "\ufffd";
 
     public void setContext(XPathContext context) {
@@ -92,11 +92,11 @@ public class JsonHandler {
     /**
      * Write a numeric value
      *
-     * @param asString the string representation of the value
-     * @param asDouble the double representation of the value
+     * @param asString the raw string representation of the value
+     * @param parsedValue the parsed representation of the value, typically an xs:double, but under user control
      * @throws XPathException if any error occurs
      */
-    public void writeNumeric(String asString, double asDouble) throws XPathException {}
+    public void writeNumeric(String asString, AtomicValue parsedValue) throws XPathException {}
 
     /**
      * Write a string value
@@ -109,29 +109,27 @@ public class JsonHandler {
 
     /**
      * Optionally apply escaping or unescaping to a value.
-     * @param val the string to be escaped or unEscaped
+     * @param val the string to be escaped or unEscaped. This is supplied as a String rather than a UnicodeString
+     *            because there are special rules for handling unpaired surrogates, which cannot be represented
+     *            in a UnicodeString
      * @return the escaped or unescaped string
-     * @throws XPathException
+     * @throws XPathException if there are invalid characters or escape sequences
      */
 
     public String reEscape(String val) throws XPathException {
-        CharSequence escaped;
+        String escaped;
         if (escape) {
-            escaped = JsonReceiver.escape(val, true, new IntPredicate() {
-                @Override
-                public boolean test(int value) {
-                    return (value >= 0 && value <= 0x1F) ||
-                            (value >= 0x7F && value <= 0x9F) ||
-                            !charChecker.test(value) ||
-                            (value == 0x5C);
-                }
-            });
+            escaped = JsonReceiver.escape(val, true, true, value ->
+                    (value >= 0 && value <= 0x1F) ||
+                    (value >= 0x7F && value <= 0x9F) ||
+                    !charChecker.test(value) ||
+                    (value == 0x5C));
         } else {
-            FastStringBuffer buffer = new FastStringBuffer(val);
+            StringBuilder buffer = new StringBuilder(val);
             handleInvalidCharacters(buffer);
-            escaped = buffer;
+            escaped = buffer.toString();
         }
-        return escaped.toString();
+        return escaped;
     }
 
     /**
@@ -153,9 +151,9 @@ public class JsonHandler {
      * @param buffer the JSON string
      * @throws XPathException if any error occurs
      */
-    protected void handleInvalidCharacters(FastStringBuffer buffer) throws XPathException {
+    protected void handleInvalidCharacters(StringBuilder buffer) throws XPathException {
         //if (checkSurrogates && !liberal) {
-            IntPredicate charChecker = context.getConfiguration().getValidCharacterChecker();
+            IntPredicateProxy charChecker = context.getConfiguration().getValidCharacterChecker();
             for (int i = 0; i < buffer.length(); i++) {
                 char ch = buffer.charAt(i);
                 if (UTF16CharacterSet.isHighSurrogate(ch)) {
@@ -180,7 +178,7 @@ public class JsonHandler {
         //}
     }
 
-    protected void markAsEscaped(CharSequence escaped, boolean isKey) throws XPathException {
+    protected void markAsEscaped(String escaped, boolean isKey) throws XPathException {
         // do nothing in this class
     }
 
@@ -194,16 +192,15 @@ public class JsonHandler {
      * @param context the XPath context
      * @throws XPathException if the callback function throws an exception
      */
-    private void substitute(FastStringBuffer buffer, int offset, int count, XPathContext context) throws XPathException {
-        FastStringBuffer escaped = new FastStringBuffer(count*6);
+    private void substitute(StringBuilder buffer, int offset, int count, XPathContext context) throws XPathException {
+        StringBuilder escaped = new StringBuilder(count*6);
         for (int j=0; j<count; j++) {
             escaped.append("\\u");
-            String hex = Integer.toHexString(buffer.charAt(offset + j));
+            StringBuilder hex = new StringBuilder(Integer.toHexString(buffer.charAt(offset + j)));
             while (hex.length() < 4) {
-                hex = "0" + hex;
+                hex.insert(0, "0");
             }
-            hex = hex.toUpperCase(); // cheat to get through test json-to-xml-039
-            escaped.append(hex);
+            escaped.append(hex.toString().toUpperCase());
         }
         String replacement = replace(escaped.toString(), context);
         if (replacement.length() == count) {
@@ -212,7 +209,7 @@ public class JsonHandler {
             }
         } else {
             for (int j = 0; j < count; j++) {
-                buffer.removeCharAt(offset + j);
+                buffer.deleteCharAt(offset + j);
             }
             for (int j=0; j < replacement.length(); j++) {
                 buffer.insert(offset + j, replacement.charAt(j));
@@ -241,12 +238,12 @@ public class JsonHandler {
         }
     }
 
-    public void setFallbackFunction(Map<String, Sequence> options, XPathContext context) throws XPathException {
-        Sequence val = options.get("fallback");
+    public void setFallbackFunction(Map<String, GroundedValue> options, XPathContext context) throws XPathException {
+        GroundedValue val = options.get("fallback");
         if (val != null) {
             Item fn = val.head();
-            if (fn instanceof Function) {
-                fallbackFunction = (Function) fn;
+            if (fn instanceof FunctionItem) {
+                fallbackFunction = (FunctionItem) fn;
                 if (fallbackFunction.getArity() != 1) {
                     throw new XPathException("Fallback function must have arity=1", "FOJS0005");
                 }
@@ -262,4 +259,4 @@ public class JsonHandler {
     }
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

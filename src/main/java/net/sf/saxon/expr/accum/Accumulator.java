@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,12 +13,14 @@ import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trans.*;
-import net.sf.saxon.trans.rules.Rule;
+import net.sf.saxon.trans.Mode;
+import net.sf.saxon.trans.SimpleMode;
+import net.sf.saxon.trans.SymbolicName;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.Map;
@@ -45,8 +47,8 @@ public class Accumulator extends Actor {
 
 
     public Accumulator() {
-        preDescentRules = new SimpleMode(new StructuredQName("saxon", NamespaceConstant.SAXON, "preDescent"));
-        postDescentRules = new SimpleMode(new StructuredQName("saxon", NamespaceConstant.SAXON, "postDescent"));
+        preDescentRules = new SimpleMode(new StructuredQName("saxon", NamespaceUri.SAXON, "preDescent"));
+        postDescentRules = new SimpleMode(new StructuredQName("saxon", NamespaceUri.SAXON, "postDescent"));
         // The "body" of an accumulator is an artificial expression that contains all the constituent expressions, for ease of management.
         body = Literal.makeEmptySequence();
     }
@@ -304,12 +306,11 @@ public class Accumulator extends Actor {
      * is written to the supplied outputstream.
      *
      * @param out the expression presenter used to display the structure
+     * @param componentIdMap map from components to component IDs
+     * @throws XPathException if any error occurs
      */
 
     public void export(final ExpressionPresenter out, Map<Component, Integer> componentIdMap) throws XPathException {
-//        if ("JS".equals(out.getOption("target"))) {
-//            throw new XPathException("xsl:accumulator is not supported in Saxon-JS", SaxonErrorCode.SXJS0001);
-//        }
         out.startElement("accumulator");
         out.emitAttribute("name", getObjectName());
         out.emitAttribute("line", getLineNumber() + "");
@@ -326,19 +327,16 @@ public class Accumulator extends Actor {
         out.setChildRole("init");
         initialValueExpression.export(out);
 
-        SimpleMode.RuleAction action = new SimpleMode.RuleAction() {
-            @Override
-            public void processRule(Rule r) throws XPathException {
-                out.startElement("accRule");
-                out.emitAttribute("slots", ((AccumulatorRule)r.getAction()).getStackFrameMap().getNumberOfVariables()+"");
-                out.emitAttribute("rank", ""+r.getRank());
-                if (((AccumulatorRule) r.getAction()).isCapturing()) {
-                    out.emitAttribute("flags", "c");
-                }
-                r.getPattern().export(out);
-                r.getAction().export(out);
-                out.endElement();
+        Mode.RuleAction action = r -> {
+            out.startElement("accRule");
+            out.emitAttribute("slots", ((AccumulatorRule)r.getAction()).getStackFrameMap().getNumberOfVariables()+"");
+            out.emitAttribute("rank", ""+r.getRank());
+            if (((AccumulatorRule) r.getAction()).isCapturing()) {
+                out.emitAttribute("flags", "c");
             }
+            r.getPattern().export(out);
+            r.getAction().export(out);
+            out.endElement();
         };
         try {
             out.startElement("pre");

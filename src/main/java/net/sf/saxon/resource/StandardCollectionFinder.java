@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,19 +15,17 @@ import net.sf.saxon.lib.CollectionFinder;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.ResourceCollection;
 import net.sf.saxon.regex.ARegularExpression;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 
 import java.io.File;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Default implementation of the CollectionFinder interface. The standard CollectionFinder recognizes four
  * types of collection:
- * <p>
  * <ol>
  *     <li>Any URI may be explicitly registered and associated with an instance of {@link ResourceCollection}</li>
  *     <li>If the file: URI scheme is used, and the relevant file identifies a directory, the directory
@@ -40,19 +38,9 @@ import java.util.Map;
  * </ol>
  */
 
-public class StandardCollectionFinder implements CollectionFinder {
-
-    private Map<String, ResourceCollection> registeredCollections = new HashMap<>(2);
-
-    /**
-     * Register a specific URI and bind it to a specific ResourceCollection
-     * @param collectionURI the collection URI to be registered. Must not be null.
-     * @param collection the ResourceCollection to be associated with this URI. Must not be null.
-     */
-
-    public void registerCollection(String collectionURI, ResourceCollection collection) {
-        registeredCollections.put(collectionURI, collection);
-    }
+public class StandardCollectionFinder
+        implements CollectionFinder
+{
 
     /**
      * Locate the collection of resources corresponding to a collection URI.
@@ -68,12 +56,7 @@ public class StandardCollectionFinder implements CollectionFinder {
 
     @Override
     public ResourceCollection findCollection(XPathContext context, String collectionURI) throws XPathException {
-        checkNotNull(collectionURI, context);
-
-        ResourceCollection registeredCollection = registeredCollections.get(collectionURI);
-        if (registeredCollection != null) {
-            return registeredCollection;
-        }
+        AbstractResourceCollection.checkNotNull(collectionURI, context);
 
         URIQueryParameters params = null;
         String query = null;
@@ -89,10 +72,9 @@ public class StandardCollectionFinder implements CollectionFinder {
             }
 
         } catch (URISyntaxException e) {
-            XPathException err = new XPathException("Invalid relative URI " + Err.wrap(collectionURI, Err.VALUE) + " passed to collection() function");
-            err.setErrorCode("FODC0004");
-            err.setXPathContext(context);
-            throw err;
+            throw new XPathException("Invalid relative URI " + Err.wrap(collectionURI, Err.VALUE)
+                                             + " passed to collection() function")
+                    .withErrorCode("FODC0004").withXPathContext(context);
         }
 
         URI resolvedURI;
@@ -102,7 +84,18 @@ public class StandardCollectionFinder implements CollectionFinder {
             throw new XPathException(e);
         }
 
-        if (!context.getConfiguration().getAllowedUriTest().test(resolvedURI)) {
+        String protocols = (String) context.getConfiguration().getConfigurationProperty(Feature.ALLOWED_PROTOCOLS);
+        boolean allow = "all".equals(protocols);
+        if (!allow) {
+            for (String protocol : protocols.split("\\s+")) {
+                if (resolvedURI.getScheme().equalsIgnoreCase(protocol)) {
+                    allow = true;
+                    break;
+                }
+            }
+        }
+
+        if (!allow) {
             throw new XPathException("URI scheme '" + resolvedURI.getScheme() + "' has been disallowed");
         }
 
@@ -118,31 +111,15 @@ public class StandardCollectionFinder implements CollectionFinder {
 
         String regex = context.getConfiguration().getConfigurationProperty(Feature.ZIP_URI_PATTERN);
         if (regex == null) {
-            regex = "^jar:|\\.jar$|\\.zip$|\\.docx$";
+            regex = "^jar:|\\.jar$|\\.zip$|\\.docx$|\\.xlsx$";
         }
-        if (isJarFileURI(collectionURI) || ARegularExpression.compile(regex, "").containsMatch(collectionURI)) {
+        if (isJarFileURI(collectionURI) || ARegularExpression.compile(regex, "").containsMatch(StringView.of(collectionURI).tidy())) {
             return new JarCollection(context, collectionURI, params);
         }
 
         // otherwise assume the URI identifies a collection catalog
 
         return new CatalogCollection(context.getConfiguration(), collectionURI);
-    }
-
-    /**
-     * If the collectionURI is null, report that no default collection exists
-     * @param collectionURI the collection URI to be tested
-     * @param context XPath evaluation context
-     * @throws XPathException if the collectionURI is null
-     */
-
-    public static void checkNotNull(String collectionURI, XPathContext context) throws XPathException {
-        if (collectionURI == null) {
-            XPathException err = new XPathException("No default collection has been defined");
-            err.setErrorCode("FODC0002");
-            err.setXPathContext(context);
-            throw err;
-        }
     }
 
     /**
@@ -158,7 +135,7 @@ public class StandardCollectionFinder implements CollectionFinder {
 
     protected boolean isJarFileURI(String collectionURI) {
         return collectionURI.endsWith(".jar") ||
-                collectionURI.endsWith(".zip") ||
+            collectionURI.endsWith(".zip") ||
                 collectionURI.endsWith(".docx") ||
             collectionURI.startsWith("jar:");
     }
@@ -166,10 +143,9 @@ public class StandardCollectionFinder implements CollectionFinder {
 
     public static void checkFileExists(File file, URI resolvedURI, XPathContext context) throws XPathException {
         if (!file.exists()) {
-            XPathException err = new XPathException("The file or directory " + resolvedURI + " does not exist");
-            err.setErrorCode("FODC0002");
-            err.setXPathContext(context);
-            throw err;
+            throw new XPathException("The file or directory " + resolvedURI + " does not exist")
+                    .withErrorCode("FODC0002")
+                    .withXPathContext(context);
         }
     }
 }

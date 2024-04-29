@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,13 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.FunctionItemType;
@@ -20,7 +23,10 @@ import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.value.StringValue;
 
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.Properties;
 
 
@@ -40,16 +46,13 @@ public abstract class SystemFunction extends AbstractFunction {
      * @param name      The local name of the function.
      * @param rsc       Necessary information about the static context
      * @param arguments the arguments to the function call
-     * @return a FunctionCall that implements this function, if it
-     * exists, or null if the function is unknown.
+     * @return a FunctionCall that implements this function, if it exists
+     * @throws IllegalArgumentException if there is no system function with the required name and arity
      */
 
     /*@Nullable*/
     public static Expression makeCall(String name, RetainedStaticContext rsc, Expression... arguments)  {
         SystemFunction f = makeFunction(name, rsc, arguments.length);
-        if (f == null) {
-            return null;
-        }
         Expression expr = f.makeFunctionCall(arguments);
         expr.setRetainedStaticContext(rsc);
         return expr;
@@ -62,16 +65,24 @@ public abstract class SystemFunction extends AbstractFunction {
      * @param rsc       Necessary information about the static context
      * @param arity     the arity of the function
      * @return          the function item
+     * @throws IllegalArgumentException if there is no system function with the required name and arity
      */
 
     public static SystemFunction makeFunction(String name, RetainedStaticContext rsc, int arity) {
-        if (rsc == null) {
-            throw new NullPointerException();
-        }
-        SystemFunction fn = rsc.getConfiguration().makeSystemFunction(name, arity);
+        Objects.requireNonNull(rsc);
+        SystemFunction fn = rsc.getConfiguration().makeSystemFunction(name, arity, rsc.getPackageData().getHostLanguageVersion());
         if (fn == null) {
-            rsc.getConfiguration().makeSystemFunction(name, arity);
-            throw new IllegalStateException(name);
+            throw new IllegalArgumentException(name + "#" + arity);
+        }
+        fn.setRetainedStaticContext(rsc);
+        return fn;
+    }
+
+    public static SystemFunction makeFunction40(String name, RetainedStaticContext rsc, int arity) {
+        Objects.requireNonNull(rsc);
+        SystemFunction fn = rsc.getConfiguration().makeSystemFunction40(name, arity);
+        if (fn == null) {
+            throw new IllegalArgumentException(name + "#" + arity);
         }
         fn.setRetainedStaticContext(rsc);
         return fn;
@@ -86,6 +97,12 @@ public abstract class SystemFunction extends AbstractFunction {
      */
 
     public Expression makeFunctionCall(Expression... arguments) {
+        if (arguments.length > getArity() && isSequenceVariadic()) {
+            if (getArity() != 1) {
+                throw new UnsupportedOperationException("Not implemented: sequence-variadic function with arity>1");
+            }
+            arguments = new Expression[]{new Block(arguments)};
+        }
         Expression e = new SystemFunctionCall(this, arguments);
         e.setRetainedStaticContext(getRetainedStaticContext());
         return e;
@@ -98,6 +115,11 @@ public abstract class SystemFunction extends AbstractFunction {
 
     public void setArity(int arity) {
         this.arity = arity;
+    }
+
+    @Override
+    public boolean isSequenceVariadic() {
+        return (details.properties & BuiltInFunctionSet.SEQV) != 0;
     }
 
     /**
@@ -135,6 +157,10 @@ public abstract class SystemFunction extends AbstractFunction {
 
     /**
      * Optimize for constant argument values
+     * @param arguments the supplied arguments to the function call
+     * @return either a function call on this function, or an expression that delivers
+     * the same result, or null indicating that no optimization has taken place
+     * @throws XPathException if an error is detected
      */
 
     public Expression fixArguments(Expression... arguments) throws XPathException {
@@ -250,9 +276,15 @@ public abstract class SystemFunction extends AbstractFunction {
     @Override
     public OperandRole[] getOperandRoles() {
         OperandRole[] roles = new OperandRole[getArity()];
-        OperandUsage[] usages = details.usage;
+        OperandUsage[] usages;
+        if (isSequenceVariadic()) {
+            usages = new OperandUsage[getArity()];
+            Arrays.fill(usages, details.usage[0]);
+        } else {
+            usages = details.usage;
+        }
         try {
-            for (int i = 0; i < getArity(); i++) {
+            for (int i = 0; i < roles.length; i++) {
                 roles[i] = new OperandRole(0, usages[i], getRequiredType(i));
             }
         } catch (ArrayIndexOutOfBoundsException e) {
@@ -286,6 +318,7 @@ public abstract class SystemFunction extends AbstractFunction {
      * @param visitor an expression visitor, providing access to the static context and configuration
      * @param contextItemType information about whether the context item is set, and what its type is
      * @param arguments the expressions appearing as arguments in the function call
+     * @throws XPathException if an error is detected
      */
 
     public void supplyTypeInformation (
@@ -301,11 +334,17 @@ public abstract class SystemFunction extends AbstractFunction {
         return (o instanceof SystemFunction) && super.equals(o);
     }
 
+    @Override
+    public int hashCode() {
+        // included explicitly because equals() is overridden: prevents compiler warnings
+        return super.hashCode();
+    }
+
     /**
      * Return the error code to be used for type errors. This is overridden for functions
      * such as exactly-one(), one-or-more(), ...
      *
-     * @return the error code to be used for type errors in the function call. Normally XPTY0004,
+     * @return the error code to be used for type errors in the function call. Normally <code>XPTY0004</code>,
      * but different codes are used for functions such as exactly-one()
      */
 
@@ -324,38 +363,16 @@ public abstract class SystemFunction extends AbstractFunction {
         if (details == null) {
             return SequenceType.ANY_SEQUENCE;
         }
-        return details.argumentTypes[arg];
+        return details.paramTypes[arg];
         // this is overridden for concat()
     }
 
     /**
      * Determine the item type of the value returned by the function
+     * @return the item type of the result
      */
     public ItemType getResultItemType() {
         return details.itemType;
-//        if (details == null) {
-//            // probably an unresolved function call
-//            return AnyItemType.getInstance();
-//        }
-//        ItemType type = details.itemType;
-//        if ((details.properties & StandardFunction.AS_ARG0) != 0) {
-//            if (getArity() > 0) {
-//                return getArg(0).getItemType();
-//            } else {
-//                return AnyItemType.getInstance();
-//                // if there is no first argument, an error will be reported
-//            }
-//        } else if ((details.properties & StandardFunction.AS_PRIM_ARG0) != 0) {
-//            if (getArity() > 0) {
-//                ItemType t0 = getArg(0).getItemType().getPrimitiveItemType();
-//                return UType.NUMERIC.subsumes(t0.getUType()) ? t0 : type;
-//            } else {
-//                return AnyItemType.getInstance();
-//                // if there is no first argument, an error will be reported
-//            }
-//        } else {
-//            return type;
-//        }
     }
 
     /**
@@ -367,7 +384,7 @@ public abstract class SystemFunction extends AbstractFunction {
     @Override
     public FunctionItemType getFunctionItemType() {
         SequenceType resultType = SequenceType.makeSequenceType(getResultItemType(), details.cardinality);
-        return new SpecificFunctionType(details.argumentTypes, resultType);
+        return new SpecificFunctionType(details.paramTypes, resultType);
     }
 
     /**
@@ -407,6 +424,7 @@ public abstract class SystemFunction extends AbstractFunction {
      * is that a system function call is non-creative unless more details
      * are defined in a subclass.
      * @param arguments the actual arguments supplied in a call to the function
+     * @return the properties
      */
 
     public int getSpecialProperties(Expression[] arguments) {
@@ -447,18 +465,14 @@ public abstract class SystemFunction extends AbstractFunction {
     /**
      * Make a dynamic call to a supplied argument function (convenience method for use by implementations)
      *
+     * @param f       the function
      * @param context the XPath dynamic evaluation context
      * @param args    the actual arguments to be supplied
      * @return the result of invoking the function
      * @throws XPathException if a dynamic error occurs within the function
      */
 
-    public static Sequence dynamicCall(Function f, XPathContext context, Sequence[] args) throws XPathException {
-        context = f.makeNewContext(context, null);
-        context.setCurrentOutputUri(null);
-        if (context instanceof XPathContextMajor) {
-            ((XPathContextMajor) context).setCurrentRegexIterator(null);
-        }
+    public static Sequence dynamicCall(FunctionItem f, XPathContext context, Sequence... args) throws XPathException {
         return f.call(context, args);
     }
 
@@ -472,7 +486,7 @@ public abstract class SystemFunction extends AbstractFunction {
     public void export(ExpressionPresenter out) throws XPathException {
         out.startElement("fnRef");
         StructuredQName qName = getFunctionName();
-        String name = qName.hasURI(NamespaceConstant.FN) ? qName.getLocalPart() : qName.getEQName();
+        String name = qName.hasURI(NamespaceUri.FN) ? qName.getLocalPart() : qName.getEQName();
         out.emitAttribute("name", name);
         out.emitAttribute("arity", getArity() + "");
         if ((getDetails().properties & BuiltInFunctionSet.DEPENDS_ON_STATIC_CONTEXT) != 0) {
@@ -482,7 +496,12 @@ public abstract class SystemFunction extends AbstractFunction {
     }
 
     /**
-     * Typecheck a call on this function
+     * Type-check a call on this function
+     * @param caller the function call expression calling this function
+     * @param visitor the expression visitor
+     * @param contextInfo static context information relating to the call
+     * @return a type-checked replacement for the supplied function call
+     * @throws XPathException if an error is detected
      */
 
     public Expression typeCheckCaller(FunctionCall caller, ExpressionVisitor visitor, ContextItemStaticInfo contextInfo)
@@ -509,7 +528,9 @@ public abstract class SystemFunction extends AbstractFunction {
 
     /**
      * Export any implicit arguments held in optimized form within the SystemFunction call
+     * @param call the system function call (on this function)
      * @param out the export destination
+     * @throws XPathException if a failure occurs (such as an I/O error)
      */
 
     public void exportAdditionalArguments(SystemFunctionCall call, ExpressionPresenter out) throws XPathException {
@@ -519,20 +540,10 @@ public abstract class SystemFunction extends AbstractFunction {
      * Import any attributes found in the export file, that is, any attributes output using
      * the exportAttributes method
      * @param attributes the attributes, as a properties object
-     * @throws XPathException
+     * @throws XPathException if errors are found in the SEF file
      */
 
     public void importAttributes(Properties attributes) throws XPathException {}
-
-    /**
-     * Get the (local) name of a class that can be used to generate bytecode for this
-     * system function
-     * @return the name of a bytecode generation class, or null if there is no bytecode
-     * support for this function
-     */
-    public String getCompilerName() {
-        return null;
-    }
 
     /**
      * Get a name that identifies the class that can be used to evaluate this function
@@ -562,6 +573,30 @@ public abstract class SystemFunction extends AbstractFunction {
 
     public String toString() {
         return getFunctionName().getDisplayName() + '#' + getArity();
+    }
+
+    /**
+     * Helper method to get an argument value as a UnicodeString, in the case where an empty sequence
+     * should be treated as a zero-length string
+     * @param supplied the actual argumetn values supplied
+     * @return zero-length string if the input was an empty sequence; otherwise the string value of the
+     * first item in the sequence
+     * @throws XPathException if the first item in the sequence has no string value (for example, a map)
+     */
+
+    protected UnicodeString getUniStringArg(Sequence supplied) throws XPathException {
+        StringValue item = (StringValue)supplied.head();
+        return item == null ? EmptyUnicodeString.getInstance() : item.getUnicodeStringValue();
+    }
+
+    /**
+     * Make an elaborator for a system function call on this function
+     *
+     * @return a suitable elaborator; or null if no custom elaborator is available
+     */
+
+    public Elaborator getElaborator() {
+        return null;
     }
 
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,15 +11,11 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.*;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.expr.parser.XPathParser;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.regex.BMPString;
-import net.sf.saxon.regex.GeneralUnicodeString;
-import net.sf.saxon.regex.LatinString;
-import net.sf.saxon.regex.UnicodeString;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.KeyDefinition;
@@ -27,11 +23,15 @@ import net.sf.saxon.trans.Mode;
 import net.sf.saxon.trans.rules.BuiltInRuleSet;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.tree.AttributeLocation;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.ValidationException;
 import net.sf.saxon.type.ValidationFailure;
+import net.sf.saxon.value.Closure;
+import net.sf.saxon.value.MemoClosure;
+import net.sf.saxon.value.SingletonClosure;
+import net.sf.saxon.value.StringValue;
+import net.sf.saxon.z.IntIterator;
 
 import javax.xml.transform.SourceLocator;
 import javax.xml.transform.dom.DOMLocator;
@@ -243,12 +243,18 @@ public class StandardDiagnostics {
      *                2=values of variables
      */
 
-    public void printStackTrace(XPathContext context, Logger out, int level) {
+    public void logStackTrace(XPathContext context, Logger out, int level) {
         if (level > 0) {
             int depth = 20;
-            while (depth-- > 0) {
+            while (depth-- > 0 && context != null) {
+                ContextOriginator originator = context instanceof XPathContextMajor ? ((XPathContextMajor) context).getOrigin() : null;
                 Component component = context.getCurrentComponent();
-                if (component != null) {
+                if (originator instanceof Closure && ((Closure) originator).getExpression() != null) {
+                    Expression expr = ((Closure) originator).getExpression();
+                    out.error("During lazy evaluation of " +
+                                      expr.toShortString() +
+                                      " on line " + expr.getLocation().getLineNumber() + " of " + expr.getLocation().getSystemId());
+                } else if (component != null) {
                     if (component.getActor() instanceof Mode) {
                         Rule rule = context.getCurrentTemplateRule();
                         if (rule != null) {
@@ -266,7 +272,7 @@ public class StandardDiagnostics {
                             out.error(sb.toString());
                         }
                     } else {
-                        out.error(getLocationMessageText((Location)component.getActor()).replace("$at ", "In "));
+                        out.error(getLocationMessageText(component.getActor()).replaceFirst("^at ", "In "));
                     }
                 }
                 try {
@@ -274,14 +280,11 @@ public class StandardDiagnostics {
                 } catch (Exception e) {
                     // no action
                 }
-                while (!(context instanceof XPathContextMajor)) {
-                    context = context.getCaller();
-                }
+                context = context.getMajorContext();
 
-                ContextOriginator originator = ((XPathContextMajor) context).getOrigin();
-                if (originator == null || originator instanceof Controller) {
+                if (originator instanceof Controller) {
                     return;
-                } else {
+                } else if (originator != null && !(originator instanceof Closure)) {
                     out.error("     invoked by " + showOriginator(originator));
                 }
                 context = context.getCaller();
@@ -303,6 +306,12 @@ public class StandardDiagnostics {
             sb.append("unknown caller (null)");
         } else if (originator instanceof Instruction) {
             sb.append(getInstructionName((Instruction) originator));
+            if (originator instanceof CallTemplate && ((CallTemplate)originator).usesTailRecursion()) {
+                sb.append(" (tail calls omitted)");
+            }
+            if (originator instanceof ApplyTemplates && ((ApplyTemplates) originator).useTailRecursion()) {
+                sb.append(" (tail calls omitted)");
+            }
         } else if (originator instanceof UserFunctionCall) {
             sb.append("function call");
         } else if (originator instanceof Controller) {
@@ -315,6 +324,26 @@ public class StandardDiagnostics {
             sb.append("global parameter ").append(((GlobalParam) originator).getVariableQName().getDisplayName());
         } else if (originator instanceof GlobalVariable) {
             sb.append(((GlobalVariable) originator).getDescription());
+        } else if (originator instanceof MemoClosure) {
+            Expression expr = ((MemoClosure) originator).getExpression();
+            if (expr == null) {
+                sb.append("lazy evaluation of expression");
+            } else {
+                sb.append("lazy evaluation of ")
+                        .append(expr.toShortString())
+                        .append(" on line ")
+                        .append(expr.getLocation().getLineNumber());
+            }
+        } else if (originator instanceof SingletonClosure) {
+            Expression expr = ((SingletonClosure) originator).getExpression();
+            if (expr == null) {
+                sb.append("lazy evaluation of singleton expression");
+            } else {
+                sb.append("lazy evaluation of ")
+                        .append(expr.toShortString())
+                        .append(" on line ")
+                        .append(expr.getLocation().getLineNumber());
+            }
         } else {
             sb.append("unknown caller (").append(originator.getClass()).append(")");
         }
@@ -358,7 +387,7 @@ public class StandardDiagnostics {
             for (NodeInfo offender : offendingNodes) {
                 String nodeDesc = Type.displayTypeName(offender);
                 if (offender.getNodeKind() == Type.TEXT) {
-                    nodeDesc += " " + Err.wrap(offender.getStringValueCS(), Err.VALUE);
+                    nodeDesc += " " + Err.wrap(offender.getUnicodeStringValue(), Err.VALUE);
                 }
                 if (offender.getLineNumber() != -1) {
                     nodeDesc += " on line " + offender.getLineNumber();
@@ -420,7 +449,7 @@ public class StandardDiagnostics {
     /**
      * Variable defining an absolute limit on the length of an error message;
      * any message longer than this will be truncated by the {@link #wordWrap(String)}
-     * method. The value can be assigned. Default value is 1000.
+     * method. The value can be assigned. Default value is 2000.
      */
 
     public int MAX_MESSAGE_LENGTH = 2000;
@@ -493,43 +522,24 @@ public class StandardDiagnostics {
      * @return the expanded message
      */
 
-    public CharSequence expandSpecialCharacters(CharSequence in, int threshold) {
+    public String expandSpecialCharacters(String in, int threshold) {
         if (threshold >= UTF16CharacterSet.NONBMP_MAX) {
             return in;
         }
-        int max = 0;
-        boolean isAstral = false;
-        for (int i = 0; i < in.length(); i++) {
-            char c = in.charAt(i);
-            if (c > max) {
-                max = c;
-            }
-            if (UTF16CharacterSet.isSurrogate(c)) {
-                isAstral = true;
-            }
-        }
-        if (max <= threshold && !isAstral) {
-            return in;
-        }
-        UnicodeString str;
-        if (max <= 255) {
-            str = new LatinString(in);
-        } else if (!isAstral) {
-            str = new BMPString(in);
-        } else {
-            str = new GeneralUnicodeString(in);
-        }
-        FastStringBuffer fsb = new FastStringBuffer(str.uLength() * 2);
-        for (int i = 0; i < str.uLength(); i++) {
-            int ch = str.uCharAt(i);
-            fsb.appendWideChar(ch);
+        StringValue str = new StringValue(in);
+
+        StringBuilder fsb = new StringBuilder(str.length32() * 2);
+        IntIterator iter = str.codePoints();
+        while (iter.hasNext()) {
+            int ch = iter.next();
+            fsb.appendCodePoint(ch);
             if (ch > threshold) {
                 fsb.append("[x");
                 fsb.append(Integer.toHexString(ch));
                 fsb.append("]");
             }
         }
-        return fsb;
+        return fsb.toString();
     }
 
 

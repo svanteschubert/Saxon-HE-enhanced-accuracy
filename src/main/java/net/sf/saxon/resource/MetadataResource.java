@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.resource;
 
 import net.sf.saxon.expr.Callable;
+import net.sf.saxon.expr.CallableDelegate;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.CallableFunction;
 import net.sf.saxon.lib.Resource;
@@ -22,18 +23,20 @@ import net.sf.saxon.value.StringValue;
 import java.util.Map;
 
 /**
- * Created by mike on 28/10/15.
+ * Represents information about a resource, as well as a pointer to the resource itself
  */
 public class MetadataResource implements Resource {
 
-    private Map<String, GroundedValue> properties;
-    private String resourceURI;
-    private Resource content;
+    private final Map<String, GroundedValue> properties;
+    private final String resourceURI;
+    private final Resource content;
+    private final XPathContext context;
 
-    public MetadataResource(String resourceURI, Resource content, Map<String, GroundedValue> properties) {
+    public MetadataResource(String resourceURI, Resource content, Map<String, GroundedValue> properties, XPathContext context) {
         this.resourceURI = resourceURI;
         this.content = content;
         this.properties = properties;
+        this.context = context;
     }
 
     @Override
@@ -47,7 +50,7 @@ public class MetadataResource implements Resource {
     }
 
     @Override
-    public Item getItem(XPathContext context)  {
+    public Item getItem()  {
 
         // Create a map for the result
         DictionaryMap map = new DictionaryMap();
@@ -61,7 +64,7 @@ public class MetadataResource implements Resource {
         map.initialPut("name", StringValue.makeStringValue(resourceURI));
 
         // Add a fetch() function, which can be used to fetch the resource
-        Callable fetcher = (context1, arguments) -> content.getItem(context1);
+        Callable fetcher = new CallableDelegate((context1, arguments) -> content.getItem());
 
         FunctionItemType fetcherType = new SpecificFunctionType(new SequenceType[0], SequenceType.SINGLE_ITEM);
         CallableFunction fetcherFunction = new CallableFunction(0, fetcher, fetcherType);

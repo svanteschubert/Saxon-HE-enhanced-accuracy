@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import net.sf.saxon.lib.Resource;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.jiter.MappingJavaIterator;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.DateTimeValue;
@@ -35,7 +36,7 @@ import java.util.*;
 
 public class DirectoryCollection extends AbstractResourceCollection {
 
-    private File dirFile;
+    private final File dirFile;
     private SpaceStrippingRule whitespaceRules;
 
     /**
@@ -85,37 +86,37 @@ public class DirectoryCollection extends AbstractResourceCollection {
     }
 
     @Override
-    public Iterator<Resource> getResources(final XPathContext context) {
-        final ParseOptions options = optionsFromQueryParameters(params, context);
-        options.setSpaceStrippingRule(whitespaceRules);
-        Boolean metadataParam = params.getMetaData();
-        final boolean metadata = metadataParam != null && metadataParam;
+    public Iterator<? extends Resource> getResources(final XPathContext context) {
+        final ParseOptions options = optionsFromQueryParameters(params, context)
+                .withSpaceStrippingRule(whitespaceRules);
+        Optional<Boolean> metadataParam = params.getMetaData();
+        final boolean metadata = metadataParam.isPresent() && metadataParam.get();
         Iterator<String> resourceURIs = getResourceURIs(context);
 
-        return new MappingJavaIterator<>(resourceURIs,
+        return new MappingJavaIterator<String, Resource>(resourceURIs,
              in -> {
                  try {
                      InputDetails details = getInputDetails(in);
                      details.resourceUri = in;
                      details.parseOptions = options;
-                     if (params.getContentType() != null) {
-                         details.contentType = params.getContentType();
+                     if (params.getContentType().isPresent()) {
+                         details.contentType = params.getContentType().get();
                      }
-                     Resource resource = makeResource(context.getConfiguration(), details);
+                     Resource resource = makeResource(context, details);
                      if (resource != null) {
                          if (metadata) {
-                             return makeMetadataResource(resource, details);
+                             return makeMetadataResource(resource, details, context);
                          } else {
                              return resource;
                          }
                      }
                      return null;
                  } catch (XPathException e) {
-                     int onError = params.getOnError();
-                     if (onError == URIQueryParameters.ON_ERROR_FAIL) {
+                     Optional<Integer> onError = params.getOnError();
+                     if (onError.isPresent() && onError.get() == URIQueryParameters.ON_ERROR_FAIL) {
                          return new FailedResource(in, e);
-                     } else if (onError == URIQueryParameters.ON_ERROR_WARNING) {
-                         context.getController().warning("collection(): failed to parse " + in + ": " + e.getMessage(), e.getErrorCodeLocalPart(), null);
+                     } else if (onError.isPresent() && onError.get() == URIQueryParameters.ON_ERROR_WARNING) {
+                         context.getController().warning("collection(): failed to parse " + in + ": " + e.getMessage(), e.showErrorCode(), null);
                          return null;
                      } else {
                          return null;
@@ -129,11 +130,12 @@ public class DirectoryCollection extends AbstractResourceCollection {
      * the directory structure, but properties of that file in the form of name/value pairs.
      * @param resource a resource representing the content of the file
      * @param details details about where the resource came from
+     * @param context the evaluation context
      * @return a MetadataResource, being an object containing both the original content resource,
      * and an extensible set of properties of that resource.
      */
 
-    private MetadataResource makeMetadataResource(Resource resource, InputDetails details) {
+    private MetadataResource makeMetadataResource(Resource resource, InputDetails details, XPathContext context) {
         Map<String, GroundedValue> properties = new HashMap<>();
         try {
 
@@ -167,7 +169,7 @@ public class DirectoryCollection extends AbstractResourceCollection {
             // ignore
         }
 
-        return new MetadataResource(resource.getResourceURI(), resource, properties);
+        return new MetadataResource(resource.getResourceURI(), resource, properties, context);
     }
 
 
@@ -185,13 +187,13 @@ public class DirectoryCollection extends AbstractResourceCollection {
         FilenameFilter filter = null;
         boolean recurse = false;
         if (params != null) {
-            FilenameFilter f = params.getFilenameFilter();
-            if (f != null) {
-                filter = f;
+            Optional<FilenameFilter> f = params.getFilenameFilter();
+            if (f.isPresent()) {
+                filter = f.get();
             }
-            Boolean r = params.getRecurse();
-            if (r != null) {
-                recurse = r;
+            Optional<Boolean> r = params.getRecurse();
+            if (r.isPresent()) {
+                recurse = r.get();
             }
         }
 
@@ -203,10 +205,10 @@ public class DirectoryCollection extends AbstractResourceCollection {
 
     private static class DirectoryIterator implements Iterator<String> {
 
-        private Stack<Iterator<File>> directories;
-        private FilenameFilter filter;
-        private boolean recurse;
-        private String next = null;
+        private final Stack<Iterator<File>> directories;
+        private final FilenameFilter filter;
+        private final boolean recurse;
+        private String nextItem = null;
 
         public DirectoryIterator(Stack<Iterator<File>> directories, boolean recurse, FilenameFilter filter) {
             this.directories = directories;
@@ -217,12 +219,12 @@ public class DirectoryCollection extends AbstractResourceCollection {
 
         @Override
         public boolean hasNext() {
-            return next != null;
+            return nextItem != null;
         }
 
         @Override
         public String next() {
-            String s = next;
+            String s = nextItem;
             advance();
             return s;
         }
@@ -232,15 +234,16 @@ public class DirectoryCollection extends AbstractResourceCollection {
             throw new UnsupportedOperationException();
         }
 
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
         private void advance() {
             if (directories.isEmpty()) {
-                next = null;
+                nextItem = null;
             } else {
                 Iterator<File> files = directories.peek();
                 while (!files.hasNext()) {
                     directories.pop();
                     if (directories.isEmpty()) {
-                        next = null;
+                        nextItem = null;
                         return;
                     }
                     files = directories.peek();
@@ -252,7 +255,7 @@ public class DirectoryCollection extends AbstractResourceCollection {
                     }
                     advance();
                 } else {
-                    next = nextFile.toURI().toString();
+                    nextItem = nextFile.toURI().toString();
                 }
             }
         }

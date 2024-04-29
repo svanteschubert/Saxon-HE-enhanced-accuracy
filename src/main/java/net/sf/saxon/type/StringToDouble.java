@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.type;
 
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.Whitespace;
@@ -16,7 +17,7 @@ import net.sf.saxon.value.Whitespace;
  */
 public class StringToDouble extends StringConverter {
 
-    private static StringToDouble THE_INSTANCE = new StringToDouble();
+    private static final StringToDouble THE_INSTANCE = new StringToDouble();
 
     /**
      * Get the singleton instance
@@ -39,9 +40,9 @@ public class StringToDouble extends StringConverter {
      * @throws NumberFormatException if the value cannot be converted
      */
 
-    public double stringToNumber(CharSequence s) throws NumberFormatException {
+    public double stringToNumber(UnicodeString s) throws NumberFormatException {
         // first try to parse simple numbers by hand (it's cheaper)
-        int len = s.length();
+        int len = s.length32();
         boolean containsDisallowedChars = false;
         boolean containsWhitespace = false;
         if (len < 9) {
@@ -50,9 +51,9 @@ public class StringToDouble extends StringConverter {
             int dot = -1;
             int lastDigit = -1;
             boolean onlySpaceAllowed = false;
-            loop:
+            boolean breakLoop = false;
             for (int i = 0; i < len; i++) {
-                char c = s.charAt(i);
+                int c = s.codePointAt(i);
                 switch (c) {
                     case ' ':
                     case '\n':
@@ -98,12 +99,16 @@ public class StringToDouble extends StringConverter {
                     case 'N':
                         containsDisallowedChars = true;
                         useJava = true;
-                        break loop;
+                        breakLoop = true;
+                        break;
                     default:
                         // there's something like a sign or an exponent: take the slow train instead
                         // But keep going to look for disallowed characters - bug 3495
                         useJava = true;
                         break;
+                }
+                if (breakLoop) {
+                    break;
                 }
             }
             if (!useJava) {
@@ -117,9 +122,9 @@ public class StringToDouble extends StringConverter {
                 }
             }
         } else {
-            loop2:
+            boolean breakLoop2 = false;
             for (int i = 0; i < len; i++) {
-                char c = s.charAt(i);
+                int c = s.codePointAt(i);
                 switch (c) {
                     case ' ':
                     case '\n':
@@ -145,11 +150,15 @@ public class StringToDouble extends StringConverter {
                         break;
                     default:
                         containsDisallowedChars = true;
-                        break loop2;
+                        breakLoop2 = true;
+                        break;
+                }
+                if (breakLoop2) {
+                    break;
                 }
             }
         }
-        String n = containsWhitespace ? Whitespace.trimWhitespace(s).toString() : s.toString();
+        String n = containsWhitespace ? Whitespace.trim(s).toString() : s.toString();
         if ("INF".equals(n)) {
             return Double.POSITIVE_INFINITY;
         } else if ("+INF".equals(n)) {
@@ -165,7 +174,11 @@ public class StringToDouble extends StringConverter {
             if (containsDisallowedChars) {
                 throw new NumberFormatException("invalid floating point value: " + s);
             }
-            return Double.parseDouble(n);
+            try {
+                return Double.parseDouble(n);
+            } catch (NumberFormatException nfe) {
+                throw nfe;
+            }
         }
     }
 
@@ -173,7 +186,7 @@ public class StringToDouble extends StringConverter {
         throw new NumberFormatException("the float/double value '+INF' is not allowed under XSD 1.0");
     }
 
-    /*@NotNull*/ private static double[] powers = new double[]{1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
+    /*@NotNull*/ private static final double[] powers = new double[]{1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
 
     /**
      * Convert a string to the target type of this converter.
@@ -183,7 +196,7 @@ public class StringToDouble extends StringConverter {
      *         succeeded), or a {@link net.sf.saxon.type.ValidationFailure} if conversion failed.
      */
     @Override
-    public ConversionResult convertString(CharSequence input) {
+    public ConversionResult convertString(UnicodeString input) {
         try {
             double d = stringToNumber(input);
             return new DoubleValue(d);

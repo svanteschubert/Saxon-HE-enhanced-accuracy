@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -27,7 +27,7 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
     // still useful to have a programmatic way of obtaining the stack trace, but this class is rather
     // clumsy and probably isn't used.
 
-    private XPathContextMajor next;
+    private XPathContextMajor nextFrame;
 
     /**
      * Create an iterator over the stack of XPath dynamic context objects, starting with the top-most
@@ -41,19 +41,19 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
         if (!(context instanceof XPathContextMajor)) {
             context = getMajorCaller(context);
         }
-        next = (XPathContextMajor) context;
+        nextFrame = (XPathContextMajor) context;
     }
 
     /**
-     * Returns <tt>true</tt> if the iteration has more elements. (In other
-     * words, returns <tt>true</tt> if <tt>next</tt> would return an element
+     * Returns <code>true</code> if the iteration has more elements. (In other
+     * words, returns <code>true</code> if <code>next</code> would return an element
      * rather than throwing an exception.)
      *
-     * @return <tt>true</tt> if the iterator has more elements.
+     * @return <code>true</code> if the iterator has more elements.
      */
     @Override
     public boolean hasNext() {
-        return next != null;
+        return nextFrame != null;
     }
 
     /**
@@ -69,17 +69,17 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
     /*@Nullable*/
     @Override
     public ContextStackFrame next() {
-        XPathContextMajor context = next;
+        XPathContextMajor context = nextFrame;
         if (context == null) {
             return null;
         }
         ContextOriginator origin = context.getOrigin();
 
         if (origin instanceof Controller) {
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             return new ContextStackFrame.CallingApplication();
         } else if (origin instanceof BuiltInRuleSet) {
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             return new ContextStackFrame.BuiltInTemplateRule(context);
         } else if (origin instanceof UserFunction) {
             ContextStackFrame.FunctionCall sf = new ContextStackFrame.FunctionCall();
@@ -88,7 +88,7 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
             sf.setFunctionName(ufc.getFunctionName());
             sf.setContextItem(context.getContextItem());
             sf.setContext(context);
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             return sf;
         } else if (origin instanceof UserFunctionCall) {
             // No longer used? Bug 3671
@@ -98,7 +98,7 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
             sf.setFunctionName(ufc.getFunctionName());
             sf.setContextItem(context.getContextItem());
             sf.setContext(context);
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             return sf;
         } else if (origin instanceof ApplyTemplates) {
             ContextStackFrame.ApplyTemplates sf = new ContextStackFrame.ApplyTemplates();
@@ -106,7 +106,7 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
             sf.setLocation(loc.getLocation());
             sf.setContextItem(context.getContextItem());
             sf.setContext(context);
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             return sf;
         } else if (origin instanceof CallTemplate) {
             ContextStackFrame.CallTemplate sf = new ContextStackFrame.CallTemplate();
@@ -115,7 +115,7 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
             sf.setTemplateName(loc.getObjectName());
             sf.setContextItem(context.getContextItem());
             sf.setContext(context);
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             return sf;
         } else if (origin instanceof GlobalVariable) {
             ContextStackFrame.VariableEvaluation sf = new ContextStackFrame.VariableEvaluation();
@@ -125,12 +125,12 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
             sf.setVariableName(var.getVariableQName());
             sf.setComponent(var);
             sf.setContext(context);
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             return sf;
         } else {
             //other context changes are not considered significant enough to report
             //out.println("    In unidentified location " + construct);
-            next = getMajorCaller(context);
+            nextFrame = getMajorCaller(context);
             ContextStackFrame csf = next();
             if (csf == null) {
                 // we can't return null, because hasNext() returned true...
@@ -144,17 +144,14 @@ public class ContextStackIterator implements Iterator<ContextStackFrame> {
 
     private static XPathContextMajor getMajorCaller(XPathContext context) {
         XPathContext caller = context.getCaller();
-        while (!(caller == null || caller instanceof XPathContextMajor)) {
-            caller = caller.getCaller();
-        }
-        return (XPathContextMajor) caller;
+        return caller == null ? null : caller.getMajorContext();
     }
 
     /**
      * Removes from the underlying collection the last element returned by the
      * iterator (optional operation).
      *
-     * @throws UnsupportedOperationException as the <tt>remove</tt>
+     * @throws UnsupportedOperationException as the <code>remove</code>
      *                                       operation is not supported by this Iterator.
      */
     @Override

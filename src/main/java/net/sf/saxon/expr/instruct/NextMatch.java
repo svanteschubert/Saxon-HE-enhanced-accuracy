@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,13 +13,19 @@ import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trace.TemplateRuleTraceListener;
 import net.sf.saxon.trans.Mode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.trans.rules.Rule;
 
 import java.util.Arrays;
@@ -51,7 +57,7 @@ public class NextMatch extends ApplyNextMatchingTemplate {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     /*@NotNull*/
@@ -64,60 +70,6 @@ public class NextMatch extends ApplyNextMatchingTemplate {
         return nm2;
     }
 
-
-    /*@Nullable*/
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-
-        Controller controller = context.getController();
-        assert controller != null;
-
-        // handle parameters if any
-
-        ParameterSet params = assembleParams(context, getActualParams());
-        ParameterSet tunnels = assembleTunnelParams(context, getTunnelParams());
-
-        Rule currentRule = context.getCurrentTemplateRule();
-        if (currentRule == null) {
-            XPathException e = new XPathException("There is no current template rule", "XTDE0560");
-            e.setXPathContext(context);
-            e.setLocation(getLocation());
-            throw e;
-        }
-        Component.M modeComponent = context.getCurrentMode();
-        if (modeComponent == null) {
-            throw new AssertionError("Current mode is null");
-        }
-        Mode mode = modeComponent.getActor();
-
-        Item currentItem = context.getCurrentIterator().current();
-
-        Rule rule = mode.getNextMatchRule(currentItem, currentRule, context);
-        //Rule rule = controller.getRuleManager().getNextMatchHandler(currentItem, mode.getCode(), currentRule, context);
-
-        if (rule == null) {             // use the default action for the node
-            mode.getBuiltInRuleSet().process(currentItem, params, tunnels, output, context, getLocation());
-        } else if (useTailRecursion) {
-            // clear all the local variables: they are no longer needed
-            Arrays.fill(context.getStackFrame().getStackFrameValues(), null);
-            ((XPathContextMajor) context).setCurrentComponent(modeComponent); // bug 2818
-            return new NextMatchPackage(rule, params, tunnels, output, context);
-        } else {
-            TemplateRule nh = (TemplateRule) rule.getAction();
-            nh.initialize();
-            XPathContextMajor c2 = context.newContext();
-            c2.setOrigin(this);
-            //c2.setOriginatingConstructType(LocationKind.TEMPLATE);
-            c2.openStackFrame(nh.getStackFrameMap());
-            c2.setLocalParameters(params);
-            c2.setTunnelParameters(tunnels);
-            c2.setCurrentTemplateRule(rule);
-            c2.setCurrentComponent(modeComponent); // needed in the case where next-match is called from a named template
-            c2.setCurrentMergeGroupIterator(null);
-            nh.apply(output, c2);
-        }
-        return null;
-    }
 
     /**
      * Diagnostic print of expression structure. The abstract expression tree
@@ -148,17 +100,18 @@ public class NextMatch extends ApplyNextMatchingTemplate {
      * template to execute in a finite stack size
      */
 
-    private class NextMatchPackage implements TailCall {
+    private static class NextMatchPackage implements TailCall {
 
-        private Rule rule;
-        private ParameterSet params;
-        private ParameterSet tunnelParams;
-        private Outputter output;
-        private XPathContext evaluationContext;
+        private final NextMatch instruction;
+        private final Rule rule;
+        private final ParameterSet params;
+        private final ParameterSet tunnelParams;
+        private final Outputter output;
+        private final XPathContext evaluationContext;
 
         /**
          * Construct a NextMatchPackage that contains information about a call.
-         *
+         * @param instruction       the xsl:next-match instruction
          * @param rule              the rule identifying the Template to be called
          * @param params            the parameters to be supplied to the called template
          * @param tunnelParams      the tunnel parameter supplied to the called template
@@ -167,11 +120,13 @@ public class NextMatch extends ApplyNextMatchingTemplate {
          *                          intact
          */
 
-        public NextMatchPackage(Rule rule,
+        public NextMatchPackage(NextMatch instruction,
+                                Rule rule,
                                 ParameterSet params,
                                 ParameterSet tunnelParams,
                                 Outputter output,
                                 XPathContext evaluationContext) {
+            this.instruction = instruction;
             this.rule = rule;
             this.params = params;
             this.tunnelParams = tunnelParams;
@@ -194,7 +149,7 @@ public class NextMatch extends ApplyNextMatchingTemplate {
             TemplateRule nh = (TemplateRule) rule.getAction();
             nh.initialize();
             XPathContextMajor c2 = evaluationContext.newContext();
-            c2.setOrigin(NextMatch.this);
+            c2.setOrigin(instruction);
             //c2.setOriginatingConstructType(LocationKind.TEMPLATE);
             c2.setLocalParameters(params);
             c2.setTunnelParameters(tunnelParams);
@@ -204,8 +159,16 @@ public class NextMatch extends ApplyNextMatchingTemplate {
             c2.setCurrentMergeGroupIterator(null);
 
             // System.err.println("Tail call on template");
-
-            return nh.applyLeavingTail(output, c2);
+            Mode mode = evaluationContext.getCurrentMode().getActor();
+            if (mode.isModeTracing()) {
+                TemplateRuleTraceListener tracer = ((XsltController)evaluationContext.getController()).getTemplateRuleTraceListener();
+                tracer.enter("next-match", instruction.getLocation(), evaluationContext.getContextItem(), nh);
+                TailCall tc = nh.applyLeavingTail(output, c2);
+                tracer.leave();
+                return tc;
+            } else {
+                return nh.applyLeavingTail(output, c2);
+            }
         }
     }
 
@@ -219,6 +182,80 @@ public class NextMatch extends ApplyNextMatchingTemplate {
     public String getStreamerName() {
         return "NextMatch";
     }
+
+    public Elaborator getElaborator() {
+        return new NextMatchElaborator();
+    }
+
+    private static class NextMatchElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            NextMatch expr = (NextMatch) getExpression();
+            Location loc = expr.getLocation();
+            return (output, context) -> {
+                Controller controller = context.getController();
+                assert controller != null;
+
+                // handle parameters if any
+
+                ParameterSet params = assembleParams(context, expr.getActualParams());
+                ParameterSet tunnels = assembleTunnelParams(context, expr.getTunnelParams());
+
+                Rule currentRule = context.getCurrentTemplateRule();
+                if (currentRule == null) {
+                    throw new XPathException("There is no current template rule", "XTDE0560")
+                            .withXPathContext(context)
+                            .withLocation(loc);
+                }
+                Component.M modeComponent = context.getCurrentMode();
+                if (modeComponent == null) {
+                    throw new AssertionError("Current mode is null");
+                }
+                Mode mode = modeComponent.getActor();
+
+                Item currentItem = context.getCurrentIterator().current();
+
+                Rule rule;
+                try {
+                    rule = mode.getNextMatchRule(currentItem, currentRule, context);
+                } catch (XPathException e) {
+                    throw e.withLocation(this.getExpression().getLocation());
+                }
+
+                if (rule == null) {             // use the default action for the node
+                    mode.getBuiltInRuleSet().process(currentItem, params, tunnels, output, context, loc);
+                } else if (expr.useTailRecursion) {
+                    // clear all the local variables: they are no longer needed
+                    Arrays.fill(context.getStackFrame().getStackFrameValues(), null);
+                    ((XPathContextMajor) context).setCurrentComponent(modeComponent); // bug 2818
+                    return new NextMatchPackage(expr, rule, params, tunnels, output, context);
+                } else {
+                    TemplateRule nh = (TemplateRule) rule.getAction();
+                    nh.initialize();
+                    XPathContextMajor c2 = context.newContext();
+                    c2.setOrigin(expr);
+                    //c2.setOriginatingConstructType(LocationKind.TEMPLATE);
+                    c2.openStackFrame(nh.getStackFrameMap());
+                    c2.setLocalParameters(params);
+                    c2.setTunnelParameters(tunnels);
+                    c2.setCurrentTemplateRule(rule);
+                    c2.setCurrentComponent(modeComponent); // needed in the case where next-match is called from a named template
+                    c2.setCurrentMergeGroupIterator(null);
+                    if (mode.isModeTracing()) {
+                        TemplateRuleTraceListener tracer = ((XsltController) controller).getTemplateRuleTraceListener();
+                        tracer.enter("next-match", loc, currentItem, nh);
+                        nh.apply(output, c2);
+                        tracer.leave();
+                    } else {
+                        nh.apply(output, c2);
+                    }
+                }
+                return null;
+            };
+        }
+    }
+
 
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,7 @@ import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.COUNT;
 
@@ -61,7 +61,7 @@ public class CountClause extends Clause {
      * input from another tuple stream which this clause modifies
      *
      * @param base    the input tuple stream
-     * @param context
+     * @param context the XPath context
      * @return the output tuple stream
      */
 
@@ -75,8 +75,8 @@ public class CountClause extends Clause {
      * output to another tuple stream
      *
      * @param destination the output tuple stream
-     * @param output the destination for the result
-     * @param context
+     * @param output      the destination for the result
+     * @param context     the XPath context
      * @return the push tuple stream that implements the functionality of this clause of the FLWOR
      *         expression
      */
@@ -114,13 +114,13 @@ public class CountClause extends Clause {
     }
 
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder fsb = new StringBuilder(64);
         fsb.append("count $");
         fsb.append(rangeVariable.getVariableQName().getDisplayName());
         return fsb.toString();
     }
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited
 
 

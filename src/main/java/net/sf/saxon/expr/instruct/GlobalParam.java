@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -73,20 +73,18 @@ public final class GlobalParam extends GlobalVariable {
             return b.saveGlobalVariableValue(this, val);
         }
         if (isRequiredParam()) {
-            XPathException e = new XPathException("No value supplied for required parameter $" +
-                    getVariableQName().getDisplayName());
-            e.setXPathContext(context);
-            e.setLocator(this);
-            e.setErrorCode(getPackageData().isXSLT() ? "XTDE0050" : "XPDY0002");
-            throw e;
+            throw new XPathException("No value supplied for required parameter $" +
+                    getVariableQName().getDisplayName())
+                    .withXPathContext(context)
+                    .withLocation(this)
+                    .withErrorCode(getPackageData().isXSLT() ? "XTDE0050" : "XPDY0002");
         } else if (isImplicitlyRequiredParam()) {
-            XPathException e = new XPathException("A value must be supplied for parameter $" +
+            throw new XPathException("A value must be supplied for parameter $" +
                     getVariableQName().getDisplayName() +
-                    " because there is no default value for the required type");
-            e.setXPathContext(context);
-            e.setLocator(this);
-            e.setErrorCode("XTDE0700");
-            throw e;
+                    " because there is no default value for the required type")
+                    .withXPathContext(context)
+                    .withLocation(this)
+                    .withErrorCode("XTDE0700");
         }
         // evaluate and save the default value
         return actuallyEvaluate(context, target);
@@ -98,7 +96,11 @@ public final class GlobalParam extends GlobalVariable {
 
     @Override
     public GroundedValue evaluateVariable(XPathContext context) throws XPathException {
-        return evaluateVariable(context, null);
+        Component target = context.getCurrentComponent();  // Bug #6236
+        if (target == null) {
+            target = getDeclaringComponent();
+        }
+        return evaluateVariable(context, target);
     }
 
     @Override

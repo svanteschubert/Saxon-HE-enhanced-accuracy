@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,7 @@ import net.sf.saxon.value.SequenceType;
  * An implementation of ItemType that matches any item (node or atomic value)
  */
 
-public class AnyItemType implements ItemType.WithSequenceTypeCache {
+public class AnyItemType implements ItemTypeWithSequenceTypeCache {
 
     private SequenceType _one;
     private SequenceType _oneOrMore;
@@ -27,7 +27,7 @@ public class AnyItemType implements ItemType.WithSequenceTypeCache {
     private AnyItemType() {
     }
 
-    /*@NotNull*/ private static AnyItemType theInstance = new AnyItemType();
+    /*@NotNull*/ private static final AnyItemType theInstance = new AnyItemType();
 
     /**
      * Factory method to get the singleton instance
@@ -100,7 +100,7 @@ public class AnyItemType implements ItemType.WithSequenceTypeCache {
      *
      *
      * @param item    The item to be tested
-     * @param th
+     * @param th  The type hierarchy cache
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
@@ -112,7 +112,7 @@ public class AnyItemType implements ItemType.WithSequenceTypeCache {
      * Get the primitive item type corresponding to this item type. For item(),
      * this is Type.ITEM. For node(), it is Type.NODE. For specific node kinds,
      * it is the value representing the node kind, for example Type.ELEMENT.
-     * For anyAtomicValue it is Type.ATOMIC_VALUE. For numeric it is Type.NUMBER.
+     * For anyAtomicValue it is Type.ATOMIC_VALUE. For xs:numeric it is Type.NUMBER.
      * For other atomic types it is the primitive type as defined in XML Schema,
      * except that INTEGER is considered to be a primitive type.
      */

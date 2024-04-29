@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,17 @@
 
 package net.sf.saxon.serialize.charcode;
 
+import net.sf.saxon.z.IntIterator;
+
+import java.io.ByteArrayOutputStream;
+
 /**
  * This class defines properties of the UTF-8 character set
  */
 
 public final class UTF8CharacterSet implements CharacterSet {
 
-    private static UTF8CharacterSet theInstance = new UTF8CharacterSet();
+    private static final UTF8CharacterSet theInstance = new UTF8CharacterSet();
 
     /**
      * Private constructor to force the singular instance to be used
@@ -55,7 +59,7 @@ public final class UTF8CharacterSet implements CharacterSet {
 
     public static int getUTF8Encoding(char in, char in2, byte[] out) {
         // See Tony Graham, "Unicode, a Primer", page 92
-        int i = (int) in;
+        int i = in;
         if (i <= 0x7f) {
             out[0] = (byte) i;
             return 1;
@@ -65,7 +69,7 @@ public final class UTF8CharacterSet implements CharacterSet {
             return 2;
         } else if (i >= 0xd800 && i <= 0xdbff) {
             // surrogate pair
-            int j = (int) in2;
+            int j = in2;
             if (!(j >= 0xdc00 && j <= 0xdfff)) {
                 throw new IllegalArgumentException("Malformed Unicode Surrogate Pair (" + i + ',' + j + ')');
             }
@@ -87,6 +91,48 @@ public final class UTF8CharacterSet implements CharacterSet {
             out[2] = (byte) (0x80 | (in & 0x3f));
             return 3;
         }
+    }
+
+    /**
+     * Static method to generate the UTF-8 representation of a sequence of Unicode codepoints
+     *
+     * @param codePoints  the sequence of Unicode codepoints: must not include surrogates
+     * @return the UTF-8 encoding of the characters
+     */
+
+    public static byte[] encode(IntIterator codePoints) {
+        final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        final byte[] cpBytes = new byte[6]; // IndexOutOfBounds for too large code points
+        while(codePoints.hasNext()) {
+            int cp = codePoints.next();
+            if (cp < 0) {
+                throw new IllegalStateException("No negative code point allowed");
+            } else if (cp < 0x80) {
+                baos.write((byte)cp);
+            } else {
+                int bi = 0;
+                int lastPrefix = 0xC0;
+                int lastMask = 0x1F;
+                for (; ; ) {
+                    int b = 0x80 | (cp & 0x3F);
+                    cpBytes[bi] = (byte) b;
+                    ++bi;
+                    cp >>= 6;
+                    if ((cp & ~lastMask) == 0) {
+                        cpBytes[bi] = (byte) (lastPrefix | cp);
+                        ++bi;
+                        break;
+                    }
+                    lastPrefix = 0x80 | (lastPrefix >> 1);
+                    lastMask >>= 1;
+                }
+                while (bi > 0) {
+                    --bi;
+                    baos.write(cpBytes[bi]);
+                }
+            }
+        };
+        return baos.toByteArray();
     }
 
     /**

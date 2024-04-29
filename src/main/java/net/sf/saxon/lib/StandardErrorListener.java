@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.EarlyEvaluationContext;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.XPathParser;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
@@ -39,7 +40,7 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
     private int maximumNumberOfWarnings = 25;
     private int maxOrdinaryCharacter = 255;
     private int stackTraceDetail = 2;
-    private Set<String> warningsIssued = new HashSet<>();
+    private final Set<String> warningsIssued = new HashSet<>();
     protected transient Logger logger = new StandardLogger();
 
     /**
@@ -194,12 +195,14 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
                 logger.error(message);
 
             } else {
-                logger.warning(message);
-                warningCount++;
                 if (warningCount > getMaximumNumberOfWarnings()) {
-                    logger.info("No more warnings will be displayed");
-                    warningCount = 0;
+                    if (warningCount == getMaximumNumberOfWarnings() + 1) {
+                        logger.info("No more warnings will be displayed");
+                    }
+                } else {
+                    logger.warning(message);
                 }
+                warningCount++;
             }
             warningsIssued.add(message);
         }
@@ -448,7 +451,7 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
      *     was violated;</li>
      *     <li>For other exceptions, it returns a string comprising two characters
      *     of indentation, followed by the result of calling {@link #getExpandedMessage(TransformerException)}
-     *     and then formatting the result using {@link #wordWrap(String)} and {@link #expandSpecialCharacters(CharSequence)}.</li>
+     *     and then formatting the result using {@link #wordWrap(String)} and {@link #expandSpecialCharacters(String)}.</li>
      * </ul>
      * @param err the original reported exception
      * @return the string to be used as the second line of the error message
@@ -470,7 +473,7 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
 
     /**
      * Generate a stack trace for a dynamic error. The default implementation
-     * calls {@link #printStackTrace(XPathContext, Logger, int)} supplying as
+     * calls {@link #logStackTrace(XPathContext, Logger, int)} supplying as
      * the third argument the current setting of {@link #setStackTraceDetail(int)},
      * which defaults to 2.
      *
@@ -479,7 +482,7 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
      */
 
     protected void outputStackTrace(Logger out, XPathContext context) {
-        printStackTrace(context, out, stackTraceDetail);
+        logStackTrace(context, out, stackTraceDetail);
     }
 
     /**
@@ -613,7 +616,7 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
         }
         String message = "";
         if (qCode != null) {
-            if (qCode.hasURI(NamespaceConstant.ERR)) {
+            if (qCode.hasURI(NamespaceUri.ERR)) {
                 message = qCode.getLocalPart();
             } else {
                 message = qCode.getDisplayName();
@@ -655,14 +658,14 @@ public class StandardErrorListener extends StandardDiagnostics implements ErrorL
      * in this way is to mark the logger as being unicode-aware.</p>
      *
      * <p>If messages are expanded, then they will be expanded using the method
-     * {@link #expandSpecialCharacters(CharSequence, int)}, which can be overridden
+     * {@link #expandSpecialCharacters(String, int)}, which can be overridden
      * to define the actual format in which special characters are displayed.</p>
      *
      * @param in the message to be expanded
      * @return the expanded message
      */
 
-    public CharSequence expandSpecialCharacters(CharSequence in) {
+    public String expandSpecialCharacters(String in) {
         if (logger.isUnicodeAware()) {
             return in;
         } else {

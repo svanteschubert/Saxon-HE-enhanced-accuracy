@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,18 +8,23 @@
 package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.Configuration;
-import net.sf.saxon.event.CopyInformee;
 import net.sf.saxon.event.CopyNamespaceSensitiveException;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.CompressedWhitespace;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.z.IntHashMap;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -181,7 +186,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
      */
 
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
         int a = tree.alpha[nodeNr];
         if (a < 0) {
             return null;
@@ -192,7 +197,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
             // Avoid allocating a name code for an ad-hoc request
             StructuredQName name = pool.getUnprefixedQName(nc);
             if (name.getLocalPart().equals(local) && name.hasURI(uri)) {
-                return tree.attValue[a].toString();
+                return tree.attValue[a];
             }
             a++;
         }
@@ -242,7 +247,9 @@ public class TinyElementImpl extends TinyParentNodeImpl {
 
     @Override
     public void copy(/*@NotNull*/ Receiver receiver, int copyOptions, Location location) throws XPathException {
+
         boolean copyTypes = CopyOptions.includes(copyOptions, CopyOptions.TYPE_ANNOTATIONS);
+        final boolean copyForUpdate = CopyOptions.includes(copyOptions, CopyOptions.FOR_UPDATE);
 
         short level = -1;
         boolean closePending = false;
@@ -254,7 +261,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
         Configuration config = tree.getConfiguration();
         NamePool pool = config.getNamePool();
         int next = nodeNr;
-        CopyInformee<Location> informee = (CopyInformee<Location>) receiver.getPipelineConfiguration().getComponent(CopyInformee.class.getName());
+        java.util.function.Function<NodeInfo, Object> informee = receiver.getPipelineConfiguration().getCopyInformee();
         SchemaType elementType = Untyped.getInstance();
         SimpleType attributeType = BuiltInAtomicType.UNTYPED_ATOMIC;
 
@@ -283,6 +290,10 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                 case Type.ELEMENT:
                 case Type.TEXTUAL_ELEMENT: {
 
+                    int receiverOptions = ReceiverOption.BEQUEATH_INHERITED_NAMESPACES_ONLY;
+                    if (copyForUpdate) {
+                        receiverOptions |= ReceiverOption.MUTABLE_TREE;
+                    }
                     // start element
                     if (copyTypes) {
                         elementType = tree.getSchemaType(next);
@@ -290,13 +301,12 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                             try {
                                 checkNotNamespaceSensitiveElement(elementType, next);
                             } catch (CopyNamespaceSensitiveException e) {
-                                e.setErrorCode(receiver.getPipelineConfiguration().isXSLT() ? "XTTE0950" : "XQTY0086");
-                                throw e;
+                                throw e.withErrorCode(receiver.getPipelineConfiguration().isXSLT() ? "XTTE0950" : "XQTY0086");
                             }
                         }
                     }
                     if (informee != null) {
-                        Location loc = informee.notifyElementNode(tree.getNode(next));
+                        Location loc = (Location)informee.apply(tree.getNode(next));
                         if (loc != null) {
                             location = loc;
                         }
@@ -322,7 +332,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                             }
                         } else {
                             addAttributeNamespaces = true;
-                            String uri = pool.getURI(nameCode);
+                            NamespaceUri uri = pool.getURI(nameCode);
                             if (!uri.isEmpty()) {
                                 namespaces = NamespaceMap.of(prefix, uri);
                             }
@@ -336,9 +346,9 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                                               EmptyAttributeMap.getInstance(),
                                               namespaces,
                                               location,
-                                              ReceiverOption.BEQUEATH_INHERITED_NAMESPACES_ONLY);
+                                              receiverOptions);
                         // output characters
-                        final CharSequence value = TinyTextImpl.getStringValue(tree, next);
+                        final UnicodeString value = TinyTextImpl.getStringValue(tree, next);
                         receiver.characters(value, location, ReceiverOption.WHOLE_TEXT_NODE);
                         receiver.endElement();
                     } else {
@@ -348,10 +358,13 @@ public class TinyElementImpl extends TinyParentNodeImpl {
 
 
                         // output attributes
+                        //AttributeMap attributes = tree.alpha[nodeNr] < 0 ? EmptyAttributeMap.getInstance() : new LocalAttributeMap(copyTypes);
 
-                        AttributeMap attributes = EmptyAttributeMap.getInstance();
+                        AttributeMap attributes;
+
                         int att = tree.alpha[next];
                         if (att >= 0) {
+                            List<AttributeInfo> attributeInfoList = new ArrayList<>(8);
                             while (att < tree.numberOfAttributes && tree.attParent[att] == next) {
                                 int attCode = tree.attCode[att];
                                 int attfp = attCode & NamePool.FP_MASK;
@@ -361,8 +374,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                                         try {
                                             checkNotNamespaceSensitiveAttribute(attributeType, att);
                                         } catch (CopyNamespaceSensitiveException e) {
-                                            e.setErrorCode(receiver.getPipelineConfiguration().isXSLT() ? "XTTE0950" : "XQTY0086");
-                                            throw e;
+                                            throw e.withErrorCode(receiver.getPipelineConfiguration().isXSLT() ? "XTTE0950" : "XQTY0086");
                                         }
                                     }
                                 }
@@ -374,14 +386,17 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                                 if (tree.isIdrefAttribute(att)) {
                                     attProps |= ReceiverOption.IS_IDREF;
                                 }
-                                attributes = attributes.put(new AttributeInfo(new CodedName(attfp, attPrefix, pool),
-                                                        attributeType, tree.attValue[att].toString(),
+                                attributeInfoList.add(new AttributeInfo(new CodedName(attfp, attPrefix, pool),
+                                                        attributeType, tree.attValue[att],
                                                         location, attProps));
                                 if (addAttributeNamespaces && !attPrefix.isEmpty()) {
                                     namespaces = namespaces.put(attPrefix,pool.getURI(attCode));
                                 }
                                 att++;
                             }
+                            attributes = SequenceTool.attributeMapFromList(attributeInfoList);
+                        } else {
+                            attributes = EmptyAttributeMap.getInstance();
                         }
 
                         // see bug 2209
@@ -389,7 +404,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                                               elementType,
                                               attributes, namespaces,
                                               location,
-                                              ReceiverOption.BEQUEATH_INHERITED_NAMESPACES_ONLY);
+                                              receiverOptions);
 
                     }
                     break;
@@ -401,7 +416,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                     closePending = false;
 
                     // output characters
-                    final CharSequence value = TinyTextImpl.getStringValue(tree, next);
+                    final UnicodeString value = TinyTextImpl.getStringValue(tree, next);
                     receiver.characters(value, location, ReceiverOption.WHOLE_TEXT_NODE);
                     break;
                 }
@@ -412,7 +427,8 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                     closePending = false;
 
                     // output characters
-                    final CharSequence value = WhitespaceTextImpl.getStringValueCS(tree, next);
+                    long compressedValue = ((long) tree.alpha[next] << 32) | ((long) tree.beta[next] & 0xffffffffL);
+                    final UnicodeString value = new CompressedWhitespace(compressedValue);
                     receiver.characters(value, location, ReceiverOption.WHOLE_TEXT_NODE);
                     break;
                 }
@@ -426,9 +442,9 @@ public class TinyElementImpl extends TinyParentNodeImpl {
                     int start = tree.alpha[next];
                     int len = tree.beta[next];
                     if (len > 0) {
-                        receiver.comment(tree.commentBuffer.subSequence(start, start + len), location, ReceiverOption.NONE);
+                        receiver.comment(tree.commentBuffer.substring(start, start + len), location, ReceiverOption.NONE);
                     } else {
-                        receiver.comment("", Loc.NONE, ReceiverOption.NONE);
+                        receiver.comment(EmptyUnicodeString.getInstance(), Loc.NONE, ReceiverOption.NONE);
                     }
                     break;
                 }
@@ -439,12 +455,13 @@ public class TinyElementImpl extends TinyParentNodeImpl {
 
                     // output copy of PI
                     NodeInfo pi = tree.getNode(next);
-                    receiver.processingInstruction(pi.getLocalPart(), pi.getStringValue(), location, ReceiverOption.NONE);
+                    receiver.processingInstruction(pi.getLocalPart(), pi.getUnicodeStringValue(), location, ReceiverOption.NONE);
                     break;
                 }
 
                 case Type.PARENT_POINTER: {
                     closePending = false;
+                    break;
                 }
             }
 
@@ -461,12 +478,63 @@ public class TinyElementImpl extends TinyParentNodeImpl {
         }
     }
 
+    // Alternative algorithm for the copy() method, using recursion. Included so that we
+    // can study the performance. It's currently not handling all edge cases, for example
+    // detection of the disallowNamespaceSensitiveContent condition.
+
+//    public void copy_12(Receiver receiver, int copyOptions, Location location) throws XPathException {
+//
+//        String prefix = getPrefix();
+//        NamePool pool = tree.getNamePool();
+//        NodeName elemName = new CodedName(tree.nameCode[nodeNr] & 0xfffff, prefix, pool);
+//        boolean typed = tree.isTyped() && CopyOptions.includes(copyOptions, CopyOptions.TYPE_ANNOTATIONS);
+//        SchemaType type = typed ? getSchemaType() : Untyped.getInstance();
+//        AttributeMap atts = tree.alpha[nodeNr] < 0 ? EmptyAttributeMap.getInstance() : new LocalAttributeMap(typed);
+//
+//        // decide on namespaces
+//        NamespaceMap namespaces = NamespaceMap.emptyMap();
+//        if (tree.usesNamespaces) {
+//            if ((copyOptions & CopyOptions.ALL_NAMESPACES) != 0) {
+//                // copy all the namespaces
+//                namespaces = getAllNamespaces();
+//            } else {
+//                // copy only the namespace bindings actually used in the element and attribute names
+//                NamespaceUri uri = getNamespaceUri();
+//                if (!uri.isEmpty()) {
+//                    namespaces = NamespaceMap.of(prefix, uri);
+//                }
+//                int att = tree.alpha[nodeNr];
+//                if (att >= 0) {
+//                    while (att < tree.numberOfAttributes && tree.attParent[att] == nodeNr) {
+//                        int attCode = tree.attCode[att++];
+//                        if (NamePool.isPrefixed(attCode)) {
+//                            String attPrefix = tree.prefixPool.getPrefix(attCode >> 20);
+//                            namespaces = namespaces.put(attPrefix, pool.getURI(attCode));
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//
+//
+//        receiver.startElement(elemName, type, atts, namespaces, location, 0);
+//
+//        // output the children
+//
+//        for (NodeInfo child : children()) {
+//            child.copy(receiver, copyOptions, location);
+//        }
+//
+//        receiver.endElement();
+//    }
+
+
     /**
      * Check whether the content of an element is namespace-sensitive
      *
      *
      * @param type   the type annotation of the node
-     * @param nodeNr the the node number of the elemente
+     * @param nodeNr the node number of the element
      * @throws XPathException if an error occurs
      */
 
@@ -493,7 +561,7 @@ public class TinyElementImpl extends TinyParentNodeImpl {
      *
      *
      * @param type   the type annotation of the node
-     * @param nodeNr the the node number of the elemente
+     * @param nodeNr the node number of the element
      * @throws XPathException  if an error occurs
      */
 
@@ -530,43 +598,14 @@ public class TinyElementImpl extends TinyParentNodeImpl {
      */
 
     /*@Nullable*/
-    public String getURIForPrefix(/*@Nullable*/ String prefix, boolean useDefault) {
-        if (!useDefault && (prefix == null || prefix.isEmpty())) {
-            return "";
-        }
-        int ns = tree.beta[nodeNr]; // by convention
-        NamespaceMap map = tree.namespaceMaps[ns];
-        return map.getURIForPrefix(prefix, useDefault);
-//        if (ns > 0) {
-//            while (ns < tree.numberOfNamespaces &&
-//                    tree.namespaceParent[ns] == nodeNr) {
-//                NamespaceBinding nscode = tree.namespaceBinding[ns];
-//                if (nscode.getPrefix().equals(prefix)) {
-//                    String uri = nscode.getURI();
-//                    if (uri.isEmpty()) {
-//                        // this is a namespace undeclaration, so the prefix is not in scope
-//                        if (prefix.isEmpty()) {
-//                            // the namespace xmlns="" is always in scope
-//                            return "";
-//                        } else {
-//                            return null;
-//                        }
-//                    } else {
-//                        return uri;
-//                    }
-//                }
-//                ns++;
-//            }
+//    public NamespaceUri getURIForPrefix(/*@Nullable*/ String prefix, boolean useDefault) {
+//        if (!useDefault && (prefix == null || prefix.isEmpty())) {
+//            return "";
 //        }
-//
-//        // now search the namespaces defined on the ancestor nodes.
-//
-//        NodeInfo parent = getParent();
-//        if (parent instanceof NamespaceResolver) {
-//            return ((NamespaceResolver) parent).getURIForPrefix(prefix, useDefault);
-//        }
-//        return null;
-    }
+//        int ns = tree.beta[nodeNr]; // by convention
+//        NamespaceMap map = tree.namespaceMaps[ns];
+//        return map.getURIForPrefix(prefix, useDefault);
+//    }
 
     /**
      * Determine whether this node has the is-id property
@@ -594,6 +633,73 @@ public class TinyElementImpl extends TinyParentNodeImpl {
     private boolean isSkipValidator(Receiver r) {
         return false;
     }
+
+//    private class LocalAttributeMap implements AttributeMap {
+//
+//        private final boolean typed;
+//
+//        public LocalAttributeMap(boolean typed) {
+//            this.typed = typed;
+//        }
+//
+//        /**
+//         * Return the number of attributes in the map.
+//         *
+//         * @return The number of attributes in the map.
+//         */
+//        @Override
+//        public int size() {
+//            int count = 0;
+//            int att = tree.alpha[nodeNr];
+//            if (att >= 0) {
+//                while (att < tree.numberOfAttributes && tree.attParent[att] == nodeNr) {
+//                    count++;
+//                    att++;
+//                }
+//            }
+//            return count;
+//        }
+//
+//        /**
+//         * Returns an iterator over elements of type {@code T}.
+//         *
+//         * @return an Iterator.
+//         */
+//        @Override
+//        public Iterator<AttributeInfo> iterator() {
+//            return new AttributeInfoIterator(typed);
+//        }
+//    }
+//
+//    private class AttributeInfoIterator implements Iterator<AttributeInfo> {
+//        private int att = tree.alpha[nodeNr];
+//        private final NamePool pool = tree.getNamePool();
+//        private final boolean typed;
+//        private final Location location = TinyElementImpl.this;
+//
+//        public AttributeInfoIterator(boolean typed) {
+//            this.typed = typed && tree.attType != null;
+//        }
+//
+//        @Override
+//        public boolean hasNext() {
+//            return att < tree.numberOfAttributes && tree.attParent[att] == nodeNr;
+//        }
+//
+//        @Override
+//        public AttributeInfo next() {
+//            int code = tree.attCode[att];
+//            String prefix = NamePool.isPrefixed(code) ? tree.prefixPool.getPrefix(code >> 20) : "";
+//            AttributeInfo info = new AttributeInfo(
+//                    new CodedName(code & 0xfffff, prefix, pool),
+//                    typed ? tree.attType[att] : BuiltInAtomicType.UNTYPED_ATOMIC,
+//                    tree.attValue[att],
+//                    location,
+//                    0);
+//            att++;
+//            return info;
+//        }
+//    }
 
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -27,7 +28,8 @@ import java.util.Map;
  */
 public abstract class Clause {
 
-    public enum ClauseName { FOR, LET, WINDOW, GROUP_BY, COUNT, ORDER_BY, WHERE, TRACE, FOR_MEMBER}
+    @CSharpSimpleEnum
+    public enum ClauseName { FOR, LET, WINDOW, GROUP_BY, COUNT, ORDER_BY, WHERE, TRACE, DIAG, FOR_MEMBER}
 
     private Location location;
     private PackageData packageData;
@@ -37,7 +39,7 @@ public abstract class Clause {
      * Get the location, which can be used to determine
      * the system ID and line number of the clause
      *
-     * @return the location
+     * @return the location, or {@link Loc#NONE} if not known
      */
     public Location getLocation() {
         return location == null ? Loc.NONE : location;
@@ -78,7 +80,7 @@ public abstract class Clause {
      * Create a copy of this clause
      *
      * @param flwor the new FLWORExpression to contain the copied clause
-     * @param rebindings
+     * @param rebindings the rebinding map
      * @return the copied clause
      */
 
@@ -144,6 +146,7 @@ public abstract class Clause {
      * is written to the supplied output destination.
      *
      * @param out the expression presenter used to display the structure
+     * @throws XPathException if any error occurs
      */
 
     public abstract void explain(ExpressionPresenter out) throws XPathException;
@@ -217,8 +220,10 @@ public abstract class Clause {
         return toString();
     }
 
+
     /**
      * Get information for inclusion in trace output
+     *
      * @return a map containing the properties to be output
      */
 

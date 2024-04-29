@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Type;
@@ -39,7 +40,7 @@ public class DOMSender {
     private final Receiver receiver;
     protected Node root;
     protected String systemId;
-    private Stack<NamespaceMap> namespaces = new Stack<>();
+    private final Stack<NamespaceMap> namespaces = new Stack<>();
     private Node currentNode;
 
     /**
@@ -103,15 +104,15 @@ public class DOMSender {
                 break;
             case Node.TEXT_NODE:
             case Node.CDATA_SECTION_NODE:
-                receiver.characters(((CharacterData) root).getData(), loc, ReceiverOption.NONE);
+                receiver.characters(StringView.of(((CharacterData) root).getData()), loc, ReceiverOption.NONE);
                 break;
             case Node.COMMENT_NODE:
-                receiver.comment(((Comment) root).getData(), loc, ReceiverOption.NONE);
+                receiver.comment(StringView.of(((Comment) root).getData()), loc, ReceiverOption.NONE);
                 break;
             case Node.PROCESSING_INSTRUCTION_NODE:
                 receiver.processingInstruction(
                         ((ProcessingInstruction) root).getTarget(),
-                        ((ProcessingInstruction) root).getData(), loc, ReceiverOption.NONE);
+                        StringView.of(((ProcessingInstruction) root).getData()), loc, ReceiverOption.NONE);
                 break;
             default:
                 throw new IllegalStateException("DOMSender: unsupported kind of start node (" + root.getNodeType() + ")");
@@ -176,7 +177,7 @@ public class DOMSender {
         }
 
         namespaces.push(inScopeNamespaces);
-        outputElement(startNode, true);
+        outputElement(startNode);
         namespaces.pop();
     }
 
@@ -193,7 +194,7 @@ public class DOMSender {
             if (useDefaultNS) {
                 String uri = getUriForPrefix("");
                 if (!uri.isEmpty()) {
-                    return new FingerprintedQName("", uri, name);
+                    return new FingerprintedQName("", NamespaceUri.of(uri), name);
                 }
             }
             return new NoNamespaceName(name);
@@ -203,7 +204,7 @@ public class DOMSender {
             if (uri == null) {
                 throw new IllegalStateException("Prefix " + prefix + " is not bound to any namespace");
             }
-            return new FingerprintedQName(prefix, uri, name.substring(colon+1));
+            return new FingerprintedQName(prefix, NamespaceUri.of(uri), name.substring(colon+1));
         }
     }
 
@@ -232,7 +233,7 @@ public class DOMSender {
                         NamespaceMap parentNamespaces = namespaces.peek();
                         NamespaceMap childNamespaces = parentNamespaces.applyDifferences(gatherNamespaces(element));
                         namespaces.push(childNamespaces);
-                        outputElement(element, !childNamespaces.isEmpty());
+                        outputElement(element);
                         namespaces.pop();
                         break;
                     case Node.ATTRIBUTE_NODE:        // have already dealt with attributes
@@ -240,13 +241,13 @@ public class DOMSender {
                     case Node.PROCESSING_INSTRUCTION_NODE:
                         receiver.processingInstruction(
                                 ((ProcessingInstruction) child).getTarget(),
-                                ((ProcessingInstruction) child).getData(),
+                                StringView.of(((ProcessingInstruction) child).getData()),
                                 loc, ReceiverOption.NONE);
                         break;
                     case Node.COMMENT_NODE: {
                         String text = ((Comment) child).getData();
                         if (text != null) {
-                            receiver.comment(text, loc, ReceiverOption.NONE);
+                            receiver.comment(StringView.of(text), loc, ReceiverOption.NONE);
                         }
                         break;
                     }
@@ -254,7 +255,7 @@ public class DOMSender {
                     case Node.CDATA_SECTION_NODE: {
                         String text = ((CharacterData) child).getData();
                         if (text != null) {
-                            receiver.characters(text, loc, ReceiverOption.NONE);
+                            receiver.characters(StringView.of(text), loc, ReceiverOption.NONE);
                         }
                         break;
                     }
@@ -280,16 +281,13 @@ public class DOMSender {
     }
 
     /**
-     * Process an element node. On entry, the namespace bindings have already been added to the stack,
-     * and this method removes them from the stack before exit.
+     * Process an element node. On entry, the namespace bindings have already been added to the stack.
      *
      * @param element                  the element to be processed.
-     * @param hasNamespaceDeclarations true if the attributes of the element contain namespace declaration
-     *                                 attributes (which the method then ignores)
      * @throws XPathException if a dynamic error occurs
      */
 
-    private void outputElement(Element element, boolean hasNamespaceDeclarations) throws XPathException {
+    private void outputElement(Element element) throws XPathException {
         NodeName name = getNodeName(element.getTagName(), true);
         final Location loc = new Loc(systemId, -1, -1);
 
@@ -301,7 +299,7 @@ public class DOMSender {
                 Attr att = (Attr) atts.item(a2);
                 int props = att.isId() ? ReceiverOption.IS_ID : ReceiverOption.NONE;
                 String attname = att.getName();
-                if (hasNamespaceDeclarations && attname.startsWith("xmlns") && ((attname.length()==5 || attname.charAt(5) == ':'))) {
+                if (attname.startsWith("xmlns") && ((attname.length()==5 || attname.charAt(5) == ':'))) {
                     // do nothing: namespace declarations have already been processed
                 } else {
                     //System.err.println("Processing attribute " + attname);
@@ -336,8 +334,8 @@ public class DOMSender {
         if (prefix.equals("xml")) {
             return NamespaceConstant.XML;
         }
-        String uri = namespaces.peek().getURI(prefix);
-        return uri==null ? "" : uri;
+        NamespaceUri uri = namespaces.peek().getNamespaceUri(prefix);
+        return uri==null ? "" : uri.toString();
     }
 
     /**
@@ -363,7 +361,7 @@ public class DOMSender {
             if (uri == null) {
                 uri = "";
             }
-            result = result.put(prefix, uri);
+            result = result.put(prefix, NamespaceUri.of(uri));
         } catch (Throwable err) {
             // it must be a level 1 DOM
         }
@@ -381,16 +379,16 @@ public class DOMSender {
             boolean possibleNamespace = attname.startsWith("xmlns");
             if (possibleNamespace && attname.length() == 5) {
                 String uri = att.getValue();
-                result = result.put("", uri);
+                result = result.put("", NamespaceUri.of(uri));
             } else if (possibleNamespace && attname.startsWith("xmlns:")) {
                 String prefix = attname.substring(6);
                 String uri = att.getValue();
-                result = result.put(prefix, uri);
+                result = result.put(prefix, NamespaceUri.of(uri));
             } else if (attname.indexOf(':') >= 0) {
                 try {
                     String prefix = att.getPrefix();
                     String uri = att.getNamespaceURI();
-                    result = result.put(prefix, uri);
+                    result = result.put(prefix, NamespaceUri.of(uri));
                 } catch (Throwable err) {
                     // it must be a level 1 DOM
                 }

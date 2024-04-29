@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,14 +11,16 @@ import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.ReceiverWithOutputProperties;
 import net.sf.saxon.event.SequenceWriter;
 import net.sf.saxon.functions.FormatNumber;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.query.QueryResult;
-import net.sf.saxon.serialize.codenorm.Normalizer;
+import net.sf.saxon.regex.ARegularExpression;
+import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.UnicodeWriter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.AtomicValue;
@@ -28,7 +30,7 @@ import net.sf.saxon.value.QualifiedNameValue;
 import javax.xml.transform.stream.StreamResult;
 import java.io.IOException;
 import java.io.StringWriter;
-import java.io.Writer;
+import java.text.Normalizer;
 import java.util.Properties;
 
 /**
@@ -37,13 +39,14 @@ import java.util.Properties;
 
 public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutputProperties {
 
-    private Writer writer;
+    private final UnicodeWriter writer;
     private CharacterMap characterMap;
     private Properties outputProperties;
     private String itemSeparator = "\n";
     private boolean started = false;
+    private boolean mustClose = true;
 
-    public AdaptiveEmitter(PipelineConfiguration pipe, Writer writer)  {
+    public AdaptiveEmitter(PipelineConfiguration pipe, UnicodeWriter writer)  {
         super(pipe);
         this.writer = writer;
     }
@@ -59,10 +62,19 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
     /**
      * Set the Unicode normalizer to be used for normalizing strings.
      *
-     * @param normalizer the normalizer to be used
+     * @param normalizationForm the normalizationForm to be used
      */
 
-    public void setNormalizer(Normalizer normalizer) {
+    public void setNormalizationForm(Normalizer.Form normalizationForm) {
+        // TODO: should this method do something?
+    }
+
+    /**
+     * Say whether the output must be closed on completion
+     * @param mustClose true if the output must be closed
+     */
+    public void setMustClose(boolean mustClose) {
+        this.mustClose = mustClose;
     }
 
     /**
@@ -81,9 +93,17 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
         return outputProperties;
     }
 
-    private void emit(CharSequence s) throws XPathException {
+    private void emit(String s) throws XPathException {
         try {
-            writer.append(s);
+            writer.write(s);
+        } catch (IOException e) {
+            throw new XPathException(e);
+        }
+    }
+
+    private void emit(UnicodeString s) throws XPathException {
+        try {
+            writer.write(s);
         } catch (IOException e) {
             throw new XPathException(e);
         }
@@ -100,9 +120,6 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
         if (started) {
             emit(itemSeparator);
         } else {
-            if (writer == null) {
-
-            }
             started = true;
         }
         serializeItem(item);
@@ -117,24 +134,24 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
             serializeMap((MapItem) item);
         } else if (item instanceof ArrayItem) {
             serializeArray((ArrayItem) item);
-        } else if (item instanceof Function) {
-            serializeFunction((Function) item);
+        } else if (item instanceof FunctionItem) {
+            serializeFunction((FunctionItem) item);
         }
     }
+
+    static ARegularExpression QUOTES = ARegularExpression.compile("\"", "");
 
     private String serializeAtomicValue(AtomicValue value) throws XPathException {
         switch(value.getPrimitiveType().getFingerprint()) {
             case StandardNames.XS_STRING:
             case StandardNames.XS_ANY_URI:
             case StandardNames.XS_UNTYPED_ATOMIC: {
-                String s = value.getStringValue();
-                if (s.contains("\"")) {
-                    s = s.replace("\"", "\"\"");
-                }
+                UnicodeString s = value.getUnicodeStringValue();
+                s = QUOTES.replace(s, BMPString.of("\"\""));
                 if (characterMap != null) {
-                    s = characterMap.map(s, false).toString();
+                    s = characterMap.map(s, false);
                 }
-                return "\"" + s + "\"";
+                return "\"" + s.toString() + "\"";
             }
             case StandardNames.XS_BOOLEAN:
                 return value.effectiveBooleanValue() ? "true()" : "false()";
@@ -158,11 +175,11 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
             case StandardNames.XS_G_DAY:
             case StandardNames.XS_HEX_BINARY:
             case StandardNames.XS_BASE64_BINARY:
-                return value.getPrimitiveType().getDisplayName() + "(\"" + value.getStringValue() + "\")";
+                return value.getPrimitiveType().getDisplayName() + "(\"" + value.getUnicodeStringValue() + "\")";
 
             case StandardNames.XS_DAY_TIME_DURATION:
             case StandardNames.XS_YEAR_MONTH_DURATION:
-                return "xs:duration(\"" + value.getStringValue() + "\")";
+                return "xs:duration(\"" + value.getUnicodeStringValue() + "\")";
 
             case StandardNames.XS_QNAME:
             case StandardNames.XS_NOTATION:
@@ -172,19 +189,19 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
         }
     }
 
-    private void serializeFunction(Function fn) throws XPathException {
+    private void serializeFunction(FunctionItem fn) throws XPathException {
         StructuredQName fname = fn.getFunctionName();
-        if (fname == null || fname.hasURI(NamespaceConstant.ANONYMOUS)) {
+        if (fname == null || fname.hasURI(NamespaceUri.ANONYMOUS)) {
             emit("(anonymous-function)");
-        } else if (fname.hasURI(NamespaceConstant.FN)) {
+        } else if (fname.hasURI(NamespaceUri.FN)) {
             emit("fn:" + fname.getLocalPart());
-        } else if (fname.hasURI(NamespaceConstant.MATH)) {
+        } else if (fname.hasURI(NamespaceUri.MATH)) {
             emit("math:" + fname.getLocalPart());
-        } else if (fname.hasURI(NamespaceConstant.MAP_FUNCTIONS)) {
+        } else if (fname.hasURI(NamespaceUri.MAP_FUNCTIONS)) {
             emit("map:" + fname.getLocalPart());
-        } else if (fname.hasURI(NamespaceConstant.ARRAY_FUNCTIONS)) {
+        } else if (fname.hasURI(NamespaceUri.ARRAY_FUNCTIONS)) {
             emit("array:" + fname.getLocalPart());
-        } else if (fname.hasURI(NamespaceConstant.SCHEMA)) {
+        } else if (fname.hasURI(NamespaceUri.SCHEMA)) {
             emit("xs:" + fname.getLocalPart());
         } else {
             emit(fname.getEQName());
@@ -197,20 +214,20 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
             case Type.ATTRIBUTE:
                 emit(node.getDisplayName());
                 emit("=\"");
-                emit(escapeAttributeValue(node.getStringValueCS()));
+                emit(escapeAttributeValue(node.getStringValue()));
                 emit("\"");
                 break;
             case Type.NAMESPACE:
                 emit(node.getLocalPart().isEmpty() ? "xmlns" : "xmlns:" + node.getLocalPart());
                 emit("=\"");
-                emit(escapeAttributeValue(node.getStringValueCS()));
+                emit(escapeAttributeValue(node.getStringValue()));
                 emit("\"");
                 break;
             default:
                 StringWriter sw = new StringWriter();
                 Properties props = new Properties(outputProperties);
                 props.setProperty("method", "xml");
-                props.setProperty("indent", "no");
+                //props.setProperty("indent", "no");
                 if (props.getProperty("omit-xml-declaration") == null) {
                     props.setProperty("omit-xml-declaration", "no");
                 }
@@ -223,13 +240,13 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
                 SerializationProperties sProps = new SerializationProperties(props, cmi);
                 QueryResult.serialize(node, new StreamResult(sw), sProps);
                 emit(sw.toString());
+                break;
         }
     }
 
-
-    private String escapeAttributeValue(CharSequence value) {
-        StringBuilder sb = new StringBuilder(value.length() * 2);
-        for (int i = 0; i < value.length(); i++) {
+    private String escapeAttributeValue(String value) {
+        StringBuilder sb = new StringBuilder(value.length()*2);
+        for (int i=0; i<value.length(); i++) {
             char c = value.charAt(i);
             switch (c) {
                 case '\r':
@@ -318,7 +335,11 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
         super.close();
         if (writer != null) {
             try {
-                writer.close();
+                if (mustClose) {
+                    writer.close();
+                } else {
+                    writer.flush();
+                }
             } catch (IOException e) {
                 throw new XPathException(e);
             }

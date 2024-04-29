@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,16 @@
 
 package net.sf.saxon.value;
 
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
+import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.ConversionResult;
+import net.sf.saxon.type.AtomicType;
+import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ValidationFailure;
 
 import java.util.*;
@@ -22,10 +26,58 @@ import java.util.*;
  * xs:gYearMonth, xs:gMonth, xs:gMonthDay, xs:gDay
  */
 public abstract class GDateValue extends CalendarValue {
-    protected int year;         // unlike the lexical representation, includes a year zero
-    protected byte month;
-    protected byte day;
-    protected boolean hasNoYearZero;
+    protected final int year;         // unlike the lexical representation, includes a year zero
+    protected final byte month;
+    protected final byte day;
+    protected final boolean hasNoYearZero;
+
+    public GDateValue(int year, byte month, byte day, boolean hasNoYearZero, int tzMinutes, AtomicType typeLabel) {
+        super(typeLabel, tzMinutes);
+        this.year = year;
+        this.month = month;
+        this.day = day;
+        this.hasNoYearZero = hasNoYearZero;
+    }
+
+    protected static class MutableGDateValue {
+        public int year;       // the year as written, +1 for BC years
+        public byte month;     // the month as written, range 1-12
+        public byte day;       // the day as written, range 1-31
+        public boolean hasNoYearZero;  // true if XSD 1.0 rules apply for negative years
+        public int tzMinutes = NO_TIMEZONE;
+        public AtomicType typeLabel = BuiltInAtomicType.DATE_TIME;
+        public ValidationFailure error = null;
+
+        public MutableGDateValue() {}
+        public MutableGDateValue(int year, int month, int day, boolean hasNoYearZero, int tzMinutes, AtomicType typeLabel) {
+            this.year = year;
+            this.month = (byte)month;
+            this.day = (byte)day;
+            this.hasNoYearZero = hasNoYearZero;
+            this.tzMinutes = tzMinutes;
+            this.typeLabel = typeLabel;
+        }
+    }
+
+    protected MutableGDateValue makeMutableCopy() {
+        MutableGDateValue m = new MutableGDateValue();
+        m.year = year;
+        m.month = month;
+        m.day = day;
+        m.hasNoYearZero = hasNoYearZero;
+        m.tzMinutes = getTimezoneInMinutes();
+        m.typeLabel = typeLabel;
+        return m;
+    }
+
+    protected GDateValue(MutableGDateValue m) {
+        super(m.typeLabel, m.tzMinutes);
+        this.year = m.year;
+        this.month = m.month;
+        this.day = m.day;
+        this.hasNoYearZero = m.hasNoYearZero;
+    }
+
     /**
      * Test whether a candidate date is actually a valid date in the proleptic Gregorian calendar
      */
@@ -93,183 +145,215 @@ public abstract class GDateValue extends CalendarValue {
      * Initialize the DateValue using a character string in the format yyyy-mm-dd and an optional time zone.
      * Input must have format [-]yyyy-mm-dd[([+|-]hh:mm | Z)]
      *
-     * @param d     the "raw" DateValue to be populated
+     * @param m     the "raw" MutableGDateValue to be populated: this is modified in-situ. If the string is
+     *              invalid, the error field of the MutableGDateValue will be set.
      * @param s     the supplied string value
      * @param allowYearZero true if (as in XSD 1.1) there is a year zero, false if (as in XSD 1.0) there is not
-     * @return either the supplied GDateValue, with its data initialized; or a ValidationFailure
      */
 
     /*@NotNull*/
-    protected static ConversionResult setLexicalValue(GDateValue d, CharSequence s, boolean allowYearZero) {
-        d.hasNoYearZero = !allowYearZero;
-        StringTokenizer tok = new StringTokenizer(Whitespace.trimWhitespace(s).toString(), "-:+TZ", true);
+    protected static void setLexicalValue(MutableGDateValue m, UnicodeString s, boolean allowYearZero) {
+        m.hasNoYearZero = !allowYearZero;
+        StringTokenizer tok = new StringTokenizer(Whitespace.trim(s).toString(), "-:+TZ", true);
         try {
-            if (!tok.hasMoreElements()) {
-                return badDate("Too short", s);
+            if (!tok.hasMoreTokens()) {
+                m.error = badDate("Too short", s);
+                return;
             }
-            String part = (String) tok.nextElement();
+            String part = tok.nextToken();
             int era = +1;
             if ("+".equals(part)) {
-                return badDate("Date must not start with '+' sign", s);
+                m.error = badDate("Date must not start with '+' sign", s);
+                return;
             } else if ("-".equals(part)) {
                 era = -1;
-                if (!tok.hasMoreElements()) {
-                    return badDate("No year after '-'", s);
+                if (!tok.hasMoreTokens()) {
+                    m.error = badDate("No year after '-'", s);
+                    return;
                 }
-                part = (String) tok.nextElement();
+                part = (String) tok.nextToken();
             }
 
             if (part.length() < 4) {
-                return badDate("Year is less than four digits", s);
+                m.error = badDate("Year is less than four digits", s);
+                return;
             }
             if (part.length() > 4 && part.charAt(0) == '0') {
-                return badDate("When year exceeds 4 digits, leading zeroes are not allowed", s);
+                m.error = badDate("When year exceeds 4 digits, leading zeroes are not allowed", s);
+                return;
             }
             int value = DurationValue.simpleInteger(part);
             if (value < 0) {
                 if (value == -1) {
-                    return badDate("Non-numeric year component", s);
+                    m.error = badDate("Non-numeric year component", s);
                 } else {
-                    return badDate("Year is outside the range that Saxon can handle", s, "FODT0001");
+                    m.error = badDate("Year is outside the range that Saxon can handle", s, "FODT0001");
                 }
+                return;
             }
-            d.year = value * era;
-            if (d.year == 0 && !allowYearZero) {
-                return badDate("Year zero is not allowed", s);
+            m.year = value * era;
+            if (m.year == 0 && !allowYearZero) {
+                m.error = badDate("Year zero is not allowed", s);
+                return;
             }
             if (era < 0 && !allowYearZero) {
-                d.year++;      // if year zero not allowed, -0001 is the year before +0001, represented as 0 internally.
+                m.year++;      // if year zero not allowed, -0001 is the year before +0001, represented as 0 internally.
             }
-            if (!tok.hasMoreElements()) {
-                return badDate("Too short", s);
+            if (!tok.hasMoreTokens()) {
+                m.error = badDate("Too short", s);
+                return;
             }
-            if (!"-".equals(tok.nextElement())) {
-                return badDate("Wrong delimiter after year", s);
+            if (!"-".equals(tok.nextToken())) {
+                m.error = badDate("Wrong delimiter after year", s);
+                return;
             }
 
-            if (!tok.hasMoreElements()) {
-                return badDate("Too short", s);
+            if (!tok.hasMoreTokens()) {
+                m.error = badDate("Too short", s);
+                return;
             }
-            part = (String) tok.nextElement();
+            part = tok.nextToken();
             if (part.length() != 2) {
-                return badDate("Month must be two digits", s);
+                m.error = badDate("Month must be two digits", s);
+                return;
             }
             value = DurationValue.simpleInteger(part);
             if (value < 0) {
-                return badDate("Non-numeric month component", s);
+                m.error = badDate("Non-numeric month component", s);
+                return;
             }
-            d.month = (byte) value;
-            if (d.month < 1 || d.month > 12) {
-                return badDate("Month is out of range", s);
+            m.month = (byte) value;
+            if (m.month < 1 || m.month > 12) {
+                m.error = badDate("Month is out of range", s);
+                return;
             }
-            if (!tok.hasMoreElements()) {
-                return badDate("Too short", s);
+            if (!tok.hasMoreTokens()) {
+                m.error = badDate("Too short", s);
+                return;
             }
-            if (!"-".equals(tok.nextElement())) {
-                return badDate("Wrong delimiter after month", s);
+            if (!"-".equals(tok.nextToken())) {
+                m.error = badDate("Wrong delimiter after month", s);
+                return;
             }
 
-            if (!tok.hasMoreElements()) {
-                return badDate("Too short", s);
+            if (!tok.hasMoreTokens()) {
+                m.error = badDate("Too short", s);
+                return;
             }
-            part = (String) tok.nextElement();
+            part = (String) tok.nextToken();
             if (part.length() != 2) {
-                return badDate("Day must be two digits", s);
+                m.error = badDate("Day must be two digits", s);
+                return;
             }
             value = DurationValue.simpleInteger(part);
             if (value < 0) {
-                return badDate("Non-numeric day component", s);
+                m.error = badDate("Non-numeric day component", s);
+                return;
             }
-            d.day = (byte) value;
-            if (d.day < 1 || d.day > 31) {
-                return badDate("Day is out of range", s);
+            m.day = (byte) value;
+            if (m.day < 1 || m.day > 31) {
+                m.error = badDate("Day is out of range", s);
+                return;
             }
 
             int tzOffset;
-            if (tok.hasMoreElements()) {
+            if (tok.hasMoreTokens()) {
 
-                String delim = (String) tok.nextElement();
+                String delim = tok.nextToken();
 
                 if ("T".equals(delim)) {
-                    return badDate("Value includes time", s);
+                    m.error = badDate("Value includes time", s);
+                    return;
                 } else if ("Z".equals(delim)) {
                     tzOffset = 0;
-                    if (tok.hasMoreElements()) {
-                        return badDate("Continues after 'Z'", s);
+                    if (tok.hasMoreTokens()) {
+                        m.error = badDate("Continues after 'Z'", s);
+                        return;
                     }
-                    d.setTimezoneInMinutes(tzOffset);
+                    m.tzMinutes = tzOffset;
 
                 } else if (!(!"+".equals(delim) && !"-".equals(delim))) {
-                    if (!tok.hasMoreElements()) {
-                        return badDate("Missing timezone", s);
+                    if (!tok.hasMoreTokens()) {
+                        m.error = badDate("Missing timezone", s);
+                        return;
                     }
-                    part = (String) tok.nextElement();
+                    part = (String) tok.nextToken();
                     value = DurationValue.simpleInteger(part);
                     if (value < 0) {
-                        return badDate("Non-numeric timezone hour component", s);
+                        m.error = badDate("Non-numeric timezone hour component", s);
+                        return;
                     }
                     int tzhour = value;
                     if (part.length() != 2) {
-                        return badDate("Timezone hour must be two digits", s);
+                        m.error = badDate("Timezone hour must be two digits", s);
+                        return;
                     }
                     if (tzhour > 14) {
-                        return badDate("Timezone hour is out of range", s);
+                        m.error = badDate("Timezone hour is out of range", s);
+                        return;
                     }
-                    if (!tok.hasMoreElements()) {
-                        return badDate("No minutes in timezone", s);
+                    if (!tok.hasMoreTokens()) {
+                        m.error = badDate("No minutes in timezone", s);
+                        return;
                     }
-                    if (!":".equals(tok.nextElement())) {
-                        return badDate("Wrong delimiter after timezone hour", s);
+                    if (!":".equals(tok.nextToken())) {
+                        m.error = badDate("Wrong delimiter after timezone hour", s);
+                        return;
                     }
 
-                    if (!tok.hasMoreElements()) {
-                        return badDate("No minutes in timezone", s);
+                    if (!tok.hasMoreTokens()) {
+                        m.error = badDate("No minutes in timezone", s);
+                        return;
                     }
-                    part = (String) tok.nextElement();
+                    part = (String) tok.nextToken();
                     value = DurationValue.simpleInteger(part);
                     if (value < 0) {
-                        return badDate("Non-numeric timezone minute component", s);
+                        m.error = badDate("Non-numeric timezone minute component", s);
+                        return;
                     }
                     int tzminute = value;
                     if (part.length() != 2) {
-                        return badDate("Timezone minute must be two digits", s);
+                        m.error = badDate("Timezone minute must be two digits", s);
+                        return;
                     }
                     if (tzminute > 59) {
-                        return badDate("Timezone minute is out of range", s);
+                        m.error = badDate("Timezone minute is out of range", s);
+                        return;
                     }
-                    if (tok.hasMoreElements()) {
-                        return badDate("Continues after timezone", s);
+                    if (tok.hasMoreTokens()) {
+                        m.error = badDate("Continues after timezone", s);
+                        return;
                     }
 
                     tzOffset = tzhour * 60 + tzminute;
                     if ("-".equals(delim)) {
                         tzOffset = -tzOffset;
                     }
-                    d.setTimezoneInMinutes(tzOffset);
+                    m.tzMinutes = tzOffset;
 
                 } else {
-                    return badDate("Timezone format is incorrect", s);
+                    m.error = badDate("Timezone format is incorrect", s);
+                    return;
                 }
             }
 
-            if (!isValidDate(d.year, d.month, d.day)) {
-                return badDate("Non-existent date", s);
+            if (!isValidDate(m.year, m.month, m.day)) {
+                m.error = badDate("Non-existent date", s);
             }
 
         } catch (NumberFormatException err) {
-            return badDate("Non-numeric component", s);
+            m.error = badDate("Non-numeric component", s);
         }
-        return d;
     }
 
-    private static ValidationFailure badDate(String msg, CharSequence value) {
+    private static ValidationFailure badDate(String msg, UnicodeString value) {
         ValidationFailure err = new ValidationFailure(
                 "Invalid date " + Err.wrap(value, Err.VALUE) + " (" + msg + ")");
         err.setErrorCode("FORG0001");
         return err;
     }
 
-    private static ValidationFailure badDate(String msg, CharSequence value, String errorCode) {
+    private static ValidationFailure badDate(String msg, UnicodeString value, String errorCode) {
         ValidationFailure err = new ValidationFailure(
                 "Invalid date " + Err.wrap(value, Err.VALUE) + " (" + msg + ")");
         err.setErrorCode(errorCode);
@@ -303,15 +387,15 @@ public abstract class GDateValue extends CalendarValue {
     }
 
     /**
-     * Check that the value can be handled in Saxon-JS
+     * Check that the value can be handled in SaxonJS
      *
-     * @throws XPathException if it can't be handled in Saxon-JS
+     * @throws XPathException if it can't be handled in SaxonJS
      */
 
     @Override
     public void checkValidInJavascript() throws XPathException {
         if (year <= 0 || year > 9999) {
-            throw new XPathException("Year out of range for Saxon-JS", "FODT0001");
+            throw new XPathException("Year out of range for SaxonJS", "FODT0001");
         }
     }
 
@@ -340,7 +424,7 @@ public abstract class GDateValue extends CalendarValue {
     }
 
     public int hashCode() {
-        return DateTimeValue.hashCode(year, month, day, (byte) 12, (byte) 0, (byte) 0, 0, getTimezoneInMinutes());
+        return DateTimeValue.computeHashCode(year, month, day, (byte) 12, (byte) 0, (byte) 0, 0, getTimezoneInMinutes());
     }
 
     /**
@@ -389,9 +473,13 @@ public abstract class GDateValue extends CalendarValue {
 
 
     /*@NotNull*/
+    public GDateComparable getSchemaComparable() {
+        return new GDateComparable(this);
+    }
+
     @Override
-    public Comparable getSchemaComparable() {
-        return new GDateComparable();
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return null;
     }
 
     /**
@@ -423,33 +511,36 @@ public abstract class GDateValue extends CalendarValue {
         }
     }
 
-    private class GDateComparable implements Comparable {
+    public static class GDateComparable implements Comparable<GDateComparable> {
+
+        private final GDateValue value;
+
+        public GDateComparable(GDateValue value) {
+            this.value = value;
+        }
+
 
         /*@NotNull*/
         public GDateValue asGDateValue() {
-            return GDateValue.this;
+            return value;
         }
 
         @Override
-        public int compareTo(/*@NotNull*/ Object o) {
-            if (o instanceof GDateComparable) {
-                if (asGDateValue().getPrimitiveType() != ((GDateComparable) o).asGDateValue().getPrimitiveType()) {
-                    return SequenceTool.INDETERMINATE_ORDERING;
-                }
-                DateTimeValue dt0 = GDateValue.this.toDateTime();
-                DateTimeValue dt1 = ((GDateComparable) o).asGDateValue().toDateTime();
-                return dt0.getSchemaComparable().compareTo(dt1.getSchemaComparable());
-            } else {
+        public int compareTo(GDateComparable o) {
+            if (asGDateValue().getPrimitiveType() != o.asGDateValue().getPrimitiveType()) {
                 return SequenceTool.INDETERMINATE_ORDERING;
             }
+            DateTimeValue dt0 = value.toDateTime();
+            DateTimeValue dt1 = o.value.toDateTime();
+            return dt0.getSchemaComparable().compareTo(dt1.getSchemaComparable());
         }
 
         public boolean equals(/*@NotNull*/ Object o) {
-            return compareTo(o) == 0;
+            return o instanceof GDateComparable && compareTo((GDateComparable)o) == 0;
         }
 
         public int hashCode() {
-            return GDateValue.this.toDateTime().getSchemaComparable().hashCode();
+            return value.toDateTime().getSchemaComparable().hashCode();
         }
     }
 

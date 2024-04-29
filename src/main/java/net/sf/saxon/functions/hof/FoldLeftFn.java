@@ -25,18 +25,18 @@ public class FoldLeftFn extends FoldingFunction {
 
     @Override
     public Fold getFold(XPathContext context, Sequence... arguments) throws XPathException {
-        Sequence arg0 = (Sequence)arguments[0];
-        return new FoldLeftFold(context, arg0.materialize(), (Function)arguments[1].head());
+        Sequence arg0 = arguments[0];
+        return new FoldLeftFold(context, arg0.materialize(), (FunctionItem)arguments[1].head());
     }
 
-    public class FoldLeftFold implements Fold {
+    public static class FoldLeftFold implements Fold {
 
-        private XPathContext context;
-        private Function function;
+        private final XPathContext context;
+        private final FunctionItem function;
         private Sequence data;
         private int counter;
 
-        public FoldLeftFold(XPathContext context, GroundedValue zero, Function function) {
+        public FoldLeftFold(XPathContext context, GroundedValue zero, FunctionItem function) {
             this.context = context;
             this.function = function;
             this.data = zero;
@@ -91,4 +91,4 @@ public class FoldLeftFn extends FoldingFunction {
     }
 }
 
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited

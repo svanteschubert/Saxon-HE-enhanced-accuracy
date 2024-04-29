@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,6 +23,8 @@
  */
 
 package net.sf.saxon.regex;
+
+import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
  * Exception thrown to indicate a syntax error in a regular expression.
@@ -54,4 +56,5 @@ public class RESyntaxException extends RuntimeException {
     public RESyntaxException(String s, int offset) {
         super("Syntax error at char " + offset + " in regular expression: " + s);
     }
+
 }

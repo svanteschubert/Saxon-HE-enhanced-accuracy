@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,17 +12,18 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.sort.GroupIterator;
 import net.sf.saxon.lib.ErrorReporter;
+import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.regex.RegexIterator;
+import net.sf.saxon.trace.ContextStackFrame;
 import net.sf.saxon.trace.ContextStackIterator;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.value.DateTimeValue;
 
-import javax.xml.transform.URIResolver;
 import java.util.Iterator;
-import java.util.function.Function;
 
 /**
  * This class represents a minor change in the dynamic context in which an XPath expression is evaluated:
@@ -34,7 +35,7 @@ public class XPathContextMinor implements XPathContext {
 
     Controller controller;
     FocusIterator currentIterator;
-    /*@Nullable*/ LastValue last = null;
+    LastValue last = null;
 
     XPathContext caller = null;
     protected StackFrame stackFrame;
@@ -106,7 +107,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public ParameterSet getLocalParameters() {
-        return getCaller().getLocalParameters();
+        return getMajorContext().getLocalParameters();
     }
 
     /**
@@ -117,7 +118,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public ParameterSet getTunnelParameters() {
-        return getCaller().getTunnelParameters();
+        return getMajorContext().getTunnelParameters();
     }
 
     /**
@@ -158,13 +159,26 @@ public class XPathContextMinor implements XPathContext {
     }
 
     /**
+     * Get the nearest XPathContextMajor (the next one down the stack). This will be null if unknown, or
+     * if the bottom of the stack has been reached.
+     */
+
+    public final XPathContextMajor getMajorContext() {
+        XPathContext c = this;
+        while (c != null && !(c instanceof XPathContextMajor)) {
+            c = c.getCaller();
+        }
+        return (XPathContextMajor)c;
+    }
+
+    /**
      * Set a new sequence iterator.
      */
 
     @Override
     public void setCurrentIterator(FocusIterator iter) {
         currentIterator = iter;
-        last = new LastValue(-1);
+        last = null;
     }
 
     /**
@@ -176,10 +190,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public FocusIterator trackFocus(SequenceIterator iter) {
-        Function<SequenceIterator, FocusTrackingIterator> factory =
-                controller.getFocusTrackerFactory(false);
-        //noinspection unchecked
-        FocusIterator fit = factory.apply(iter);
+        FocusIterator fit = controller.makeFocusTracker(iter, false);
         setCurrentIterator(fit);
         return fit;
     }
@@ -190,11 +201,11 @@ public class XPathContextMinor implements XPathContext {
      *
      * @param iter the current iterator. The context item, position, and size are determined by reference
      *             to the current iterator.
+     * @return the iterator
      */
 
     public FocusIterator trackFocusMultithreaded(SequenceIterator iter) {
-        Function<SequenceIterator, FocusTrackingIterator> factory = controller.getFocusTrackerFactory(true);
-        FocusIterator fit = factory.apply(iter);
+        FocusIterator fit = controller.makeFocusTracker(iter, true);
         setCurrentIterator(fit);
         return fit;
     }
@@ -224,30 +235,39 @@ public class XPathContextMinor implements XPathContext {
         if (currentIterator == null) {
             return null;
         }
-        return currentIterator.current();
+        if (currentIterator instanceof FocusTrackingIterator) {
+            // Common case extracted to reduce overhead of megamorphism
+            return ((FocusTrackingIterator)currentIterator).current();
+        } else {
+            return currentIterator.current();
+        }
     }
 
     /**
      * Get the context size (the position of the last item in the current node list)
      *
      * @return the context size
-     * @throws XPathException if the context position is undefined
+     * @throws UncheckedXPathException if the context position is undefined
      */
 
     @Override
-    public final int getLast() throws XPathException {
+    public final int getLast() throws UncheckedXPathException {
         if (currentIterator == null) {
-            XPathException e = new XPathException("The context item is absent, so last() is undefined");
-            e.setXPathContext(this);
-            e.setErrorCode("XPDY0002");
-            throw e;
+            throw new UncheckedXPathException(
+                    new XPathException("The context item is absent, so last() is undefined")
+                    .withXPathContext(this)
+                    .withErrorCode("XPDY0002"));
         }
-        if (last.value >= 0) {
+        if (last != null) {
             return last.value;
         }
-        int length = currentIterator.getLength();
-        last = new LastValue(length);
-        return length;
+        try {
+            int length = currentIterator.getLength();
+            last = new LastValue(length);
+            return length;
+        } catch (XPathException err) {
+            throw new UncheckedXPathException(err);
+        }
     }
 
     /**
@@ -257,10 +277,14 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public final boolean isAtLast() throws XPathException {
-        if (currentIterator.getProperties().contains(SequenceIterator.Property.LOOKAHEAD)) {
+        if (currentIterator instanceof LookaheadIterator && ((LookaheadIterator)currentIterator).supportsHasNext()) {
             return !((LookaheadIterator) currentIterator).hasNext();
         }
-        return currentIterator.position() == getLast();
+        try {
+            return currentIterator.position() == getLast();
+        } catch (UncheckedXPathException e) {
+            throw XPathException.makeXPathException(e);
+        }
     }
 
     /**
@@ -272,8 +296,8 @@ public class XPathContextMinor implements XPathContext {
      * @since 9.6
      */
     @Override
-    public URIResolver getURIResolver() {
-        return caller.getURIResolver();
+    public ResourceResolver getResourceResolver() {
+        return caller.getResourceResolver();
     }
 
     /**
@@ -343,8 +367,8 @@ public class XPathContextMinor implements XPathContext {
      */
 
     @Override
-    public final Sequence evaluateLocalVariable(int slotnumber) {
-        return stackFrame.slots[slotnumber];
+    public final Sequence evaluateLocalVariable(int slot) {
+        return stackFrame.slots[slot];
     }
 
     /**
@@ -374,7 +398,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public synchronized void waitForChildThreads() throws XPathException {
-        getCaller().waitForChildThreads();
+        getMajorContext().waitForChildThreads();
     }
 
     /**
@@ -435,7 +459,7 @@ public class XPathContextMinor implements XPathContext {
     @Override
     public int useLocalParameter(
             StructuredQName parameterId, int slotNumber, boolean isTunnel) throws XPathException {
-        return getCaller().useLocalParameter(parameterId, slotNumber, isTunnel);
+        return getMajorContext().useLocalParameter(parameterId, slotNumber, isTunnel);
     }
 
     /**
@@ -446,7 +470,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public Component.M getCurrentMode() {
-        return getCaller().getCurrentMode();
+        return getMajorContext().getCurrentMode();
     }
 
     /**
@@ -472,7 +496,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public GroupIterator getCurrentGroupIterator() {
-        return getCaller().getCurrentGroupIterator();
+        return getMajorContext().getCurrentGroupIterator();
     }
 
     /**
@@ -484,7 +508,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public GroupIterator getCurrentMergeGroupIterator() {
-        return getCaller().getCurrentMergeGroupIterator();
+        return getMajorContext().getCurrentMergeGroupIterator();
     }
 
     /**
@@ -496,7 +520,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public RegexIterator getCurrentRegexIterator() {
-        return getCaller().getCurrentRegexIterator();
+        return getMajorContext().getCurrentRegexIterator();
     }
 
     /**
@@ -533,7 +557,7 @@ public class XPathContextMinor implements XPathContext {
      */
 
     @Override
-    public Iterator iterateStackFrames() {
+    public Iterator<ContextStackFrame> iterateStackFrames() {
         return new ContextStackIterator(this);
     }
 
@@ -541,7 +565,7 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public Component getTargetComponent(int bindingSlot) {
-        return getCaller().getTargetComponent(bindingSlot);
+        return getMajorContext().getTargetComponent(bindingSlot);
     }
 
     // Note: consider eliminating this class. A new XPathContextMinor is created under two circumstances,
@@ -572,6 +596,7 @@ public class XPathContextMinor implements XPathContext {
         public final int value;
 
         public LastValue(int count) {
+            //System.err.println("Last := " + count);
             value = count;
         }
     }

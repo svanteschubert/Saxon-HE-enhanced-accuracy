@@ -8,7 +8,6 @@
 package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.MappingFunction;
 import net.sf.saxon.expr.MappingIterator;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.SystemFunction;
@@ -17,7 +16,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SpecificFunctionType;
-import net.sf.saxon.value.ExternalObject;
 import net.sf.saxon.value.ObjectValue;
 
 /**
@@ -46,19 +44,18 @@ public class ForEachPairFn extends SystemFunction {
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         return SequenceTool.toLazySequence(evalMapPairs(
-                (Function) arguments[2].head(), arguments[0].iterate(), arguments[1].iterate(), context));
+                (FunctionItem) arguments[2].head(), arguments[0].iterate(), arguments[1].iterate(), context));
     }
 
-    private SequenceIterator evalMapPairs(final Function function,
+    private SequenceIterator evalMapPairs(final FunctionItem function,
                                           SequenceIterator seq0,
                                           SequenceIterator seq1,
                                           final XPathContext context) {
         PairedSequenceIterator pairs = new PairedSequenceIterator(seq0, seq1);
-        MappingFunction map = item -> {
-            Sequence[] pair = (Sequence[]) ((ExternalObject)item).getObject();
+        return MappingIterator.map(pairs, item -> {
+            Sequence[] pair = ((ObjectValue<Sequence[]>) item).getObject();
             return dynamicCall(function, context, pair).iterate();
-        };
-        return new MappingIterator(pairs, map);
+        });
     }
 
     /**
@@ -68,9 +65,9 @@ public class ForEachPairFn extends SystemFunction {
 
     private static class PairedSequenceIterator implements SequenceIterator {
 
-        private SequenceIterator seq0;
-        private SequenceIterator seq1;
-        private Sequence[] args = new Sequence[2];
+        private final SequenceIterator seq0;
+        private final SequenceIterator seq1;
+        private final Sequence[] args = new Sequence[2];
 
         public PairedSequenceIterator(SequenceIterator seq0,
                                       SequenceIterator seq1) {
@@ -79,7 +76,7 @@ public class ForEachPairFn extends SystemFunction {
         }
 
         @Override
-        public ObjectValue<Sequence[]> next() throws XPathException {
+        public ObjectValue<Sequence[]> next() {
             Item i0 = seq0.next();
             if (i0 == null) {
                 close();
@@ -105,4 +102,4 @@ public class ForEachPairFn extends SystemFunction {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

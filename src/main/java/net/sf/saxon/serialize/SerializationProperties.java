@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.serialize;
 
 import net.sf.saxon.event.*;
 import net.sf.saxon.lib.SaxonOutputKeys;
+import net.sf.saxon.str.StringView;
 
 import javax.xml.transform.OutputKeys;
 import java.util.Properties;
@@ -37,6 +38,8 @@ public class SerializationProperties {
     /**
      * Create a set of serialization parameters based on defined output properties,
      * with no character maps
+     *
+     * @param props the output properties
      */
 
     public SerializationProperties(Properties props) {
@@ -47,6 +50,9 @@ public class SerializationProperties {
      * Create a set of serialization parameters based on defined output properties,
      * with an index of named character maps that may be referred to from the
      * {@code USE_CHARACTER_MAPS} property
+     *
+     * @param props        the output properties
+     * @param charMapIndex the index of named character maps
      */
 
     public SerializationProperties(Properties props, CharacterMapIndex charMapIndex) {
@@ -136,9 +142,11 @@ public class SerializationProperties {
             next = getValidationFactory().makeFilter(next);
         }
         String itemSeparator = properties.getProperty(SaxonOutputKeys.ITEM_SEPARATOR);
-        return itemSeparator == null || "#absent".equals(itemSeparator)
-                ? new SequenceNormalizerWithSpaceSeparator(next)
-                : new SequenceNormalizerWithItemSeparator(next, itemSeparator);
+        if (itemSeparator == null || "#absent".equals(itemSeparator)) {
+            return new SequenceNormalizerWithSpaceSeparator(next);
+        } else {
+            return new SequenceNormalizerWithItemSeparator(next, StringView.of(itemSeparator));
+        }
     }
 
     /**
@@ -146,6 +154,7 @@ public class SerializationProperties {
      * parameters to create a new set of serialization parameters. Neither of the
      * input parameter sets is modified
      * @param defaults the parameters to use when no explicit values are supplied
+     * @return the new set of serialization parameters
      */
 
     public SerializationProperties combineWith(SerializationProperties defaults) {
@@ -161,32 +170,31 @@ public class SerializationProperties {
         for (String prop : this.getProperties().stringPropertyNames()) {
             String value = this.getProperties().getProperty(prop);
             if (prop.equals(OutputKeys.CDATA_SECTION_ELEMENTS)
-                        || prop.equals(SaxonOutputKeys.SUPPRESS_INDENTATION)
-                        || prop.equals(SaxonOutputKeys.USE_CHARACTER_MAPS)) {
-                    String existing = defaults.getProperty(prop);
-                    if (existing == null || existing.equals(value)) {
-                        props.setProperty(prop, value);
-                    } else {
-                        props.setProperty(prop, existing + " " + value);
-                        if (prop.equals(SaxonOutputKeys.USE_CHARACTER_MAPS)) {
-                            CharacterMapIndex charMapIndex2 = charMap.copy();
-                            for (CharacterMap map : defaults.getCharacterMapIndex()) {
-                                charMapIndex2.putCharacterMap(map.getName(), map);
-                            }
-                            charMap = charMapIndex2;
-                        }
-                    }
-                } else{
+                    || prop.equals(SaxonOutputKeys.SUPPRESS_INDENTATION)
+                    || prop.equals(SaxonOutputKeys.USE_CHARACTER_MAPS)) {
+                String existing = defaults.getProperty(prop);
+                if (existing == null || existing.equals(value)) {
                     props.setProperty(prop, value);
+                } else {
+                    props.setProperty(prop, existing + " " + value);
+                    if (prop.equals(SaxonOutputKeys.USE_CHARACTER_MAPS)) {
+                        CharacterMapIndex charMapIndex2 = charMap.copy();
+                        for (CharacterMap map : defaults.getCharacterMapIndex()) {
+                            charMapIndex2.putCharacterMap(map.getName(), map);
+                        }
+                        charMap = charMapIndex2;
+                    }
                 }
+            } else {
+                props.setProperty(prop, value);
             }
-            SerializationProperties newParams = new SerializationProperties(props, charMap);
-            newParams.setValidationFactory(validationFactory);
-            return newParams;
         }
+        SerializationProperties newParams = new SerializationProperties(props, charMap);
+        newParams.setValidationFactory(validationFactory);
+        return newParams;
+    }
 
-
-        public String toString() {
+    public String toString() {
         StringBuilder sb = new StringBuilder();
         for (String k : properties.stringPropertyNames()) {
             sb.append(k).append("=").append(properties.getProperty(k)).append(" ");

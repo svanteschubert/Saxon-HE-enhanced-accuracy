@@ -11,6 +11,7 @@ import net.sf.saxon.expr.instruct.WherePopulated;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
@@ -113,7 +114,7 @@ public class WherePopulatedOutputter extends ProxyOutputter {
      * Notify a namespace binding.
      */
     @Override
-    public void namespace(String prefix, String namespaceUri, int properties) throws XPathException {
+    public void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException {
         if (level == 1) {
             pendingNamespaces = pendingNamespaces.put(prefix, namespaceUri);
         } else {
@@ -125,7 +126,7 @@ public class WherePopulatedOutputter extends ProxyOutputter {
      * Notify an attribute.
      */
     @Override
-    public void attribute(NodeName attName, SimpleType typeCode, CharSequence value, Location location, int properties) throws XPathException {
+    public void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties) throws XPathException {
         if (level == 1) {
             pendingAttributes = pendingAttributes.put(
                     new AttributeInfo(attName, typeCode, value.toString(), location, properties));
@@ -180,13 +181,13 @@ public class WherePopulatedOutputter extends ProxyOutputter {
     // Discard zero-length text nodes if level >= 1
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (level == 0) {
-            if (chars.length() > 0) {
+            if (!chars.isEmpty()) {
                 super.characters(chars, locationId, properties);
             }
         } else if (level == 1) {
-            if (chars.length() > 0) {
+            if (!chars.isEmpty()) {
                 releaseStartTag();
                 super.characters(chars, locationId, properties);
             }
@@ -206,13 +207,13 @@ public class WherePopulatedOutputter extends ProxyOutputter {
      * @throws XPathException            if an error occurs
      */
     @Override
-    public void processingInstruction(String name, CharSequence data, Location location, int properties) throws XPathException {
+    public void processingInstruction(String name, UnicodeString data, Location location, int properties) throws XPathException {
         if (level == 0) {
-            if (data.length() > 0) {
+            if (!data.isEmpty()) {
                 super.processingInstruction(name, data, location, properties);
             }
         } else if (level == 1) {
-            if (data.length() > 0) {
+            if (!data.isEmpty()) {
                 releaseStartTag();
                 super.processingInstruction(name,  data, location, properties);
             }
@@ -231,13 +232,13 @@ public class WherePopulatedOutputter extends ProxyOutputter {
      * @throws XPathException            if an error occurs
      */
     @Override
-    public void comment(CharSequence content, Location location, int properties) throws XPathException {
+    public void comment(UnicodeString content, Location location, int properties) throws XPathException {
         if (level == 0) {
-            if (content.length() > 0) {
+            if (!content.isEmpty()) {
                 super.comment(content, location, properties);
             }
         } else if (level == 1) {
-            if (content.length() > 0) {
+            if (!content.isEmpty()) {
                 releaseStartTag();
                 super.comment(content, location, properties);
             }
@@ -259,7 +260,7 @@ public class WherePopulatedOutputter extends ProxyOutputter {
                 switch (node.getNodeKind()) {
                     case Type.TEXT:
                         // ignore empty text nodes
-                        if (node.getNodeKind() == Type.TEXT && node.getStringValueCS().length() == 0) {
+                        if (node.getNodeKind() == Type.TEXT && node.getUnicodeStringValue().length() == 0) {
                             return;
                         }
                         break;
@@ -274,7 +275,7 @@ public class WherePopulatedOutputter extends ProxyOutputter {
                         return;
 
                     case Type.NAMESPACE:
-                        namespace(node.getLocalPart(), node.getStringValue(), 0);
+                        namespace(node.getLocalPart(), NamespaceUri.of(node.getStringValue()), 0);
                         return;
 
                     default:
@@ -301,7 +302,7 @@ public class WherePopulatedOutputter extends ProxyOutputter {
                 switch (node.getNodeKind()) {
                     case Type.TEXT:
                         // ignore empty text nodes
-                        if (node.getNodeKind() == Type.TEXT && node.getStringValueCS().length() == 0) {
+                        if (node.getNodeKind() == Type.TEXT && node.getUnicodeStringValue().length() == 0) {
                             return;
                         }
                         break;
@@ -316,7 +317,7 @@ public class WherePopulatedOutputter extends ProxyOutputter {
                         return;
 
                     case Type.NAMESPACE:
-                        namespace(node.getLocalPart(), node.getStringValue(), 0);
+                        namespace(node.getLocalPart(), NamespaceUri.of(node.getStringValue()), 0);
                         return;
 
                     default:

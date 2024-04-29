@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,14 +9,14 @@ package net.sf.saxon.expr;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.oper.OperandArray;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 
@@ -62,7 +62,7 @@ public abstract class SimpleExpression extends Expression implements Callable {
 
      @Override
      public Iterable<Operand> operands() {
-         return operanda.operands();
+         return operanda;
      }
 
 
@@ -92,17 +92,21 @@ public abstract class SimpleExpression extends Expression implements Callable {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
+        SimpleExpression se2 = simpleCopy();
+        Expression[] a2 = new Expression[operanda.getNumberOfOperands()];
+        int i = 0;
+        for (Operand o : operands()) {
+            a2[i++] = o.getChildExpression().copy(rebindings);
+        }
+        OperandArray o2 = new OperandArray(se2, a2, operanda.getRoles());
+        se2.setOperanda(o2);
+        return se2;
+    }
 
+    @CSharpReplaceBody(code="return (net.sf.saxon.expr.SimpleExpression)this.MemberwiseClone();")
+    public SimpleExpression simpleCopy() {
         try {
-            SimpleExpression se2 = getClass().newInstance();
-            Expression[] a2 = new Expression[operanda.getNumberOfOperands()];
-            int i = 0;
-            for (Operand o : operands()) {
-                a2[i++] = o.getChildExpression().copy(rebindings);
-            }
-            OperandArray o2 = new OperandArray(se2, a2, operanda.getRoles());
-            se2.setOperanda(o2);
-            return se2;
+            return getClass().newInstance();
         } catch (InstantiationException | IllegalAccessException e) {
             throw new UnsupportedOperationException(getClass().getName() + ".copy()");
         }
@@ -145,7 +149,7 @@ public abstract class SimpleExpression extends Expression implements Callable {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         if ((getImplementationMethod() & Expression.EVALUATE_METHOD) == 0) {
             return StaticProperty.ALLOWS_ONE_OR_MORE;
         } else {
@@ -203,9 +207,7 @@ public abstract class SimpleExpression extends Expression implements Callable {
     @Override
     public final void process(Outputter output, XPathContext context) throws XPathException {
         SequenceIterator iter = call(context, evaluateArguments(context)).iterate();
-        iter.forEachOrFail(
-                it -> output.append(it, getLocation(), ReceiverOption.ALL_NAMESPACES)
-        );
+        SequenceTool.supply(iter, (ItemConsumer<? super Item>) it -> output.append(it, getLocation(), ReceiverOption.ALL_NAMESPACES));
     }
 
     /**
@@ -233,7 +235,8 @@ public abstract class SimpleExpression extends Expression implements Callable {
 
     @Override
     public void export(ExpressionPresenter destination) throws XPathException {
-        throw new XPathException("In general, stylesheets using extension instructions cannot be exported");
+        throw new XPathException("In general, stylesheets using extension instructions cannot be exported",
+                                 SaxonErrorCode.SXST0072);
     }
 
     /**
@@ -247,5 +250,35 @@ public abstract class SimpleExpression extends Expression implements Callable {
         return getClass().getName();
     }
 
+    @Override
+    public Elaborator getElaborator() {
+        return new SimpleExpressionElaborator();
+    }
+
+    public static class SimpleExpressionElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            SimpleExpression expr = (SimpleExpression)getExpression();
+            return (output, context) -> {
+                expr.process(output, context);
+                return null;
+            };
+        }
+
+        @SuppressWarnings("Convert2MethodRef")
+        @Override
+        public PullEvaluator elaborateForPull() {
+            SimpleExpression expr = (SimpleExpression) getExpression();
+            return context -> expr.iterate(context);
+        }
+
+        @SuppressWarnings("Convert2MethodRef")
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            SimpleExpression expr = (SimpleExpression) getExpression();
+            return context -> expr.evaluateItem(context);
+        }
+    }
 }
 

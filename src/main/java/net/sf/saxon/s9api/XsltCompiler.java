@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,12 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.PreparedStylesheet;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.lib.ErrorReporter;
+import net.sf.saxon.lib.ResourceResolver;
+import net.sf.saxon.lib.ResourceResolverWrappingURIResolver;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.NodeSource;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.style.*;
 import net.sf.saxon.trace.XSLTTraceCodeInjector;
@@ -24,12 +28,16 @@ import net.sf.saxon.trans.packages.IPackageLoader;
 import net.sf.saxon.trans.packages.PackageDetails;
 import net.sf.saxon.trans.packages.PackageLibrary;
 import net.sf.saxon.trans.packages.VersionedPackageName;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.linked.DocumentImpl;
+import net.sf.saxon.tree.linked.ElementImpl;
 
 import javax.xml.transform.ErrorListener;
 import javax.xml.transform.Source;
 import javax.xml.transform.URIResolver;
 import javax.xml.transform.stream.StreamSource;
+import java.io.File;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.ArrayList;
@@ -38,18 +46,18 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * An XsltCompiler object allows XSLT 2.0 and XSLT 3.0 stylesheets to be compiled. The compiler holds information that
+ * An XsltCompiler object allows XSLT stylesheets to be compiled. The compiler holds information that
  * represents the static context for the compilation.
  * <p>To construct an {@code XsltCompiler}, use the factory method {@link Processor#newXsltCompiler} on the Processor object.</p>
- * <p>An {@code XsltCompiler} may be used repeatedly to compile multiple queries. Any changes made to the
- * {@code XsltCompiler} (that is, to the static context) do not affect queries that have already been compiled.
+ * <p>An {@code XsltCompiler} may be used repeatedly to compile multiple stylesheets. Any changes made to the
+ * {@code XsltCompiler} (that is, to the static context) do not affect stylesheets that have already been compiled.
  * An XsltCompiler may in principle be used concurrently in multiple threads, but in practice this
- * is best avoided because all instances will share the same ErrorListener and it may therefore be
+ * is best avoided because all instances will share the same {@link ErrorReporter} and it may therefore be
  * difficult to establish which error messages are associated with each compilation.</p>
  * <p>If JIT compilation is enabled (this is the default for Saxon-EE), then static errors in template
  *  rules might be detected not during execution of the <code>compile()</code> method, but rather
  *  when the relevant code is first executed. In this situation the <code>compile()</code> method will
- *  not throw an exception, but the errors will still (eventually) be notified to the <code>ErrorListener</code>
+ *  not throw an exception, but the errors will still (eventually) be notified to the {@link ErrorReporter}
  *  associated with the compiler.</p>
  *  <p>To avoid problems with error reporting, it is recommended that:
  *  <ul>
@@ -63,15 +71,18 @@ import java.util.Objects;
  *
  * @since 9.0
  */
+
+
+@CSharpModifiers(code = {"internal"})
 public class XsltCompiler {
 
-    private Processor processor;
-    private Configuration config;
-    private CompilerInfo compilerInfo;
+    private final Processor processor;
+    private final Configuration config;
+    private final CompilerInfo compilerInfo;
 
 
     /**
-     * Protected constructor. The public way to create an <tt>XsltCompiler</tt> is by using the factory method
+     * Protected constructor. The public way to create an <code>XsltCompiler</code> is by using the factory method
      * {@link Processor#newXsltCompiler} .
      *
      * @param processor the Saxon processor
@@ -81,7 +92,6 @@ public class XsltCompiler {
         this.processor = processor;
         this.config = processor.getUnderlyingConfiguration();
         compilerInfo = new CompilerInfo(config.getDefaultXsltCompilerInfo());
-        compilerInfo.setGenerateByteCode(config.isGenerateByteCode(HostLanguage.XSLT));
         compilerInfo.setTargetEdition(config.getEditionCode());
         compilerInfo.setJustInTimeCompilation(config.isJITEnabled());
     }
@@ -98,28 +108,45 @@ public class XsltCompiler {
     }
 
     /**
-     * Set the URIResolver to be used during stylesheet compilation. This URIResolver, despite its name,
-     * is <b>not</b> used for resolving relative URIs against a base URI; it is used for dereferencing
-     * an absolute URI (after resolution) to return a {@link javax.xml.transform.Source} representing the
+     * Set the URIResolver to be used during stylesheet compilation. This interface is
+     * retained for backwards compatibility reasons. The supplied <code>URIResolver</code>
+     * is wrapped in a <code>ResourceResolver</code>. The <code>ResourceResolver</code>
+     * interface is preferred because more information is made available; most obviously,
+     * the absolute URI formed by combining the base URI and relative URI.
+     *
+     * @param resolver the URIResolver to be used during stylesheet compilation.
+     * @deprecated since 11.1. Use {@link #setResourceResolver}
+     */
+
+    @Deprecated
+    public void setURIResolver(URIResolver resolver) {
+        compilerInfo.setResourceResolver(
+                new ResourceResolverWrappingURIResolver(resolver));
+    }
+
+    /**
+     * Set the <code>ResourceResolver</code> to be used during stylesheet compilation.
+     * The <code>ResourceResolver</code> is used for dereferencing
+     * an absolute URI (after URI resolution) to return a {@link javax.xml.transform.Source} representing the
      * location where a stylesheet module can be found.
-     * <p>This URIResolver is used to dereference the URIs appearing in <code>xsl:import</code>,
+     * <p>This <code>ResourceResolver</code> is used to dereference the URIs appearing in <code>xsl:import</code>,
      * <code>xsl:include</code>, and <code>xsl:import-schema</code> declarations. It is not used
      * for resolving the URI supplied for the main stylesheet module (as supplied to the
      * {@link #compile(javax.xml.transform.Source)} or {@link #compilePackage(javax.xml.transform.Source)} methods.
      * It is not used at run-time for resolving requests to the <code>document()</code> or similar functions.
-     * (Instead, such functions use the run-time URIResolver passed to the {@link XsltTransformer}
+     * (Instead, such functions use the run-time <code>ResourceResolver</code> passed to the {@link XsltTransformer}
      * or {@link Xslt30Transformer}).</p>
      *
-     * @param resolver the URIResolver to be used during stylesheet compilation.
+     * @param resolver the <code>ResourceResolver</code> to be used during stylesheet compilation.
      */
 
-    public void setURIResolver(URIResolver resolver) {
-        compilerInfo.setURIResolver(resolver);
+    public void setResourceResolver(ResourceResolver resolver) {
+        compilerInfo.setResourceResolver(resolver);
     }
 
     /**
      * Set the value of a stylesheet parameter. Static (compile-time) parameters must be provided using
-     * this method on the XsltCompiler object, prior to stylesheet compilation. Non-static parameters
+     * this method on the <code>XsltCompiler</code> object, prior to stylesheet compilation. Non-static parameters
      * may also be provided using this method if their values will not vary from one transformation
      * to another.
      *
@@ -151,10 +178,28 @@ public class XsltCompiler {
      *
      * @return the URIResolver used during stylesheet compilation. Returns null if no user-supplied
      * URIResolver has been set.
+     * @deprecated since 11.1 - use a <code>ResourceResolver</code> instead
      */
 
+    @Deprecated
     public URIResolver getURIResolver() {
-        return compilerInfo.getURIResolver();
+        ResourceResolver rr = compilerInfo.getResourceResolver();
+        if (rr instanceof ResourceResolverWrappingURIResolver) {
+            return ((ResourceResolverWrappingURIResolver)rr).getWrappedURIResolver();
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Get the ResourceResolver to be used during stylesheet compilation.
+     *
+     * @return the ResourceResolver used during stylesheet compilation. Returns null if no user-supplied
+     * ResourceResolver has been set.
+     */
+
+    public ResourceResolver getResourceResolver() {
+        return compilerInfo.getResourceResolver();
     }
 
     /**
@@ -170,6 +215,7 @@ public class XsltCompiler {
      * @deprecated since 10.0. Use {@link #setErrorReporter(ErrorReporter)}
      */
 
+    @Deprecated
     public void setErrorListener(ErrorListener listener) {
         compilerInfo.setErrorListener(listener);
     }
@@ -181,10 +227,11 @@ public class XsltCompiler {
      * compilation. Returns null if no user-supplied ErrorListener has been set.
      * @deprecated since 10.0. Use {@link #getErrorReporter()}
      */
-
+    @Deprecated
     public ErrorListener getErrorListener() {
         return compilerInfo.getErrorListener();
     }
+
 
     /**
      * Supply a (typically empty) {@code List} which will be populated with information about any static errors
@@ -198,7 +245,7 @@ public class XsltCompiler {
      * @since 9.9.
      */
 
-    public void setErrorList(List<? super StaticError> errorList) {
+    public void setErrorList(List<? super XmlProcessingError> errorList) {
         compilerInfo.setErrorReporter(errorList::add);
     }
 
@@ -213,7 +260,7 @@ public class XsltCompiler {
      * from which compilation. In practice, it is only sensible to do this in an environment
      * where the stylesheets being compiled are known to be error-free.</p>
      *
-     * @param reporter a Consumer which will be notified of all Static errors and warnings
+     * @param reporter a class which will be notified of all static errors and warnings
      *                 encountered during a compilation episode.
      * @since 10.0
      */
@@ -225,7 +272,7 @@ public class XsltCompiler {
     /**
      * Get the recipient of error information previously registered using {@link #setErrorReporter(ErrorReporter)}.
      *
-     * @return the consumer previously registered explicitly using {@link #setErrorReporter(ErrorReporter)},
+     * @return the error reporter previously registered explicitly using {@link #setErrorReporter(ErrorReporter)},
      * or implicitly using {@link #setErrorListener(ErrorListener)} or {@link #setErrorList(List)}.
      * If no error reporter has been registered, the result may be null, or may return
      * a system supplied error reporter.
@@ -239,15 +286,18 @@ public class XsltCompiler {
 
     /**
      * Say that the stylesheet must be compiled to be schema-aware, even if it contains no
-     * xsl:import-schema declarations. Normally a stylesheet is treated as schema-aware
-     * only if it contains one or more xsl:import-schema declarations. If it is not schema-aware,
+     * {@code xsl:import-schema} declarations. By default a stylesheet is treated as schema-aware
+     * only if it contains one or more {@code xsl:import-schema} declarations. If it is not schema-aware,
      * then all input documents must be untyped, and validation of temporary trees is disallowed
      * (though validation of the final result tree is permitted). Setting the argument to true
      * means that schema-aware code will be compiled regardless.
      *
+     * <p>Setting the value to true has no effect (it is not an error) if the configuration does
+     * not support schema processing. (Schema processing requires a Saxon-EE license.)</p>
+     *
      * @param schemaAware If true, the stylesheet will be compiled with schema-awareness
-     *                    enabled even if it contains no xsl:import-schema declarations. If false, the stylesheet
-     *                    is treated as schema-aware only if it contains one or more xsl:import-schema declarations.
+     *                    enabled even if it contains no {@code xsl:import-schema} declarations. If false, the stylesheet
+     *                    is treated as schema-aware only if it contains one or more {@code xsl:import-schema} declarations.
      * @since 9.2
      */
 
@@ -270,7 +320,7 @@ public class XsltCompiler {
     /**
      * Ask whether any package produced by this compiler can be deployed to a different location, with a different base URI
      *
-     * @return if true then static-base-uri() represents the deployed location of the package,
+     * @return if true then {@code static-base-uri()} represents the deployed location of the package,
      *                    rather than its compile time location
      * @since 9.8
      */
@@ -294,21 +344,31 @@ public class XsltCompiler {
     /**
      * Set the target edition under which the stylesheet will be executed.
      *
-     * @param edition the Saxon edition for the run-time environment. One of "EE", "PE", "HE", or "JS".
+     * @param edition the Saxon edition for the run-time environment. One of "EE", "PE", "HE",
+     *                or "JS", "JS2", or "JS3".
      * @since 9.7.0.5. Experimental and subject to change.
      */
 
     public void setTargetEdition(String edition) {
-        if (!("EE".equals(edition) || "PE".equals(edition) || "HE".equals(edition) || "JS".equals(edition))) {
-            throw new IllegalArgumentException("Unknown Saxon edition " + edition);
+        switch (edition) {
+            case "EE":
+            case "PE":
+            case "HE":
+            case "JS":
+            case "JS2":
+            case "JS3":
+                compilerInfo.setTargetEdition(edition);
+                return;
+            default:
+                throw new IllegalArgumentException("Unknown Saxon edition " + edition);
         }
-        compilerInfo.setTargetEdition(edition);
     }
 
     /**
      * Get the target edition under which the stylesheet will be executed.
      *
-     * @return the Saxon edition for the run-time environment. One of "EE", "PE", "HE", or "JS".
+     * @return the Saxon edition for the run-time environment. One of "EE", "PE", "HE",
+     * or "JS", "JS2", "JS3"
      * @since 9.7.0.5. Experimental and subject to change.
      */
 
@@ -351,32 +411,43 @@ public class XsltCompiler {
     }
 
     /**
-     * Set the XSLT (and XPath) language level to be supported by the processor. This has no effect
-     * from Saxon 9.8: the processor is an XSLT 3.0 processor regardless of the language level
-     * requested.
+     * Set the XSLT (and XPath) language level to be supported by the processor. Set the value to "4.0"
+     * to enable support for experimental features defined in the XSLT 4.0 proposal (which is likely to change
+     * before it stabilizes).
      *
-     * @param version the language level to be supported. The value is ignored.
-     * @throws IllegalArgumentException if the value is not equal to 0.0, 2.0, or 3.0
-     * @deprecated Has no effect from Saxon 9.8.
-     * @since 9.3. Has no effect from Saxon 9.8.
+     * @param version the language level to be supported. The values "3.0" and "4.0" are recognized
+     * @throws IllegalArgumentException if the value is not equal to 3.0 or 4.0
+     * @since 9.3. From 11.0, accepts the values "3.0" and "4.0". From 12.2, also accepts "3" or "4".
      */
 
     public void setXsltLanguageVersion(String version) {
+        switch (version) {
+            case "3":
+            case "3.0":
+                compilerInfo.setXsltVersion(30);
+                break;
+            case "4":
+            case "4.0":
+                compilerInfo.setXsltVersion(40);
+                break;
+            default:
+                throw new IllegalArgumentException("Language version must be 3.0|4.0");
+        }
     }
 
     /**
      * Get the XSLT (and XPath) language level supported by the processor.
      *
-     * @return the language level supported. From Saxon 9.8 this always returns "3.0".
+     * @return the language level supported. In Saxon 11 this returns either "3.0" or "4.0".
      * @since 9.3
      */
 
     public String getXsltLanguageVersion() {
-        return "3.0";
+        return compilerInfo.getXsltVersion() == 40 ? "4.0" : "3.0";
     }
 
     /**
-     * Ask whether assertions (xsl:assert instructions) should be enabled. By default
+     * Ask whether assertions ({@code xsl:assert} instructions) should be enabled. By default
      * they are disabled. If assertions are enabled at compile time, then by
      * default they will also be enabled at run time; but they can be
      * disabled at run time by specific request
@@ -390,7 +461,7 @@ public class XsltCompiler {
     }
 
     /**
-     * Say whether assertions (xsl:assert instructions) should be enabled. By default
+     * Say whether assertions ({@code xsl:assert} instructions) should be enabled. By default
      * they are disabled. If assertions are enabled at compile time, then by
      * default they will also be enabled at run time; but they can be
      * disabled at run time by specific request
@@ -457,12 +528,12 @@ public class XsltCompiler {
         if (option) {
             compilerInfo.setCodeInjector(new XSLTTraceCodeInjector());
             compilerInfo.setOptimizerOptions(compilerInfo.getOptimizerOptions().except(
-                    new OptimizerOptions(OptimizerOptions.COMMON_SUBEXPRESSIONS |
-                            OptimizerOptions.CONSTANT_FOLDING |
-                            OptimizerOptions.INLINE_FUNCTIONS |
-                            OptimizerOptions.INLINE_VARIABLES |
-                            OptimizerOptions.LOOP_LIFTING |
-                            OptimizerOptions.EXTRACT_GLOBALS)
+                                                     new OptimizerOptions(OptimizerOptions.COMMON_SUBEXPRESSIONS |
+                                                                                  OptimizerOptions.CONSTANT_FOLDING |
+                                                                                  OptimizerOptions.INLINE_FUNCTIONS |
+                                                                                  OptimizerOptions.INLINE_VARIABLES |
+                                                                                  OptimizerOptions.LOOP_LIFTING |
+                                                                                  OptimizerOptions.EXTRACT_GLOBALS)
                                              )
             );
         } else {
@@ -483,26 +554,30 @@ public class XsltCompiler {
 
     /**
      * Set whether bytecode should be generated for the compiled stylesheet. This option
-     * is available only with Saxon-EE. The default depends on the setting in the configuration
-     * at the time the XsltCompiler is instantiated, and by default is true for Saxon-EE.
+     * has no effect from 12.0 (bytecode generation has been dropped from the product)
      *
      * @param option true if bytecode is to be generated, false otherwise
-     * @since 9.6
+     * @since 9.6.
+     * @deprecated since 12.0 - the call has no effect.
      */
 
+    @Deprecated
     public void setGenerateByteCode(boolean option) {
-        compilerInfo.setGenerateByteCode(option);
+        // no action
     }
 
     /**
-     * Ask whether bytecode is to be generated in the compiled code.
+     * Ask whether bytecode is to be generated in the compiled code. From 12.0 this
+     * always returns false.
      *
      * @return true if bytecode is to be generated, false if not.
      * @since 9.6
+     * @deprecated since 12.0 - always returns false.
      */
 
+    @Deprecated
     public boolean isGenerateByteCode() {
-        return compilerInfo.isGenerateByteCode();
+        return false;
     }
 
 
@@ -519,22 +594,21 @@ public class XsltCompiler {
 
 
     /**
-     * Get the stylesheet associated
-     * via the xml-stylesheet processing instruction (see
-     * http://www.w3.org/TR/xml-stylesheet/) with the document
-     * document specified in the source parameter, and that match
-     * the given criteria.  If there are several suitable xml-stylesheet
-     * processing instructions, then the returned Source will identify
+     * Get the stylesheet associated via the {@code xml-stylesheet} processing instruction (see
+     * <a href="http://www.w3.org/TR/xml-stylesheet/">W3C specification</a>) with the document
+     * specified in the source parameter, and that matches
+     * the given criteria.  If there are several suitable {@code xml-stylesheet}
+     * processing instructions, then the returned {@link Source} will identify
      * a synthesized stylesheet module that imports all the referenced
      * stylesheet module.
-     * <p>The returned Source will have an absolute URI, created by resolving
+     * <p>The returned {@link Source} will have an absolute URI, created by resolving
      * any relative URI against the base URI of the supplied source document,
      * and redirected if necessary by using the URIResolver associated with this
      * <code>XsltCompiler</code>.</p>
      *
      * @param source  The XML source document. Note that if the source document
      *                is available as an instance of {@link XdmNode}, a corresponding <code>Source</code>
-     *                can be obtained using the method {@link net.sf.saxon.s9api.XdmNode#asSource()}.
+     *                can be obtained using the method {@link XdmNode#asSource()}.
      *                If the source is a StreamSource or SAXSource, it will be read only as far as the
      *                xml-stylesheet processing instruction (but the Source will be consumed and must not
      *                be re-used).
@@ -546,17 +620,17 @@ public class XsltCompiler {
      *                the method {@link Configuration#setMediaQueryEvaluator(Comparator)}.
      * @param title   The value of the title attribute to match.  May be null.
      * @param charset The value of the charset attribute to match.  May be null.
-     * @return A Source object suitable for passing to {@link #compile(javax.xml.transform.Source)}.
+     * @return A Source object suitable for passing to {@link #compile(Source)}.
      * @throws SaxonApiException if any problems occur, including the case where no matching
      *                           xml-stylesheet processing instruction is found.
      * @since 9.6
      */
 
-
+    @CSharpReplaceBody(code="throw new NotImplementedException();")
     public Source getAssociatedStylesheet(Source source, String media, String title, String charset)
             throws SaxonApiException {
         try {
-            return StylesheetModule.getAssociatedStylesheet(config, compilerInfo.getURIResolver(), source, media, title, charset);
+            return StylesheetModule.getAssociatedStylesheet(config, compilerInfo.getResourceResolver(), source, media, title, charset);
         } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
@@ -570,7 +644,7 @@ public class XsltCompiler {
      * by importing them using {@link #importPackage}.</p>
      *
      *
-     * @param source identifies an XML document holding the the XSLT package to be compiled
+     * @param source identifies an XML document holding the XSLT package to be compiled
      * @return the XsltPackage that results from the compilation. Note that this package
      * is not automatically imported to this <code>XsltCompiler</code>; if the package is required
      * for use in subsequent compilations then it must be explicitly imported.
@@ -583,10 +657,15 @@ public class XsltCompiler {
 
     public XsltPackage compilePackage(Source source) throws SaxonApiException {
         try {
-            Compilation compilation;
-            if (source instanceof DocumentImpl && ((DocumentImpl)source).getDocumentElement() instanceof StyleElement) {
-                compilation = ((StyleElement)((DocumentImpl) source).getDocumentElement()).getCompilation();
-            } else {
+            Compilation compilation = null;
+            if (source instanceof NodeSource
+                    && ((NodeSource)source).getNode() instanceof DocumentImpl) {
+                ElementImpl elem = ((DocumentImpl) ((NodeSource) source).getNode()).getDocumentElement();
+                if (elem instanceof StyleElement) {
+                    compilation = ((StyleElement)elem).getCompilation();
+                }
+            }
+            if (compilation == null) {
                 compilation = new Compilation(config, new CompilerInfo(compilerInfo));
             }
             compilation.setLibraryPackage(true);
@@ -602,6 +681,25 @@ public class XsltCompiler {
         } catch (XPathException | XmlProcessingAbort e) {
             throw new SaxonApiException(e);
         }
+    }
+
+    /**
+     * Compile a library package.
+     * <p>This is a convenience method that simple calls <code>compilePackage(new StreamSource(file))</code>.</p>
+     *
+     * @param file identifies an XML document holding the XSLT package to be compiled
+     * @return the XsltPackage that results from the compilation. Note that this package
+     * is not automatically imported to this <code>XsltCompiler</code>; if the package is required
+     * for use in subsequent compilations then it must be explicitly imported.
+     * @throws SaxonApiException if the source cannot be read or if static errors are found during the
+     *                           compilation. Any such errors will have been notified to the registered <code>ErrorListener</code>
+     *                           if there is one, or reported on the <code>System.err</code> output stream otherwise.
+     * @see #compile(Source) - especially the notes regarding error handling and just-in-time compilation.
+     * @since 12.0
+     */
+
+    public XsltPackage compilePackage(File file) throws SaxonApiException {
+        return compilePackage(new StreamSource(file));
     }
 
     private PackageLibrary getPackageLibrary() {
@@ -684,6 +782,26 @@ public class XsltCompiler {
     }
 
     /**
+     * Load a compiled package from a supplied source, with the intent to use this as a complete
+     * executable stylesheet, not as a library package.
+     * <p>The supplied source represents the location of a resource which must have been originally
+     * created using {@link XsltPackage#save(java.io.File)} or some equivalent.</p>
+     * <p>The result of loading the package is returned as an <code>XsltExecutable</code> object.</p>
+     *
+     * @param source the source from which the package is to be loaded
+     * @return the compiled package loaded from the supplied file or remote location
+     * @throws SaxonApiException if no resource can be loaded from the supplied location or if the
+     *                           resource that is loaded is not a compiled package, or if the compiled package is not
+     *                           consistent with this <code>XsltCompiler</code> (for example, if it was created using an
+     *                           incompatible Saxon version).
+     * @since 11
+     */
+
+    public XsltExecutable loadExecutablePackage(Source source) throws SaxonApiException {
+        return loadLibraryPackage(source).link();
+    }
+
+    /**
      * Import a library package. Calling this method makes the supplied package available for reference
      * in the <code>xsl:use-package</code> declarations of subsequent compilations performed using this
      * <code>XsltCompiler</code>.
@@ -755,6 +873,7 @@ public class XsltCompiler {
      * must match; if there are multiple versions, then the version chosen is based first on the
      * priority attached to this package/version in the library, and if the priorities are equal (or
      * there are no explicit priorities) then the one with highest version number is taken.
+     * @throws SaxonApiException if an error is detected
      * @since 9.8
      */
 
@@ -791,7 +910,8 @@ public class XsltCompiler {
             throw new SaxonApiException("No package with alias " + alias + " found in package library");
         }
         try {
-            StylesheetPackage pack = getPackageLibrary().obtainLoadedPackage(details, new ArrayList<>());
+            List<VersionedPackageName> packageNames = new ArrayList<>();
+            StylesheetPackage pack = getPackageLibrary().obtainLoadedPackage(details, packageNames);
             return new XsltPackage(this, pack);
         } catch (XPathException e) {
             throw new SaxonApiException(e);
@@ -858,6 +978,28 @@ public class XsltCompiler {
     }
 
     /**
+     * Compile a stylesheet held in a file.
+     * <p><i>Note: the term "compile" here indicates that the stylesheet is converted into an executable
+     * form. There is no implication that this involves code generation.</i></p>
+     * <p>This is a convenience method that simply calls <code>compile(new StreamSource(file))</code>.</p>
+     *
+     * @param file The file containing the principal stylesheet module to be compiled.
+     *               Must not be null.
+     * @return an {@code XsltExecutable}, which represents the compiled stylesheet. The {@code XsltExecutable}
+     * is immutable and thread-safe; it may be used to run multiple transformations, in series or concurrently.
+     * @throws SaxonApiException if the stylesheet contains static errors or if it cannot be read. Note that
+     *                           the exception that is thrown will <b>not</b> contain details of the actual errors found in the stylesheet. These
+     *                           will instead be notified to the registered {@code ErrorListener} or {@code ErrorList}.
+     *                           The default {@code ErrorListener} displays error messages on the standard error output.
+     * @since 12.0
+     */
+
+    public XsltExecutable compile(File file) throws SaxonApiException {
+        return compile(new StreamSource(file));
+    }
+
+
+    /**
      * Get the underlying {@link CompilerInfo} object, which provides more detailed (but less stable) control
      * over some compilation options
      *
@@ -887,7 +1029,7 @@ public class XsltCompiler {
      * configuration is not a licensed Saxon-EE configuration.
      */
 
-    public void setJustInTimeCompilation(boolean jit){
+    public void setJustInTimeCompilation(boolean jit) {
         if (jit && !config.isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)){
             throw new UnsupportedOperationException("XSLT just-in-time compilation requires a Saxon-EE license");
         }
@@ -904,18 +1046,18 @@ public class XsltCompiler {
      *            it means that static errors in the stylesheet may go undetected.
      */
 
-    public boolean isJustInTimeCompilation(){
+    public boolean isJustInTimeCompilation() {
         return compilerInfo.isJustInTimeCompilation();
     }
 
     /**
      * Get the value of the default namespace for elements and types
-     * @return the value that was set using the method {@link #getDefaultElementNamespace()},
+     * @return the value that was set using the method {@link #setDefaultElementNamespace(String)},
      * if any; otherwise, the default value which is an empty string, representing "no namespace".
      */
 
     public String getDefaultElementNamespace() {
-        return compilerInfo.getDefaultElementNamespace();
+        return compilerInfo.getDefaultElementNamespace().toString();
     }
 
     /**
@@ -929,7 +1071,7 @@ public class XsltCompiler {
      */
 
     public void setDefaultElementNamespace(String defaultNS) {
-        compilerInfo.setDefaultElementNamespace(defaultNS);
+        compilerInfo.setDefaultElementNamespace(NamespaceUri.of(defaultNS));
     }
 
     /**
@@ -959,9 +1101,8 @@ public class XsltCompiler {
      * <p>The chosen policy affects:</p>
      * <ul>
      *     <li>Any NCName used as a node-test in an axis step (production <code>ForwardStep</code>
-     *     or <code>ReverseStep</code>) in an
-     *     XPath expression within the stylesheet, other than an axis step using the attribute or
-     *     namespace axis</li>
+     *     or <code>ReverseStep</code>) in an XPath expression within the stylesheet, other than an
+     *     axis step using the attribute or namespace axis</li>
      *     <li>Any NCName used as a node-test in an axis step (production <code>ForwardStepP</code>
      *     in a pattern within the stylesheet, other than an axis step using the attribute or namespace
      *     axis</li>

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,7 +23,7 @@ import javax.xml.stream.XMLStreamWriter;
  */
 public class XMLStreamWriterDestination extends AbstractDestination {
 
-    private XMLStreamWriter writer;
+    private final XMLStreamWriter writer;
 
     /**
      * Create an XMLStreamWriterDestination based on a supplied XMLStreamWriter
@@ -52,7 +52,7 @@ public class XMLStreamWriterDestination extends AbstractDestination {
      * @param pipe The Saxon configuration. This is supplied so that the destination can
      *               use information from the configuration (for example, a reference to the name pool)
      *               to construct or configure the returned Receiver.
-     * @param params
+     * @param params Serialization parameters known to the caller of the method.
      * @return the Receiver to which events are to be sent. It is the caller's responsibility to
      *         initialize this Receiver with a {@link net.sf.saxon.event.PipelineConfiguration} before calling
      *         its <code>open()</code> method. The caller is also responsible for ensuring that the sequence

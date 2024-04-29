@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,14 +14,12 @@ import net.sf.saxon.functions.hof.FunctionSequenceCoercer;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.FunctionAnnotationHandler;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
 import net.sf.saxon.query.Annotation;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.*;
 import net.sf.saxon.z.IntHashSet;
@@ -30,8 +28,13 @@ import net.sf.saxon.z.IntUniversalSet;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
-import static net.sf.saxon.type.Affinity.*;
+import static net.sf.saxon.type.Affinity.DISJOINT;
+import static net.sf.saxon.type.Affinity.OVERLAPS;
+import static net.sf.saxon.type.Affinity.SAME_TYPE;
+import static net.sf.saxon.type.Affinity.SUBSUMED_BY;
+import static net.sf.saxon.type.Affinity.SUBSUMES;
 
 /**
  * This class exists to provide answers to questions about the type hierarchy. Because
@@ -41,7 +44,7 @@ import static net.sf.saxon.type.Affinity.*;
 
 public class TypeHierarchy {
 
-    private Map<ItemTypePair, Affinity> map;
+    private final Map<ItemTypePair, Affinity> map;
     protected Configuration config;
 
     /**
@@ -56,158 +59,184 @@ public class TypeHierarchy {
     }
 
     /**
+     * Get the nearest named type in the type hierarchy, that is, the nearest type that
+     * is not anonymous. (In practice, since types cannot be derived from anonymous types,
+     * this will either the type itself, or its immediate base type).
+     * @return the nearest type, found by following the {@code getBaseType()} relation
+     * recursively, that is not an anonymous type
+     */
+
+    public static SchemaType getNearestNamedType(SchemaType type) {
+        while (type.isAnonymousType()) {
+            type = type.getBaseType();
+        }
+        return type;
+    }
+
+    /**
      * Apply the function conversion rules to a value, given a required type.
      *
      * @param value        a value to be converted
      * @param requiredType the required type
-     * @param role identifies the value to be converted in error messages
+     * @param roleSupplier identifies the value to be converted in error messages
      * @param locator identifies the location for error messages
      * @return the converted value
      * @throws net.sf.saxon.trans.XPathException
      *          if the value cannot be converted to the required type
      */
 
-    public Sequence applyFunctionConversionRules(Sequence value, SequenceType requiredType, final RoleDiagnostic role, Location locator)
+    public GroundedValue applyFunctionConversionRules(Sequence value,
+                                                      SequenceType requiredType,
+                                                      Supplier<RoleDiagnostic> roleSupplier,
+                                                      Location locator)
             throws XPathException {
 
-        GroundedValue groundedValue = value.materialize();
-        if (requiredType.matches(groundedValue, this)) {
-            return groundedValue;
-        }
-        ItemType suppliedItemType = SequenceTool.getItemType(groundedValue, this);
-
-        SequenceIterator iterator = groundedValue.iterate();
-        final ItemType requiredItemType = requiredType.getPrimaryType();
-
-        if (requiredItemType.isPlainType()) {
-
-            // step 1: apply atomization if necessary
-
-            if (!suppliedItemType.isPlainType()) {
-                try {
-                    iterator = Atomizer.getAtomizingIterator(iterator, false);
-                } catch (XPathException e) {
-                    ValidationFailure vf = new ValidationFailure(
-                            "Failed to atomize the " + role.getMessage() + ": " + e.getMessage());
-                    vf.setErrorCode("XPTY0117");
-                    throw vf.makeException();
-                }
-                suppliedItemType = suppliedItemType.getAtomizedItemType();
+        try {
+            GroundedValue groundedValue = value.materialize();
+            if (requiredType.matches(groundedValue, this)) {
+                return groundedValue;
             }
 
-            // step 2: convert untyped atomic values to target item type
+            ItemType suppliedItemType = SequenceTool.getItemType(value, this);
 
-            if (relationship(suppliedItemType, BuiltInAtomicType.UNTYPED_ATOMIC) != DISJOINT &&
-                    !isSubType(BuiltInAtomicType.UNTYPED_ATOMIC, requiredItemType)) {
-                final boolean nsSensitive = ((SimpleType) requiredItemType).isNamespaceSensitive();
-                ItemMappingFunction converter;
-                if (nsSensitive) {
-                    converter = item -> {
-                        if (item instanceof UntypedAtomicValue) {
-                            ValidationFailure vf = new ValidationFailure(
-                                    "Failed to convert the " + role.getMessage() + ": " +
-                                    "Implicit conversion of untypedAtomic value to " + requiredItemType +
-                                            " is not allowed");
-                            vf.setErrorCode("XPTY0117");
-                            throw vf.makeException();
-                        } else {
-                            return item;
-                        }
-                    };
-                } else if (((SimpleType) requiredItemType).isUnionType()) {
-                    final ConversionRules rules = config.getConversionRules();
-                    converter = item -> {
-                        if (item instanceof UntypedAtomicValue) {
-                            try {
-                                return ((SimpleType) requiredItemType).getTypedValue(
-                                        item.getStringValueCS(), null, rules).head();
-                            } catch (ValidationException ve) {
-                                ve.setErrorCode("XPTY0004");
-                                throw ve;
+            SequenceIterator iterator = groundedValue.iterate();
+            final ItemType requiredItemType = requiredType.getPrimaryType();
+
+            if (requiredItemType.isPlainType()) {
+
+                // step 1: apply atomization if necessary
+
+                if (!suppliedItemType.isPlainType()) {
+                    try {
+                        iterator = Atomizer.getAtomizingIterator(iterator, false);
+                    } catch (XPathException e) {
+                        RoleDiagnostic role = roleSupplier.get();
+                        ValidationFailure vf = new ValidationFailure(
+                                "Failed to atomize the " + role.getMessage() + ": " + e.getMessage());
+                        vf.setErrorCode("XPTY0117");
+                        throw vf.makeException();
+                    }
+                    suppliedItemType = suppliedItemType.getAtomizedItemType();
+                }
+
+                // step 2: convert untyped atomic values to target item type
+
+                if (relationship(suppliedItemType, BuiltInAtomicType.UNTYPED_ATOMIC) != DISJOINT &&
+                        !isSubType(BuiltInAtomicType.UNTYPED_ATOMIC, requiredItemType)) {
+                    final boolean nsSensitive = ((SimpleType) requiredItemType).isNamespaceSensitive();
+                    ItemMappingFunction converter;
+                    if (nsSensitive) {
+                        converter = ItemMapper.of(item -> {
+                            if (item instanceof AtomicValue && ((AtomicValue)item).isUntypedAtomic()) {
+                                RoleDiagnostic role = roleSupplier.get();
+                                ValidationFailure vf = new ValidationFailure(
+                                        "Failed to convert the " + role.getMessage() + ": " +
+                                        "Implicit conversion of untypedAtomic value to " + requiredItemType +
+                                                " is not allowed");
+                                vf.setErrorCode("XPTY0117");
+                                throw vf.makeException();
+                            } else {
+                                return item;
                             }
-                        } else {
-                            return item;
-                        }
-                    };
-                } else {
-                    converter = item -> {
-                        if (item instanceof UntypedAtomicValue) {
-                            return Converter.convert(
-                                    (UntypedAtomicValue) item, (AtomicType) requiredItemType, config.getConversionRules());
-                        } else {
-                            return item;
-                        }
-                    };
+                        });
+                    } else if (((SimpleType) requiredItemType).isUnionType()) {
+                        final ConversionRules rules = config.getConversionRules();
+                        converter = ItemMapper.of(item -> {
+                            if (item instanceof AtomicValue && ((AtomicValue) item).isUntypedAtomic()) {
+                                try {
+                                    return ((SimpleType) requiredItemType).getTypedValue(
+                                            item.getUnicodeStringValue(), null, rules).head();
+                                } catch (ValidationException ve) {
+                                    throw ve.withErrorCode("XPTY0004");
+                                }
+                            } else {
+                                return item;
+                            }
+                        });
+                    } else {
+                        converter = ItemMapper.of(item -> {
+                            if (item instanceof AtomicValue && ((AtomicValue) item).isUntypedAtomic()) {
+                                return Converter.convert(
+                                        (StringValue) item, (AtomicType) requiredItemType, config.getConversionRules());
+                            } else {
+                                return item;
+                            }
+                        });
+                    }
+                    iterator = new ItemMappingIterator(iterator, converter, true);
                 }
-                iterator = new ItemMappingIterator(iterator, converter, true);
+
+                // step 3: apply numeric promotion
+
+                if (requiredItemType.equals(BuiltInAtomicType.DOUBLE)) {
+                    ItemMappingFunction promoter = ItemMapper.of(item -> {
+                        if (item instanceof NumericValue) {
+                            return (DoubleValue) Converter.convert(
+                                    (NumericValue)item, BuiltInAtomicType.DOUBLE, config.getConversionRules()).asAtomic();
+                        } else {
+                            throw new XPathException(
+                                    "Failed to convert the " + roleSupplier.get().getMessage() + ": " +
+                                    "Cannot promote non-numeric value to xs:double", "XPTY0004");
+                        }
+                    });
+                    iterator = new ItemMappingIterator(iterator, promoter, true);
+                } else if (requiredItemType.equals(BuiltInAtomicType.FLOAT)) {
+                    ItemMappingFunction promoter = ItemMapper.of(item -> {
+                        if (item instanceof DoubleValue) {
+                            RoleDiagnostic role = roleSupplier.get();
+                            throw new XPathException(
+                                    "Failed to convert the " + role.getMessage() + ": " +
+                                    "Cannot promote xs:double value to xs:float", "XPTY0004");
+                        } else if (item instanceof NumericValue) {
+                            return (FloatValue) Converter.convert(
+                                    (NumericValue)item, BuiltInAtomicType.FLOAT, config.getConversionRules()).asAtomic();
+                        } else {
+                            RoleDiagnostic role = roleSupplier.get();
+                            throw new XPathException(
+                                    "Failed to convert the " + role.getMessage() + ": " +
+                                    "Cannot promote non-numeric value to xs:float", "XPTY0004");
+                        }
+                    });
+                    iterator = new ItemMappingIterator(iterator, promoter, true);
+                }
+
+                // step 4: apply URI-to-string promotion
+
+                if (requiredItemType.equals(BuiltInAtomicType.STRING) &&
+                        relationship(suppliedItemType, BuiltInAtomicType.ANY_URI) != DISJOINT) {
+                    ItemMappingFunction promoter = ItemMapper.of(item -> {
+                        if (item instanceof AnyURIValue) {
+                            return ((AnyURIValue)item).convertToString();
+                        } else {
+                            return item;
+                        }
+                    });
+                    iterator = new ItemMappingIterator(iterator, promoter, true);
+                }
             }
 
-            // step 3: apply numeric promotion
+            // step 5: apply function coercion
 
-            if (requiredItemType.equals(BuiltInAtomicType.DOUBLE)) {
-                ItemMappingFunction promoter = item -> {
-                    if (item instanceof NumericValue) {
-                        return (DoubleValue) Converter.convert(
-                                (NumericValue)item, BuiltInAtomicType.DOUBLE, config.getConversionRules()).asAtomic();
-                    } else {
-                        throw new XPathException(
-                                "Failed to convert the " + role.getMessage() + ": " +
-                                "Cannot promote non-numeric value to xs:double", "XPTY0004");
-                    }
-                };
-                iterator = new ItemMappingIterator(iterator, promoter, true);
-            } else if (requiredItemType.equals(BuiltInAtomicType.FLOAT)) {
-                ItemMappingFunction promoter = item -> {
-                    if (item instanceof DoubleValue) {
-                        throw new XPathException(
-                                "Failed to convert the " + role.getMessage() + ": " +
-                                "Cannot promote xs:double value to xs:float", "XPTY0004");
-                    } else if (item instanceof NumericValue) {
-                        return (FloatValue) Converter.convert(
-                                (NumericValue)item, BuiltInAtomicType.FLOAT, config.getConversionRules()).asAtomic();
-                    } else {
-                        throw new XPathException(
-                                "Failed to convert the " + role.getMessage() + ": " +
-                                "Cannot promote non-numeric value to xs:float", "XPTY0004");
-                    }
-                };
-                iterator = new ItemMappingIterator(iterator, promoter, true);
+            iterator = applyFunctionCoercion(iterator, suppliedItemType, requiredItemType, locator);
+
+            // Add a check that the values conform to the required type
+
+            Affinity relation = relationship(suppliedItemType, requiredItemType);
+
+            if (!(relation == SAME_TYPE || relation == SUBSUMED_BY)) {
+                ItemTypeCheckingFunction itemChecker =
+                        new ItemTypeCheckingFunction(requiredItemType, roleSupplier, locator, config);
+                iterator = new ItemMappingIterator(iterator, itemChecker, true);
             }
 
-            // step 4: apply URI-to-string promotion
-
-            if (requiredItemType.equals(BuiltInAtomicType.STRING) &&
-                    relationship(suppliedItemType, BuiltInAtomicType.ANY_URI) != DISJOINT) {
-                ItemMappingFunction promoter = item -> {
-                    if (item instanceof AnyURIValue) {
-                        return new StringValue(item.getStringValueCS());
-                    } else {
-                        return item;
-                    }
-                };
-                iterator = new ItemMappingIterator(iterator, promoter, true);
+            if (requiredType.getCardinality() != StaticProperty.ALLOWS_ZERO_OR_MORE) {
+                iterator = new CardinalityCheckingIterator(iterator, requiredType.getCardinality(), roleSupplier, locator);
             }
+
+            return SequenceTool.toGroundedValue(iterator);
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
-
-        // step 5: apply function coercion
-
-        iterator = applyFunctionCoercion(iterator, suppliedItemType, requiredItemType, locator);
-
-        // Add a check that the values conform to the required type
-
-        Affinity relation = relationship(suppliedItemType, requiredItemType);
-
-        if (!(relation == SAME_TYPE || relation == SUBSUMED_BY)) {
-            ItemTypeCheckingFunction itemChecker =
-                    new ItemTypeCheckingFunction(requiredItemType, role, locator, config);
-            iterator = new ItemMappingIterator(iterator, itemChecker, true);
-        }
-
-        if (requiredType.getCardinality() != StaticProperty.ALLOWS_ZERO_OR_MORE) {
-            iterator = new CardinalityCheckingIterator(iterator, requiredType.getCardinality(), role, locator);
-        }
-
-        return SequenceTool.toMemoSequence(iterator);
 
     }
 
@@ -236,7 +265,7 @@ public class TypeHierarchy {
             } else {
 
                 FunctionSequenceCoercer.Coercer coercer = new FunctionSequenceCoercer.Coercer(
-                        (SpecificFunctionType) requiredItemType, config, locator);
+                        (SpecificFunctionType) requiredItemType, config, locator, false);
                 return new ItemMappingIterator(iterator, coercer, true);
             }
 
@@ -317,13 +346,14 @@ public class TypeHierarchy {
             return SUBSUMES;
         }
         ItemTypePair pair = new ItemTypePair(t1, t2);
-        Affinity result = map.get(pair);
-        if (result == null) {
-            result = computeRelationship(t1, t2);
-            map.put(pair, result);
+        if (map.containsKey(pair)) {
+            return map.get(pair);
         }
-        return result;
+        Affinity affinity = computeRelationship(t1, t2);
+        map.put(pair, affinity);
+        return affinity;
     }
+
 
     /**
      * Replace an item type, where necessary, by one that can safely be stored in the cache
@@ -350,7 +380,7 @@ public class TypeHierarchy {
      * <ul>
      *     <li>If subtype(A, B) and subtype(B, A) then SAME_TYPE</li>
      *     <li>Else, if subtype(A, B) then SUBSUMED_BY</li>
-     *     <li>Else, if subtype(A, B) then SUBSUMES</li>
+     *     <li>Else, if subtype(B, A) then SUBSUMES</li>
      *     <li>Else, if the value spaces of A and B have a non-empty intersection then OVERLAPS</li>
      *     <li>Else, DISJOINT.</li>
      * </ul>
@@ -522,7 +552,7 @@ public class TypeHierarchy {
 
                         Affinity contentRelationship = computeContentRelationship(t1, t2, on1, on2);
 
-                        // now analyse the three different relationsships
+                        // now analyse the three different relationships
 
                         if (nodeKindRelationship == SAME_TYPE &&
                                 nodeNameRelationship == SAME_TYPE &&
@@ -574,8 +604,8 @@ public class TypeHierarchy {
                     } else if (t2 == MapType.ANY_MAP_TYPE) {
                         return SUBSUMED_BY;
                     }
-                    AtomicType k1 = ((MapType)t1).getKeyType();
-                    AtomicType k2 = ((MapType)t2).getKeyType();
+                    PlainType k1 = ((MapType)t1).getKeyType();
+                    PlainType k2 = ((MapType)t2).getKeyType();
                     SequenceType v1 = ((MapType)t1).getValueType();
                     SequenceType v2 = ((MapType)t2).getValueType();
                     Affinity keyRel = relationship(k1, k2);
@@ -595,14 +625,14 @@ public class TypeHierarchy {
                         Affinity assertionRelationship = SAME_TYPE;
                         AnnotationList first = ((FunctionItemType) t1).getAnnotationAssertions();
                         AnnotationList second = ((FunctionItemType) t2).getAnnotationAssertions();
-                        Set<String> namespaces = new HashSet<>();
+                        Set<NamespaceUri> namespaces = new HashSet<>();
                         for (Annotation a : first) {
-                            namespaces.add(a.getAnnotationQName().getURI());
+                            namespaces.add(a.getAnnotationQName().getNamespaceUri());
                         }
                         for (Annotation a : second) {
-                            namespaces.add(a.getAnnotationQName().getURI());
+                            namespaces.add(a.getAnnotationQName().getNamespaceUri());
                         }
-                        for (String ns : namespaces) {
+                        for (NamespaceUri ns : namespaces) {
                             FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(ns);
                             if (handler != null) {
                                 Affinity localRel = SAME_TYPE;
@@ -637,7 +667,7 @@ public class TypeHierarchy {
 
     private static void requireTrueItemType(ItemType t) {
         Objects.requireNonNull(t);
-        if (!t.isTrueItemType()) {
+        if (t instanceof UnionType && !t.isPlainType()) {
             throw new AssertionError(t + " is a non-pure union type");
         }
     }
@@ -757,10 +787,12 @@ public class TypeHierarchy {
      * they are permitted, and supported in Saxon-HE.
      *
      * @param t1 the first type
-     * @param t2 the second types
+     * @param t2 the second type
      * @param n1 the set of element names allowed by the first type
      * @param n2 the set of element names allowed by the second type
-     * @return the relationship (same type, subsumes, overlaps, subsumed-by)
+     * @return the relationship, as one of the constants
+     *         {@link Affinity#SAME_TYPE}, {@link Affinity#SUBSUMES},
+     *         {@link Affinity#SUBSUMED_BY}, {@link Affinity#DISJOINT}, {@link Affinity#OVERLAPS}
      */
     protected Affinity computeContentRelationship(ItemType t1, ItemType t2, Optional<IntSet> n1, Optional<IntSet> n2) {
         Affinity contentRelationship;
@@ -792,13 +824,13 @@ public class TypeHierarchy {
                 case SUBSUMES:
                     if (nillable2) {
                         contentRelationship = OVERLAPS;
-                        break;
                     }
+                    break;
                 case SUBSUMED_BY:
                     if (nillable1) {
                         contentRelationship = OVERLAPS;
-                        break;
                     }
+                    break;
                 case SAME_TYPE:
                     if (nillable1) {
                         contentRelationship = SUBSUMES;
@@ -934,7 +966,7 @@ public class TypeHierarchy {
     }
 
     public ItemType getGenericFunctionItemType() {
-        return AnyItemType.getInstance();
+        return AnyFunctionType.getInstance();
     }
 
 

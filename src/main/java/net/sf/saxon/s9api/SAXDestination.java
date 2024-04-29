@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,7 +30,7 @@ import org.xml.sax.ContentHandler;
 
 public class SAXDestination extends AbstractDestination {
 
-    private ContentHandler contentHandler;
+    private final ContentHandler contentHandler;
 
     /**
      * Create a SAXDestination, supplying a SAX ContentHandler to which
@@ -52,7 +52,7 @@ public class SAXDestination extends AbstractDestination {
      * @param pipe The Saxon configuration. This is supplied so that the destination can
      *               use information from the configuration (for example, a reference to the name pool)
      *               to construct or configure the returned Receiver.
-     * @param params Seriaization properties. Since this destination is not a serializing destination.
+     * @param params Serialization properties. Since this destination is not a serializing destination.
      *               the main property of interest is {@code item-separator}.
      * @return the Receiver to which events are to be sent.
      */
@@ -60,10 +60,9 @@ public class SAXDestination extends AbstractDestination {
     /*@NotNull*/
     @Override
     public Receiver getReceiver(PipelineConfiguration pipe, SerializationProperties params) {
-        ContentHandlerProxy chp = new ContentHandlerProxy();
-        chp.setUnderlyingContentHandler(contentHandler);
-        chp.setPipelineConfiguration(pipe);
-        return params.makeSequenceNormalizer(chp);
+        Receiver r = ContentHandlerProxy.makeInstance(contentHandler, params.getProperties());
+        r.setPipelineConfiguration(pipe);
+        return params.makeSequenceNormalizer(r);
     }
 
     /**

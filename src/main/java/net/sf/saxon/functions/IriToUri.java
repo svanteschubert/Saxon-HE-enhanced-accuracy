@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,13 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.StringValue;
+import net.sf.saxon.z.IntIterator;
 
 import java.util.Arrays;
 
@@ -41,13 +43,12 @@ public class IriToUri extends ScalarSystemFunction {
 
     @Override
     public AtomicValue evaluate(Item arg, XPathContext context) throws XPathException {
-        final CharSequence s = arg.getStringValueCS();
-        return StringValue.makeStringValue(iriToUri(s));
+        return new StringValue(iriToUri(arg.getUnicodeStringValue()));
     }
 
     @Override
-    public ZeroOrOne resultWhenEmpty() {
-        return ZERO_LENGTH_STRING;
+    public Sequence resultWhenEmpty() {
+        return StringValue.EMPTY_STRING;
     }
 
     /**
@@ -58,28 +59,29 @@ public class IriToUri extends ScalarSystemFunction {
      * @return the %HH-encoded string
      */
 
-    public static CharSequence iriToUri(CharSequence s) {
+    public static UnicodeString iriToUri(UnicodeString s) {
         // NOTE: implements a late spec change which says that characters that are illegal in an IRI,
         // for example "\", must be %-encoded.
-        if (allAllowedAscii(s)) {
+        if (allAllowedAscii(s.codePoints())) {
             // it's worth doing a prescan to avoid the cost of copying in the common all-ASCII case
             return s;
         }
-        FastStringBuffer sb = new FastStringBuffer(s.length() + 20);
-        for (int i = 0; i < s.length(); i++) {
-            final char c = s.charAt(i);
+        UnicodeBuilder sb = new UnicodeBuilder(s.length32() + 20);
+        IntIterator iter = s.codePoints();
+        while (iter.hasNext()) {
+            final int c = iter.next();
             if (c >= 0x7f || !allowedASCII[(int) c]) {
-                EncodeForUri.escapeChar(c, (i + 1) < s.length() ? s.charAt(i + 1) : ' ', sb);
+                EncodeForUri.escapeChar(c, sb);
             } else {
-                sb.cat(c);
+                sb.append(c);
             }
         }
-        return sb;
+        return sb.toUnicodeString();
     }
 
-    private static boolean allAllowedAscii(CharSequence s) {
-        for (int i = 0; i < s.length(); i++) {
-            final char c = s.charAt(i);
+    private static boolean allAllowedAscii(IntIterator codePoints) {
+        while (codePoints.hasNext()) {
+            int c = codePoints.next();
             if (c >= 0x7f || !allowedASCII[(int) c]) {
                 return false;
             }
@@ -87,8 +89,6 @@ public class IriToUri extends ScalarSystemFunction {
         return true;
     }
 
-
-    private static final String hex = "0123456789ABCDEF";
 
 }
 

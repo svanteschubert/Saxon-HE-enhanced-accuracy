@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,7 +25,7 @@ import java.util.function.Predicate;
 
 public class OperandArray implements Iterable<Operand> {
 
-    private Operand[] operandArray;
+    private final Operand[] operandArray;
 
     // operand role is currently always NAVIGATE, but this could change in the future
 
@@ -121,12 +121,12 @@ public class OperandArray implements Iterable<Operand> {
      */
 
     public Iterable<Operand> operands() {
-        return Arrays.asList(operandArray);
+        return this;
     }
 
     public Iterable<Expression> operandExpressions() {
         List<Expression> list = new ArrayList<Expression>(operandArray.length);
-        for (Operand o : operands()) {
+        for (Operand o : this) {
             list.add(o.getChildExpression());
         }
         return list;

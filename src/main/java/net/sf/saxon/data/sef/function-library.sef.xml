@@ -1,0 +1,2113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns='http://ns.saxonica.com/xslt/export' xmlns:fn='http://www.w3.org/2005/xpath-functions' xmlns:java-type='http://saxon.sf.net/java-type' xmlns:vv='http://saxon.sf.net/generated-variable' xmlns:xs='http://www.w3.org/2001/XMLSchema' when='2023-11-29T14:25:29.839336Z' id='0' name='function-library' version='40' declaredModes='1' packageVersion='1' saxonProduct='SAXON-EE' saxonVersion='12.4' buildDateTime='2023-11-29T14:25:29.839731Z' target='HE' targetVersion='1' relocatable='false' implicit='false'>
+ <co id='0' vis='PUBLIC' binds='1 2 2 2 2'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}slice' line='216' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='7'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}conditions' as='1FM'/>
+   <let role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='219' var='Q{}absp' as='1F r[1ADI] a[1ADI]' slot='2'>
+    <partialApply>
+     <ufRef name='Q{http://ns.saxonica.com/anonymous-type}f_1074389766' arity='2' bSlot='0'/>
+     <null/>
+     <varRef name='Q{}seq' slot='0'/>
+    </partialApply>
+    <let line='227' var='Q{}start-position' as='?ADI' slot='3'>
+     <fn name='max'>
+      <sequence line='221'>
+       <int val='1'/>
+       <choose line='222'>
+        <fn name='exists'>
+         <lookup>
+          <varRef name='Q{}conditions' slot='1'/>
+          <str val='start'/>
+         </lookup>
+        </fn>
+        <dynCall>
+         <varRef name='Q{}absp' slot='2'/>
+         <lookup>
+          <varRef name='Q{}conditions' slot='1'/>
+          <str val='start'/>
+         </lookup>
+        </dynCall>
+       </choose>
+       <fn line='223' name='min'>
+        <forEach>
+         <lookup>
+          <varRef name='Q{}conditions' slot='1'/>
+          <str val='at'/>
+         </lookup>
+         <dynCall>
+          <varRef name='Q{}absp' slot='2'/>
+          <dot/>
+         </dynCall>
+        </forEach>
+       </fn>
+       <choose line='224'>
+        <fn name='exists'>
+         <lookup>
+          <varRef name='Q{}conditions' slot='1'/>
+          <str val='from'/>
+         </lookup>
+        </fn>
+        <first>
+         <ufCall name='Q{http://ns.saxonica.com/xpath-functions}index-where' tailCall='false' bSlot='1'>
+          <varRef name='Q{}seq' slot='0'/>
+          <check card='1' diag='0|1||FN:index-where'>
+           <fnCoercer to='1F r[1AB] a[1]' diag='0|1||FN:index-where' flags='4'>
+            <treat as='F' diag='0|1||FN:index-where'>
+             <lookup>
+              <varRef name='Q{}conditions' slot='1'/>
+              <str val='from'/>
+             </lookup>
+            </treat>
+           </fnCoercer>
+          </check>
+         </ufCall>
+        </first>
+       </choose>
+       <choose line='225'>
+        <fn name='exists'>
+         <lookup>
+          <varRef name='Q{}conditions' slot='1'/>
+          <str val='after'/>
+         </lookup>
+        </fn>
+        <arith op='+' calc='i+i'>
+         <first>
+          <ufCall name='Q{http://ns.saxonica.com/xpath-functions}index-where' tailCall='false' bSlot='2'>
+           <varRef name='Q{}seq' slot='0'/>
+           <check card='1' diag='0|1||FN:index-where'>
+            <fnCoercer to='1F r[1AB] a[1]' diag='0|1||FN:index-where' flags='4'>
+             <treat as='F' diag='0|1||FN:index-where'>
+              <lookup>
+               <varRef name='Q{}conditions' slot='1'/>
+               <str val='after'/>
+              </lookup>
+             </treat>
+            </fnCoercer>
+           </check>
+          </ufCall>
+         </first>
+         <int val='1'/>
+        </arith>
+       </choose>
+      </sequence>
+     </fn>
+     <let line='235' var='Q{}end-position' as='?ADI' slot='4'>
+      <fn name='min'>
+       <sequence line='229'>
+        <choose>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='end'/>
+          </lookup>
+         </fn>
+         <dynCall>
+          <varRef name='Q{}absp' slot='2'/>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='end'/>
+          </lookup>
+         </dynCall>
+        </choose>
+        <choose line='230'>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='length'/>
+          </lookup>
+         </fn>
+         <convert from='A n~numeric' to='ADI' flags='d' diag='3|0|XTTE0570|end-positions'>
+          <arith op='-' calc='a-a'>
+           <arith op='+' calc='a+a'>
+            <varRef name='Q{}start-position' slot='3'/>
+            <cvUntyped to='AO'>
+             <atomSing card='?' diag='1|1||+'>
+              <lookup>
+               <varRef name='Q{}conditions' slot='1'/>
+               <str val='length'/>
+              </lookup>
+             </atomSing>
+            </cvUntyped>
+           </arith>
+           <int val='1'/>
+          </arith>
+         </convert>
+        </choose>
+        <fn line='231' name='max'>
+         <forEach>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='at'/>
+          </lookup>
+          <dynCall>
+           <varRef name='Q{}absp' slot='2'/>
+           <dot/>
+          </dynCall>
+         </forEach>
+        </fn>
+        <choose line='232'>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='until'/>
+          </lookup>
+         </fn>
+         <first>
+          <ufCall name='Q{http://ns.saxonica.com/xpath-functions}index-where' tailCall='false' bSlot='3'>
+           <varRef name='Q{}seq' slot='0'/>
+           <check card='1' diag='0|1||FN:index-where'>
+            <fnCoercer to='1F r[1AB] a[1]' diag='0|1||FN:index-where' flags='4'>
+             <treat as='F' diag='0|1||FN:index-where'>
+              <lookup>
+               <varRef name='Q{}conditions' slot='1'/>
+               <str val='until'/>
+              </lookup>
+             </treat>
+            </fnCoercer>
+           </check>
+          </ufCall>
+         </first>
+        </choose>
+        <choose line='233'>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='before'/>
+          </lookup>
+         </fn>
+         <arith op='-' calc='i-i'>
+          <first>
+           <ufCall name='Q{http://ns.saxonica.com/xpath-functions}index-where' tailCall='false' bSlot='4'>
+            <varRef name='Q{}seq' slot='0'/>
+            <check card='1' diag='0|1||FN:index-where'>
+             <fnCoercer to='1F r[1AB] a[1]' diag='0|1||FN:index-where' flags='4'>
+              <treat as='F' diag='0|1||FN:index-where'>
+               <lookup>
+                <varRef name='Q{}conditions' slot='1'/>
+                <str val='before'/>
+               </lookup>
+              </treat>
+             </fnCoercer>
+            </check>
+           </ufCall>
+          </first>
+          <int val='1'/>
+         </arith>
+        </choose>
+       </sequence>
+      </fn>
+      <sequence line='236'>
+       <message>
+        <valueOf role='select'>
+         <fn name='concat'>
+          <str val='Range: '/>
+          <convert from='ADI' to='AS'>
+           <varRef name='Q{}start-position' slot='3'/>
+          </convert>
+          <str val=' to '/>
+          <fn name='string'>
+           <convert from='ADI' to='AS'>
+            <varRef name='Q{}end-position' slot='4'/>
+           </convert>
+          </fn>
+         </fn>
+        </valueOf>
+        <str role='terminate' val='no'/>
+        <str role='error' val='Q{http://www.w3.org/2005/xqt-errors}XTMM9000'/>
+       </message>
+       <choose line='237'>
+        <and line='238' op='and'>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='at'/>
+          </lookup>
+         </fn>
+         <fn name='empty'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='step'/>
+          </lookup>
+         </fn>
+        </and>
+        <let line='240' var='Q{http://saxon.sf.net/generated-variable}v0' as='?ADI' slot='5' flags='l'>
+         <choose>
+          <fn name='exists'>
+           <varRef name='Q{}end-position' slot='4'/>
+          </fn>
+          <varRef name='Q{}end-position' slot='4'/>
+          <true/>
+          <fn name='count'>
+           <varRef name='Q{}seq' slot='0'/>
+          </fn>
+         </choose>
+         <forEach>
+          <sort>
+           <filter role='select' flags='b'>
+            <forEach>
+             <lookup>
+              <varRef name='Q{}conditions' slot='1'/>
+              <str val='at'/>
+             </lookup>
+             <dynCall>
+              <varRef name='Q{}absp' slot='2'/>
+              <dot/>
+             </dynCall>
+            </forEach>
+            <and op='and'>
+             <vc op='ge' onEmpty='0'>
+              <dot type='1ADI'/>
+              <varRef name='Q{}start-position' slot='3'/>
+             </vc>
+             <vc op='le' onEmpty='0'>
+              <dot type='1ADI'/>
+              <varRef name='Q{http://saxon.sf.net/generated-variable}v0' slot='5'/>
+             </vc>
+            </and>
+           </filter>
+           <sortKey line='241' comp='DecSC'>
+            <dot role='select' type='1ADI'/>
+            <str role='order' val='ascending'/>
+            <str role='lang' val=''/>
+            <str role='caseOrder' val='#default'/>
+            <str role='stable' val='yes'/>
+            <str role='collation' val='http://www.w3.org/2005/xpath-functions/collation/codepoint'/>
+           </sortKey>
+          </sort>
+          <fn line='242' name='subsequence'>
+           <varRef name='Q{}seq' slot='0'/>
+           <dot type='1ADI'/>
+           <int val='1'/>
+          </fn>
+         </forEach>
+        </let>
+        <and line='247' op='and'>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='step'/>
+          </lookup>
+         </fn>
+         <fn name='empty'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='at'/>
+          </lookup>
+         </fn>
+        </and>
+        <let line='247' var='Q{http://saxon.sf.net/generated-variable}v1' as='?A' slot='6' flags='l'>
+         <cvUntyped to='AO'>
+          <atomSing card='?' diag='1|1||*'>
+           <lookup>
+            <varRef name='Q{}conditions' slot='1'/>
+            <str val='step'/>
+           </lookup>
+          </atomSing>
+         </cvUntyped>
+         <forEach>
+          <forEach>
+           <to>
+            <int val='0'/>
+            <convert from='A n~numeric' to='ADI' flags='d' diag='1|1||to'>
+             <arith op='-' calc='a-a'>
+              <arith op='idiv' calc='a~a'>
+               <arith op='+' calc='i+i'>
+                <arith op='-' calc='i-i'>
+                 <varRef name='Q{}end-position' slot='4'/>
+                 <varRef name='Q{}start-position' slot='3'/>
+                </arith>
+                <int val='1'/>
+               </arith>
+               <cvUntyped to='AO'>
+                <atomSing card='?' diag='1|1||idiv'>
+                 <lookup>
+                  <varRef name='Q{}conditions' slot='1'/>
+                  <str val='step'/>
+                 </lookup>
+                </atomSing>
+               </cvUntyped>
+              </arith>
+              <int val='1'/>
+             </arith>
+            </convert>
+           </to>
+           <arith op='*' calc='a*a'>
+            <dot type='1ADI'/>
+            <varRef name='Q{http://saxon.sf.net/generated-variable}v1' slot='6'/>
+           </arith>
+          </forEach>
+          <fn name='subsequence'>
+           <varRef name='Q{}seq' slot='0'/>
+           <treat as='A n~numeric' diag='0|1||fn:subsequence'>
+            <cvUntyped to='AO' diag='0|1||fn:subsequence'>
+             <dot type='1A'/>
+            </cvUntyped>
+           </treat>
+           <int val='1'/>
+          </fn>
+         </forEach>
+        </let>
+        <and line='249' op='and'>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='step'/>
+          </lookup>
+         </fn>
+         <fn name='exists'>
+          <lookup>
+           <varRef name='Q{}conditions' slot='1'/>
+           <str val='at'/>
+          </lookup>
+         </fn>
+        </and>
+        <empty/>
+        <fn line='251' name='exists'>
+         <varRef name='Q{}end-position' slot='4'/>
+        </fn>
+        <fn line='251' name='subsequence'>
+         <varRef name='Q{}seq' slot='0'/>
+         <varRef name='Q{}start-position' slot='3'/>
+         <arith op='+' calc='i+i'>
+          <arith op='-' calc='i-i'>
+           <varRef name='Q{}end-position' slot='4'/>
+           <varRef name='Q{}start-position' slot='3'/>
+          </arith>
+          <int val='1'/>
+         </arith>
+        </fn>
+        <true/>
+        <fn line='252' name='subsequence'>
+         <varRef name='Q{}seq' slot='0'/>
+         <varRef name='Q{}start-position' slot='3'/>
+        </fn>
+       </choose>
+      </sequence>
+     </let>
+    </let>
+   </let>
+  </function>
+ </co>
+ <co id='3' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}identity' line='33' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='1'>
+   <arg name='Q{}seq' as='*'/>
+   <varRef role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='35' name='Q{}seq' slot='0'/>
+  </function>
+ </co>
+ <co id='4' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}truncate' line='44' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='1'>
+   <arg name='Q{}seq' as='*'/>
+   <filter role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='46' flags='pb'>
+    <varRef name='Q{}seq' slot='0'/>
+    <isLast test='0'/>
+   </filter>
+  </function>
+ </co>
+ <co id='5' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}uniform' line='53' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1AB' slots='2'>
+   <arg name='Q{}input' as='*'/>
+   <arg name='Q{}collation' as='1AS'/>
+   <compareToInt role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='56' op='le' val='1'>
+    <fn name='count'>
+     <fn name='subsequence'>
+      <fn name='distinct-values'>
+       <data diag='0|0||fn:distinct-values'>
+        <varRef name='Q{}input' slot='0'/>
+       </data>
+       <varRef name='Q{}collation' slot='1'/>
+      </fn>
+      <int val='1'/>
+      <int val='2'/>
+     </fn>
+    </fn>
+   </compareToInt>
+  </function>
+ </co>
+ <co id='6' vis='PUBLIC' binds='5'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}uniform' line='49' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1AB' slots='1'>
+   <arg name='Q{}input' as='*'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='51'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}uniform' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}input' slot='0'/>
+     <str val='http://www.w3.org/2005/xpath-functions/collation/codepoint'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='7' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}characters' line='17' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*AS' slots='1'>
+   <arg name='Q{}input' as='?AS'/>
+   <forEach role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='19'>
+    <fn name='string-to-codepoints'>
+     <varRef name='Q{}input' slot='0'/>
+    </fn>
+    <fn name='codepoints-to-string'>
+     <dot type='1ADI'/>
+    </fn>
+   </forEach>
+  </function>
+ </co>
+ <co id='8' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions/array}partition' line='412' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*FA' slots='5'>
+   <arg name='Q{}input' as='1FA'/>
+   <arg name='Q{}size' as='1ADI'/>
+   <let role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='419' var='Q{}s' slot='2'>
+    <ifCall name='Q{http://www.w3.org/2005/xpath-functions/array}size' type='1ADI'>
+     <varRef name='Q{}input' slot='0'/>
+    </ifCall>
+    <let var='Q{}rem' slot='3'>
+     <arith op='mod' calc='i%i'>
+      <varRef name='Q{}s' slot='2'/>
+      <varRef name='Q{}size' slot='1'/>
+     </arith>
+     <sequence>
+      <for var='Q{}i' as='ADI' slot='4'>
+       <to role='in'>
+        <int val='0'/>
+        <arith op='-' calc='i-i'>
+         <arith op='idiv' calc='i~i'>
+          <varRef name='Q{}s' slot='2'/>
+          <varRef name='Q{}size' slot='1'/>
+         </arith>
+         <int val='1'/>
+        </arith>
+       </to>
+       <ifCall role='return' name='Q{http://www.w3.org/2005/xpath-functions/array}subarray' type='1FA'>
+        <varRef name='Q{}input' slot='0'/>
+        <arith op='+' calc='i+i'>
+         <arith op='*' calc='i*i'>
+          <varRef name='Q{}i' slot='4'/>
+          <varRef name='Q{}size' slot='1'/>
+         </arith>
+         <int val='1'/>
+        </arith>
+        <varRef name='Q{}size' slot='1'/>
+       </ifCall>
+      </for>
+      <choose>
+       <compareToInt op='gt' val='0'>
+        <varRef name='Q{}rem' slot='3'/>
+       </compareToInt>
+       <ifCall name='Q{http://www.w3.org/2005/xpath-functions/array}subarray' type='1FA'>
+        <varRef name='Q{}input' slot='0'/>
+        <arith op='+' calc='i+i'>
+         <arith op='-' calc='i-i'>
+          <varRef name='Q{}s' slot='2'/>
+          <varRef name='Q{}rem' slot='3'/>
+         </arith>
+         <int val='1'/>
+        </arith>
+        <varRef name='Q{}rem' slot='3'/>
+       </ifCall>
+      </choose>
+     </sequence>
+    </let>
+   </let>
+  </function>
+ </co>
+ <co id='9' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}foot' line='28' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='?' slots='1'>
+   <arg name='Q{}seq' as='*'/>
+   <lastOf role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='30'>
+    <varRef name='Q{}seq' slot='0'/>
+   </lastOf>
+  </function>
+ </co>
+ <co id='10' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}items-until' line='205' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='2'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1]'/>
+   <iterate role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='208'>
+    <varRef role='select' name='Q{}seq' slot='0'/>
+    <params role='params'/>
+    <sequence role='action' line='209'>
+     <dot/>
+     <choose line='210'>
+      <dynCall>
+       <varRef name='Q{}predicate' slot='1'/>
+       <dot/>
+      </dynCall>
+      <break line='211'/>
+     </choose>
+    </sequence>
+   </iterate>
+  </function>
+ </co>
+ <co id='11' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}items-before' line='176' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='2'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1]'/>
+   <iterate role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='179'>
+    <varRef role='select' name='Q{}seq' slot='0'/>
+    <params role='params'/>
+    <choose role='action' line='180'>
+     <dynCall line='181'>
+      <varRef name='Q{}predicate' slot='1'/>
+      <dot/>
+     </dynCall>
+     <break line='182'/>
+     <true/>
+     <dot line='185'/>
+    </choose>
+   </iterate>
+  </function>
+ </co>
+ <co id='12' binds='13 14'>
+  <mode name='Q{}toJson' onNo='SC' flags='W' patternSlots='0'>
+   <templateRule prec='0' prio='-0.5' seq='0' rank='0' minImp='0' slots='1' matches='ND' flags='s' as='1NE' line='85' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='ND'/>
+    <sequence role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='=http://www.w3.org/2005/xpath-functions ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='86'>
+     <param name='Q{}key' slot='0' as='?NA'>
+      <empty role='select'/>
+      <treat role='conversion' as='NA' diag='8|0|XTTE0590|key'>
+       <check card='?' diag='8|0|XTTE0590|key'>
+        <supplied slot='0'/>
+       </check>
+      </treat>
+     </param>
+     <elem line='87' name='map' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='88'>
+       <varRef name='Q{}key' slot='0'/>
+       <elem line='89' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+        <sequence>
+         <att name='key' flags='l'>
+          <str val='#name'/>
+         </att>
+         <valueOf flags='Sl'>
+          <str val='#document'/>
+         </valueOf>
+        </sequence>
+       </elem>
+       <choose line='90'>
+        <fn name='exists'>
+         <axis name='child' nodeTest='N'/>
+        </fn>
+        <elem line='91' name='array' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+         <sequence>
+          <att name='key' flags='l'>
+           <str val='#content'/>
+          </att>
+          <applyT line='92' flags='c' bSlot='-1'>
+           <axis role='select' name='child' nodeTest='N'/>
+          </applyT>
+         </sequence>
+        </elem>
+       </choose>
+      </sequence>
+     </elem>
+    </sequence>
+   </templateRule>
+   <templateRule prec='0' prio='-0.5' seq='1' rank='0' minImp='0' slots='1' matches='NE' flags='s' as='1NE' line='98' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NE'/>
+    <sequence role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='=http://www.w3.org/2005/xpath-functions ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='99'>
+     <param name='Q{}key' slot='0' as='?NA'>
+      <empty role='select'/>
+      <treat role='conversion' as='NA' diag='8|0|XTTE0590|key'>
+       <check card='?' diag='8|0|XTTE0590|key'>
+        <supplied slot='0'/>
+       </check>
+      </treat>
+     </param>
+     <elem line='100' name='map' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='101'>
+       <varRef name='Q{}key' slot='0'/>
+       <elem line='102' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+        <sequence>
+         <att name='key' flags='l'>
+          <str val='#name'/>
+         </att>
+         <valueOf flags='l'>
+          <fn name='local-name'>
+           <dot type='1NE' flags='a'/>
+          </fn>
+         </valueOf>
+        </sequence>
+       </elem>
+       <forEach line='103'>
+        <axis name='attribute' nodeTest='NA'/>
+        <elem line='104' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+         <sequence>
+          <att name='key' flags='l'>
+           <fn name='concat'>
+            <str val='@'/>
+            <fn name='name'>
+             <dot type='1NA'/>
+            </fn>
+           </fn>
+          </att>
+          <valueOf flags='l'>
+           <convert from='AZ' to='AS'>
+            <data>
+             <dot type='1NA'/>
+            </data>
+           </convert>
+          </valueOf>
+         </sequence>
+        </elem>
+       </forEach>
+       <choose line='106'>
+        <and line='107' op='and'>
+         <compareToInt op='eq' val='1'>
+          <fn name='count'>
+           <fn name='subsequence'>
+            <axis name='child' nodeTest='N u[NC,NT,NE,NP]'/>
+            <int val='1'/>
+            <int val='2'/>
+           </fn>
+          </fn>
+         </compareToInt>
+         <fn name='exists'>
+          <axis name='child' nodeTest='NT'/>
+         </fn>
+        </and>
+        <ufCall line='108' name='Q{http://ns.saxonica.com/xpath-functions}toJson' tailCall='false' bSlot='0'>
+         <data>
+          <axis name='child' nodeTest='NT'/>
+         </data>
+         <gVarRef name='Q{}key.value' bSlot='1'/>
+        </ufCall>
+        <fn line='110' name='exists'>
+         <axis name='child' nodeTest='N'/>
+        </fn>
+        <elem line='111' name='array' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+         <sequence>
+          <att name='key' flags='l'>
+           <str val='#content'/>
+          </att>
+          <applyT line='112' flags='c' bSlot='-1'>
+           <axis role='select' name='child' nodeTest='N'/>
+          </applyT>
+         </sequence>
+        </elem>
+       </choose>
+      </sequence>
+     </elem>
+    </sequence>
+   </templateRule>
+   <templateRule prec='0' prio='-0.5' seq='2' rank='0' minImp='0' slots='1' matches='NA' flags='s' as='1NE' line='119' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NA'/>
+    <sequence role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='=http://www.w3.org/2005/xpath-functions ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='120'>
+     <param name='Q{}key' slot='0' as='?NA'>
+      <empty role='select'/>
+      <treat role='conversion' as='NA' diag='8|0|XTTE0590|key'>
+       <check card='?' diag='8|0|XTTE0590|key'>
+        <supplied slot='0'/>
+       </check>
+      </treat>
+     </param>
+     <elem line='121' name='map' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='122'>
+       <varRef name='Q{}key' slot='0'/>
+       <elem line='123' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+        <sequence>
+         <att name='key' flags='l'>
+          <str val='#attribute'/>
+         </att>
+         <valueOf flags='l'>
+          <fn name='local-name'>
+           <dot type='1NA' flags='a'/>
+          </fn>
+         </valueOf>
+        </sequence>
+       </elem>
+      </sequence>
+     </elem>
+    </sequence>
+   </templateRule>
+   <templateRule prec='0' prio='-0.5' seq='3' rank='0' minImp='0' slots='1' matches='NT' flags='s' as='1NE' line='127' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NT'/>
+    <sequence role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='=http://www.w3.org/2005/xpath-functions ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='128'>
+     <param name='Q{}key' slot='0' as='?NA'>
+      <empty role='select'/>
+      <treat role='conversion' as='NA' diag='8|0|XTTE0590|key'>
+       <check card='?' diag='8|0|XTTE0590|key'>
+        <supplied slot='0'/>
+       </check>
+      </treat>
+     </param>
+     <elem line='129' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='130'>
+       <varRef name='Q{}key' slot='0'/>
+       <dot type='1NT' flags='a'/>
+      </sequence>
+     </elem>
+    </sequence>
+   </templateRule>
+   <templateRule prec='0' prio='-0.5' seq='4' rank='0' minImp='0' slots='1' matches='NC' flags='s' as='1NE' line='134' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NC'/>
+    <sequence role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='=http://www.w3.org/2005/xpath-functions ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='135'>
+     <param name='Q{}key' slot='0' as='?NA'>
+      <empty role='select'/>
+      <treat role='conversion' as='NA' diag='8|0|XTTE0590|key'>
+       <check card='?' diag='8|0|XTTE0590|key'>
+        <supplied slot='0'/>
+       </check>
+      </treat>
+     </param>
+     <elem line='136' name='map' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='137'>
+       <varRef name='Q{}key' slot='0'/>
+       <elem line='138' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+        <sequence>
+         <att name='key' flags='l'>
+          <str val='#comment'/>
+         </att>
+         <valueOf flags='l'>
+          <data>
+           <dot type='1NC' flags='a'/>
+          </data>
+         </valueOf>
+        </sequence>
+       </elem>
+      </sequence>
+     </elem>
+    </sequence>
+   </templateRule>
+   <templateRule prec='0' prio='-0.5' seq='5' rank='0' minImp='0' slots='1' matches='NP' flags='s' as='1NE' line='142' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NP'/>
+    <sequence role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='=http://www.w3.org/2005/xpath-functions ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='143'>
+     <param name='Q{}key' slot='0' as='?NA'>
+      <empty role='select'/>
+      <treat role='conversion' as='NA' diag='8|0|XTTE0590|key'>
+       <check card='?' diag='8|0|XTTE0590|key'>
+        <supplied slot='0'/>
+       </check>
+      </treat>
+     </param>
+     <elem line='144' name='map' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='145'>
+       <varRef name='Q{}key' slot='0'/>
+       <elem line='146' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+        <sequence>
+         <att name='key' flags='l'>
+          <str val='#pi'/>
+         </att>
+         <valueOf flags='l'>
+          <fn name='name'>
+           <dot type='1NP' flags='a'/>
+          </fn>
+         </valueOf>
+        </sequence>
+       </elem>
+       <elem line='147' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='dl' namespaces='# array map saxon'>
+        <sequence>
+         <att name='key' flags='l'>
+          <str val='#data'/>
+         </att>
+         <valueOf flags='l'>
+          <data>
+           <dot type='1NP' flags='a'/>
+          </data>
+         </valueOf>
+        </sequence>
+       </elem>
+      </sequence>
+     </elem>
+    </sequence>
+   </templateRule>
+  </mode>
+ </co>
+ <co id='15' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions/map}index' line='400' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1FM' slots='4'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}key' as='1F r[?A] a[1]'/>
+   <ifCall role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='409' name='Q{http://www.w3.org/2005/xpath-functions/map}merge' type='1FM'>
+    <for var='Q{}item' slot='2'>
+     <varRef role='in' name='Q{}seq' slot='0'/>
+     <for role='return' var='Q{}k' as='A' slot='3'>
+      <dynCall role='in'>
+       <varRef name='Q{}key' slot='1'/>
+       <varRef name='Q{}item' slot='2'/>
+      </dynCall>
+      <ifCall role='return' name='Q{http://www.w3.org/2005/xpath-functions/map}entry' type='1FM'>
+       <varRef name='Q{}k' slot='3'/>
+       <varRef name='Q{}item' slot='2'/>
+      </ifCall>
+     </for>
+    </for>
+    <map size='2'>
+     <str val='duplicates'/>
+     <str val='combine'/>
+     <str val='duplicates-error-code'/>
+     <str val='FOJS0003'/>
+    </map>
+   </ifCall>
+  </function>
+ </co>
+ <co id='16' vis='PUBLIC' binds='17'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}fromJSON' line='151' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' flags='pU' as='*' slots='1'>
+   <arg name='Q{}input' as='1AS'/>
+   <applyT role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='153' mode='Q{}fromJSON' bSlot='0'>
+    <fn role='select' name='json-to-xml'>
+     <varRef name='Q{}input' slot='0'/>
+    </fn>
+   </applyT>
+  </function>
+ </co>
+ <co id='18' vis='PUBLIC' binds='13'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}json' line='11' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' flags='pU' as='1AS' slots='1'>
+   <arg name='Q{}seq' as='*'/>
+   <check role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='13' card='1' diag='5|0|XTTE0780|FN:json#1'>
+    <fn name='xml-to-json'>
+     <check card='?' diag='0|0||fn:xml-to-json'>
+      <ufCall name='Q{http://ns.saxonica.com/xpath-functions}toJson' tailCall='false' bSlot='0'>
+       <varRef name='Q{}seq' slot='0'/>
+       <empty/>
+      </ufCall>
+     </check>
+     <map size='1'>
+      <str val='indent'/>
+      <true/>
+     </map>
+    </fn>
+   </check>
+  </function>
+ </co>
+ <co id='19' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}some' line='75' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1AB' slots='3'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1]'/>
+   <some role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='78' var='Q{}i' slot='2'>
+    <varRef name='Q{}seq' slot='0'/>
+    <dynCall>
+     <varRef name='Q{}predicate' slot='1'/>
+     <varRef name='Q{}i' slot='2'/>
+    </dynCall>
+   </some>
+  </function>
+ </co>
+ <co id='20' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions/map}filter' line='378' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1FM' slots='2'>
+   <arg name='Q{}map' as='1FM'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1A,*]'/>
+   <ifCall role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='382' name='Q{http://www.w3.org/2005/xpath-functions/map}merge' type='1FM'>
+    <forEach>
+     <ifCall name='Q{http://www.w3.org/2005/xpath-functions/map}keys' type='*A'>
+      <varRef name='Q{}map' slot='0'/>
+     </ifCall>
+     <choose line='383'>
+      <dynCall>
+       <varRef name='Q{}predicate' slot='1'/>
+       <dot type='1A'/>
+       <ifCall name='Q{http://www.w3.org/2005/xpath-functions/map}get' type='*'>
+        <varRef name='Q{}map' slot='0'/>
+        <dot type='1A'/>
+       </ifCall>
+      </dynCall>
+      <ifCall line='384' name='Q{http://www.w3.org/2005/xpath-functions/map}entry' type='1FM'>
+       <dot type='1A'/>
+       <ifCall name='Q{http://www.w3.org/2005/xpath-functions/map}get' type='*'>
+        <varRef name='Q{}map' slot='0'/>
+        <dot type='1A'/>
+       </ifCall>
+      </ifCall>
+     </choose>
+    </forEach>
+    <map size='2'>
+     <str val='duplicates'/>
+     <str val='reject'/>
+     <str val='duplicates-error-code'/>
+     <str val='XTDE3365'/>
+    </map>
+   </ifCall>
+  </function>
+ </co>
+ <co id='21' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}item-at' line='22' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='?' slots='2'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}index' as='1ADI'/>
+   <subscript role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='25'>
+    <varRef name='Q{}seq' slot='0'/>
+    <varRef name='Q{}index' slot='1'/>
+   </subscript>
+  </function>
+ </co>
+ <co id='2' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}index-where' line='81' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*ADI' slots='4'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1]'/>
+   <for role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='84' var='Q{}i' as='ADI' slot='2'>
+    <to role='in'>
+     <int val='1'/>
+     <fn name='count'>
+      <varRef name='Q{}seq' slot='0'/>
+     </fn>
+    </to>
+    <let role='return' var='Q{http://saxon.sf.net/generated-variable}v0' as='?' slot='3' flags='l'>
+     <subscript>
+      <varRef name='Q{}seq' slot='0'/>
+      <varRef name='Q{}i' slot='2'/>
+     </subscript>
+     <filter flags='ib'>
+      <varRef name='Q{}i' slot='2'/>
+      <dynCall>
+       <varRef name='Q{}predicate' slot='1'/>
+       <varRef name='Q{http://saxon.sf.net/generated-variable}v0' slot='3'/>
+      </dynCall>
+     </filter>
+    </let>
+   </for>
+  </function>
+ </co>
+ <co id='14' binds=''>
+  <globalVariable name='Q{}key.value' as='1NA' line='80' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' visibility='PRIVATE'>
+   <att baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='81' name='key'>
+    <str val='#value'/>
+   </att>
+  </globalVariable>
+ </co>
+ <co id='22' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}range' line='114' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='6'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}start-where' as='?F r[1AB] a[1]'/>
+   <arg name='Q{}end-where' as='?F r[1AB] a[1]'/>
+   <arg name='Q{}options' as='1FM'/>
+   <let role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='134' var='Q{http://saxon.sf.net/generated-variable}v0' as='1F r[1AB] a[1]' slot='5' flags='l'>
+    <check card='1' diag='21|0||$vv:v0'>
+     <varRef name='Q{}start-where' slot='1'/>
+    </check>
+    <iterate line='119'>
+     <varRef role='select' name='Q{}seq' slot='0'/>
+     <params role='params' line='120'>
+      <param name='Q{}started' slot='4' as='1AB'>
+       <fn role='select' name='empty'>
+        <varRef name='Q{}start-where' slot='1'/>
+       </fn>
+       <treat role='conversion' as='AB' diag='8|0|XTTE0590|started'>
+        <check card='1' diag='8|0|XTTE0590|started'>
+         <cvUntyped to='AB' diag='8|0|XTTE0590|started'>
+          <data diag='8|0|XTTE0590|started'>
+           <supplied slot='4'/>
+          </data>
+         </cvUntyped>
+        </check>
+       </treat>
+      </param>
+     </params>
+     <choose role='action' line='122'>
+      <varRef name='Q{}started' slot='4'/>
+      <choose line='123'>
+       <fn line='124' name='empty'>
+        <varRef name='Q{}end-where' slot='2'/>
+       </fn>
+       <dot line='124'/>
+       <dynCall line='125'>
+        <check card='1' diag='21|0||$end-where'>
+         <varRef name='Q{}end-where' slot='2'/>
+        </check>
+        <dot/>
+       </dynCall>
+       <sequence line='126'>
+        <choose>
+         <fn name='not'>
+          <lookup>
+           <varRef name='Q{}options' slot='3'/>
+           <str val='exclude-end'/>
+          </lookup>
+         </fn>
+         <dot/>
+        </choose>
+        <break line='127'/>
+       </sequence>
+       <true/>
+       <dot line='129'/>
+      </choose>
+      <dynCall line='134'>
+       <varRef name='Q{http://saxon.sf.net/generated-variable}v0' slot='5'/>
+       <dot/>
+      </dynCall>
+      <choose line='135'>
+       <lookup line='136'>
+        <varRef name='Q{}options' slot='3'/>
+        <str val='exclude-start'/>
+       </lookup>
+       <nextIteration line='137'>
+        <withParam name='Q{}started' as='1AB' slot='4'>
+         <true/>
+        </withParam>
+       </nextIteration>
+       <and line='141' op='and'>
+        <fn name='exists'>
+         <varRef name='Q{}end-where' slot='2'/>
+        </fn>
+        <dynCall>
+         <check card='1' diag='21|0||$end-where'>
+          <varRef name='Q{}end-where' slot='2'/>
+         </check>
+         <dot/>
+        </dynCall>
+       </and>
+       <sequence line='142'>
+        <choose>
+         <fn name='not'>
+          <lookup>
+           <varRef name='Q{}options' slot='3'/>
+           <str val='exclude-end'/>
+          </lookup>
+         </fn>
+         <dot/>
+        </choose>
+        <break line='143'/>
+       </sequence>
+       <true/>
+       <sequence line='146'>
+        <dot/>
+        <nextIteration line='147'>
+         <withParam name='Q{}started' as='1AB' slot='4'>
+          <true/>
+         </withParam>
+        </nextIteration>
+       </sequence>
+      </choose>
+     </choose>
+    </iterate>
+   </let>
+  </function>
+ </co>
+ <co id='23' vis='PUBLIC' binds='22'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}range' line='107' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='3'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}start-where' as='?F r[1AB] a[1]'/>
+   <arg name='Q{}end-where' as='?F r[1AB] a[1]'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='111'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}range' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}seq' slot='0'/>
+     <varRef name='Q{}start-where' slot='1'/>
+     <varRef name='Q{}end-where' slot='2'/>
+     <map size='0'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='24' vis='PUBLIC' binds='22'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}range' line='101' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='2'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}start-where' as='?F r[1AB] a[1]'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='104'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}range' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}seq' slot='0'/>
+     <varRef name='Q{}start-where' slot='1'/>
+     <empty/>
+     <map size='0'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='25' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}highest' line='269' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='5'>
+   <arg name='Q{}input' as='*'/>
+   <arg name='Q{}collation' as='?AS'/>
+   <arg name='Q{}key' as='1F r[*A] a[1]'/>
+   <let role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='273' var='Q{}C' as='1AS' slot='3'>
+    <first>
+     <sequence>
+      <varRef name='Q{}collation' slot='1'/>
+      <str val='http://www.w3.org/2005/xpath-functions/collation/codepoint'/>
+     </sequence>
+    </first>
+    <choose line='274'>
+     <fn name='exists'>
+      <varRef name='Q{}input' slot='0'/>
+     </fn>
+     <let line='275' var='Q{}keyB' as='1A' slot='4'>
+      <check card='1' diag='3|0|XTTE0570|keyB'>
+       <dynCall>
+        <varRef name='Q{}key' slot='2'/>
+        <lastOf>
+         <fn name='sort'>
+          <varRef name='Q{}input' slot='0'/>
+          <varRef name='Q{}C' slot='3'/>
+          <varRef name='Q{}key' slot='2'/>
+         </fn>
+        </lastOf>
+       </dynCall>
+      </check>
+      <filter line='276' flags='b'>
+       <varRef name='Q{}input' slot='0'/>
+       <fn name='deep-equal'>
+        <dynCall>
+         <varRef name='Q{}key' slot='2'/>
+         <dot/>
+        </dynCall>
+        <varRef name='Q{}keyB' slot='4'/>
+        <varRef name='Q{}C' slot='3'/>
+        <map size='0'/>
+       </fn>
+      </filter>
+     </let>
+    </choose>
+   </let>
+  </function>
+ </co>
+ <co id='26' vis='PUBLIC' binds='27'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}unique' line='59' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1AB' slots='1'>
+   <arg name='Q{}input' as='*'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='61'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}unique' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}input' slot='0'/>
+     <str val='http://www.w3.org/2005/xpath-functions/collation/codepoint'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='28' vis='PUBLIC' binds='25'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}highest' line='264' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='2'>
+   <arg name='Q{}input' as='*'/>
+   <arg name='Q{}collation' as='?AS'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='267'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}highest' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}input' slot='0'/>
+     <varRef name='Q{}collation' slot='1'/>
+     <fnRef name='data' arity='1'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='29' vis='PUBLIC' binds='28'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}highest' line='260' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='1'>
+   <arg name='Q{}input' as='*'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='262'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}highest' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}input' slot='0'/>
+     <str val='http://www.w3.org/2005/xpath-functions/collation/codepoint'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='27' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}unique' line='63' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1AB' slots='2'>
+   <arg name='Q{}input' as='*'/>
+   <arg name='Q{}collation' as='1AS'/>
+   <vc role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='66' op='eq'>
+    <fn name='count'>
+     <fn name='distinct-values'>
+      <data diag='0|0||fn:distinct-values'>
+       <varRef name='Q{}input' slot='0'/>
+      </data>
+      <varRef name='Q{}collation' slot='1'/>
+     </fn>
+    </fn>
+    <fn name='count'>
+     <varRef name='Q{}input' slot='0'/>
+    </fn>
+   </vc>
+  </function>
+ </co>
+ <co id='30' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}items-from' line='191' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='3'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1]'/>
+   <iterate role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='194'>
+    <varRef role='select' name='Q{}seq' slot='0'/>
+    <params role='params' line='195'>
+     <param name='Q{}include' slot='2' as='1AB'>
+      <false role='select'/>
+      <treat role='conversion' as='AB' diag='8|0|XTTE0590|include'>
+       <check card='1' diag='8|0|XTTE0590|include'>
+        <cvUntyped to='AB' diag='8|0|XTTE0590|include'>
+         <data diag='8|0|XTTE0590|include'>
+          <supplied slot='2'/>
+         </data>
+        </cvUntyped>
+       </check>
+      </treat>
+     </param>
+    </params>
+    <choose role='action' line='196'>
+     <or op='or'>
+      <varRef name='Q{}include' slot='2'/>
+      <dynCall>
+       <varRef name='Q{}predicate' slot='1'/>
+       <dot/>
+      </dynCall>
+     </or>
+     <sequence line='197'>
+      <dot/>
+      <nextIteration line='198'>
+       <withParam name='Q{}include' as='1AB' slot='2'>
+        <true/>
+       </withParam>
+      </nextIteration>
+     </sequence>
+    </choose>
+   </iterate>
+  </function>
+ </co>
+ <co id='31' binds=''>
+  <mode onNo='TC' flags='dWe' patternSlots='0'/>
+ </co>
+ <co id='17' binds=''>
+  <mode name='Q{}fromJSON' onNo='SC' flags='W' patternSlots='0'>
+   <templateRule prec='0' prio='0.5' seq='9' rank='1' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}map' flags='s' line='189' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.withPredicate role='match'>
+     <p.nodeTest test='NE nQ{http://www.w3.org/2005/xpath-functions}map'/>
+     <filter baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='189' flags=''>
+      <axis name='child' nodeTest='NE nQ{http://www.w3.org/2005/xpath-functions}string'/>
+      <vc op='eq'>
+       <attVal name='Q{}key'/>
+       <str val='#comment'/>
+      </vc>
+     </filter>
+    </p.withPredicate>
+    <comment role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='190'>
+     <fn name='string-join'>
+      <convert from='AZ' to='AS'>
+       <data>
+        <axis name='child' nodeTest='NE'/>
+       </data>
+      </convert>
+      <str val=' '/>
+     </fn>
+    </comment>
+   </templateRule>
+   <templateRule prec='0' prio='0.5' seq='6' rank='1' minImp='0' slots='2' matches='NE nQ{http://www.w3.org/2005/xpath-functions}map' flags='s' line='158' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.withPredicate role='match'>
+     <p.nodeTest test='NE nQ{http://www.w3.org/2005/xpath-functions}map'/>
+     <filter baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='158' flags=''>
+      <axis name='child' nodeTest='NE nQ{http://www.w3.org/2005/xpath-functions}string'/>
+      <vc op='eq'>
+       <attVal name='Q{}key'/>
+       <str val='#name'/>
+      </vc>
+     </filter>
+    </p.withPredicate>
+    <let role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='159' var='Q{}name' as='*NE nQ{http://www.w3.org/2005/xpath-functions}string' slot='0'>
+     <filter flags=''>
+      <axis name='child' nodeTest='NE nQ{http://www.w3.org/2005/xpath-functions}string'/>
+      <vc op='eq'>
+       <attVal name='Q{}key'/>
+       <str val='#name'/>
+      </vc>
+     </filter>
+     <let line='160' var='Q{}content' as='*NE' slot='1'>
+      <filter flags='b'>
+       <axis name='child' nodeTest='NE'/>
+       <gc op='=' card='N:1' comp='CCC'>
+        <literal count='2'>
+         <str val='#content'/>
+         <str val='#value'/>
+        </literal>
+        <attVal name='Q{}key'/>
+       </gc>
+      </filter>
+      <choose line='161'>
+       <vc line='162' op='eq' onEmpty='0'>
+        <atomSing card='?' diag='1|0||eq'>
+         <varRef name='Q{}name' slot='0'/>
+        </atomSing>
+        <str val='#document'/>
+       </vc>
+       <doc line='163' base='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+        <applyT line='164' flags='c' bSlot='-1'>
+         <varRef role='select' name='Q{}content' slot='1'/>
+        </applyT>
+       </doc>
+       <true/>
+       <compElem line='168'>
+        <fn role='name' name='string-join'>
+         <convert from='AZ' to='AS'>
+          <data>
+           <varRef name='Q{}name' slot='0'/>
+          </data>
+         </convert>
+         <str val=' '/>
+        </fn>
+        <sequence role='content' line='169'>
+         <forEach>
+          <filter flags='b'>
+           <axis name='child' nodeTest='NE'/>
+           <fn name='starts-with'>
+            <convert from='AZ' to='AS' flags='p' diag='0|0||fn:starts-with'>
+             <attVal name='Q{}key'/>
+            </convert>
+            <str val='@'/>
+           </fn>
+          </filter>
+          <compAtt line='170' flags='l'>
+           <fn role='name' name='substring-after'>
+            <convert from='AZ' to='AS' flags='p' diag='0|0||fn:substring-after'>
+             <attVal name='Q{}key'/>
+            </convert>
+            <str val='@'/>
+           </fn>
+           <fn role='select' line='171' name='string-join'>
+            <convert from='A' to='AS'>
+             <data>
+              <mergeAdj>
+               <applyT flags='c' bSlot='-1'>
+                <dot role='select' type='1NE'/>
+               </applyT>
+              </mergeAdj>
+             </data>
+            </convert>
+            <str val=''/>
+           </fn>
+          </compAtt>
+         </forEach>
+         <applyT line='174' flags='c' bSlot='-1'>
+          <varRef role='select' name='Q{}content' slot='1'/>
+         </applyT>
+        </sequence>
+       </compElem>
+      </choose>
+     </let>
+    </let>
+   </templateRule>
+   <templateRule prec='0' prio='0.0' seq='12' rank='0' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}boolean' flags='s' line='201' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NE nQ{http://www.w3.org/2005/xpath-functions}boolean'/>
+    <vc role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='202' op='eq'>
+     <atomSing card='?' diag='1|0||eq'>
+      <dot type='1NE nQ{http://www.w3.org/2005/xpath-functions}boolean' flags='a'/>
+     </atomSing>
+     <str val='true'/>
+    </vc>
+   </templateRule>
+   <templateRule prec='0' prio='0.0' seq='13' rank='0' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}Zmap' flags='s' line='205' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NE nQ{http://www.w3.org/2005/xpath-functions}Zmap'/>
+    <ifCall role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='207' name='Q{http://www.w3.org/2005/xpath-functions/map}merge' type='1FM'>
+     <forEach>
+      <axis name='child' nodeTest='NE'/>
+      <ifCall line='208' name='Q{http://www.w3.org/2005/xpath-functions/map}entry' type='1FM'>
+       <atomSing diag='0|0||map:entry'>
+        <axis name='attribute' nodeTest='NA nQ{}key'/>
+       </atomSing>
+       <applyT line='209' flags='c' bSlot='-1'>
+        <dot role='select' type='1NE'/>
+       </applyT>
+      </ifCall>
+     </forEach>
+     <map size='2'>
+      <str val='duplicates'/>
+      <str val='reject'/>
+      <str val='duplicates-error-code'/>
+      <str val='XTDE3365'/>
+     </map>
+    </ifCall>
+   </templateRule>
+   <templateRule prec='0' prio='0.5' seq='8' rank='1' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}string' flags='s' line='185' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.withPredicate role='match'>
+     <p.nodeTest test='NE nQ{http://www.w3.org/2005/xpath-functions}string'/>
+     <or baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='185' op='or'>
+      <vc op='eq' onEmpty='0'>
+       <attVal name='Q{}key'/>
+       <str val='#value'/>
+      </vc>
+      <fn name='starts-with'>
+       <convert from='AZ' to='AS' flags='p' diag='0|0||fn:starts-with'>
+        <attVal name='Q{}key'/>
+       </convert>
+       <str val='@'/>
+      </fn>
+     </or>
+    </p.withPredicate>
+    <data role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='186'>
+     <dot type='1NE' flags='a'/>
+    </data>
+   </templateRule>
+   <templateRule prec='0' prio='0.0' seq='11' rank='0' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}string' flags='s' line='197' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NE nQ{http://www.w3.org/2005/xpath-functions}string'/>
+    <fn role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='198' name='string'>
+     <dot type='1NE nQ{http://www.w3.org/2005/xpath-functions}string' flags='a'/>
+    </fn>
+   </templateRule>
+   <templateRule prec='0' prio='0.5' seq='7' rank='1' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}array' flags='s' line='180' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.withPredicate role='match'>
+     <p.nodeTest test='NE nQ{http://www.w3.org/2005/xpath-functions}array'/>
+     <vc baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='180' op='eq'>
+      <attVal name='Q{}key'/>
+      <str val='#content'/>
+     </vc>
+    </p.withPredicate>
+    <applyT role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='181' flags='ct' bSlot='-1'>
+     <axis role='select' name='child' nodeTest='NE'/>
+    </applyT>
+   </templateRule>
+   <templateRule prec='0' prio='0.5' seq='8' part='1' rank='1' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}number' flags='s' line='185' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.withPredicate role='match'>
+     <p.nodeTest test='NE nQ{http://www.w3.org/2005/xpath-functions}number'/>
+     <or baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='185' op='or'>
+      <vc op='eq' onEmpty='0'>
+       <attVal name='Q{}key'/>
+       <str val='#value'/>
+      </vc>
+      <fn name='starts-with'>
+       <convert from='AZ' to='AS' flags='p' diag='0|0||fn:starts-with'>
+        <attVal name='Q{}key'/>
+       </convert>
+       <str val='@'/>
+      </fn>
+     </or>
+    </p.withPredicate>
+    <data role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='186'>
+     <dot type='1NE' flags='a'/>
+    </data>
+   </templateRule>
+   <templateRule prec='0' prio='0.0' seq='10' rank='0' minImp='0' slots='0' matches='NE nQ{http://www.w3.org/2005/xpath-functions}number' flags='s' line='193' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NE nQ{http://www.w3.org/2005/xpath-functions}number'/>
+    <fn role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='194' name='number'>
+     <atomSing card='?' diag='0|0||fn:number'>
+      <dot type='1NE nQ{http://www.w3.org/2005/xpath-functions}number' flags='a'/>
+     </atomSing>
+    </fn>
+   </templateRule>
+   <templateRule prec='0' prio='0.0' seq='14' rank='0' minImp='0' slots='2' matches='NE nQ{http://www.w3.org/2005/xpath-functions}Zarray' flags='s' line='216' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl'>
+    <p.nodeTest role='match' test='NE nQ{http://www.w3.org/2005/xpath-functions}Zarray'/>
+    <iterate role='action' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' defaultElementNS='http://www.w3.org/2005/xpath-functions' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='217'>
+     <axis role='select' name='child' nodeTest='NE'/>
+     <params role='params' line='218'>
+      <param name='Q{}result' slot='0'>
+       <array role='select' size='0'/>
+       <supplied role='conversion' slot='0'/>
+      </param>
+     </params>
+     <varRef role='on-completion' line='219' name='Q{}result' slot='0'/>
+     <let role='action' line='220' var='Q{}processed' slot='1'>
+      <applyT line='221' flags='c' bSlot='-1'>
+       <dot role='select' type='1NE'/>
+      </applyT>
+      <nextIteration line='223'>
+       <withParam name='Q{}result' as='1FA' slot='0'>
+        <ifCall line='224' name='Q{http://www.w3.org/2005/xpath-functions/array}append' type='1FA'>
+         <treat as='FA' diag='0|0||array:append'>
+          <check card='1' diag='0|0||array:append'>
+           <varRef name='Q{}result' slot='0'/>
+          </check>
+         </treat>
+         <varRef name='Q{}processed' slot='1'/>
+        </ifCall>
+       </withParam>
+      </nextIteration>
+     </let>
+    </iterate>
+   </templateRule>
+  </mode>
+ </co>
+ <co id='13' vis='PUBLIC' binds='32 13 13 13 12 12'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}toJson' line='17' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' flags='pU' as='*NE' slots='4'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}key' as='?NA'/>
+   <choose role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-lib-JSON.xsl' ns='=http://www.w3.org/2005/xpath-functions ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='20'>
+    <fn line='21' name='empty'>
+     <varRef name='Q{}seq' slot='0'/>
+    </fn>
+    <elem line='22' name='null' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+     <varRef line='23' name='Q{}key' slot='1'/>
+    </elem>
+    <fn line='26' name='exists'>
+     <tail start='2'>
+      <varRef name='Q{}seq' slot='0'/>
+     </tail>
+    </fn>
+    <elem line='27' name='array' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+     <sequence line='28'>
+      <varRef name='Q{}key' slot='1'/>
+      <forEach line='29'>
+       <varRef name='Q{}seq' slot='0'/>
+       <ufCall name='Q{http://ns.saxonica.com/xpath-functions}toJson' tailCall='false' bSlot='1'>
+        <dot/>
+        <empty/>
+       </ufCall>
+      </forEach>
+     </sequence>
+    </elem>
+    <instance line='32' of='1AB'>
+     <varRef name='Q{}seq' slot='0'/>
+    </instance>
+    <elem line='33' name='boolean' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+     <sequence line='34'>
+      <varRef name='Q{}key' slot='1'/>
+      <fn name='string'>
+       <check card='?' diag='0|0||fn:string'>
+        <varRef name='Q{}seq' slot='0'/>
+       </check>
+      </fn>
+     </sequence>
+    </elem>
+    <and line='38' op='and'>
+     <and op='and'>
+      <instance of='1A n~numeric'>
+       <varRef name='Q{}seq' slot='0'/>
+      </instance>
+      <fn name='not'>
+       <ufCall name='Q{http://ns.saxonica.com/xpath-functions}is-NaN' tailCall='false' bSlot='0'>
+        <atomSing diag='0|0||FN:is-NaN'>
+         <varRef name='Q{}seq' slot='0'/>
+        </atomSing>
+       </ufCall>
+      </fn>
+     </and>
+     <vc op='ne' onEmpty='0'>
+      <atomSing card='?' diag='1|0||ne'>
+       <varRef name='Q{}seq' slot='0'/>
+      </atomSing>
+      <dbl val='INF'/>
+     </vc>
+    </and>
+    <elem line='39' name='number' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+     <sequence line='40'>
+      <varRef name='Q{}key' slot='1'/>
+      <fn name='string'>
+       <check card='?' diag='0|0||fn:string'>
+        <varRef name='Q{}seq' slot='0'/>
+       </check>
+      </fn>
+     </sequence>
+    </elem>
+    <instance line='43' of='1A'>
+     <varRef name='Q{}seq' slot='0'/>
+    </instance>
+    <elem line='44' name='string' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+     <sequence line='45'>
+      <varRef name='Q{}key' slot='1'/>
+      <fn name='string'>
+       <check card='?' diag='0|0||fn:string'>
+        <varRef name='Q{}seq' slot='0'/>
+       </check>
+      </fn>
+     </sequence>
+    </elem>
+    <instance line='48' of='1FA'>
+     <varRef name='Q{}seq' slot='0'/>
+    </instance>
+    <let line='51' var='Q{http://saxon.sf.net/generated-variable}v0' as='1F' slot='2' flags='l'>
+     <treat as='F' diag='21|0||$vv:v0'>
+      <check card='1' diag='21|0||$vv:v0'>
+       <varRef name='Q{}seq' slot='0'/>
+      </check>
+     </treat>
+     <elem line='49' name='array' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='50'>
+       <varRef name='Q{}key' slot='1'/>
+       <forEach line='51'>
+        <to>
+         <int val='1'/>
+         <ifCall name='Q{http://www.w3.org/2005/xpath-functions/array}size' type='1ADI'>
+          <treat as='FA' diag='0|0||array:size'>
+           <check card='1' diag='0|0||array:size'>
+            <varRef name='Q{}seq' slot='0'/>
+           </check>
+          </treat>
+         </ifCall>
+        </to>
+        <ufCall name='Q{http://ns.saxonica.com/xpath-functions}toJson' tailCall='false' bSlot='2'>
+         <dynCall>
+          <varRef name='Q{http://saxon.sf.net/generated-variable}v0' slot='2'/>
+          <dot type='1ADI'/>
+         </dynCall>
+         <empty/>
+        </ufCall>
+       </forEach>
+      </sequence>
+     </elem>
+    </let>
+    <instance line='54' of='1FM'>
+     <varRef name='Q{}seq' slot='0'/>
+    </instance>
+    <let line='61' var='Q{http://saxon.sf.net/generated-variable}v1' as='1F' slot='3' flags='l'>
+     <treat as='F' diag='21|0||$vv:v1'>
+      <check card='1' diag='21|0||$vv:v1'>
+       <varRef name='Q{}seq' slot='0'/>
+      </check>
+     </treat>
+     <elem line='55' name='map' nsuri='http://www.w3.org/2005/xpath-functions' flags='d' namespaces='# array map saxon'>
+      <sequence line='56'>
+       <varRef name='Q{}key' slot='1'/>
+       <iterate line='57'>
+        <ifCall role='select' name='Q{http://www.w3.org/2005/xpath-functions/map}keys' type='*A'>
+         <treat as='FM' diag='0|0||map:keys'>
+          <check card='1' diag='0|0||map:keys'>
+           <varRef name='Q{}seq' slot='0'/>
+          </check>
+         </treat>
+        </ifCall>
+        <params role='params'/>
+        <ufCall role='action' line='61' name='Q{http://ns.saxonica.com/xpath-functions}toJson' tailCall='false' bSlot='3'>
+         <dynCall>
+          <varRef name='Q{http://saxon.sf.net/generated-variable}v1' slot='3'/>
+          <dot type='1A'/>
+         </dynCall>
+         <att line='59' name='key'>
+          <convert from='A' to='AS'>
+           <dot type='1A'/>
+          </convert>
+         </att>
+        </ufCall>
+       </iterate>
+      </sequence>
+     </elem>
+    </let>
+    <instance line='65' of='1N'>
+     <varRef name='Q{}seq' slot='0'/>
+    </instance>
+    <treat line='66' as='NE' diag='5|0|XTTE0780|FN:toJson#2'>
+     <applyT mode='Q{}toJson' bSlot='4'>
+      <varRef role='select' name='Q{}seq' slot='0'/>
+      <withParam name='Q{}key' as='?NA'>
+       <varRef line='67' name='Q{}key' slot='1'/>
+      </withParam>
+     </applyT>
+    </treat>
+    <true/>
+    <treat line='73' as='NE' diag='5|0|XTTE0780|FN:toJson#2'>
+     <applyT mode='Q{}toJson' bSlot='5'>
+      <varRef role='select' name='Q{}seq' slot='0'/>
+      <withParam name='Q{}key' as='?NA'>
+       <varRef line='74' name='Q{}key' slot='1'/>
+      </withParam>
+     </applyT>
+    </treat>
+   </choose>
+  </function>
+ </co>
+ <co id='1' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/anonymous-type}f_1074389766' line='0' flags='pU' as='1ADI' slots='2'>
+   <arg name='Q{}x' as='1ADI'/>
+   <arg name='Q{}seq' as='*'/>
+   <choose role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='219'>
+    <compareToInt op='gt' val='0'>
+     <varRef name='Q{}x' slot='0'/>
+    </compareToInt>
+    <varRef name='Q{}x' slot='0'/>
+    <true/>
+    <arith op='+' calc='i+i'>
+     <arith op='+' calc='i+i'>
+      <fn name='count'>
+       <varRef name='Q{}seq' slot='1'/>
+      </fn>
+      <int val='1'/>
+     </arith>
+     <varRef name='Q{}x' slot='0'/>
+    </arith>
+   </choose>
+  </function>
+ </co>
+ <co id='33' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions/map}substitute' line='390' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1FM' slots='2'>
+   <arg name='Q{}map' as='1FM'/>
+   <arg name='Q{}predicate' as='1F a[1A,*]'/>
+   <ifCall role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='394' name='Q{http://www.w3.org/2005/xpath-functions/map}merge' type='1FM'>
+    <forEach>
+     <ifCall name='Q{http://www.w3.org/2005/xpath-functions/map}keys' type='*A'>
+      <varRef name='Q{}map' slot='0'/>
+     </ifCall>
+     <ifCall line='395' name='Q{http://www.w3.org/2005/xpath-functions/map}entry' type='1FM'>
+      <dot type='1A'/>
+      <dynCall>
+       <varRef name='Q{}predicate' slot='1'/>
+       <dot type='1A'/>
+       <ifCall name='Q{http://www.w3.org/2005/xpath-functions/map}get' type='*'>
+        <varRef name='Q{}map' slot='0'/>
+        <dot type='1A'/>
+       </ifCall>
+      </dynCall>
+     </ifCall>
+    </forEach>
+    <map size='2'>
+     <str val='duplicates'/>
+     <str val='reject'/>
+     <str val='duplicates-error-code'/>
+     <str val='XTDE3365'/>
+    </map>
+   </ifCall>
+  </function>
+ </co>
+ <co id='34' vis='PRIVATE' binds='32 32 32'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}__simple-compare' line='280' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1ADI' slots='3'>
+   <arg name='Q{}k1' as='1A'/>
+   <arg name='Q{}k2' as='1A'/>
+   <arg name='Q{}collation' as='1AS'/>
+   <choose role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='284'>
+    <and line='288' op='and'>
+     <instance of='1A m[AS,AU,AZ]'>
+      <varRef name='Q{}k1' slot='0'/>
+     </instance>
+     <instance of='1A m[AS,AU,AZ]'>
+      <varRef name='Q{}k2' slot='1'/>
+     </instance>
+    </and>
+    <check line='288' card='1' diag='5|0|XTTE0780|FN:__simple-compare#3'>
+     <fn name='compare'>
+      <convert from='A' to='AS' flags='p' diag='0|0||fn:compare'>
+       <varRef name='Q{}k1' slot='0'/>
+      </convert>
+      <convert from='A' to='AS' flags='p' diag='0|1||fn:compare'>
+       <varRef name='Q{}k2' slot='1'/>
+      </convert>
+      <varRef name='Q{}collation' slot='2'/>
+     </fn>
+    </check>
+    <or line='289' op='or'>
+     <vc op='eq' onEmpty='0'>
+      <varRef name='Q{}k1' slot='0'/>
+      <varRef name='Q{}k2' slot='1'/>
+     </vc>
+     <choose>
+      <ufCall name='Q{http://ns.saxonica.com/xpath-functions}is-NaN' tailCall='false' bSlot='0'>
+       <varRef name='Q{}k1' slot='0'/>
+      </ufCall>
+      <ufCall name='Q{http://ns.saxonica.com/xpath-functions}is-NaN' tailCall='false' bSlot='1'>
+       <varRef name='Q{}k2' slot='1'/>
+      </ufCall>
+      <true/>
+      <false/>
+     </choose>
+    </or>
+    <int val='0'/>
+    <or line='290' op='or'>
+     <ufCall name='Q{http://ns.saxonica.com/xpath-functions}is-NaN' tailCall='false' bSlot='2'>
+      <varRef name='Q{}k1' slot='0'/>
+     </ufCall>
+     <vc op='lt' onEmpty='0'>
+      <varRef name='Q{}k1' slot='0'/>
+      <varRef name='Q{}k2' slot='1'/>
+     </vc>
+    </or>
+    <int val='-1'/>
+    <true/>
+    <int val='1'/>
+   </choose>
+  </function>
+ </co>
+ <co id='35' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}items-after' line='160' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='3'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1]'/>
+   <iterate role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='163'>
+    <varRef role='select' name='Q{}seq' slot='0'/>
+    <params role='params' line='164'>
+     <param name='Q{}include' slot='2' as='1AB'>
+      <false role='select'/>
+      <treat role='conversion' as='AB' diag='8|0|XTTE0590|include'>
+       <check card='1' diag='8|0|XTTE0590|include'>
+        <cvUntyped to='AB' diag='8|0|XTTE0590|include'>
+         <data diag='8|0|XTTE0590|include'>
+          <supplied slot='2'/>
+         </data>
+        </cvUntyped>
+       </check>
+      </treat>
+     </param>
+    </params>
+    <sequence role='action' line='165'>
+     <choose>
+      <varRef name='Q{}include' slot='2'/>
+      <dot line='166'/>
+     </choose>
+     <choose line='168'>
+      <or op='or'>
+       <varRef name='Q{}include' slot='2'/>
+       <dynCall>
+        <varRef name='Q{}predicate' slot='1'/>
+        <dot/>
+       </dynCall>
+      </or>
+      <nextIteration line='169'>
+       <withParam name='Q{}include' as='1AB' slot='2'>
+        <true/>
+       </withParam>
+      </nextIteration>
+     </choose>
+    </sequence>
+   </iterate>
+  </function>
+ </co>
+ <co id='36' binds=''>
+  <globalVariable name='Q{}add-mhk' as='1AB' line='11' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' visibility='PRIVATE' flags='s'>
+   <false/>
+  </globalVariable>
+ </co>
+ <co id='37' vis='PRIVATE' binds='34 37'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}__lexicographic-compare' line='295' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1ADI' slots='4'>
+   <arg name='Q{}a' as='*A'/>
+   <arg name='Q{}b' as='*A'/>
+   <arg name='Q{}collation' as='1AS'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='299'>
+    <choose>
+     <and line='300' op='and'>
+      <fn name='empty'>
+       <varRef name='Q{}a' slot='0'/>
+      </fn>
+      <fn name='empty'>
+       <varRef name='Q{}b' slot='1'/>
+      </fn>
+     </and>
+     <int val='0'/>
+     <fn line='301' name='empty'>
+      <varRef name='Q{}a' slot='0'/>
+     </fn>
+     <int val='-1'/>
+     <fn line='302' name='empty'>
+      <varRef name='Q{}b' slot='1'/>
+     </fn>
+     <int val='1'/>
+     <true/>
+     <let line='304' var='Q{}rel' slot='3'>
+      <ufCall name='Q{http://ns.saxonica.com/xpath-functions}__simple-compare' tailCall='false' bSlot='0'>
+       <check card='1' diag='0|0||FN:__simple-compare'>
+        <first>
+         <varRef name='Q{}a' slot='0'/>
+        </first>
+       </check>
+       <check card='1' diag='0|1||FN:__simple-compare'>
+        <first>
+         <varRef name='Q{}b' slot='1'/>
+        </first>
+       </check>
+       <varRef name='Q{}collation' slot='2'/>
+      </ufCall>
+      <choose line='306'>
+       <compareToInt op='eq' val='0'>
+        <varRef name='Q{}rel' slot='3'/>
+       </compareToInt>
+       <ufCall name='Q{http://ns.saxonica.com/xpath-functions}__lexicographic-compare' tailCall='self' bSlot='1'>
+        <tail start='2'>
+         <varRef name='Q{}a' slot='0'/>
+        </tail>
+        <tail start='2'>
+         <varRef name='Q{}b' slot='1'/>
+        </tail>
+        <varRef name='Q{}collation' slot='2'/>
+       </ufCall>
+       <true/>
+       <varRef name='Q{}rel' slot='3'/>
+      </choose>
+     </let>
+    </choose>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='38' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}in-scope-namespaces' line='92' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1FM' slots='1'>
+   <arg name='Q{}element' as='1NE'/>
+   <ifCall role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='95' name='Q{http://www.w3.org/2005/xpath-functions/map}merge' type='1FM'>
+    <forEach>
+     <fn name='in-scope-prefixes'>
+      <varRef name='Q{}element' slot='0'/>
+     </fn>
+     <ifCall line='96' name='Q{http://www.w3.org/2005/xpath-functions/map}entry' type='1FM'>
+      <dot type='1AS'/>
+      <fn name='namespace-uri-for-prefix'>
+       <dot type='1AS'/>
+       <varRef name='Q{}element' slot='0'/>
+      </fn>
+     </ifCall>
+    </forEach>
+    <map size='2'>
+     <str val='duplicates'/>
+     <str val='reject'/>
+     <str val='duplicates-error-code'/>
+     <str val='XTDE3365'/>
+    </map>
+   </ifCall>
+  </function>
+ </co>
+ <co id='39' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}all' line='69' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1AB' slots='3'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}predicate' as='1F r[1AB] a[1]'/>
+   <every role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='72' var='Q{}i' slot='2'>
+    <varRef name='Q{}seq' slot='0'/>
+    <dynCall>
+     <varRef name='Q{}predicate' slot='1'/>
+     <varRef name='Q{}i' slot='2'/>
+    </dynCall>
+   </every>
+  </function>
+ </co>
+ <co id='40' vis='PUBLIC' binds='37'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}mhk_highest' line='313' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='8'>
+   <arg name='Q{}input' as='*'/>
+   <arg name='Q{}collation' as='?AS'/>
+   <arg name='Q{}key' as='1F r[*A] a[1]'/>
+   <arg name='Q{}is-highest' as='1AB'/>
+   <iterate role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='318'>
+    <varRef role='select' name='Q{}input' slot='0'/>
+    <params role='params' line='319'>
+     <param name='Q{}max' slot='4' as='*A'>
+      <empty role='select'/>
+      <data role='conversion' diag='8|0|XTTE0590|max'>
+       <supplied slot='4'/>
+      </data>
+     </param>
+     <param line='320' name='Q{}highest-so-far' slot='5'>
+      <empty role='select'/>
+      <supplied role='conversion' slot='5'/>
+     </param>
+    </params>
+    <varRef role='on-completion' line='321' name='Q{}highest-so-far' slot='5'/>
+    <let role='action' line='323' var='Q{}key-value' slot='6'>
+     <forEach>
+      <dynCall>
+       <varRef name='Q{}key' slot='2'/>
+       <dot/>
+      </dynCall>
+      <choose>
+       <instance of='1AZ'>
+        <dot type='1A'/>
+       </instance>
+       <cast flags='a' as='1AO'>
+        <dot type='1A'/>
+       </cast>
+       <true/>
+       <dot type='1A'/>
+      </choose>
+     </forEach>
+     <choose line='324'>
+      <fn line='325' name='empty'>
+       <varRef name='Q{}highest-so-far' slot='5'/>
+      </fn>
+      <nextIteration line='326'>
+       <withParam name='Q{}max' as='*A' slot='4'>
+        <varRef line='327' name='Q{}key-value' slot='6'/>
+       </withParam>
+       <withParam name='Q{}highest-so-far' as='1' slot='5'>
+        <dot line='328'/>
+       </withParam>
+      </nextIteration>
+      <true/>
+      <let line='333' var='Q{}rel' slot='7'>
+       <ufCall name='Q{http://ns.saxonica.com/xpath-functions}__lexicographic-compare' tailCall='false' bSlot='0'>
+        <varRef name='Q{}key-value' slot='6'/>
+        <varRef name='Q{}max' slot='4'/>
+        <check card='1' diag='0|2||FN:__lexicographic-compare'>
+         <varRef name='Q{}collation' slot='1'/>
+        </check>
+       </ufCall>
+       <choose line='334'>
+        <compareToInt line='335' op='eq' val='0'>
+         <varRef name='Q{}rel' slot='7'/>
+        </compareToInt>
+        <nextIteration line='336'>
+         <withParam name='Q{}max' as='*A' slot='4'>
+          <varRef line='337' name='Q{}max' slot='4'/>
+         </withParam>
+         <withParam name='Q{}highest-so-far' as='+' slot='5'>
+          <sequence line='338'>
+           <varRef name='Q{}highest-so-far' slot='5'/>
+           <dot/>
+          </sequence>
+         </withParam>
+        </nextIteration>
+        <vc line='341' op='eq' onEmpty='0'>
+         <compareToInt op='gt' val='0'>
+          <varRef name='Q{}rel' slot='7'/>
+         </compareToInt>
+         <varRef name='Q{}is-highest' slot='3'/>
+        </vc>
+        <nextIteration line='342'>
+         <withParam name='Q{}max' as='*A' slot='4'>
+          <varRef line='343' name='Q{}key-value' slot='6'/>
+         </withParam>
+         <withParam name='Q{}highest-so-far' as='1' slot='5'>
+          <dot line='344'/>
+         </withParam>
+        </nextIteration>
+        <true/>
+        <nextIteration line='348'/>
+       </choose>
+      </let>
+     </choose>
+    </let>
+   </iterate>
+  </function>
+ </co>
+ <co id='41' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}replicate' line='38' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='2'>
+   <arg name='Q{}seq' as='*'/>
+   <arg name='Q{}count' as='1ADIP'/>
+   <forEach role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='41'>
+    <to>
+     <int val='1'/>
+     <varRef name='Q{}count' slot='1'/>
+    </to>
+    <varRef name='Q{}seq' slot='0'/>
+   </forEach>
+  </function>
+ </co>
+ <co id='42' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}lowest' line='366' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='5'>
+   <arg name='Q{}input' as='*'/>
+   <arg name='Q{}collation' as='?AS'/>
+   <arg name='Q{}key' as='1F r[*A] a[1]'/>
+   <let role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='370' var='Q{}C' as='1AS' slot='3'>
+    <first>
+     <sequence>
+      <varRef name='Q{}collation' slot='1'/>
+      <str val='http://www.w3.org/2005/xpath-functions/collation/codepoint'/>
+     </sequence>
+    </first>
+    <choose line='371'>
+     <fn name='exists'>
+      <varRef name='Q{}input' slot='0'/>
+     </fn>
+     <let line='372' var='Q{}keyB' as='1A' slot='4'>
+      <check card='1' diag='3|0|XTTE0570|keyB'>
+       <dynCall>
+        <varRef name='Q{}key' slot='2'/>
+        <first>
+         <fn name='sort'>
+          <varRef name='Q{}input' slot='0'/>
+          <varRef name='Q{}C' slot='3'/>
+          <varRef name='Q{}key' slot='2'/>
+         </fn>
+        </first>
+       </dynCall>
+      </check>
+      <filter line='373' flags='b'>
+       <varRef name='Q{}input' slot='0'/>
+       <fn name='deep-equal'>
+        <dynCall>
+         <varRef name='Q{}key' slot='2'/>
+         <dot/>
+        </dynCall>
+        <varRef name='Q{}keyB' slot='4'/>
+        <varRef name='Q{}C' slot='3'/>
+        <map size='0'/>
+       </fn>
+      </filter>
+     </let>
+    </choose>
+   </let>
+  </function>
+ </co>
+ <co id='32' vis='PUBLIC' binds=''>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}is-NaN' line='87' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='1AB' slots='1'>
+   <arg name='Q{}item' as='1A'/>
+   <vc role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='89' op='ne'>
+    <varRef name='Q{}item' slot='0'/>
+    <varRef name='Q{}item' slot='0'/>
+   </vc>
+  </function>
+ </co>
+ <co id='43' vis='PUBLIC' binds='42'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}lowest' line='361' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='2'>
+   <arg name='Q{}input' as='*'/>
+   <arg name='Q{}collation' as='?AS'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='364'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}lowest' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}input' slot='0'/>
+     <varRef name='Q{}collation' slot='1'/>
+     <fnRef name='data' arity='1'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <co id='44' vis='PUBLIC' binds='43'>
+  <function name='Q{http://ns.saxonica.com/xpath-functions}lowest' line='357' module='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' flags='pU' as='*' slots='1'>
+   <arg name='Q{}input' as='*'/>
+   <tailCallLoop role='body' baseUri='file:/Volumes/Saxonica/src/saxonica/saxondev/src/main/xslt/function-library.xsl' ns='ARRAY=http://ns.saxonica.com/xpath-functions/array FN=http://ns.saxonica.com/xpath-functions MAP=http://ns.saxonica.com/xpath-functions/map array=~ map=~ math=~ saxon=~ xs=~ xsl=~' line='359'>
+    <ufCall name='Q{http://ns.saxonica.com/xpath-functions}lowest' tailCall='foreign' bSlot='0'>
+     <varRef name='Q{}input' slot='0'/>
+     <str val='http://www.w3.org/2005/xpath-functions/collation/codepoint'/>
+    </ufCall>
+   </tailCallLoop>
+  </function>
+ </co>
+ <overridden/>
+ <output>
+  <property name='Q{http://saxon.sf.net/}stylesheet-version' value='40'/>
+ </output>
+ <decimalFormat/>
+</package>
+<?Σ 638f19b8?>

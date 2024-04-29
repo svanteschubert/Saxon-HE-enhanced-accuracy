@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -49,7 +49,7 @@ public class DocumentKey {
         Objects.requireNonNull(uri);
         this.displayValue = uri;
         this.normalizedValue = normalizeURI(uri);
-        this.packageName = packageName;
+        this.packageName = packageName == null ? "" : packageName;
         this.packageVersion = version;
     }
 
@@ -67,8 +67,8 @@ public class DocumentKey {
     public boolean equals(Object obj) {
         return obj instanceof DocumentKey
                 && normalizedValue.equals(((DocumentKey) obj).normalizedValue)
-                && packageName.equals(((DocumentKey)obj).packageName)
-                && packageVersion.equals(((DocumentKey)obj).packageVersion);
+                && packageName.equals(((DocumentKey) obj).packageName)
+                && packageVersion.equals(((DocumentKey) obj).packageVersion);
     }
 
     @Override
@@ -81,6 +81,9 @@ public class DocumentKey {
      * string comparison. The main purpose is (a) to eliminate the distinction between "file:/" and
      * "file:///", and (b) to normalize case in the case of Windows filenames: especially the distinction
      * between "file:/C:" and "file:/c:".
+     *
+     * <p>The result of this function should only be used when comparing two URIs to see if they correspond.
+     * The result is otherwise undefined; it might change between releases, and it might even not be a valid URI.</p>
      *
      * @param uri the URI to be normalized
      * @return the normalized URI.

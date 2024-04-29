@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,9 +9,10 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
+import net.sf.saxon.expr.UserFunctionCall;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.Logger;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.XQueryFunction;
 import net.sf.saxon.query.XQueryFunctionBinder;
@@ -20,6 +21,7 @@ import net.sf.saxon.trans.XPathException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A FunctionLibraryList is a list of FunctionLibraries. It is also a FunctionLibrary in its own right.
@@ -65,9 +67,9 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
      *         function item; or null if the function does not exist
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
         for (FunctionLibrary lib : libraryList) {
-            Function fi = lib.getFunctionItem(functionName, staticContext);
+            FunctionItem fi = lib.getFunctionItem(functionName, staticContext);
             if (fi != null) {
                 return fi;
             }
@@ -81,12 +83,13 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
      * <p>This supports the function-available() function in XSLT.</p>
      *
      * @param functionName the qualified name of the function being called
+     * @param languageLevel the XPath language level, times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         for (FunctionLibrary lib : libraryList) {
-            if (lib.isAvailable(functionName)) {
+            if (lib.isAvailable(functionName, languageLevel)) {
                 return true;
             }
         }
@@ -104,6 +107,8 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
      *                     that the static type of the arguments (obtainable via getItemType() and getCardinality() may
      *                     be used as part of the binding algorithm. In some cases it may be possible for the function
      *                     to be pre-evaluated at compile time, for example if these expressions are all constant values.
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          The static context
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
@@ -113,7 +118,9 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
      */
 
     @Override
-    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, StaticContext env, List<String> reasons) {
+    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs,
+                           Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons)
+    throws XPathException {
         boolean debug = env.getConfiguration().getBooleanProperty(Feature.TRACE_EXTERNAL_FUNCTIONS);
         Logger err = env.getConfiguration().getLogger();
         if (debug) {
@@ -123,7 +130,7 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
             if (debug) {
                 err.info("Trying " + lib.getClass().getName());
             }
-            Expression func = lib.bind(functionName, staticArgs, env, reasons);
+            Expression func = lib.bind(functionName, staticArgs, keywords, env, reasons);
             if (func != null) {
                 return func;
             }
@@ -154,6 +161,30 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
     }
 
     /**
+     * Bind a function call using this function library, in the situation where
+     * it was not possible to bind it earlier, typically because it was encountered as a forwards
+     * reference.
+     *
+     * @param call     The unbound function call, which will include a non-null <code>UnboundFunctionCallDetails</code>
+     * @param reasons a list which can be populated with messages indicating why binding failed
+     * @return true if the function call is now bound; false if it remains unbound.
+     */
+
+
+    @Override
+    public boolean bindUnboundFunctionCall(UserFunctionCall call, List<String> reasons) {
+        for (FunctionLibrary lib : libraryList) {
+            if (lib instanceof XQueryFunctionBinder) {
+                boolean found = ((XQueryFunctionBinder) lib).bindUnboundFunctionCall(call, reasons);
+                if (found) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Get the list of contained FunctionLibraries. This method allows the caller to modify
      * the library list, for example by adding a new FunctionLibrary at a chosen position,
      * by removing a library from the list, or by changing the order of libraries in the list.
@@ -178,10 +209,15 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
     @Override
     public FunctionLibrary copy() {
         FunctionLibraryList fll = new FunctionLibraryList();
-        fll.libraryList = new ArrayList<>(libraryList.size());
+        fll.libraryList = emptyFunctionLibraryList(libraryList.size());
         for (int i = 0; i < libraryList.size(); i++) {
             fll.libraryList.add(libraryList.get(i).copy());
         }
         return fll;
+    }
+
+    private static ArrayList<FunctionLibrary> emptyFunctionLibraryList(int allocated) {
+        // Separate method for C# type inference
+        return new ArrayList<>(allocated);
     }
 }

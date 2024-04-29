@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.parser.CodeInjector;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.QueryLibrary;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
@@ -20,7 +21,6 @@ import net.sf.saxon.trans.packages.PackageLibrary;
 
 import javax.xml.transform.ErrorListener;
 import javax.xml.transform.URIResolver;
-import java.util.Collection;
 
 /**
  * This class exists to hold information associated with a specific XSLT compilation episode.
@@ -29,16 +29,19 @@ import java.util.Collection;
  * and this class exists to support that.
  */
 
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<net.sf.saxon.s9api.XmlProcessingError> reporter) {"
+//      + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//      + "    }"
+//})
 public class CompilerInfo {
 
     private Configuration config;
-    private URIResolver uriResolver;
-    private OutputURIResolver outputURIResolver = StandardOutputResolver.getInstance();
-    private ErrorReporter errorReporter;
+    private ResourceResolver resourceResolver;
+    private ErrorReporter errorReporter = new StandardErrorReporter();
     private CodeInjector codeInjector;
     private int recoveryPolicy = Mode.RECOVER_WITH_WARNINGS;
     private boolean schemaAware;
-    private String messageReceiverClassName = "net.sf.saxon.serialize.MessageEmitter";
     private StructuredQName defaultInitialMode;
     private StructuredQName defaultInitialTemplate;
     private GlobalParameterSet suppliedParameters = new GlobalParameterSet();
@@ -47,11 +50,14 @@ public class CompilerInfo {
     private boolean assertionsEnabled = false;
     private String targetEdition = "HE";
     private boolean relocatable = false;
-    private Collection<QueryLibrary> queryLibraries;
+    private Iterable<QueryLibrary> queryLibraries;
     private OptimizerOptions optimizerOptions;
-    private String defaultNamespaceForElementsAndTypes = "";
+    private NamespaceUri defaultNamespaceForElementsAndTypes = NamespaceUri.NULL;
     private UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy
             = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
+    private int languageVersion = 30;
+
+    private OutputURIResolver outputURIResolver = StandardOutputResolver.getInstance();
 
     /**
      * Create an empty CompilerInfo object with default settings. (Note, this does not
@@ -85,13 +91,11 @@ public class CompilerInfo {
 
     public void copyFrom(CompilerInfo info) {
         config = info.config;
-        uriResolver = info.uriResolver;
-        outputURIResolver = info.outputURIResolver;
+        resourceResolver = info.resourceResolver;
         errorReporter = info.errorReporter;
         codeInjector = info.codeInjector;
         recoveryPolicy = info.recoveryPolicy;
         schemaAware = info.schemaAware;
-        messageReceiverClassName = info.messageReceiverClassName;
         defaultInitialMode = info.defaultInitialMode;
         defaultInitialTemplate = info.defaultInitialTemplate;
         suppliedParameters = new GlobalParameterSet(info.suppliedParameters);
@@ -104,6 +108,9 @@ public class CompilerInfo {
         queryLibraries = info.queryLibraries;
         defaultNamespaceForElementsAndTypes = info.defaultNamespaceForElementsAndTypes;
         unprefixedElementMatchingPolicy = info.unprefixedElementMatchingPolicy;
+        languageVersion = info.languageVersion;
+
+        outputURIResolver = info.outputURIResolver;
     }
 
     public Configuration getConfiguration() {
@@ -146,10 +153,24 @@ public class CompilerInfo {
      * @param resolver The URIResolver to be used. This is used to dereference URIs encountered in constructs
      *                 such as xsl:include, xsl:import, and xsl:import-schema.
      * @since 8.7
+     * @deprecated since 11.1: use {@link #setResourceResolver}
      */
 
+    @Deprecated
     public void setURIResolver(URIResolver resolver) {
-        uriResolver = resolver;
+        resourceResolver = new ResourceResolverWrappingURIResolver(resolver);
+    }
+
+    /**
+     * Set the resource Resolver to be used in this compilation episode.
+     *
+     * @param resolver The resource resolver to be used. This is used to dereference URIs encountered in constructs
+     *                 such as xsl:include, xsl:import, and xsl:import-schema.
+     * @since 8.7
+     */
+
+    public void setResourceResolver(ResourceResolver resolver) {
+        resourceResolver = resolver;
     }
 
     /**
@@ -193,7 +214,8 @@ public class CompilerInfo {
     /**
      * Set the target edition under which the stylesheet will be executed.
      *
-     * @param edition the Saxon edition for the run-time environment. One of "EE", "PE", "HE", or "JS".
+     * @param edition the Saxon edition for the run-time environment.
+     *                One of "EE", "PE", "HE", or "JS", "JS2", "JS3".
      * @since 9.7.0.5. Experimental and subject to change.
      */
 
@@ -204,7 +226,8 @@ public class CompilerInfo {
     /**
      * Get the target edition under which the stylesheet will be executed.
      *
-     * @return the Saxon edition for the run-time environment. One of "EE", "PE", "HE", or "JS".
+     * @return the Saxon edition for the run-time environment. One of "EE", "PE", "HE",
+     * or "JS", "JS2", "JS3".
      * @since 9.7.0.5. Experimental and subject to change.
      */
 
@@ -308,36 +331,7 @@ public class CompilerInfo {
     }
 
 
-    /**
-     * Set whether bytecode should be generated for the compiled stylesheet. This option
-     * is available only with Saxon-EE. The default depends on the setting in the configuration
-     * at the time the XsltCompiler is instantiated, and by default is true for Saxon-EE.
-     * <p>The same effect can be achieved by {@link #setOptimizerOptions(OptimizerOptions)} with the appropriate
-     * setting of {@link OptimizerOptions#BYTE_CODE}.</p>
-     *
-     * @param option true if bytecode is to be generated, false otherwise
-     * @since 9.6
-     */
 
-    public void setGenerateByteCode(boolean option) {
-        if (option) {
-            optimizerOptions = optimizerOptions.union(new OptimizerOptions(OptimizerOptions.BYTE_CODE));
-        } else {
-            optimizerOptions = optimizerOptions.except(new OptimizerOptions(OptimizerOptions.BYTE_CODE));
-        }
-    }
-
-
-    /**
-     * Ask whether bytecode is to be generated in the compiled code.
-     *
-     * @return true if bytecode is to be generated, false if not.
-     * @since 9.6
-     */
-
-    public boolean isGenerateByteCode() {
-        return optimizerOptions.isSet(OptimizerOptions.BYTE_CODE);
-    }
 
     /**
      * Get the URI Resolver being used in this compilation episode.
@@ -348,8 +342,22 @@ public class CompilerInfo {
      */
 
     public URIResolver getURIResolver() {
-        return uriResolver;
+        if (resourceResolver instanceof ResourceResolverWrappingURIResolver) {
+            return ((ResourceResolverWrappingURIResolver)resourceResolver).getWrappedURIResolver();
+        } else {
+            return null;
+        }
     }
+
+    /**
+     * Get the ResourceResolver being used
+     * @return the current ResourceResolver. Defaults to null.
+     */
+
+    public ResourceResolver getResourceResolver() {
+        return resourceResolver;
+    }
+
 
     /**
      * Get the OutputURIResolver that will be used to resolve URIs used in the
@@ -376,7 +384,6 @@ public class CompilerInfo {
         this.outputURIResolver = outputURIResolver;
     }
 
-
     /**
      * Set the ErrorListener to be used during this compilation episode
      *
@@ -385,7 +392,7 @@ public class CompilerInfo {
      * @since 8.7
      * @deprecated since 10.0 - use {@link #setErrorReporter(ErrorReporter)}
      */
-
+    @Deprecated
     public void setErrorListener(ErrorListener listener) {
         setErrorReporter(new ErrorReporterToListener(listener));
     }
@@ -398,7 +405,7 @@ public class CompilerInfo {
      * @since 8.7
      * @deprecated since 10.0 - use {@link #getErrorReporter()}
      */
-
+    @Deprecated
     public ErrorListener getErrorListener() {
         if (errorReporter instanceof ErrorReporterToListener) {
             return ((ErrorReporterToListener) errorReporter).getErrorListener();
@@ -428,32 +435,6 @@ public class CompilerInfo {
 
     public ErrorReporter getErrorReporter() {
         return this.errorReporter;
-    }
-
-
-    /**
-     * Get the name of the class that will be instantiated to create a MessageEmitter,
-     * to process the output of xsl:message instructions in XSLT.
-     *
-     * @return the full class name of the message emitter class.
-     * @since 9.2
-     */
-
-    public String getMessageReceiverClassName() {
-        return messageReceiverClassName;
-    }
-
-    /**
-     * Set the name of the class that will be instantiated to create a MessageEmitter,
-     * to process the output of xsl:message instructions in XSLT.
-     *
-     * @param messageReceiverClassName the message emitter class. This
-     *                                 must implement net.sf.saxon.event.Emitter.
-     * @since 9.2
-     */
-
-    public void setMessageReceiverClassName(String messageReceiverClassName) {
-        this.messageReceiverClassName = messageReceiverClassName;
     }
 
     /**
@@ -598,16 +579,18 @@ public class CompilerInfo {
     }
 
     /**
-     * Set the version of XSLT to be supported by this processor. From Saxon 9.8 this has
-     * no effect; the processor will always be an XSLT 3.0 processor.
+     * Set the version of XSLT to be supported by this processor. From Saxon 9.8 this had
+     * no effect; the processor will always be an XSLT 3.0 processor. In Saxon 11 the
+     * value 40 was permitted to enable experimental XSLT 4.0 extensions.
      *
      * @param version The decimal version number times ten, for example 30 indicates
      *                XSLT 3.0.
      * @since 9.3. Changed in 9.7 to take an integer rather than a decimal. Ignored from 9.8.
-     * @deprecated since Saxon 9.8 (has no effect).
+     * Deprecated in Saxon 9.8 (has no effect). Reintroduced in 11 to support 40 = draft XSLT 4.0 specification.
      */
 
     public void setXsltVersion(int version) {
+        this.languageVersion = version;
     }
 
     /**
@@ -615,19 +598,19 @@ public class CompilerInfo {
      *
      * @return 30 (for XSLT 3.0)
      * @since 9.3  Changed in 9.7 to take an integer rather than a decimal. Changed in 9.8 to return the
-     * value 30 unconditionally.
-     * @deprecated since 9.8 (always returns 30)
+     * value 30 unconditionally. Deprecated in 9.8 (because only 30 was supported). Reintroduced in 11
+     * to support 40 = draft XSLT 4.0 specification.
      */
 
     public int getXsltVersion() {
-        return 30;
+        return languageVersion;
     }
 
-    public String getDefaultElementNamespace() {
+    public NamespaceUri getDefaultElementNamespace() {
         return defaultNamespaceForElementsAndTypes;
     }
 
-    public void setDefaultElementNamespace(String defaultNamespaceForElementsAndTypes) {
+    public void setDefaultElementNamespace(NamespaceUri defaultNamespaceForElementsAndTypes) {
         this.defaultNamespaceForElementsAndTypes = defaultNamespaceForElementsAndTypes;
     }
 
@@ -641,11 +624,11 @@ public class CompilerInfo {
     }
 
 
-    public void setXQueryLibraries(Collection<QueryLibrary> libraries) {
+    public void setXQueryLibraries(Iterable<QueryLibrary> libraries) {
         this.queryLibraries = libraries;
     }
 
-    public Collection<QueryLibrary> getQueryLibraries() {
+    public Iterable<QueryLibrary> getQueryLibraries() {
         return queryLibraries;
     }
 

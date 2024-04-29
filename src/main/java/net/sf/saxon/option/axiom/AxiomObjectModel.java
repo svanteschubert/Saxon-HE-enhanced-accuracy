@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,10 +16,12 @@ import net.sf.saxon.expr.PJConverter;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ExternalObjectModel;
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.TreeModel;
 import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.wrapper.VirtualNode;
 import net.sf.saxon.type.ItemType;
 import org.apache.axiom.om.*;
@@ -36,7 +38,7 @@ import javax.xml.transform.Source;
 
 public class AxiomObjectModel extends TreeModel implements ExternalObjectModel {
 
-    private final static AxiomObjectModel THE_INSTANCE = new AxiomObjectModel();
+    private static final AxiomObjectModel THE_INSTANCE = new AxiomObjectModel();
 
     public static AxiomObjectModel getInstance() {
         return THE_INSTANCE;
@@ -120,7 +122,7 @@ public class AxiomObjectModel extends TreeModel implements ExternalObjectModel {
         if (isRecognizedNodeClass(sourceClass)) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object object, XPathContext context) {
+                public GroundedValue convert(Object object, XPathContext context) throws XPathException {
                     return convertObjectToXPathValue(object, context.getConfiguration());
                 }
 
@@ -170,24 +172,13 @@ public class AxiomObjectModel extends TreeModel implements ExternalObjectModel {
     /**
      * Test whether this object model recognizes a particular kind of JAXP Result object,
      * and if it does, return a Receiver that builds an instance of this data model from
-     * a sequence of events. If the Result is not recognised, return null.
-     * @return always null
+     * a sequence of events. If the Result is not recognized, return null.
+     * @return Always null, because no Axiom Result implementation is recognized.
      */
 
     @Override
     public Receiver getDocumentBuilder(Result result) {
         return null;
-    }
-
-    /**
-     * Test whether this object model recognizes a particular kind of JAXP Source object,
-     * and if it does, send the contents of the document to a supplied Receiver, and return true.
-     * Otherwise, return false.
-     */
-
-    @Override
-    public boolean sendSource(Source source, Receiver receiver)  {
-        return false;
     }
 
     /**
@@ -212,7 +203,7 @@ public class AxiomObjectModel extends TreeModel implements ExternalObjectModel {
      */
 
     /*@Nullable*/
-    private Sequence convertObjectToXPathValue(Object object, Configuration config) {
+    private GroundedValue convertObjectToXPathValue(Object object, Configuration config) {
         if (isRecognizedNode(object)) {
             if (object instanceof OMDocument) {
                 return new AxiomDocument((OMDocument) object, "", config).getRootNode();

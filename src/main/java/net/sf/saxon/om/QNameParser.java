@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -123,17 +123,17 @@ public class QNameParser {
      *                        changed on return depending on the caller's requirements.
      */
 
-    public StructuredQName parse(CharSequence lexicalName, String defaultNS) throws XPathException {
-        lexicalName = Whitespace.trimWhitespace(lexicalName);
-        if (acceptEQName && lexicalName.length() >= 4 && lexicalName.charAt(0) == 'Q' && lexicalName.charAt(1) == '{') {
-            String name = lexicalName.toString();
-            int endBrace = name.indexOf('}');
+    public StructuredQName parse(String lexicalName, NamespaceUri defaultNS) throws XPathException {
+        lexicalName = Whitespace.trim(lexicalName);
+        if (acceptEQName && lexicalName.length() >= 4 &&
+                lexicalName.charAt(0) == 'Q' && lexicalName.charAt(1) == '{') {
+            int endBrace = lexicalName.indexOf('}');
             if (endBrace < 0) {
                 throw new XPathException("Invalid EQName: closing brace not found", errorOnBadSyntax);
-            } else if (endBrace == name.length() - 1) {
+            } else if (endBrace == lexicalName.length() - 1) {
                 throw new XPathException("Invalid EQName: local part is missing", errorOnBadSyntax);
             }
-            String uri = Whitespace.collapseWhitespace(name.substring(2, endBrace)).toString();
+            String uri = Whitespace.collapseWhitespace(lexicalName.substring(2, endBrace));
             if (uri.contains("{")) {
                 throw new XPathException("Invalid EQName: URI contains opening brace", errorOnBadSyntax);
             }
@@ -143,9 +143,9 @@ public class QNameParser {
             if (uri.equals(NamespaceConstant.XMLNS)) {
                 throw new XPathException("The string '" + NamespaceConstant.XMLNS + "' cannot be used as a namespace URI", "XQST0070");
             }
-            String local = name.substring(endBrace + 1);
+            String local = lexicalName.substring(endBrace + 1);
             checkLocalName(local);
-            return new StructuredQName("", uri, local);
+            return new StructuredQName("", NamespaceUri.of(uri), local);
         }
         try {
             String[] parts = NameChecker.getQNameParts(lexicalName);
@@ -153,7 +153,7 @@ public class QNameParser {
             if (parts[0].isEmpty()) {
                 return new StructuredQName("", defaultNS, parts[1]);
             }
-            String uri = resolver.getURIForPrefix(parts[0], false);
+            NamespaceUri uri = resolver.getURIForPrefix(parts[0], false);
             if (uri == null) {
                 throw new XPathException("Namespace prefix '" + parts[0] + "' has not been declared", errorOnUnresolvedPrefix);
             }

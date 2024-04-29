@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,14 @@
 
 package net.sf.saxon.sxpath;
 
+import net.sf.saxon.Controller;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.TypeChecker;
 import net.sf.saxon.lib.CollectionFinder;
 import net.sf.saxon.lib.ErrorReporter;
+import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.lib.UnparsedTextURIResolver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.SaxonErrorCode;
@@ -22,19 +24,23 @@ import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.SequenceType;
 
-import javax.xml.transform.URIResolver;
-
 /**
  * This object represents the dynamic XPath execution context for use in the free-standing Saxon XPath API.
  * The dynamic context holds the context item and the values of external variables used by the XPath expression.
  * <p>This object is always created via the method
  * {@link net.sf.saxon.sxpath.XPathExpression#createDynamicContext(net.sf.saxon.om.Item)}</p>
  */
+
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<net.sf.saxon.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
 public class XPathDynamicContext {
 
-    private ItemType contextItemType;
-    private XPathContextMajor contextObject;
-    private SlotManager stackFrameMap;
+    private final ItemType contextItemType;
+    private final XPathContextMajor contextObject;
+    private final SlotManager stackFrameMap;
 
     protected XPathDynamicContext(ItemType contextItemType, XPathContextMajor contextObject, SlotManager stackFrameMap) {
         this.contextItemType = contextItemType;
@@ -64,6 +70,16 @@ public class XPathDynamicContext {
         }
         ManualIterator iter = new ManualIterator(item);
         contextObject.setCurrentIterator(iter);
+        if (item instanceof NodeInfo && ((NodeInfo)item).getSystemId() != null) {
+            Controller controller = contextObject.getController();
+            if (controller != null) {
+                DocumentPool pool = controller.getDocumentPool();
+                DocumentKey key = new DocumentKey(((NodeInfo) item).getSystemId());
+                if (pool.find(key) == null) {
+                    pool.add(((NodeInfo) item).getTreeInfo(), key);
+                }
+            }
+        }
     }
 
     /**
@@ -97,8 +113,7 @@ public class XPathDynamicContext {
             }
         }
         SequenceIterator iter = value.iterate();
-        Item item;
-        while ((item = iter.next()) != null) {
+        for (Item item; (item = iter.next()) != null; ) {
             if (item instanceof NodeInfo && !((NodeInfo) item).getConfiguration().isCompatible(contextObject.getConfiguration())) {
                 throw new XPathException(
                         "Supplied node must be built using the same or a compatible Configuration",
@@ -122,24 +137,26 @@ public class XPathDynamicContext {
      *
      * @param resolver An object that implements the URIResolver interface, or
      *                 null.
-     * @since 9.2. Changed in 9.6 to set the URIResolver locally.
+     * @since 9.2. Changed in 9.6 to set the URIResolver locally. Changed in 11.1 to use a ResourceResolver
+     * rather than a URIResolver.
      */
 
-    public void setURIResolver(URIResolver resolver) {
-        contextObject.setURIResolver(resolver);
+    public void setResourceResolver(ResourceResolver resolver) {
+        contextObject.setResourceResolver(resolver);
     }
 
     /**
-     * Get the URI resolver.
+     * Get the resource resolver.
      *
-     * @return the user-supplied URI resolver if there is one, or null otherwise. If no URIResolver
-     * has been set locally, the URIResolver in the Controller is returned; this in turn defaults
-     * to the URIResolver set in the Configuration.
-     * @since 9.2. Changed in 9.6 to use a local URIResolver.
+     * @return the user-supplied URI resolver if there is one, or null otherwise. If no Resolver
+     * has been set locally, the Resolver in the Controller is returned; this in turn defaults
+     * to the resolver set in the Configuration.
+     * @since 9.2. Changed in 9.6 to use a local URIResolver. Changed in 11.1 to use a ResourceResolver
+     * rather than a URIResolver.
      */
 
-    public URIResolver getURIResolver() {
-        return contextObject.getURIResolver();
+    public ResourceResolver getResourceResolver() {
+        return contextObject.getResourceResolver();
     }
 
     /**

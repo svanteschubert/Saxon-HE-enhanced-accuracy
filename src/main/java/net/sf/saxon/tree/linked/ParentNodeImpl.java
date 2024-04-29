@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,33 +12,33 @@ package net.sf.saxon.tree.linked;
 import net.sf.saxon.event.Builder;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.CopyOptions;
+import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ArrayIterator;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.SingleNodeIterator;
-import net.sf.saxon.tree.jiter.MonoIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.function.Predicate;
 
 /**
  * ParentNodeImpl is an implementation of a non-leaf node (specifically, an Element node
  * or a Document node)
  *
- * @author Michael H. Kay
  */
 
 
 public abstract class ParentNodeImpl extends NodeImpl {
 
-    /*@Nullable*/ private Object children = null;       // null for no children
+    /*@Nullable*/ private Object _children = null;       // null for no _children
     // a NodeImpl for a single child
     // a NodeImpl[] for >1 child
 
@@ -69,73 +69,74 @@ public abstract class ParentNodeImpl extends NodeImpl {
     }
 
     /**
-     * Set the children of this node
+     * Set the _children of this node
      *
-     * @param children null if there are no children, a single NodeInfo if there is one child, an array of NodeInfo
-     *                 if there are multiple children
+     * @param children null if there are no _children, a single NodeInfo if there is one child, an array of NodeInfo
+     *                 if there are multiple _children
      */
 
     protected final void setChildren(Object children) {
-        this.children = children;
+        this._children = children;
     }
 
     /**
-     * Determine if the node has any children.
+     * Determine if the node has any _children.
      */
 
     @Override
     public final boolean hasChildNodes() {
-        return children != null;
+        return _children != null;
     }
 
-    /**
-     * Return the sequence of children of this node, as an {@code Iterable}. This
-     * method is designed to allow iteration over the children in a Java "for each" loop,
-     * in the form <code>for (NodeInfo child : children()) {...}</code>
-     *
-     * @return the children of the node, as an {@code Iterable}.
-     */
+//    /**
+//     * Return the sequence of _children of this node, as an {@code Iterable}. This
+//     * method is designed to allow iteration over the _children in a Java "for each" loop,
+//     * in the form <code>for (NodeInfo child : children()) {...}</code>
+//     *
+//     * @return the _children of the node, as an {@code Iterable}.
+//     */
+//
+//    @Override
+//    public Iterable<NodeImpl> children() {
+//        if (_children == null) {
+//            return Collections.emptyList();
+//        } else if (_children instanceof NodeImpl) {
+//            //noinspection Convert2Diamond
+//            return () -> new MonoIterator<NodeImpl>((NodeImpl) _children);
+//        } else {
+//            return Arrays.asList((NodeImpl[]) _children);
+//        }
+//    }
 
-    @Override
-    public Iterable<NodeImpl> children() {
-        if (children == null) {
-            return Collections.emptyList();
-        } else if (children instanceof NodeImpl) {
-            return () -> new MonoIterator<>((NodeImpl)children);
-        } else {
-            return Arrays.asList((NodeImpl[])children);
-        }
-    }
-
     /**
-     * Determine how many children the node has
+     * Determine how many _children the node has
      *
-     * @return the number of children of this parent node
+     * @return the number of _children of this parent node
      */
 
     public final int getNumberOfChildren() {
-        if (children == null) {
+        if (_children == null) {
             return 0;
-        } else if (children instanceof NodeImpl) {
+        } else if (_children instanceof NodeImpl) {
             return 1;
         } else {
-            return ((NodeInfo[]) children).length;
+            return ((NodeInfo[]) _children).length;
         }
     }
 
     /**
-     * Get an enumeration of the children of this node
+     * Get an enumeration of the _children of this node
      *
      * @param test A NodeTest to be satisfied by the child nodes, or null
      *             if all child node are to be returned
-     * @return an iterator over the children of this node
+     * @return an iterator over the _children of this node
      */
 
-    protected final AxisIterator iterateChildren(Predicate<? super NodeInfo> test) {
-        if (children == null) {
+    protected final AxisIterator iterateChildren(NodeTest test) {
+        if (_children == null) {
             return EmptyIterator.ofNodes();
-        } else if (children instanceof NodeImpl) {
-            NodeImpl child = (NodeImpl) children;
+        } else if (_children instanceof NodeImpl) {
+            NodeImpl child = (NodeImpl) _children;
             if (test == null || test == AnyNodeTest.getInstance()) {
                 return SingleNodeIterator.makeIterator(child);
             } else {
@@ -143,7 +144,7 @@ public abstract class ParentNodeImpl extends NodeImpl {
             }
         } else {
             if (test == null || test == AnyNodeTest.getInstance()) {
-                return new ArrayIterator.OfNodes((NodeImpl[]) children);
+                return new ArrayIterator.OfNodes<NodeImpl>((NodeImpl[]) _children);
             } else {
                 return new ChildEnumeration(this, test);
             }
@@ -154,37 +155,37 @@ public abstract class ParentNodeImpl extends NodeImpl {
     /**
      * Get the first child node of the element
      *
-     * @return the first child node of the required type, or null if there are no children
+     * @return the first child node of the required type, or null if there are no _children
      */
 
     /*@Nullable*/
     @Override
     public final NodeImpl getFirstChild() {
-        if (children == null) {
+        if (_children == null) {
             return null;
-        } else if (children instanceof NodeImpl) {
-            return (NodeImpl) children;
+        } else if (_children instanceof NodeImpl) {
+            return (NodeImpl) _children;
         } else {
-            return ((NodeImpl[]) children)[0];
+            return ((NodeImpl[]) _children)[0];
         }
     }
 
     /**
      * Get the last child node of the element
      *
-     * @return the last child of the element, or null if there are no children
+     * @return the last child of the element, or null if there are no _children
      */
 
     /*@Nullable*/
     @Override
     public final NodeImpl getLastChild() {
-        if (children == null) {
+        if (_children == null) {
             return null;
         }
-        if (children instanceof NodeImpl) {
-            return (NodeImpl) children;
+        if (_children instanceof NodeImpl) {
+            return (NodeImpl) _children;
         }
-        NodeImpl[] n = (NodeImpl[]) children;
+        NodeImpl[] n = (NodeImpl[]) _children;
         return n[n.length - 1];
     }
 
@@ -197,13 +198,13 @@ public abstract class ParentNodeImpl extends NodeImpl {
 
     /*@Nullable*/
     protected final NodeImpl getNthChild(int n) {
-        if (children == null) {
+        if (_children == null) {
             return null;
         }
-        if (children instanceof NodeImpl) {
-            return n == 0 ? (NodeImpl) children : null;
+        if (_children instanceof NodeImpl) {
+            return n == 0 ? (NodeImpl) _children : null;
         }
-        NodeImpl[] nodes = (NodeImpl[]) children;
+        NodeImpl[] nodes = (NodeImpl[]) _children;
         if (n < 0 || n >= nodes.length) {
             return null;
         }
@@ -217,18 +218,18 @@ public abstract class ParentNodeImpl extends NodeImpl {
      */
 
     protected void removeChild(NodeImpl child) {
-        if (children == null) {
+        if (_children == null) {
             return;
         }
-        if (children == child) {
-            children = null;
+        if (_children == child) {
+            _children = null;
             return;
         }
-        NodeImpl[] nodes = (NodeImpl[]) children;
+        NodeImpl[] nodes = (NodeImpl[]) _children;
         for (int i = 0; i < nodes.length; i++) {
             if (nodes[i] == child) {
                 if (nodes.length == 2) {
-                    children = nodes[1 - i];
+                    _children = nodes[1 - i];
                 } else {
                     NodeImpl[] n2 = new NodeImpl[nodes.length - 1];
                     if (i > 0) {
@@ -237,7 +238,7 @@ public abstract class ParentNodeImpl extends NodeImpl {
                     if (i < nodes.length - 1) {
                         System.arraycopy(nodes, i + 1, n2, i, nodes.length - i - 1);
                     }
-                    children = cleanUpChildren(n2);
+                    _children = cleanUpChildren(n2);
                 }
                 break;
             }
@@ -245,11 +246,11 @@ public abstract class ParentNodeImpl extends NodeImpl {
     }
 
     /**
-     * Tidy up the children of the node. Merge adjacent text nodes; remove zero-length text nodes;
-     * reallocate index numbers to each of the children
+     * Tidy up the _children of the node. Merge adjacent text nodes; remove zero-length text nodes;
+     * reallocate index numbers to each of the _children
      *
-     * @param children the existing children
-     * @return the replacement array of children
+     * @param children the existing _children
+     * @return the replacement array of _children
      */
 
     /*@NotNull*/
@@ -261,8 +262,8 @@ public abstract class ParentNodeImpl extends NodeImpl {
             if (node instanceof TextImpl) {
                 if (prevText) {
                     TextImpl prev = (TextImpl) c2[j - 1];
-                    prev.replaceStringValue(prev.getStringValue() + node.getStringValue());
-                } else if (!node.getStringValue().isEmpty()) {
+                    prev.replaceStringValue(prev.getUnicodeStringValue().concat(node.getUnicodeStringValue()));
+                } else if (!node.getUnicodeStringValue().isEmpty()) {
                     prevText = true;
                     node.setSiblingPosition(j);
                     c2[j++] = node;
@@ -289,29 +290,22 @@ public abstract class ParentNodeImpl extends NodeImpl {
      */
 
     @Override
-    public String getStringValue() {
-        return getStringValueCS().toString();
-    }
-
-
-    @Override
-    public CharSequence getStringValueCS() {
-        FastStringBuffer sb = null;
-
+    public UnicodeString getUnicodeStringValue() {
+        UnicodeBuilder sb = null;
         NodeImpl next = getFirstChild();
         while (next != null) {
             if (next instanceof TextImpl) {
                 if (sb == null) {
-                    sb = new FastStringBuffer(FastStringBuffer.C64);
+                    sb = new UnicodeBuilder();
                 }
-                sb.cat(next.getStringValueCS());
+                sb.accept(next.getUnicodeStringValue());
             }
             next = next.getNextInDocument(this);
         }
         if (sb == null) {
-            return "";
+            return EmptyUnicodeString.getInstance();
         }
-        return sb.condense();
+        return sb.toUnicodeString();
     }
 
     /**
@@ -326,13 +320,13 @@ public abstract class ParentNodeImpl extends NodeImpl {
 
     protected synchronized void addChild(/*@NotNull*/ NodeImpl node, int index) {
         NodeImpl[] c;
-        if (children == null) {
+        if (_children == null) {
             c = new NodeImpl[10];
-        } else if (children instanceof NodeImpl) {
+        } else if (_children instanceof NodeImpl) {
             c = new NodeImpl[10];
-            c[0] = (NodeImpl) children;
+            c[0] = (NodeImpl) _children;
         } else {
-            c = (NodeImpl[]) children;
+            c = (NodeImpl[]) _children;
         }
         if (index >= c.length) {
             c = Arrays.copyOf(c, c.length*2);
@@ -340,16 +334,16 @@ public abstract class ParentNodeImpl extends NodeImpl {
         c[index] = node;
         node.setRawParent(this);
         node.setSiblingPosition(index);
-        children = c;
+        _children = c;
     }
 
 
     /**
-     * Insert a sequence of nodes as children of this node.
+     * Insert a sequence of nodes as _children of this node.
      * <p>This method takes no action unless the target node is a document node or element node. It also
      * takes no action in respect of any supplied nodes that are not elements, text nodes, comments, or
      * processing instructions.</p>
-     * <p>The supplied nodes will form the new children. Adjacent text nodes will be merged, and
+     * <p>The supplied nodes will form the new _children. Adjacent text nodes will be merged, and
      * zero-length text nodes removed. The supplied nodes may be modified in situ, for example to change their
      * parent property and to add namespace bindings, or they may be copied, at the discretion of
      * the implementation.</p>
@@ -361,8 +355,8 @@ public abstract class ParentNodeImpl extends NodeImpl {
      *                to change their parent property and to add namespace bindings, if they are instances of
      *                {@link net.sf.saxon.tree.linked.ElementImpl}; otherwise they will be copied. If the nodes are copied, then on return
      *                the supplied source array will contain the copy rather than the original.
-     * @param atStart true if the new nodes are to be inserted before existing children; false if they are
-     *                to be inserted after existing children
+     * @param atStart true if the new nodes are to be inserted before existing _children; false if they are
+     *                to be inserted after existing _children
      * @param inherit true if the inserted nodes are to inherit the namespaces of their new parent; false
      *                if such namespaces are to be undeclared
      * @throws IllegalArgumentException if the supplied nodes use a node implementation that this
@@ -381,55 +375,55 @@ public abstract class ParentNodeImpl extends NodeImpl {
     /**
      * Insert children before or after a given existing child
      *
-     * @param source  the children to be inserted. We allow any kind of text, comment, or processing instruction
+     * @param source  the _children to be inserted. We allow any kind of text, comment, or processing instruction
      *                node, but element nodes must be instances of this NodeInfo implementation.
      * @param index   the position before which they are to be inserted: 0 indicates insertion before the
      *                first child, 1 insertion before the second child, and so on.
      * @param inherit true if the inserted nodes are to inherit the namespaces that are in-scope for their
-     *                new parent; false if such namespaces should be undeclared on the children
+     *                new parent; false if such namespaces should be undeclared on the _children
      */
 
-    synchronized void insertChildrenAt(/*@NotNull*/ NodeInfo[] source, int index, boolean inherit) {
+    synchronized protected void insertChildrenAt(/*@NotNull*/ NodeInfo[] source, int index, boolean inherit) {
         if (source.length == 0) {
             return;
         }
         NodeImpl[] source2 = adjustSuppliedNodeArray(source, inherit);
-        if (children == null) {
+        if (_children == null) {
             if (source2.length == 1) {
-                children = source2[0];
-                ((NodeImpl) children).setSiblingPosition(0);
+                _children = source2[0];
+                ((NodeImpl) _children).setSiblingPosition(0);
             } else {
-                children = cleanUpChildren(source2);
+                _children = cleanUpChildren(source2);
             }
-        } else if (children instanceof NodeImpl) {
+        } else if (_children instanceof NodeImpl) {
             int adjacent = index == 0 ? source2.length - 1 : 0;
-            if (children instanceof TextImpl && source2[adjacent] instanceof TextImpl) {
+            if (_children instanceof TextImpl && source2[adjacent] instanceof TextImpl) {
                 if (index == 0) {
                     source2[adjacent].replaceStringValue(
-                            source2[adjacent].getStringValue() + ((TextImpl) children).getStringValue());
+                            source2[adjacent].getUnicodeStringValue().concat(((TextImpl) _children).getUnicodeStringValue()));
                 } else {
                     source2[adjacent].replaceStringValue(
-                            ((TextImpl) children).getStringValue() + source2[adjacent].getStringValue());
+                            ((TextImpl) _children).getUnicodeStringValue().concat(source2[adjacent].getUnicodeStringValue()));
                 }
-                children = cleanUpChildren(source2);
+                _children = cleanUpChildren(source2);
             } else {
                 NodeImpl[] n2 = new NodeImpl[source2.length + 1];
                 if (index == 0) {
                     System.arraycopy(source2, 0, n2, 0, source2.length);
-                    n2[source2.length] = (NodeImpl) children;
+                    n2[source2.length] = (NodeImpl) _children;
                 } else {
-                    n2[0] = (NodeImpl) children;
+                    n2[0] = (NodeImpl) _children;
                     System.arraycopy(source2, 0, n2, 1, source2.length);
                 }
-                children = cleanUpChildren(n2);
+                _children = cleanUpChildren(n2);
             }
         } else {
-            NodeImpl[] n0 = (NodeImpl[]) children;
+            NodeImpl[] n0 = (NodeImpl[]) _children;
             NodeImpl[] n2 = new NodeImpl[n0.length + source2.length];
             System.arraycopy(n0, 0, n2, 0, index);
             System.arraycopy(source2, 0, n2, index, source2.length);
             System.arraycopy(n0, index, n2, index + source2.length, n0.length - index);
-            children = cleanUpChildren(n2);
+            _children = cleanUpChildren(n2);
         }
     }
 
@@ -440,15 +434,15 @@ public abstract class ParentNodeImpl extends NodeImpl {
             int kind = source.getNodeKind();
             switch (kind) {
                 case Type.TEXT:
-                    return new TextImpl(source.getStringValue());
+                    return new TextImpl(source.getUnicodeStringValue());
                 case Type.COMMENT:
-                    return new CommentImpl(source.getStringValue());
+                    return new CommentImpl(source.getUnicodeStringValue());
                 case Type.PROCESSING_INSTRUCTION:
-                    return new ProcInstImpl(source.getLocalPart(), source.getStringValue());
+                    return new ProcInstImpl(source.getLocalPart(), source.getUnicodeStringValue());
                 case Type.ELEMENT:
                     Builder builder = null;
                     try {
-                        builder = new LinkedTreeBuilder(getConfiguration().makePipelineConfiguration());
+                        builder = new LinkedTreeBuilder(getConfiguration().makePipelineConfiguration(), Durability.MUTABLE);
                         builder.open();
                         source.copy(builder, CopyOptions.ALL_NAMESPACES, Loc.NONE);
                         builder.close();
@@ -467,9 +461,9 @@ public abstract class ParentNodeImpl extends NodeImpl {
     }
 
     /**
-     * Replace child at a given index by new children
+     * Replace child at a given index by new _children
      *
-     * @param source  the children to be inserted
+     * @param source  the _children to be inserted
      * @param index   the position at which they are to be inserted: 0 indicates replacement of the
      *                first child, replacement of the second child, and so on. The effect is undefined if index
      *                is out of range
@@ -480,27 +474,27 @@ public abstract class ParentNodeImpl extends NodeImpl {
      */
 
     protected synchronized void replaceChildrenAt(/*@NotNull*/ NodeInfo[] source, int index, boolean inherit) {
-        if (children == null) {
+        if (_children == null) {
             return;
         }
         NodeImpl[] source2 = adjustSuppliedNodeArray(source, inherit);
-        if (children instanceof NodeImpl) {
+        if (_children instanceof NodeImpl) {
             if (source2.length == 0) {
-                children = null;
+                _children = null;
             } else if (source2.length == 1) {
-                children = source2[0];
+                _children = source2[0];
             } else {
                 NodeImpl[] n2 = new NodeImpl[source2.length];
                 System.arraycopy(source2, 0, n2, 0, source.length);
-                children = cleanUpChildren(n2);
+                _children = cleanUpChildren(n2);
             }
         } else {
-            NodeImpl[] n0 = (NodeImpl[]) children;
+            NodeImpl[] n0 = (NodeImpl[]) _children;
             NodeImpl[] n2 = new NodeImpl[n0.length + source2.length - 1];
             System.arraycopy(n0, 0, n2, 0, index);
             System.arraycopy(source2, 0, n2, index, source2.length);
             System.arraycopy(n0, index + 1, n2, index + source2.length, n0.length - index - 1);
-            children = cleanUpChildren(n2);
+            _children = cleanUpChildren(n2);
         }
     }
 
@@ -523,18 +517,18 @@ public abstract class ParentNodeImpl extends NodeImpl {
     /**
      * Compact the space used by this node
      *
-     * @param size the number of actual children
+     * @param size the number of actual _children
      */
 
     public synchronized void compact(int size) {
         if (size == 0) {
-            children = null;
+            _children = null;
         } else if (size == 1) {
-            if (children instanceof NodeImpl[]) {
-                children = ((NodeImpl[]) children)[0];
+            if (_children instanceof NodeImpl[]) {
+                _children = ((NodeImpl[]) _children)[0];
             }
         } else {
-            children = Arrays.copyOf((NodeImpl[])children, size);
+            _children = Arrays.copyOf((NodeImpl[]) _children, size);
         }
     }
 

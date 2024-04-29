@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,9 @@ package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
@@ -17,13 +20,13 @@ import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.function.Supplier;
 
 /**
  * Instruction representing an xsl:call-template element in the stylesheet.
@@ -32,12 +35,12 @@ import java.util.Arrays;
 public class CallTemplate extends Instruction implements ITemplateCall, ComponentInvocation {
 
     private NamedTemplate template; // Null only for saxon:call-template
-    private StructuredQName calledTemplateName;   // the name of the called template
+    private final StructuredQName calledTemplateName;   // the name of the called template
     private WithParam[] actualParams = WithParam.EMPTY_ARRAY;
     private WithParam[] tunnelParams = WithParam.EMPTY_ARRAY;
     private boolean useTailRecursion;
     private int bindingSlot = -1;
-    private boolean isWithinDeclaredStreamableConstruct;
+    private final boolean isWithinDeclaredStreamableConstruct;
 
     /**
      * Construct a CallTemplate instruction.
@@ -49,6 +52,8 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
      *                           where this is established dynamically
      * @param useTailRecursion true if the call is potentially tail recursive
      *                         where the name of the called template is to be calculated dynamically
+     * @param inStreamable true if the call-template instruction appears within a construct that is
+     *                     declared streamable, for example a streamable template rule
      */
 
     public CallTemplate(NamedTemplate template, StructuredQName calledTemplateName, boolean useTailRecursion, boolean inStreamable) {
@@ -76,6 +81,15 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
         for (WithParam tunnelParam : tunnelParams) {
             adoptChildExpression(tunnelParam.getSelectExpression());
         }
+    }
+
+    /**
+     * Mark the instruction as tail-recursive (or not)
+     * @param tailRecursive true if the call appears in a tail position
+     */
+
+    public void setTailRecursive(boolean tailRecursive) {
+        this.useTailRecursion = tailRecursive;
     }
 
     /**
@@ -233,12 +247,15 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(backwards);
         for (int p = 0; p < actualParams.length; p++) {
             WithParam wp = actualParams[p];
-            //int id = wp.getParameterId();
             NamedTemplate.LocalParamInfo lp = template.getLocalParamInfo(wp.getVariableQName());
             if (lp != null) {
+                final int pos = p;
                 SequenceType req = lp.requiredType;
-                RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.PARAM, wp.getVariableQName().getDisplayName(), p);
-                role.setErrorCode("XTTE0590");
+                Supplier<RoleDiagnostic> role = () -> {
+                    RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.PARAM, wp.getVariableQName().getDisplayName(), pos);
+                    role0.setErrorCode("XTTE0590");
+                    return role0;
+                };
                 Expression select = tc.staticTypeCheck(
                         wp.getSelectExpression(), req, role, visitor);
                 wp.setSelectExpression(this, select);
@@ -265,7 +282,7 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         if (template == null) {
             return StaticProperty.ALLOWS_ZERO_OR_MORE;
         } else {
@@ -344,16 +361,16 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
+
         NamedTemplate t;
         Component target = getFixedTarget();
         if (bindingSlot >= 0) {
             target = context.getTargetComponent(bindingSlot);
             if (target.isHiddenAbstractComponent()) {
-                XPathException err = new XPathException("Cannot call an abstract template (" +
+                throw new XPathException("Cannot call an abstract template (" +
                                                                 calledTemplateName.getDisplayName() +
-                                                                ") with no implementation", "XTDE3052");
-                err.setLocation(getLocation());
-                throw err;
+                                                                ") with no implementation", "XTDE3052")
+                        .withLocation(getLocation());
             }
         }
         t = (NamedTemplate) target.getActor();
@@ -370,69 +387,12 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
 
         try {
             TailCall tc = t.expand(output, c2);
-            while (tc != null) {
-                tc = tc.processLeavingTail();
-            }
+            dispatchTailCall(tc);
         } catch (StackOverflowError e) {
-            XPathException err = new XPathException.StackOverflow(
+            throw new XPathException.StackOverflow(
                     "Too many nested template or function calls. The stylesheet may be looping.",
-                    SaxonErrorCode.SXLM0001, getLocation());
-            err.setXPathContext(context);
-            throw err;
-        }
-    }
-
-    /**
-     * Process this instruction. If the called template contains a tail call (which may be
-     * an xsl:call-template or xsl:apply-templates instruction) then the tail call will not
-     * actually be evaluated, but will be returned in a TailCall object for the caller to execute.
-     *
-     *
-     * @param output the destination for the result
-     * @param context the dynamic context for this transformation
-     * @return an object containing information about the tail call to be executed by the
-     *         caller. Returns null if there is no tail call.
-     */
-
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        if (useTailRecursion) {
-            Component targetComponent;
-            if (bindingSlot >= 0) {
-                targetComponent = context.getTargetComponent(bindingSlot);
-            } else {
-                targetComponent = getFixedTarget();
-            }
-            if (targetComponent == null) {
-                throw new XPathException("Internal Saxon error: No binding available for call-template instruction", SaxonErrorCode.SXPK0001, this.getLocation());
-            }
-            if (targetComponent.isHiddenAbstractComponent()) {
-                throw new XPathException("Cannot call an abstract template (" +
-                                                 calledTemplateName.getDisplayName() +
-                                                 ") with no implementation", "XTDE3052", this.getLocation());
-            }
-
-            // handle parameters if any
-
-            ParameterSet params = assembleParams(context, actualParams);
-            ParameterSet tunnels = assembleTunnelParams(context, tunnelParams);
-
-            // Call the named template. Actually, don't call it; rather construct a call package
-            // and return it to the caller, who will then process this package.
-
-            //System.err.println("Call template using tail recursion");
-            if (params == null) {                  // bug 490967
-                params = ParameterSet.EMPTY_PARAMETER_SET;
-            }
-
-            // clear all the local variables: they are no longer needed
-            Arrays.fill(context.getStackFrame().getStackFrameValues(), null);
-
-            return new CallTemplatePackage(targetComponent, params, tunnels, this, output, context);
-
-        } else {
-            process(output, context);
-            return null;
+                    SaxonErrorCode.SXLM0001, getLocation())
+                    .withXPathContext(context);
         }
     }
 
@@ -482,12 +442,12 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
 
     public static class CallTemplatePackage implements TailCall {
 
-        private Component targetComponent;
-        private ParameterSet params;
-        private ParameterSet tunnelParams;
-        private CallTemplate instruction;
-        private Outputter output;
-        private XPathContext evaluationContext;
+        private final Component targetComponent;
+        private final ParameterSet params;
+        private final ParameterSet tunnelParams;
+        private final CallTemplate instruction;
+        private final Outputter output;
+        private final XPathContext evaluationContext;
 
         /**
          * Construct a CallTemplatePackage that contains information about a call.
@@ -496,6 +456,7 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
          * @param params            the parameters to be supplied to the called template
          * @param tunnelParams      the tunnel parameter supplied to the called template
          * @param instruction       the xsl:call-template instruction
+         * @param output            the destination for the result
          * @param evaluationContext saved context information from the Controller (current mode, etc)
          *                          which must be reset to ensure that the template is called with all the context information
          *                          intact
@@ -530,10 +491,13 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
 
         @Override
         public TailCall processLeavingTail() throws XPathException {
+
             // TODO: the idea of tail call optimization is to reuse the caller's stack frame rather than
-            // creating a new one. We're doing this for the Java stack, but not for the context stack where
-            // local variables are held. It should be possible to avoid creating a new context, and instead
-            // to update the existing one in situ.
+            //  creating a new one. We're doing this for the Java stack, but not for the context stack where
+            //  local variables are held. It should be possible to avoid creating a new context, and instead
+            //  to update the existing one in situ. Experimented with this June 2022 (MHK) and it looks possible
+            //  in principle, but I hit trouble getting the current component right.
+
             NamedTemplate template = (NamedTemplate)targetComponent.getActor();
             XPathContextMajor c2 = evaluationContext.newContext();
             c2.setCurrentComponent(targetComponent);
@@ -542,6 +506,9 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
             c2.setTunnelParameters(tunnelParams);
             c2.openStackFrame(template.getStackFrameMap());
             c2.setCurrentMergeGroupIterator(null);
+
+            // Drop the link to the caller, so it can be garbage-collected
+            c2.setCaller(evaluationContext.getMajorContext().getCaller());
 
             // System.err.println("Tail call on template");
 
@@ -552,7 +519,7 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
     @Override
     public String toString() {
         // fallback implementation
-        FastStringBuffer buff = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder buff = new StringBuilder(64);
         buff.append("CallTemplate#");
         if (template.getObjectName() != null) {
             buff.append(template.getObjectName().getDisplayName());
@@ -574,10 +541,7 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
     @Override
     public String toShortString() {
         // fallback implementation
-        FastStringBuffer buff = new FastStringBuffer(FastStringBuffer.C64);
-        buff.append("CallTemplate#");
-        buff.append(template.getObjectName().getDisplayName());
-        return buff.toString();
+        return "CallTemplate#" + template.getObjectName().getDisplayName();
     }
 
     @Override
@@ -585,5 +549,101 @@ public class CallTemplate extends Instruction implements ITemplateCall, Componen
         return "CallTemplate";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new CallTemplateElaborator();
+    }
+
+    public static class CallTemplateElaborator extends PushElaborator {
+
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            CallTemplate expr = (CallTemplate)getExpression();
+            final int bindingSlot = expr.getBindingSlot();
+            if (expr.useTailRecursion) {
+                return (output, context) -> {
+                    Component targetComponent;
+                    if (bindingSlot >= 0) {
+                        targetComponent = context.getTargetComponent(bindingSlot);
+                    } else {
+                        targetComponent = expr.getFixedTarget();
+                    }
+                    if (targetComponent == null) {
+                        throw new XPathException("Internal Saxon error: No binding available for call-template instruction",
+                                                 SaxonErrorCode.SXPK0001, expr.getLocation());
+                    }
+                    if (targetComponent.isHiddenAbstractComponent()) {
+                        throw new XPathException("Cannot call an abstract template (" +
+                                                         expr.calledTemplateName.getDisplayName() +
+                                                         ") with no implementation", "XTDE3052", expr.getLocation());
+                    }
+
+                    // handle parameters if any
+
+                    ParameterSet params = assembleParams(context, expr.actualParams);
+                    ParameterSet tunnels = assembleTunnelParams(context, expr.tunnelParams);
+
+                    // Call the named template. Actually, don't call it; rather construct a call package
+                    // and return it to the caller, who will then process this package.
+
+                    //System.err.println("Call template using tail recursion");
+                    if (params == null) {                  // bug 490967
+                        params = ParameterSet.EMPTY_PARAMETER_SET;
+                    }
+
+                    // clear all the local variables: they are no longer needed
+                    Arrays.fill(context.getStackFrame().getStackFrameValues(), null);
+
+                    return new CallTemplatePackage(targetComponent, params, tunnels, expr, output, context);
+                };
+
+            } else {
+                return (output, context) -> {
+                    NamedTemplate t;
+                    Component target = expr.getFixedTarget();
+                    if (bindingSlot >= 0) {
+                        target = context.getTargetComponent(bindingSlot);
+                        if (target.isHiddenAbstractComponent()) {
+                            throw new XPathException("Cannot call an abstract template (" +
+                                                                            expr.calledTemplateName.getDisplayName() +
+                                                                            ") with no implementation", "XTDE3052")
+                                    .withLocation(expr.getLocation());
+                        }
+                    }
+                    t = (NamedTemplate) target.getActor();
+                    XPathContextMajor c2 = context.newContext();
+                    c2.setCurrentComponent(target);
+                    c2.setOrigin(expr);
+                    c2.openStackFrame(t.getStackFrameMap());
+                    c2.setLocalParameters(assembleParams(context, expr.actualParams));
+                    c2.setTunnelParameters(assembleTunnelParams(context, expr.tunnelParams));
+                    if (expr.isWithinDeclaredStreamableConstruct) {
+                        c2.setCurrentGroupIterator(null);
+                    }
+                    c2.setCurrentMergeGroupIterator(null);
+
+                    try {
+                        TailCall tc = t.expand(output, c2);
+                        dispatchTailCall(tc);
+                    } catch (StackOverflowError e) {
+                        throw new XPathException.StackOverflow(
+                                "Too many nested template or function calls. The stylesheet may be looping.",
+                                SaxonErrorCode.SXLM0001, expr.getLocation())
+                                .withXPathContext(context);
+                    }
+                    return null;
+                };
+            }
+
+
+        }
+    }
 }
 

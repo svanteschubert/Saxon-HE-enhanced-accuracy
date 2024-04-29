@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,9 @@ package net.sf.saxon.z;
 /**
  * An immutable integer set containing no integers
  */
-public class IntEmptySet implements IntSet {
+public class IntEmptySet extends IntSet {
 
-    private static IntEmptySet THE_INSTANCE = new IntEmptySet();
+    private static final IntEmptySet THE_INSTANCE = new IntEmptySet();
 
     public static IntEmptySet getInstance() {
         return THE_INSTANCE;
@@ -70,17 +70,19 @@ public class IntEmptySet implements IntSet {
 
     @Override
     public IntIterator iterator() {
-        return new IntIterator() {
-            @Override
-            public boolean hasNext() {
-                return false;
-            }
+        return new EmptyIntIterator();
+    }
 
-            @Override
-            public int next() {
-                return Integer.MIN_VALUE;
-            }
-        };
+    private static class EmptyIntIterator implements IntIterator {
+        @Override
+        public boolean hasNext() {
+            return false;
+        }
+
+        @Override
+        public int next() {
+            return Integer.MIN_VALUE;
+        }
     }
 
     @Override

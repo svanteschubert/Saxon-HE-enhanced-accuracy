@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,9 @@
 
 package net.sf.saxon.z;
 
-import java.io.PrintStream;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
@@ -19,6 +21,15 @@ import java.util.NoSuchElementException;
  * @author Michael Kay: retrofitted to JDK 1.4, added iterator(), modified to disallow null values
  *         Reverted to generics July 2008.
  */
+
+
+@CSharpInjectMembers(code={""
+        + "public class IntHashMapValueSet<V> : System.Collections.Generic.IEnumerable<V> {"
+        + "    internal readonly IntHashMap<V> container;"
+        + "    public IntHashMapValueSet(IntHashMap<V> container) {this.container = container;}"
+        + "    public System.Collections.Generic.IEnumerator<V> GetEnumerator() {return container.valueIterator();}"
+        + "    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() {return GetEnumerator();}"
+        + "}"})
 
 public class IntHashMap<T> {
 
@@ -62,8 +73,18 @@ public class IntHashMap<T> {
     public void clear() {
         _n = 0;
         for (int i = 0; i < _nmax; ++i) {
-            _value[i] = null;
+            _value[i] = nullValue();
         }
+    }
+
+    @CSharpReplaceBody(code="return default(T);")
+    private T nullValue() {
+        return null;
+    }
+
+    @CSharpReplaceBody(code = "return object.Equals(value, default(T));")
+    private boolean isNull(T value) {
+        return value == null;
     }
 
     /**
@@ -101,13 +122,13 @@ public class IntHashMap<T> {
         --_n;
         for (; ; ) {
             //_filled[i] = false;
-            _value[i] = null;
+            _value[i] = nullValue();
             int j = i;
             int r;
             do {
                 i = (i - 1) & _mask;
                 //if (!_filled[i]) {
-                if (_value[i] == null) {
+                if (isNull(_value[i])) {
                     return true;
                 }
                 r = hash(_key[i]);
@@ -126,12 +147,12 @@ public class IntHashMap<T> {
      * @return the value that was previously associated with the key, or null if there was no previous value
      */
     public T put(int key, /*@Nullable*/ T value) {
-        if (value == null) {
+        if (isNull(value)) {
             throw new NullPointerException("IntHashMap does not allow null values");
         }
         int i = indexOf(key);
         T old = _value[i];
-        if (old != null) {
+        if (!isNull(old)) {
             _value[i] = value;
         } else {
             _key[i] = key;
@@ -147,7 +168,7 @@ public class IntHashMap<T> {
 
     private static final int NBIT = 30; // NMAX = 2^NBIT
     private static final int NMAX = 1 << NBIT; // maximum number of keys mapped
-    private double _factor; // 0.0 <= _factor <= 1.0
+    private final double _factor; // 0.0 <= _factor <= 1.0
     private int _nmax; // 0 <= _nmax = 2^nbit <= 2^NBIT = NMAX
     private int _n; // 0 <= _n <= _nmax <= NMAX
     private int _nlo; // _nmax*_factor (_n<=_nlo, if possible)
@@ -169,7 +190,7 @@ public class IntHashMap<T> {
     private int indexOf(int key) {
         int i = hash(key);
         //while (_filled[i]) {
-        while (_value[i] != null) {
+        while (!isNull(_value[i])) {
             if (_key[i] == key) {
                 return i;
             }
@@ -212,16 +233,21 @@ public class IntHashMap<T> {
         _n = 0;
         _key = new int[nmax];
         // semantically equivalent to _value = new V[nmax]
-        _value = (T[]) new Object[nmax];
+        _value = makeValueArray(nmax);
         //_filled = new boolean[nmax];
         if (key != null) {
             for (int i = 0; i < nold; ++i) {
                 //if (filled[i]) {
-                if (value[i] != null) {
+                if (!isNull(value[i])) {
                     put(key[i], value[i]);
                 }
             }
         }
+    }
+
+    @CSharpReplaceBody(code="return new T[size];")
+    private T[] makeValueArray(int size) {
+        return (T[]) new Object[size];
     }
 
     /**
@@ -230,8 +256,9 @@ public class IntHashMap<T> {
      * @return an iterator over the integer keys in the map
      */
 
+    @CSharpReplaceBody(code="return new Saxon.Hej.z.IntHashMap<T>.IntHashMapKeyIterator<T>(this);")
     public IntIterator keyIterator() {
-        return new IntHashMapKeyIterator();
+        return new IntHashMapKeyIterator<T>(this);
     }
 
     /**
@@ -240,22 +267,19 @@ public class IntHashMap<T> {
      * @return an iterator over the values in the map
      */
 
+    @CSharpReplaceBody(code = "return new Saxon.Hej.z.IntHashMap<T>.IntHashMapValueIterator<T>(this);")
     public Iterator<T> valueIterator() {
-        return new IntHashMapValueIterator();
+        return new IntHashMapValueIterator<T>(this);
     }
 
     /**
-     * Get the set of values
+     * Get the collection of values. (Despite the name, this is not a set: it may contain duplicates.)
      * @return the set of values as an iterable collection
      */
 
+    @CSharpReplaceBody(code = "return new Saxon.Hej.z.IntHashMap<T>.IntHashMapValueSet<T>(this);")
     public Iterable<T> valueSet() {
-        return new Iterable<T>() {
-            @Override
-            public Iterator<T> iterator() {
-                return valueIterator();
-            }
-        };
+        return this::valueIterator;
     }
 
     /**
@@ -265,7 +289,7 @@ public class IntHashMap<T> {
      */
 
     public IntHashMap<T> copy() {
-        IntHashMap<T> n = new IntHashMap<T>(size());
+        IntHashMap<T> n = new IntHashMap<>(size());
         IntIterator it = keyIterator();
         while (it.hasNext()) {
             int k = it.next();
@@ -274,34 +298,37 @@ public class IntHashMap<T> {
         return n;
     }
 
-    /**
-     * Diagnostic display of contents
-     */
-
-    public void display(PrintStream ps) {
-        IntIterator iter = new IntHashMapKeyIterator();
-        while (iter.hasNext()) {
-            int key = iter.next();
-            Object value = get(key);
-            ps.println(key + " -> " + value.toString());
-        }
-    }
+//    /**
+//     * Diagnostic display of contents
+//     */
+//
+//    public void display(PrintStream ps) {
+//        IntIterator iter = new IntHashMapKeyIterator<T>(this);
+//        while (iter.hasNext()) {
+//            int key = iter.next();
+//            Object value = get(key);
+//            ps.println(key + " -> " + value.toString());
+//        }
+//    }
 
     /**
      * Iterator over keys
+     * @implNote implemented as a static inner class for ease of conversion to C#
      */
-    private class IntHashMapKeyIterator implements IntIterator {
+    private static class IntHashMapKeyIterator<V> implements IntIterator {
 
         private int i = 0;
+        private final IntHashMap<V> map;
 
-        public IntHashMapKeyIterator() {
+        public IntHashMapKeyIterator(IntHashMap<V> map) {
+            this.map = map;
             i = 0;
         }
 
         @Override
         public boolean hasNext() {
-            while (i < _key.length) {
-                if (_value[i] != null) {
+            while (i < map._key.length) {
+                if (!map.isNull(map._value[i])) {
                     return true;
                 } else {
                     i++;
@@ -312,25 +339,28 @@ public class IntHashMap<T> {
 
         @Override
         public int next() {
-            return _key[i++];
+            return map._key[i++];
         }
     }
 
     /**
      * Iterator over values
+     * @implNote implemented as a static inner class for ease of conversion to C#
      */
-    private class IntHashMapValueIterator implements Iterator<T> {
+    private static class IntHashMapValueIterator<W> implements Iterator<W> {
 
         private int i = 0;
+        private final IntHashMap<W> map;
 
-        public IntHashMapValueIterator() {
+        public IntHashMapValueIterator(IntHashMap<W> map) {
+            this.map = map;
             i = 0;
         }
 
         @Override
         public boolean hasNext() {
-            while (i < _key.length) {
-                if (_value[i] != null) {
+            while (i < map._key.length) {
+                if (!map.isNull(map._value[i])) {
                     return true;
                 } else {
                     i++;
@@ -340,9 +370,9 @@ public class IntHashMap<T> {
         }
 
         @Override
-        public T next() {
-            T temp = _value[i++];
-            if (temp == null) {
+        public W next() {
+            W temp = map._value[i++];
+            if (map.isNull(temp)) {
                 throw new NoSuchElementException();
             }
             return temp;
@@ -352,7 +382,7 @@ public class IntHashMap<T> {
          * Removes from the underlying collection the last element returned by the
          * iterator (optional operation).
          *
-         * @throws UnsupportedOperationException if the <tt>remove</tt>
+         * @throws UnsupportedOperationException if the <code>remove</code>
          *                                       operation is not supported by this Iterator.
          */
         @Override
@@ -367,88 +397,99 @@ public class IntHashMap<T> {
      * @return the set of integer keys present in this IntHashSet
      */
 
+    @CSharpReplaceBody(code="return new Saxon.Hej.z.IntHashMap<T>.IntHashMapKeySet<T>(this);")
     public IntSet keySet() {
-        return new IntSet() {
-            @Override
-            public void clear() {
-                throw new UnsupportedOperationException("Immutable set");
-            }
-
-            @Override
-            public IntSet copy() {
-                IntHashSet s = new IntHashSet();
-                IntIterator ii = iterator();
-                while (ii.hasNext()) {
-                    s.add(ii.next());
-                }
-                return s;
-            }
-
-            @Override
-            public IntSet mutableCopy() {
-                return copy();
-            }
-
-            @Override
-            public boolean isMutable() {
-                return false;
-            }
-
-            @Override
-            public int size() {
-                return _n;
-            }
-
-            @Override
-            public boolean isEmpty() {
-                return _n == 0;
-            }
-
-            @Override
-            public boolean contains(int key) {
-                return _value[indexOf(key)] != null;
-            }
-
-            @Override
-            public boolean remove(int value) {
-                throw new UnsupportedOperationException("Immutable set");
-            }
-
-            @Override
-            public boolean add(int value) {
-                throw new UnsupportedOperationException("Immutable set");
-            }
-
-            @Override
-            public IntIterator iterator() {
-                return new IntHashMapKeyIterator();
-            }
-
-            @Override
-            public IntSet union(IntSet other) {
-                return copy().union(other);
-            }
-
-            @Override
-            public IntSet intersect(IntSet other) {
-                return copy().intersect(other);
-            }
-
-            @Override
-            public IntSet except(IntSet other) {
-                return copy().except(other);
-            }
-
-            @Override
-            public boolean containsAll(IntSet other) {
-                return copy().containsAll(other);
-            }
-
-            public String toString() {
-                return IntHashSet.toString(iterator());
-            }
-        };
+        return new IntHashMapKeySet<T>(this);
     }
+
+    private static class IntHashMapKeySet<U> extends IntSet {
+        private final IntHashMap<U> map;
+        public IntHashMapKeySet(IntHashMap<U> map) {
+            this.map = map;
+        }
+
+        @Override
+        public void clear() {
+            throw new UnsupportedOperationException("Immutable set");
+        }
+
+        @Override
+        public IntSet copy() {
+            IntHashSet s = new IntHashSet();
+            IntIterator ii = iterator();
+            while (ii.hasNext()) {
+                s.add(ii.next());
+            }
+            return s;
+        }
+
+        @Override
+        public IntSet mutableCopy() {
+            return copy();
+        }
+
+        @Override
+        public boolean isMutable() {
+            return false;
+        }
+
+        @Override
+        public int size() {
+            return map._n;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return map._n == 0;
+        }
+
+        @Override
+        public boolean contains(int key) {
+            return map._value[map.indexOf(key)] != null;
+        }
+
+        @Override
+        public boolean remove(int value) {
+            throw new UnsupportedOperationException("Immutable set");
+        }
+
+        @Override
+        public boolean add(int value) {
+            throw new UnsupportedOperationException("Immutable set");
+        }
+
+        @Override
+        @CSharpReplaceBody(code="return new Saxon.Hej.z.IntHashMap<U>.IntHashMapKeyIterator<U>(map);")
+        public IntIterator iterator() {
+            return new IntHashMapKeyIterator<U>(map);
+        }
+
+        @Override
+        public IntSet union(IntSet other) {
+            return copy().union(other);
+        }
+
+        @Override
+        public IntSet intersect(IntSet other) {
+            return copy().intersect(other);
+        }
+
+        @Override
+        public IntSet except(IntSet other) {
+            return copy().except(other);
+        }
+
+        @Override
+        public boolean containsAll(IntSet other) {
+            return copy().containsAll(other);
+        }
+
+        public String toString() {
+            return IntHashSet.stringify(iterator());
+        }
+    }
+
+
 
 }
 

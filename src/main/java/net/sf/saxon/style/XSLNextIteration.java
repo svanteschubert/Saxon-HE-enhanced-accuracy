@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.expr.instruct.WithParam;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.pattern.NodeSelector;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
@@ -42,14 +43,14 @@ public class XSLNextIteration extends XSLBreakOrContinue {
                 }
             } else if (child.getNodeKind() == Type.TEXT) {
                 // with xml:space=preserve, white space nodes may still be there
-                if (!Whitespace.isWhite(child.getStringValueCS())) {
+                if (!Whitespace.isAllWhite(child.getUnicodeStringValue())) {
                     compileError("No character data is allowed within xsl:next-iteration", "XTSE0010");
                 }
             } else {
                 compileError("Child element " + Err.wrap(child.getDisplayName(), Err.ELEMENT) +
                                      " is not allowed as a child of xsl:next-iteration", "XTSE0010");
             }
-        };
+        }
     }
 
     @Override
@@ -84,7 +85,7 @@ public class XSLNextIteration extends XSLBreakOrContinue {
     }
 
     public SequenceType getDeclaredParamType(StructuredQName name) {
-        for (NodeInfo param : xslIterate.children(XSLLocalParam.class::isInstance)) {
+        for (NodeInfo param : xslIterate.children(NodeSelector.of(XSLLocalParam.class::isInstance))) {
             if (((XSLLocalParam)param).getVariableQName().equals(name)) {
                 return ((XSLLocalParam) param).getRequiredType();
             }
@@ -99,6 +100,7 @@ public class XSLNextIteration extends XSLBreakOrContinue {
         call.setRetainedStaticContext(makeRetainedStaticContext());
         WithParam[] actualParams = getWithParamInstructions(call, exec, decl, false);
         call.setParameters(actualParams);
+        call.setLocation(saveLocation());
 
         // For all declared parameters of the xsl:iterate instruction that are not present in the
         // actual parameters of the xsl:next-iteration, add an implicit <xsl:with-param name="p" select="$p"/>

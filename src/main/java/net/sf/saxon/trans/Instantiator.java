@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,8 +14,8 @@ import net.sf.saxon.Configuration;
  */
 public class Instantiator<T> implements Maker<T> {
 
-    private String className;
-    private Configuration config;
+    private final String className;
+    private final Configuration config;
 
     public Instantiator(String className, Configuration config) {
         this.className = className;
@@ -30,7 +30,7 @@ public class Instantiator<T> implements Maker<T> {
 
     @Override
     public T make() throws XPathException {
-        Object o = config.getInstance(className, null);
+        Object o = config.getInstance(className);
         try {
             return (T)o;
         } catch (ClassCastException e) {
@@ -40,4 +40,4 @@ public class Instantiator<T> implements Maker<T> {
 
 }
 
-// Copyright (c) 2015-2020 Saxonica Limited
+// Copyright (c) 2015-2023 Saxonica Limited

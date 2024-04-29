@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,7 @@ package net.sf.saxon.option.local;
 
 import net.sf.saxon.expr.number.Numberer_en;
 import net.sf.saxon.expr.number.NumericGroupFormatter;
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.str.UnicodeString;
 
 
 /**
@@ -29,11 +28,12 @@ public class Numberer_he extends Numberer_en {
      * @param numGroupFormatter object contains separators to appear between groups of digits
      * @param letterValue       The letter-value specified to xsl:number: "alphabetic" or
      *                          "traditional". Can also be an empty string or null.
+     * @param cardinal
      * @param ordinal           The value of the ordinal attribute specified to xsl:number
      *                          The value "yes" indicates that ordinal numbers should be used; "" or null indicates
      *                          that cardinal numbers
      * @return the formatted number. Note that no errors are reported; if the request
-     *         is invalid, the number is formatted as if the string() function were used.
+     * is invalid, the number is formatted as if the string() function were used.
      */
 
     @Override
@@ -41,14 +41,14 @@ public class Numberer_he extends Numberer_en {
                          UnicodeString picture,
                          NumericGroupFormatter numGroupFormatter,
                          String letterValue,
-                         String ordinal) {
+                         String cardinal, String ordinal) {
 
-        FastStringBuffer sb = new FastStringBuffer(16);
-        int formchar = picture.uCharAt(0);
+        StringBuilder sb = new StringBuilder(16);
+        int formchar = picture.codePointAt(0);
 
         /* only catch traditional formatting. */
         if (!"traditional".equals(letterValue)) {
-            return super.format(number, picture, numGroupFormatter, letterValue, ordinal);
+            return super.format(number, picture, numGroupFormatter, letterValue, cardinal, ordinal);
         }
 
         switch (formchar) {
@@ -59,7 +59,7 @@ public class Numberer_he extends Numberer_en {
                 sb.append(toTraditionalSequence(number, numGroupFormatter.getSeparator()));
                 break;
             default:
-                return super.format(number, picture, numGroupFormatter, letterValue, ordinal);
+                return super.format(number, picture, numGroupFormatter, letterValue, cardinal, ordinal);
         }
 
         return sb.toString();
@@ -69,8 +69,8 @@ public class Numberer_he extends Numberer_en {
      * Convert a number to traditional Hebrew representation.
      * All parameters are the same as for format()
      *
-     * @param number
-     * @param groupSeparator
+     * @param number the number to be formatted
+     * @param groupSeparator the grouping separator, if required (may be null)
      * @return The number in traditional Hebrew.  The result for numbers above 9999
      *         is not really well-defined.  Neither is 0.
      */
@@ -125,15 +125,15 @@ public class Numberer_he extends Numberer_en {
 
     }
 
-    private static String[] hebrewUnits = {
+    private static final String[] hebrewUnits = {
             "", "\u05d0", "\u05d1", "\u05d2", "\u05d3", "\u05d4", "\u05d5", "\u05d6", "\u05d7", "\u05d8",
             "\u05d9"};
 
-    private static String[] hebrewTens = {
+    private static final String[] hebrewTens = {
             "", "\u05d9", "\u05db", "\u05dc", "\u05de", "\u05e0", "\u05e1",
             "\u05e2", "\u05e4", "\u05e6"};
 
-    private static String[] hebrewHundreds = {
+    private static final String[] hebrewHundreds = {
             "", "\u05e7", "\u05e8", "\u05e9", "\u05ea", "\u05ea\u05e7",
             "\u05ea\u05e8", "\u05ea\u05e9", "\u05ea\u05ea", "\u05ea\u05ea\u05e7"};
 

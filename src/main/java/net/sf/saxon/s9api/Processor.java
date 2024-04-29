@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,8 +18,12 @@ import net.sf.saxon.lib.*;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.push.Push;
 import net.sf.saxon.serialize.SerializationProperties;
+import net.sf.saxon.trans.CommandLineOptions;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.SequenceType;
 
 import javax.xml.transform.Source;
@@ -27,6 +31,7 @@ import java.io.File;
 import java.io.OutputStream;
 import java.io.Writer;
 import java.text.RuleBasedCollator;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Objects;
 
@@ -41,13 +46,28 @@ import java.util.Objects;
  * compile the query or stylesheet.</p>
  */
 
+@CSharpModifiers(code={"internal"})
 public class Processor implements Configuration.ApiProvider {
 
     private Configuration config;
     private SchemaManager schemaManager;
 
+
     /**
-     * Create a Processor
+     * Create a Processor according to the capabilities available.
+     * <p>This will examine what software is installed, and whether or not a license key is available,
+     * and return the most capable configuration available within these constraints. For example
+     * if the software is Saxon-EE but the license only allows PE capability, it will return
+     * a processor with Saxon-PE capabilities.</p>
+     * @since 12.0
+     */
+
+    public Processor() {
+        this(Configuration.newLicensedConfiguration());
+    }
+
+    /**
+     * Create a Processor, specifying whether a licensed configuration is required
      *
      * @param licensedEdition indicates whether the Processor requires features of Saxon that need a license
      *                        file (that is, features not available in Saxon HE (Home Edition). If true, the method will create
@@ -108,7 +128,7 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a DocumentBuilder. A DocumentBuilder is used to load source XML documents.
+     * Create a {@code DocumentBuilder}. A DocumentBuilder is used to load source XML documents.
      *
      * @return a newly created DocumentBuilder
      */
@@ -116,6 +136,18 @@ public class Processor implements Configuration.ApiProvider {
     /*@NotNull*/
     public DocumentBuilder newDocumentBuilder() {
         return new DocumentBuilder(config);
+    }
+
+    /**
+     * Create a {@code JsonBuilder}. A {@code JsonBuilder} is used to load source JSON documents.
+     *
+     * @return a newly created {@code JsonBuilder}
+     * @since 11
+     */
+
+    /*@NotNull*/
+    public JsonBuilder newJsonBuilder() {
+        return new JsonBuilder(getUnderlyingConfiguration());
     }
 
     /**
@@ -217,6 +249,7 @@ public class Processor implements Configuration.ApiProvider {
      * application to construct events (such as {@code startElement()}, {@code text()},
      * and {@code endElement()}) and send them to a specified {@link Destination}.
      *
+     * @param destination the destination
      * @return a new recipient of {@link Push} events.
      * @throws SaxonApiException if the {@link Destination} is not able to handle the request.
      */
@@ -226,7 +259,6 @@ public class Processor implements Configuration.ApiProvider {
         SerializationProperties props = new SerializationProperties();
         return new PushToReceiver(destination.getReceiver(pipe, props));
     }
-
     /**
      * Register a simple external/extension function that is to be made available within any stylesheet, query,
      * or XPath expression compiled under the control of this processor.
@@ -263,6 +295,7 @@ public class Processor implements Configuration.ApiProvider {
             throw new IllegalArgumentException(err);
         }
     }
+
 
     /**
      * Get the associated SchemaManager. The SchemaManager provides capabilities to load and cache
@@ -361,6 +394,7 @@ public class Processor implements Configuration.ApiProvider {
      * @deprecated since 9.9 - use {@link #setConfigurationProperty(Feature, Object)}
      */
 
+    @Deprecated
     public void setConfigurationProperty(/*@NotNull*/ String name, /*@NotNull*/ Object value) {
         if (name.equals(FeatureKeys.CONFIGURATION)) {
             config = (Configuration) value;
@@ -382,6 +416,7 @@ public class Processor implements Configuration.ApiProvider {
 
 
     /*@Nullable*/
+    @Deprecated
     public Object getConfigurationProperty(/*@NotNull*/ String name) {
         return config.getConfigurationProperty(name);
     }
@@ -393,11 +428,18 @@ public class Processor implements Configuration.ApiProvider {
      *              as constants in class {@link net.sf.saxon.lib.Feature}.
      * @param value the value of the option to be set (which must be of the appropriate type for the
      *              particular feature.
+     * @param <T> the type of the value required by the feature (often boolean or string)
      * @throws IllegalArgumentException if the supplied value is not a valid value for the selected feature.
      * @since 9.9 introduced to give a faster and type-safe alternative to
      * {@link #setConfigurationProperty(String, Object)}
      */
 
+    @CSharpReplaceBody(code=""
+            + "    if ((feature.code==Saxon.Hej.lib.FeatureCode.CONFIGURATION)) {"
+            + "        config = (Saxon.Hej.Configuration)(object)value;"
+            + "    } else {\n"
+            + "        config.setConfigurationProperty(feature, value);"
+            + "    }")
     public <T> void setConfigurationProperty(Feature<T> feature, T value) {
         if (feature == Feature.CONFIGURATION) {
             config = (Configuration) value;
@@ -411,6 +453,7 @@ public class Processor implements Configuration.ApiProvider {
      *
      * @param feature the option required. The names of the properties available are listed
      *             as constants in class {@link net.sf.saxon.lib.Feature}.
+     * @param <T> the type of the feature (often boolean or string)
      * @return the value of the property, if one is set; or null if the property is unset and there is
      * no default.
      * @since 9.9 introduced to give a faster and type-safe alternative to
@@ -434,22 +477,59 @@ public class Processor implements Configuration.ApiProvider {
      * @since 9.6. Changed in 9.8 to allow any Comparator to be supplied as a collation
      */
 
-    public void declareCollation(String uri, final Comparator collation) {
+    public void  declareCollation(String uri, final Comparator<? super String> collation) {
         if (uri.equals(NamespaceConstant.CODEPOINT_COLLATION_URI)) {
             throw new IllegalArgumentException("Cannot redeclare the Unicode codepoint collation URI");
         }
         if (uri.equals(NamespaceConstant.HTML5_CASE_BLIND_COLLATION_URI)) {
             throw new IllegalArgumentException("Cannot redeclare the HTML5 caseblind collation URI");
         }
-        StringCollator saxonCollation;
-        if (collation instanceof RuleBasedCollator) {
-            saxonCollation = new RuleBasedSubstringMatcher(uri, (RuleBasedCollator) collation);
-        } else {
-            saxonCollation = new SimpleCollation(uri, collation);
-        }
+        StringCollator saxonCollation = makeStringCollator(uri, collation);
         config.registerCollation(uri, saxonCollation);
     }
 
+    @CSharpReplaceBody(code="return new Saxon.Hej.expr.sort.SimpleCollation(uri, collation);")
+    private static StringCollator makeStringCollator(String uri, Comparator<? super String> collation) {
+        if (collation instanceof RuleBasedCollator) {
+            return new RuleBasedSubstringMatcher(uri, (RuleBasedCollator) collation);
+        } else {
+            return new SimpleCollation(uri, collation);
+        }
+    }
+
+    /**
+     * Register a specific URI and bind it to a specific ResourceCollection. A collection that is
+     * registered in this way will be returned prior to calling any registered {@link CollectionFinder}.
+     * This method should only be used while the configuration is being initialized for use;
+     * the effect of adding or replacing collections dynamically while a configuration is in use
+     * is undefined.
+     *
+     * <p>Registered collections take priority over any user-supplied <code>CollectionFinder</code>;
+     * if a collection URI has been registered, then it is used before the user-supplied
+     * <code>CollectionFinder</code> is invoked.</p>
+     *
+     * @param collectionURI the collection URI to be registered. Must not be null.
+     * @param collection    the ResourceCollection to be associated with this URI. Must not be null.
+     * @since 11.0
+     */
+
+    public void registerCollection(String collectionURI, ResourceCollection collection) {
+        config.registerCollection(collectionURI, collection);
+    }
+
+    /**
+     * Supply one or more resource catalog files to be used for URI resolution.
+     * <p>The call has no effect if the <code>CommonResourceResolver</code> registered with the
+     * <code>Configuration</code> does not use catalog files.</p>
+     * @param fileNames the files to be used. If no files are supplied, the call removes any existing catalog
+     *                  files that were previously registered.
+     */
+
+    public void setCatalogFiles(String... fileNames) {
+        if (config.getResourceResolver() instanceof ConfigurableResourceResolver) {
+            CommandLineOptions.setCatalogFiles(((ConfigurableResourceResolver) config.getResourceResolver() ), Arrays.asList(fileNames));
+        }
+    }
 
     /**
      * Get the underlying {@link Configuration} object that underpins this Processor. This method
@@ -504,10 +584,9 @@ public class Processor implements Configuration.ApiProvider {
         }
     }
 
-
     private static class ExtensionFunctionDefinitionWrapper extends ExtensionFunctionDefinition {
 
-        private ExtensionFunction function;
+        private final ExtensionFunction function;
 
         public ExtensionFunctionDefinitionWrapper(ExtensionFunction function) {
             this.function = function;
@@ -646,7 +725,7 @@ public class Processor implements Configuration.ApiProvider {
                         /*@NotNull*/ XPathContext context, Sequence[] arguments) throws XPathException {
                     XdmValue[] args = new XdmValue[arguments.length];
                     for (int i = 0; i < args.length; i++) {
-                        GroundedValue val = (GroundedValue)arguments[i].materialize();
+                        GroundedValue val = arguments[i].materialize();
                         args[i] = XdmValue.wrap(val);
                     }
                     try {
@@ -658,8 +737,6 @@ public class Processor implements Configuration.ApiProvider {
                 }
             };
         }
-
-
     }
 
     private SchemaManager makeSchemaManager() {

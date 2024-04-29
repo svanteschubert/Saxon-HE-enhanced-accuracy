@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,7 +20,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.DateTimeValue;
 
 import javax.xml.transform.ErrorListener;
-import javax.xml.transform.URIResolver;
 
 /**
  * This object represents a dynamic context for query execution. This class is used
@@ -28,13 +27,17 @@ import javax.xml.transform.URIResolver;
  * operationally (or modified) by the XQuery processor itself, which copies all required
  * information into its own internal representation.
  */
-
+//@CSharpInjectMembers(code = {
+//        "    public void setErrorReporter(System.Action<Saxon.Hej.s9api.XmlProcessingError> reporter) {"
+//                + "        setErrorReporter(new Saxon.Impl.Helpers.ErrorReportingAction(reporter));"
+//                + "    }"
+//})
 public class DynamicQueryContext {
 
     /*@Nullable*/ private Item contextItem;
     /*@Nullable*/ private GlobalParameterSet parameters = new GlobalParameterSet();
-    private Configuration config;
-    private URIResolver uriResolver;
+    private final Configuration config;
+    private ResourceResolver resourceResolver;
     private ErrorReporter errorReporter;
     /*@Nullable*/ private TraceListener traceListener;
     private UnparsedTextURIResolver unparsedTextURIResolver;
@@ -52,7 +55,6 @@ public class DynamicQueryContext {
 
     public DynamicQueryContext(/*@NotNull*/ Configuration config) {
         this.config = config;
-        uriResolver = config.getURIResolver();
         errorReporter = config.makeErrorReporter();
         traceFunctionDestination = config.getLogger();
     }
@@ -220,14 +222,14 @@ public class DynamicQueryContext {
      * Set an object that will be used to resolve URIs used in
      * fn:document() and related functions.
      *
-     * @param resolver An object that implements the URIResolver interface, or
+     * @param resolver An object that implements the ResourceResolver interface, or
      *                 null.
-     * @since 8.4
+     * @since 11.1; replaces setURIResolver in earlier releases
      */
 
-    public void setURIResolver(URIResolver resolver) {
+    public void setResourceResolver(ResourceResolver resolver) {
         // System.err.println("Setting uriresolver to " + resolver + " on " + this);
-        uriResolver = resolver;
+        resourceResolver = resolver;
     }
 
     /**
@@ -235,11 +237,11 @@ public class DynamicQueryContext {
      *
      * @return the user-supplied URI resolver if there is one, or the
      *         system-defined one otherwise
-     * @since 8.4
+     * @since 11.1; replaces getURIResolver in earlier releases
      */
 
-    public URIResolver getURIResolver() {
-        return uriResolver;
+    public ResourceResolver getResourceResolver() {
+        return resourceResolver;
     }
 
     /**
@@ -268,7 +270,6 @@ public class DynamicQueryContext {
         return unparsedTextURIResolver;
     }
 
-
     /**
      * Set the error listener. The error listener receives reports of all run-time
      * errors and can decide how to report them.
@@ -277,7 +278,7 @@ public class DynamicQueryContext {
      * @since 8.4
      * @deprecated since 10.0. Use {@link #setErrorReporter}
      */
-
+    @Deprecated
     public void setErrorListener(ErrorListener listener) {
         errorReporter = new ErrorReporterToListener(listener);
     }
@@ -289,7 +290,7 @@ public class DynamicQueryContext {
      * @since 8.4
      * @deprecated since 10.0. Use {@link #setErrorReporter}
      */
-
+    @Deprecated
     public ErrorListener getErrorListener() {
         ErrorReporter uel = getErrorReporter();
         if (uel instanceof ErrorReporterToListener) {
@@ -301,6 +302,7 @@ public class DynamicQueryContext {
 
     /**
      * Set a callback that will be used when reporting a dynamic error or warning
+     * @param reporter the error reporter to be notified of dynamic errors or warnings
      * @since 10.0
      */
 
@@ -310,7 +312,7 @@ public class DynamicQueryContext {
 
     /**
      * Get the callback that will be used when reporting a dynamic error or warning
-     *
+     * @return the registered error reporter
      * @since 10.0
      */
 
@@ -420,10 +422,11 @@ public class DynamicQueryContext {
      * Apply the settings from this DynamicQueryContext to a Controller
      *
      * @param controller the Controller whose settings are to be initialized
+     * @throws XPathException if errors occur
      */
 
     public void initializeController(/*@NotNull*/ Controller controller) throws XPathException {
-        controller.setURIResolver(getURIResolver());
+        controller.setResourceResolver(getResourceResolver());
         controller.setErrorReporter(getErrorReporter());
         controller.addTraceListener(getTraceListener());
         if (unparsedTextURIResolver != null) {

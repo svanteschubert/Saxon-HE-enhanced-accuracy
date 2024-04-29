@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,9 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.ConversionRules;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
 import net.sf.saxon.type.TypeHierarchy;
 
 import java.util.Objects;
@@ -18,23 +19,28 @@ import java.util.Objects;
  * <p>This class is not user-visible.</p>
  */
 
+@CSharpInjectMembers(
+        code={"public override bool Matches(Saxon.Api.XdmItem item) {return matches(item);}",
+              "public override bool Subsumes(Saxon.Api.XdmItemType other) {return subsumes(other);}"
+        }
+)
+
 class ConstructedItemType extends ItemType {
 
-    private net.sf.saxon.type.ItemType underlyingType;
-    private Processor processor;
+    private final Configuration config;
 
     /**
      * Protected constructor
      *
      * @param underlyingType the Saxon internal item type. Must not be null.
-     * @param processor      The s9api processor Must not be null
+     * @param config      The Saxon Configuration Must not be null
      */
 
-    protected ConstructedItemType(/*@Nullable*/ net.sf.saxon.type.ItemType underlyingType, Processor processor) {
-            Objects.requireNonNull(processor);
-            Objects.requireNonNull(underlyingType);
-        this.processor = processor;
-        this.underlyingType = underlyingType;
+    protected ConstructedItemType(/*@Nullable*/ net.sf.saxon.type.ItemType underlyingType, Configuration config) {
+        super(underlyingType);
+        Objects.requireNonNull(config);
+        Objects.requireNonNull(underlyingType);
+        this.config = config;
     }
 
     /**
@@ -47,7 +53,7 @@ class ConstructedItemType extends ItemType {
 
     @Override
     public ConversionRules getConversionRules() {
-        return processor.getUnderlyingConfiguration().getConversionRules();
+        return config.getConversionRules();
     }
 
     /**
@@ -61,13 +67,9 @@ class ConstructedItemType extends ItemType {
      */
 
     @Override
-    public boolean matches(XdmItem item) throws SaxonApiUncheckedException {
-        try {
-            TypeHierarchy th = processor.getUnderlyingConfiguration().getTypeHierarchy();
-            return underlyingType.matches(item.getUnderlyingValue(), th);
-        } catch (XPathException e) {
-            throw new SaxonApiUncheckedException(e);
-        }
+    public boolean matches(XdmItem item) {
+        TypeHierarchy th = config.getTypeHierarchy();
+        return underlyingType.matches(item.getUnderlyingValue(), th);
     }
 
     /**
@@ -83,7 +85,7 @@ class ConstructedItemType extends ItemType {
 
     @Override
     public boolean subsumes(ItemType other) {
-        TypeHierarchy th = processor.getUnderlyingConfiguration().getTypeHierarchy();
+        TypeHierarchy th = config.getTypeHierarchy();
         return th.isSubType(other.getUnderlyingItemType(), underlyingType);
     }
 
@@ -100,14 +102,15 @@ class ConstructedItemType extends ItemType {
     }
 
     /**
-     * Get the underlying Processor
+     * Get the underlying Configuration
      *
-     * @return the processor used to create this ItemType. This will be null if the ItemType is one of the three
-     *         static constant item types {@link #ANY_ITEM}, {@link #ANY_NODE}, or {@link #ANY_ATOMIC_VALUE}
+     * @return the Configuration used to create this ItemType.
      */
 
-    protected Processor getProcessor() {
-        return processor;
+    protected Configuration getConfiguration() {
+        return config;
     }
+
+
 }
 

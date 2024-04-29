@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,9 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.Whitespace;
 
@@ -47,11 +49,16 @@ public class CheckSumFilter extends ProxyReceiver {
         this.checkExistingChecksum = check;
     }
 
+    @CSharpReplaceBody(code="")
+    private static void trace(String message) {
+        if (DEBUG) {
+            System.err.println(message);
+        }
+    }
+
     @Override
     public void startDocument(int properties) throws XPathException {
-        if (DEBUG) {
-            System.err.println("CHECKSUM - START DOC");
-        }
+        trace("CHECKSUM - START DOC");
         super.startDocument(properties);
     }
 
@@ -66,9 +73,7 @@ public class CheckSumFilter extends ProxyReceiver {
     @Override
     public void append(Item item, Location locationId, int copyNamespaces) throws XPathException {
         checksum ^= hash(item.toString(), sequence++);
-        if (DEBUG) {
-            System.err.println("After append: " + Integer.toHexString(checksum));
-        }
+        trace("After append: " + Integer.toHexString(checksum));
         super.append(item, locationId, copyNamespaces);
     }
 
@@ -76,12 +81,10 @@ public class CheckSumFilter extends ProxyReceiver {
      * Character data
      */
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (!Whitespace.isWhite(chars)) {
-            checksum ^= hash(chars, sequence++);
-            if (DEBUG) {
-                System.err.println("After characters " + chars + ": " + Integer.toHexString(checksum));
-            }
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (!Whitespace.isAllWhite(chars)) {
+            checksum ^= hash(chars.toString(), sequence++);
+            trace("After characters " + chars + ": " + Integer.toHexString(checksum));
         }
         super.characters(chars, locationId, properties);
     }
@@ -94,9 +97,7 @@ public class CheckSumFilter extends ProxyReceiver {
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties) throws XPathException {
         checksum ^= hash(elemName, sequence++);
-        if (DEBUG) {
-            System.err.println("After startElement " + elemName.getDisplayName() + ": " + checksum);
-        }
+        trace("After startElement " + elemName.getDisplayName() + ": " + checksum);
         checksumCorrect = false;
         for (AttributeInfo att : attributes) {
             checksum ^= hash(att.getNodeName(), sequence);
@@ -115,9 +116,7 @@ public class CheckSumFilter extends ProxyReceiver {
     @Override
     public void endElement() throws XPathException {
         checksum ^= 1;
-        if (DEBUG) {
-            System.err.println("After endElement: " + checksum);
-        }
+        trace("After endElement: " + checksum);
         super.endElement();
     }
 
@@ -125,7 +124,7 @@ public class CheckSumFilter extends ProxyReceiver {
      * Processing Instruction
      */
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (target.equals(SIGMA)) {
             checksumFound = true;
             if (checkExistingChecksum) {
@@ -168,7 +167,7 @@ public class CheckSumFilter extends ProxyReceiver {
         return checksumCorrect || "skip".equals(System.getProperty("saxon-checksum"));
     }
 
-    private int hash(CharSequence s, int sequence) {
+    private int hash(String s, int sequence) {
         int h = sequence<<8;
         for (int i=0; i<s.length(); i++) {
             h = (h<<1) + s.charAt(i);
@@ -178,7 +177,7 @@ public class CheckSumFilter extends ProxyReceiver {
 
     private int hash(NodeName n, int sequence) {
         //System.err.println("hash(" + n.getLocalPart() + ") " + hash(n.getLocalPart(), sequence) + "/" + hash(n.getURI(), sequence));
-        return hash(n.getLocalPart(), sequence) ^ hash(n.getURI(), sequence);
+        return hash(n.getLocalPart(), sequence) ^ hash(n.getNamespaceUri().toString(), sequence);
     }
 }
 

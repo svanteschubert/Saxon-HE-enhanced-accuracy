@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,13 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.instruct.Choose;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.SystemFunction;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.TypeHierarchy;
@@ -168,6 +172,55 @@ public class AndExpression extends BooleanExpression {
             }
         }
         return result;
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new AndElaborator();
+    }
+
+    /**
+     * Elaborator for an AndExpression (P and Q)
+     */
+    public static class AndElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            AndExpression expr = (AndExpression) getExpression();
+            BooleanEvaluator eval0 = expr.getLhsExpression().makeElaborator().elaborateForBoolean();
+            BooleanEvaluator eval1 = expr.getRhsExpression().makeElaborator().elaborateForBoolean();
+            // Don't throw an error if either branch returns false.
+            // See bug 5721. This allows reordering of predicates without generating
+            // spurious errors.
+            return context -> {
+                XPathException saved = null;
+                try {
+                    boolean b0 = eval0.eval(context);
+                    if (!b0) {
+                        return false;
+                    }
+                } catch (UncheckedXPathException err) {
+                    saved = err.getXPathException();
+                } catch (XPathException err) {
+                    saved = err;
+                }
+                boolean b1 = eval1.eval(context);
+                if (!b1) {
+                    return false;
+                }
+                if (saved != null) {
+                    throw saved;
+                }
+                return true;
+            };
+        }
+
+
     }
 }
 

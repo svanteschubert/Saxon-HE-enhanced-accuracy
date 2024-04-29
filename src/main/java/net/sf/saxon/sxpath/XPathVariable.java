@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,6 @@ package net.sf.saxon.sxpath;
 import net.sf.saxon.expr.LocalBinding;
 import net.sf.saxon.expr.VariableReference;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.value.IntegerValue;
@@ -50,7 +49,7 @@ public final class XPathVariable implements LocalBinding {
      * @return the constructed XPathVariable
      */
 
-    protected static XPathVariable make(StructuredQName name) {
+    public static XPathVariable make(StructuredQName name) {
         XPathVariable v = new XPathVariable();
         v.name = name;
         return v;

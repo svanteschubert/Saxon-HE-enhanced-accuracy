@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.trace;
 import net.sf.saxon.event.*;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -24,7 +25,7 @@ import java.io.PrintStream;
 public class CountingFilter extends ProxyReceiver {
 
     private static int nextid = 0;
-    private int id;
+    private final int id;
 
     /**
      * Create a TracingFilter and allocate a unique Id.
@@ -80,7 +81,7 @@ public class CountingFilter extends ProxyReceiver {
     public void append(Item item, Location locationId, int copyNamespaces) throws XPathException {
         count("append");
         if (nextReceiver instanceof SequenceReceiver) {
-            ((SequenceReceiver) nextReceiver).append(item, locationId, copyNamespaces);
+            nextReceiver.append(item, locationId, copyNamespaces);
         } else {
             super.append(item, locationId, copyNamespaces);
         }
@@ -91,7 +92,7 @@ public class CountingFilter extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         count("characters");
         nextReceiver.characters(chars, locationId, properties);
     }
@@ -111,7 +112,7 @@ public class CountingFilter extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         count("comment");
         nextReceiver.comment(chars, locationId, properties);
     }
@@ -151,14 +152,14 @@ public class CountingFilter extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         count("processingInstruction");
         nextReceiver.processingInstruction(target, data, locationId, properties);
     }
 
     /**
      * Start of a document node.
-     * @param properties
+     * @param properties properties of the document node
      */
 
     @Override

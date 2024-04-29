@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,11 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.elab.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
@@ -25,9 +29,9 @@ import net.sf.saxon.value.*;
 
 public class IntegerRangeTest extends Expression {
 
-    private Operand valueOp;
-    private Operand minOp;
-    private Operand maxOp;
+    private final Operand valueOp;
+    private final Operand minOp;
+    private final Operand maxOp;
 
     /**
      * Construct a IntegerRangeTest
@@ -126,7 +130,7 @@ public class IntegerRangeTest extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -177,7 +181,7 @@ public class IntegerRangeTest extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         int h = getValue().hashCode() + 77;
         h ^= getMin().hashCode() ^ getMax().hashCode();
         return h;
@@ -189,33 +193,48 @@ public class IntegerRangeTest extends Expression {
 
     @Override
     public BooleanValue evaluateItem(XPathContext c) throws XPathException {
+        return BooleanValue.get(effectiveBooleanValue(c));
+    }
+
+    @Override
+    public boolean effectiveBooleanValue(XPathContext c) throws XPathException {
+        try {
+            return eval(context -> getMin().evaluateItem(context),
+                        context -> getMax().evaluateItem(context),
+                        context -> getValue().iterate(context),
+                        c);
+        } catch (XPathException e) {
+            throw e.maybeWithLocation(getLocation()).maybeWithContext(c);
+        }
+    }
+
+    public static boolean eval(ItemEvaluator minEval, ItemEvaluator maxEval, PullEvaluator valueEval, XPathContext c)
+            throws XPathException {
         IntegerValue minVal = null;
         IntegerValue maxVal = null;
         StringConverter toDouble = null;
-        SequenceIterator iter = getValue().iterate(c);
+        SequenceIterator iter = valueEval.iterate(c);
         AtomicValue atom;
         while ((atom = (AtomicValue) iter.next()) != null) {
             if (minVal == null) {
-                minVal = (IntegerValue) getMin().evaluateItem(c);
+                minVal = (IntegerValue)minEval.eval(c);
                 if (minVal == null) {
-                    return BooleanValue.FALSE;
+                    return false;
                 }
-                maxVal = (IntegerValue) getMax().evaluateItem(c);
+                maxVal = (IntegerValue) maxEval.eval(c);
                 if (maxVal == null || maxVal.compareTo(minVal) < 0) {  // bug 3666
-                    return BooleanValue.FALSE;
+                    return false;
                 }
             }
             NumericValue v;
-            if (atom instanceof UntypedAtomicValue) {
+            if (atom.isUntypedAtomic()) {
                 if (toDouble == null) {
                     toDouble = BuiltInAtomicType.DOUBLE.getStringConverter(c.getConfiguration().getConversionRules());
                 }
-                ConversionResult result = toDouble.convertString(atom.getStringValueCS());
+                ConversionResult result = toDouble.convertString(atom.getUnicodeStringValue());
                 if (result instanceof ValidationFailure) {
-                    XPathException e = new XPathException("Failed to convert untypedAtomic value {" +
-                            atom.getStringValueCS() + "}  to xs:integer", "FORG0001");
-                    e.setLocation(getLocation());
-                    throw e;
+                    throw new XPathException("Failed to convert untypedAtomic value {" +
+                                                                  atom.getUnicodeStringValue() + "}  to xs:integer", "FORG0001");
                 } else {
                     v = (DoubleValue) result.asAtomic();
                 }
@@ -225,14 +244,13 @@ public class IntegerRangeTest extends Expression {
                 XPathException e = new XPathException("Cannot compare value of type " +
                         atom.getUType() + " to xs:integer", "XPTY0004");
                 e.setIsTypeError(true);
-                e.setLocation(getLocation());
                 throw e;
             }
             if (v.isWholeNumber() && v.compareTo(minVal) >= 0 && v.compareTo(maxVal) <= 0) {
-                return BooleanValue.TRUE;
+                return true;
             }
         }
-        return BooleanValue.FALSE;
+        return false;
     }
 
     /**
@@ -274,6 +292,22 @@ public class IntegerRangeTest extends Expression {
         return ExpressionTool.parenthesize(getValue()) + " = (" +
                 ExpressionTool.parenthesize(getMin()) + " to " +
                 ExpressionTool.parenthesize(getMax()) + ")";
+    }
+
+    @Override
+    public Elaborator getElaborator() {
+        return new IntegerRangeTestElaborator();
+    }
+
+    public static class IntegerRangeTestElaborator extends BooleanElaborator {
+        @Override
+        public BooleanEvaluator elaborateForBoolean() {
+            IntegerRangeTest expr = (IntegerRangeTest) getExpression();
+            ItemEvaluator iv1 = expr.getMin().makeElaborator().elaborateForItem();
+            ItemEvaluator iv2 = expr.getMax().makeElaborator().elaborateForItem();
+            PullEvaluator iv3 = expr.getValue().makeElaborator().elaborateForPull();
+            return (context) -> IntegerRangeTest.eval(iv1, iv2, iv3, context);
+        }
     }
 
 

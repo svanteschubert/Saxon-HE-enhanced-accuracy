@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,21 +21,21 @@ public class Numberer_sv extends AbstractNumberer {
 
     private static final long serialVersionUID = 1L;
 
-    private static String[] swedishOrdinalUnits = {
+    private static final String[] swedishOrdinalUnits = {
             "", "f\u00f6rsta", "andra", "tredje", "fj\u00e4rde", "femte", "sj\u00e4tte", "sjunde", "\u00e5ttonde", "nionde",
             "tionde", "elfte", "tolfte", "trettonde", "fjortonde", "femtonde", "sextonde",
             "sjuttonde", "artonde", "n\u00edttonde"};
 
-    private static String[] swedishOrdinalTens = {
+    private static final String[] swedishOrdinalTens = {
             "", "tionde", "tjugonde", "trettionde", "fyrtionde", "femtionde",
             "sextionde", "sjuttionde", "\u00e5ttionde", "n\u00edttionde"};
 
-    private static String[] swedishUnits = {
+    private static final String[] swedishUnits = {
             "", "ett", "tv\u00e5", "tre", "fyra", "fem", "sex", "sju", "\u00e5tta", "nio",
             "tio", "elva", "tolv", "tretton", "fjorton", "femton", "sexton",
             "sjutton", "arton", "nitton"};
 
-    private static String[] swedishTens = {
+    private static final String[] swedishTens = {
             "", "tio", "tjugo", "trettio", "fyrtio", "femtio",
             "sextio", "sjuttio", "\u00e5ttio", "nittio"};
 
@@ -62,19 +62,19 @@ public class Numberer_sv extends AbstractNumberer {
             s = "hundrade";
         } else if (number >= 1000000000) {
             long rem = number % 1000000000;
-            s = (number / 1000000000 == 1 ? "en" : toWords(number / 1000000000)) + " miljard " +
+            s = (number / 1000000000 == 1 ? "en" : toWords("", number / 1000000000)) + " miljard " +
                     toOrdinalWords(ordinalParam, rem, wordCase);
         } else if (number >= 1000000) {
             long rem = number % 1000000;
-            s = (number / 1000000 == 1 ? "en" : toWords(number / 1000000)) + " miljon " +
+            s = (number / 1000000 == 1 ? "en" : toWords("", number / 1000000)) + " miljon " +
                     toOrdinalWords(ordinalParam, rem, wordCase);
         } else if (number >= 1000) {
             long rem = number % 1000;
-            s = (number / 1000 == 1 ? "et" : toWords(number / 1000)) + "tusen" + " " +
+            s = (number / 1000 == 1 ? "et" : toWords("", number / 1000)) + "tusen" + " " +
                     toOrdinalWords(ordinalParam, rem, wordCase);
         } else if (number >= 100) {
             long rem = number % 100;
-            s = (number / 100 == 1 ? "" : toWords(number / 100)) + "hundra" +
+            s = (number / 100 == 1 ? "" : toWords("", number / 100)) + "hundra" +
                     (rem == 0 || rem > 19 ? "" : "en") +
                     toOrdinalWords(ordinalParam, rem, wordCase);
         } else {
@@ -100,22 +100,22 @@ public class Numberer_sv extends AbstractNumberer {
     }
 
     @Override
-    public String toWords(long number) {
+    public String toWords(String cardinal, long number) {
         if (number >= 1000000000) {
             long rem = number % 1000000000;
-            return (number / 1000000000 == 1 ? "en " : toWords(number / 1000000000)) + "miljard" +
-                    (rem == 0 ? "" : " ") + toWords(rem);
+            return (number / 1000000000 == 1 ? "en " : toWords(cardinal, number / 1000000000)) + "miljard" +
+                    (rem == 0 ? "" : " ") + toWords(cardinal, rem);
         } else if (number >= 1000000) {
             long rem = number % 1000000;
-            return (number / 1000000 == 1 ? "en " : toWords(number / 1000000)) + "miljon" +
-                    (rem == 0 ? "" : " ") + toWords(rem);
+            return (number / 1000000 == 1 ? "en " : toWords(cardinal, number / 1000000)) + "miljon" +
+                    (rem == 0 ? "" : " ") + toWords(cardinal, rem);
         } else if (number >= 1000) {
             long rem = number % 1000;
-            return (number / 1000 == 1 ? "et" : toWords(number / 1000)) + "tusen" +
-                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(rem));
+            return (number / 1000 == 1 ? "et" : toWords(cardinal, number / 1000)) + "tusen" +
+                    (rem == 0 ? "" : (rem < 100 ? "en" : " ") + toWords(cardinal, rem));
         } else if (number >= 100) {
             long rem = number % 100;
-            return (number / 100 == 1 ? "" : toWords(number / 100)) + "hundra" + toWords(rem);
+            return (number / 100 == 1 ? "" : toWords(cardinal, number / 100)) + "hundra" + toWords(cardinal, rem);
         } else {
             if (number < 20) return swedishUnits[(int) number];
             int rem = (int) (number % 10);
@@ -124,12 +124,12 @@ public class Numberer_sv extends AbstractNumberer {
     }
 
     @Override
-    public String toWords(long number, int wordCase) {
+    public String toWords(String cardinal, long number, int wordCase) {
         String s;
         if (number == 0) {
             s = "noll";
         } else {
-            s = toWords(number);
+            s = toWords(cardinal, number);
         }
         if (wordCase == UPPER_CASE) {
             return s.toUpperCase();
@@ -141,7 +141,7 @@ public class Numberer_sv extends AbstractNumberer {
     }
 
 
-    private static String[] swedishMonths = {
+    private static final String[] swedishMonths = {
             "januari", "februari", "mars", "april", "maj", "juni",
             "juli", "augusti", "september", "oktober", "november", "december"
     };
@@ -200,15 +200,15 @@ public class Numberer_sv extends AbstractNumberer {
         return name;
     }
 
-    private static String[] swedishDays = {
+    private static final String[] swedishDays = {
             "m\u00e5ndag", "tisdag", "onsdag", "torsdag", "fredag", "l\u00f6rdag", "s\u00f6ndag"
     };
 
-    private static String[] swedishDayAbbreviations = {
+    private static final String[] swedishDayAbbreviations = {
             "m\u00e5", "ti", "on", "to", "fr", "l\u00f6", "s\u00f6"
     };
 
-    /*@NotNull*/ private static int[] minUniqueDayLength = {
+    /*@NotNull*/ private static final int[] minUniqueDayLength = {
             1, 2, 1, 2, 1, 2, 2
     };
 

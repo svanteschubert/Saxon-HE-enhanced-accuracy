@@ -24,8 +24,8 @@ import net.sf.saxon.type.FunctionItemType;
  */
 public class SystemFunctionWithBoundContextItem extends AbstractFunction {
 
-    private SystemFunction target;
-    private Item contextItem;
+    private final SystemFunction target;
+    private final Item contextItem;
 
     public SystemFunctionWithBoundContextItem(SystemFunction target, final XPathContext context)  {
         this.target = target;
@@ -96,4 +96,4 @@ public class SystemFunctionWithBoundContextItem extends AbstractFunction {
     }
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

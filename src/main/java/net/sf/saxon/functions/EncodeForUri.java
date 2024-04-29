@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,13 +9,16 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.serialize.charcode.UTF8CharacterSet;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.StringValue;
+import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.IntSingletonIterator;
 
 /**
  * This class supports the function fn:encode-for-uri()
@@ -25,13 +28,13 @@ public class EncodeForUri extends ScalarSystemFunction {
 
     @Override
     public AtomicValue evaluate(Item arg, XPathContext context) throws XPathException {
-        final CharSequence s = arg.getStringValueCS();
-        return StringValue.makeStringValue(escape(s, "-_.~"));
+        final UnicodeString s = arg.getUnicodeStringValue();
+        return escape(s, "-_.~");
     }
 
     @Override
-    public ZeroOrOne resultWhenEmpty() {
-        return ZERO_LENGTH_STRING;
+    public Sequence resultWhenEmpty() {
+        return StringValue.EMPTY_STRING;
     }
 
     /**
@@ -46,22 +49,24 @@ public class EncodeForUri extends ScalarSystemFunction {
      * @return the %HH-encoded string
      */
 
-    public static CharSequence escape(CharSequence s, String allowedPunctuation) {
-        FastStringBuffer sb = new FastStringBuffer(s.length());
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
+    public static StringValue escape(UnicodeString s, String allowedPunctuation) {
+        s = s.tidy();
+        UnicodeBuilder sb = new UnicodeBuilder(s.length32() + 20);
+        IntIterator iter = s.codePoints();
+        while (iter.hasNext()) {
+            int c = iter.next();
             if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
-                sb.cat(c);
+                sb.append(c);
             } else if (c <= 0x20 || c >= 0x7f) {
-                escapeChar(c, (i + 1) < s.length() ? s.charAt(i + 1) : ' ', sb);
-            } else if (allowedPunctuation.indexOf(c) >= 0) {
-                sb.cat(c);
+                escapeChar(c, sb);
+            } else if (allowedPunctuation.indexOf((char)c) >= 0) {
+                sb.append(c);
             } else {
-                escapeChar(c, ' ', sb);
+                escapeChar(c, sb);
             }
 
         }
-        return sb;
+        return new StringValue(sb.toUnicodeString());
     }
 
     private static final String hex = "0123456789ABCDEF";
@@ -70,19 +75,15 @@ public class EncodeForUri extends ScalarSystemFunction {
      * Escape a single character in %HH representation, or a pair of two chars representing
      * a surrogate pair
      *
-     * @param c  the character to be escaped, or the first character of a surrogate pair
-     * @param c2 the second character of a surrogate pair
+     * @param cp  the codepoint to be escaped,
      * @param sb the buffer to contain the escaped result
      */
 
-    public static void escapeChar(char c, char c2, FastStringBuffer sb) {
-        byte[] array = new byte[4];
-        int used = UTF8CharacterSet.getUTF8Encoding(c, c2, array);
-        for (int b = 0; b < used; b++) {
-            int v = (int) array[b] & 0xff;
-            sb.cat('%');
-            sb.cat(hex.charAt(v / 16));
-            sb.cat(hex.charAt(v % 16));
+    public static void escapeChar(int cp, UnicodeBuilder sb) {
+        byte[] array = UTF8CharacterSet.encode(new IntSingletonIterator(cp));
+        for (byte value : array) {
+            int v = (int) value & 0xff;
+            sb.append('%').append(hex.charAt(v / 16)).append(hex.charAt(v % 16));
         }
     }
 
@@ -167,6 +168,6 @@ public class EncodeForUri extends ScalarSystemFunction {
     }
 
     // Length of a UTF8 byte sequence, as a function of the first nibble
-    private static int[] UTF8RepresentationLength = {1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, 2, 2, 3, 4};
+    private static final int[] UTF8RepresentationLength = {1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, 2, 2, 3, 4};
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,8 +12,6 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.EmptySequence;
 
-import java.util.EnumSet;
-
 /**
  * EmptyIterator: an iterator over an empty sequence. Since such an iterator has no state,
  * only one instance is required; therefore a singleton instance is available via the static
@@ -22,7 +20,7 @@ import java.util.EnumSet;
 
 public class EmptyIterator implements SequenceIterator,
         ReversibleIterator, LastPositionFinder, GroundedIterator,
-        LookaheadIterator, UnfailingIterator, AtomizedValueIterator {
+        LookaheadIterator, AtomizedValueIterator {
 
     private static final EmptyIterator theInstance = new EmptyIterator();
 
@@ -34,10 +32,6 @@ public class EmptyIterator implements SequenceIterator,
      */
     /*@NotNull*/
     public static EmptyIterator getInstance() {
-        return theInstance;
-    }
-
-    public static EmptyIterator emptyIterator() {
         return theInstance;
     }
 
@@ -68,6 +62,11 @@ public class EmptyIterator implements SequenceIterator,
         return null;
     }
 
+    @Override
+    public boolean supportsGetLength() {
+        return true;
+    }
+
     /**
      * Get the position of the last item in the sequence.
      *
@@ -92,21 +91,6 @@ public class EmptyIterator implements SequenceIterator,
     }
 
     /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LOOKAHEAD, Property.GROUNDED, Property.LAST_POSITION_FINDER, Property.ATOMIZING);
-    }
-
-    /**
      * Return a Value containing all the items in the sequence returned by this
      * SequenceIterator. This should be an "in-memory" value, not a Closure.
      *
@@ -123,6 +107,11 @@ public class EmptyIterator implements SequenceIterator,
         return EmptySequence.getInstance();
     }
 
+    @Override
+    public boolean supportsHasNext() {
+        return true;
+    }
+
     /**
      * Determine whether there are more items to come. Note that this operation
      * is stateless and it is not necessary (or usual) to call it before calling
@@ -137,8 +126,14 @@ public class EmptyIterator implements SequenceIterator,
         return false;
     }
 
+    public boolean isActuallyGrounded() {
+        return true;
+    }
+
     /**
      * Static method to get an empty AxisIterator
+     *
+     * @return an empty AxisIterator
      */
 
     public static AxisIterator ofNodes() {
@@ -147,10 +142,12 @@ public class EmptyIterator implements SequenceIterator,
 
     /**
      * Static method to get an empty AtomicIterator
+     *
+     * @return an empty AtomicIterator
      */
 
-    public static <T extends AtomicValue> AtomicIterator<T> ofAtomic() {
-        return (AtomicIterator<T>)OfAtomic.THE_INSTANCE;
+    public static AtomicIterator ofAtomic() {
+        return OfAtomic.THE_INSTANCE;
     }
 
     /**
@@ -176,7 +173,7 @@ public class EmptyIterator implements SequenceIterator,
      * An empty iterator for use where a sequence of atomic values is required
      */
 
-    private static class OfAtomic<T extends AtomicValue> implements AtomicIterator<T> {
+    private static class OfAtomic extends EmptyIterator implements AtomicIterator {
 
         public final static OfAtomic THE_INSTANCE = new OfAtomic();
 
@@ -186,7 +183,7 @@ public class EmptyIterator implements SequenceIterator,
          * @return the next item. For the EmptyIterator this is always null.
          */
         @Override
-        public T next() {
+        public AtomicValue next() {
             return null;
         }
 

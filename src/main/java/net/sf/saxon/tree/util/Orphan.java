@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,16 +11,15 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Builder;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.SingleNodeIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.value.UntypedAtomicValue;
-
-import java.util.function.Predicate;
 
 /**
  * A node (implementing the NodeInfo interface) representing an attribute, text node,
@@ -30,17 +29,16 @@ import java.util.function.Predicate;
  * of the client. For example, the class does not prevent you from creating a comment or text node that has
  * a name or a non-trivial type annotation.</p>
  *
- * @author Michael H. Kay
  */
 
 public final class Orphan implements MutableNodeInfo {
 
     private short kind;
     /*@Nullable*/ private NodeName nodeName = null;
-    private CharSequence stringValue;
+    private UnicodeString stringValue;
     private SchemaType typeAnnotation = null;
     private int options = ReceiverOption.NONE;
-    private GenericTreeInfo treeInfo;
+    private final GenericTreeInfo treeInfo;
 
     /**
      * Create an Orphan node
@@ -97,7 +95,6 @@ public final class Orphan implements MutableNodeInfo {
 
     /**
      * Set the system identifier for this Source.
-     * <p>
      * <p>The system identifier is optional if the source does not
      * get its data from a URL, but it may still be useful to provide one.
      * The application can use a system identifier, for example, to resolve
@@ -145,7 +142,7 @@ public final class Orphan implements MutableNodeInfo {
      * @param stringValue the string value of the node
      */
 
-    public void setStringValue(CharSequence stringValue) {
+    public void setStringValue(UnicodeString stringValue) {
         this.stringValue = stringValue;
     }
 
@@ -262,11 +259,11 @@ public final class Orphan implements MutableNodeInfo {
             case Type.TEXT:
             case Type.DOCUMENT:
             case Type.NAMESPACE:
-                return new UntypedAtomicValue(stringValue);
+                return StringValue.makeUntypedAtomic(getUnicodeStringValue());
             default:
                 if (typeAnnotation == null || typeAnnotation == Untyped.getInstance() ||
                         typeAnnotation == BuiltInAtomicType.UNTYPED_ATOMIC) {
-                    return new UntypedAtomicValue(stringValue);
+                    return StringValue.makeUntypedAtomic(getUnicodeStringValue());
                 } else {
                     return typeAnnotation.atomize(this);
                 }
@@ -301,6 +298,7 @@ public final class Orphan implements MutableNodeInfo {
      * Determine whether this is the same node as another node.
      * <p>Note: a.equals(b) if and only if generateId(a)==generateId(b)</p>
      *
+     * @param other Node object
      * @return true if this Node object and the supplied Node object represent the
      *         same node in the tree.
      */
@@ -374,17 +372,7 @@ public final class Orphan implements MutableNodeInfo {
      */
 
     @Override
-    public String getStringValue() {
-        return stringValue.toString();
-    }
-
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
+    public UnicodeString getUnicodeStringValue() {
         return stringValue;
     }
 
@@ -412,11 +400,11 @@ public final class Orphan implements MutableNodeInfo {
      */
 
     @Override
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         if (nodeName == null) {
-            return "";
+            return NamespaceUri.NULL;
         } else {
-            return nodeName.getURI();
+            return nodeName.getNamespaceUri();
         }
     }
 
@@ -508,7 +496,7 @@ public final class Orphan implements MutableNodeInfo {
 
     /*@NotNull*/
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
         switch (axisNumber) {
             case AxisInfo.ANCESTOR_OR_SELF:
             case AxisInfo.DESCENDANT_OR_SELF:
@@ -542,7 +530,7 @@ public final class Orphan implements MutableNodeInfo {
      * @since 9.4
      */
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
         return null;
     }
 
@@ -579,9 +567,9 @@ public final class Orphan implements MutableNodeInfo {
      */
 
     @Override
-    public void generateId(/*@NotNull*/ FastStringBuffer buffer) {
-        buffer.cat('Q');
-        buffer.append(Integer.toString(hashCode()));
+    public void generateId(/*@NotNull*/ StringBuilder buffer) {
+        buffer.append('Q');
+        buffer.append(hashCode());
     }
 
     /**
@@ -724,11 +712,11 @@ public final class Orphan implements MutableNodeInfo {
      * @param attType    the type annotation of the new attribute
      * @param value      the string value of the new attribute
      * @param properties properties including IS_ID and IS_IDREF properties
-     * @param inheritNamespaces
+     * @param inheritNamespaces true if any namespace used by this attribute name is to be inherited by descendant elements
      */
 
     @Override
-    public void addAttribute(NodeName nameCode, SimpleType attType, CharSequence value, int properties, boolean inheritNamespaces) {
+    public void addAttribute(NodeName nameCode, SimpleType attType, String value, int properties, boolean inheritNamespaces) {
         // no action: node is not an element
     }
 
@@ -786,7 +774,7 @@ public final class Orphan implements MutableNodeInfo {
      */
 
     @Override
-    public void replaceStringValue(CharSequence stringValue) {
+    public void replaceStringValue(UnicodeString stringValue) {
         this.stringValue = stringValue;
     }
 
@@ -797,7 +785,7 @@ public final class Orphan implements MutableNodeInfo {
      * parent of the target attribute</p>
      *
      * @param newNameCode the namecode of the new name in the name pool
-     * @param inheritNamespaces
+     * @param inherit true if any new namespace binding is to be inherited
      * @throws IllegalArgumentException if the new name code is not present in the name pool, or if
      *                                  it has a (prefix, uri) pair in which the
      *                                  prefix is the same as that of an existing in-scope namespace binding and the uri is different from that
@@ -805,7 +793,7 @@ public final class Orphan implements MutableNodeInfo {
      */
 
     @Override
-    public void rename(NodeName newNameCode, boolean inheritNamespaces) {
+    public void rename(NodeName newNameCode, boolean inherit) {
         if (kind == Type.ATTRIBUTE || kind == Type.PROCESSING_INSTRUCTION) {
             nodeName = newNameCode;
         }
@@ -819,6 +807,7 @@ public final class Orphan implements MutableNodeInfo {
      *                added. If the target element already has a namespace binding with this (prefix, uri) pair, the call has
      *                no effect. If the target element currently has a namespace binding with this prefix and a different URI, an
      *                exception is raised.
+     * @param inherit true if the namespace is to be inherited by children and descendants
      * @throws IllegalArgumentException if the namespace code is not present in the namepool, or if the target
      *                                  element already has a namespace binding for this prefix
      */

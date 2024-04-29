@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
@@ -25,66 +26,6 @@ import net.sf.saxon.trans.XPathException;
  */
 
 public interface SchemaType extends SchemaComponent {
-
-    // DerivationMethods. These constants are copied from org.w3.dom.TypeInfo. They are redefined here to avoid
-    // creating a dependency on the TypeInfo class, which is only available when JAXP 1.3 is available.
-
-    /**
-     * If the document's schema is an XML Schema [<a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/'>XML Schema Part 1</a>]
-     * , this constant represents the derivation by <a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/#key-typeRestriction'>
-     * restriction</a> if complex types are involved, or a <a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/#element-restriction'>
-     * restriction</a> if simple types are involved.
-     * <br>  The reference type definition is derived by restriction from the
-     * other type definition if the other type definition is the same as the
-     * reference type definition, or if the other type definition can be
-     * reached recursively following the {base type definition} property
-     * from the reference type definition, and all the <em>derivation methods</em> involved are restriction.
-     */
-    int DERIVATION_RESTRICTION = 0x00000001;
-    /**
-     * If the document's schema is an XML Schema [<a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/'>XML Schema Part 1</a>]
-     * , this constant represents the derivation by <a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/#key-typeExtension'>
-     * extension</a>.
-     * <br>  The reference type definition is derived by extension from the
-     * other type definition if the other type definition can be reached
-     * recursively following the {base type definition} property from the
-     * reference type definition, and at least one of the <em>derivation methods</em> involved is an extension.
-     */
-    int DERIVATION_EXTENSION = 0x00000002;
-    /**
-     * If the document's schema is an XML Schema [<a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/'>XML Schema Part 1</a>]
-     * , this constant represents the <a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/#element-union'>
-     * union</a> if simple types are involved.
-     * <br> The reference type definition is derived by union from the other
-     * type definition if there exists two type definitions T1 and T2 such
-     * as the reference type definition is derived from T1 by
-     * <code>DERIVATION_RESTRICTION</code> or
-     * <code>DERIVATION_EXTENSION</code>, T2 is derived from the other type
-     * definition by <code>DERIVATION_RESTRICTION</code>, T1 has {variety} <em>union</em>, and one of the {member type definitions} is T2. Note that T1 could be
-     * the same as the reference type definition, and T2 could be the same
-     * as the other type definition.
-     */
-    int DERIVATION_UNION = 0x00000004;
-    /**
-     * If the document's schema is an XML Schema [<a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/'>XML Schema Part 1</a>]
-     * , this constant represents the <a href='http://www.w3.org/TR/2001/REC-xmlschema-1-20010502/#element-list'>list</a>.
-     * <br> The reference type definition is derived by list from the other
-     * type definition if there exists two type definitions T1 and T2 such
-     * as the reference type definition is derived from T1 by
-     * <code>DERIVATION_RESTRICTION</code> or
-     * <code>DERIVATION_EXTENSION</code>, T2 is derived from the other type
-     * definition by <code>DERIVATION_RESTRICTION</code>, T1 has {variety} <em>list</em>, and T2 is the {item type definition}. Note that T1 could be the same as
-     * the reference type definition, and T2 could be the same as the other
-     * type definition.
-     */
-    int DERIVATION_LIST = 0x00000008;
-
-    /**
-     * Derivation by substitution.
-     * This constant, unlike the others, is NOT defined in the DOM level 3 TypeInfo interface.
-     */
-
-    int DERIVE_BY_SUBSTITUTION = 16;
 
     /**
      * Get the local name of this type
@@ -104,7 +45,7 @@ public interface SchemaType extends SchemaComponent {
      */
 
     /*@Nullable*/
-    String getTargetNamespace();
+    NamespaceUri getTargetNamespace();
 
     /**
      * Get the fingerprint of the name of this type
@@ -174,7 +115,7 @@ public interface SchemaType extends SchemaComponent {
 
     /**
      * Returns the value of the 'block' attribute for this type, as a bit-significant
-     * integer with fields such as {@link SchemaType#DERIVATION_LIST} and {@link SchemaType#DERIVATION_EXTENSION}.
+     * integer with fields such as {@link Derivation#DERIVATION_LIST} and {@link Derivation#DERIVATION_EXTENSION}.
      * This corresponds to the property "prohibited substitutions" in the schema component model.
      *
      * @return the value of the 'block' attribute for this type
@@ -193,26 +134,10 @@ public interface SchemaType extends SchemaComponent {
     SchemaType getBaseType();
 
     /**
-     * Get the nearest named type in the type hierarchy, that is, the nearest type that
-     * is not anonymous. (In practice, since types cannot be derived from anonymous types,
-     * this will either the type itself, or its immediate base type).
-     * @return the nearest type, found by following the {@code getBaseType()} relation
-     * recursively, that is not an anonymous type
-     */
-
-    default SchemaType getNearestNamedType() {
-        SchemaType type = this;
-        while (type.isAnonymousType()) {
-            type = type.getBaseType();
-        }
-        return type;
-    }
-
-    /**
      * Gets the integer code of the derivation method used to derive this type from its
      * parent. Returns zero for primitive types.
      *
-     * @return a numeric code representing the derivation method, for example {@link SchemaType#DERIVATION_RESTRICTION}
+     * @return a numeric code representing the derivation method, for example {@link Derivation#DERIVATION_RESTRICTION}
      */
 
     int getDerivationMethod();
@@ -221,7 +146,7 @@ public interface SchemaType extends SchemaComponent {
      * Get the types of derivation that are not permitted, by virtue of the "final" property.
      *
      * @return the types of derivation that are not permitted, as a bit-significant integer
-     *         containing bits such as {@link SchemaType#DERIVATION_EXTENSION}
+     *         containing bits such as {@link Derivation#DERIVATION_EXTENSION}
      */
 
     int getFinalProhibitions();
@@ -230,7 +155,7 @@ public interface SchemaType extends SchemaComponent {
      * Determines whether derivation (of a particular kind)
      * from this type is allowed, based on the "final" property
      *
-     * @param derivation the kind of derivation, for example {@link SchemaType#DERIVATION_LIST}
+     * @param derivation the kind of derivation, for example {@link Derivation#DERIVATION_LIST}
      * @return true if this kind of derivation is allowed
      */
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,27 +7,26 @@
 
 package net.sf.saxon.tree.wrapper;
 
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.pattern.NodePredicate;
+import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.NamespaceNode;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.value.UntypedAtomicValue;
-
-import java.util.function.Predicate;
 
 /**
  * A node in the XML parse tree representing an XML element, character content, or attribute.
  * <p>This implementation of the NodeInfo interface contains common code used by many "wrapper" implementations
  * for external data models.</p>
  *
- * @author Michael H. Kay
  */
 
 public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
@@ -74,9 +73,9 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
         switch (getNodeKind()) {
             case Type.COMMENT:
             case Type.PROCESSING_INSTRUCTION:
-                return new StringValue(getStringValueCS());
+                return new StringValue(getUnicodeStringValue());
             default:
-                return new UntypedAtomicValue(getStringValueCS());
+                return StringValue.makeUntypedAtomic(getUnicodeStringValue());
         }
     }
 
@@ -123,9 +122,10 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      */
 
     @Override
+    @CSharpModifiers(code={"public", "virtual"})
     public String getSystemId() {
         if (treeInfo instanceof GenericTreeInfo) {
-            return ((GenericTreeInfo) treeInfo).getSystemId();
+            return ((GenericTreeInfo)treeInfo).getSystemId();
         } else {
             throw new UnsupportedOperationException();
             // must implement in subclass
@@ -139,12 +139,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
 
     @Override
     public void setSystemId(String uri) {
-        if (treeInfo instanceof GenericTreeInfo) {
-            ((GenericTreeInfo) treeInfo).setSystemId(uri);
-        } else {
-            throw new UnsupportedOperationException();
-            // must implement in subclass
-        }
+        throw new UnsupportedOperationException();
     }
 
     /**
@@ -155,6 +150,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      */
 
     @Override
+    @CSharpModifiers(code={"public virtual"})
     public String getBaseURI() {
         if (getNodeKind() == Type.NAMESPACE) {
             return null;
@@ -165,7 +161,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
         }
         // Look for an xml:base attribute
         while (n != null) {
-            String xmlbase = n.getAttributeValue(NamespaceConstant.XML, "base");
+            String xmlbase = n.getAttributeValue(NamespaceUri.XML, "base");
             if (xmlbase != null) {
                 return xmlbase;
             }
@@ -209,19 +205,6 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
     }
 
     /**
-     * Return the string value of the node. The interpretation of this depends on the type
-     * of node. For an element it is the accumulated character content of the element,
-     * including descendant elements.
-     *
-     * @return the string value of the node
-     */
-
-    @Override
-    public String getStringValue() {
-        return getStringValueCS().toString();
-    }
-
-    /**
      * Get the display name of this node. For elements and attributes this is
      * [prefix:]localname. For unnamed nodes, it is an empty string.
      *
@@ -230,6 +213,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      */
 
     @Override
+    @CSharpModifiers(code={"public", "virtual"})
     public String getDisplayName() {
         String prefix = getPrefix();
         String local = getLocalPart();
@@ -252,7 +236,8 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * @since 9.4
      */
     @Override
-    public String getAttributeValue(String uri, String local) {
+    @CSharpModifiers(code = {"public", "virtual"})
+    public String getAttributeValue(NamespaceUri uri, String local) {
         return null;
     }
 
@@ -265,6 +250,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      */
 
     @Override
+    @CSharpModifiers(code={"public", "virtual"})
     public AxisIterator iterateAxis(int axisNumber) {
         return iterateAxis(axisNumber, AnyNodeTest.getInstance());
     }
@@ -278,12 +264,14 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * be provided in a subclass.</p>
      *
      * @param axisNumber the axis to be used
-     * @param nodeTest   A pattern to be matched by the returned nodes
+     * @param predicate   A pattern to be matched by the returned nodes
      * @return a SequenceIterator that scans the nodes reached by the axis in turn.
      */
 
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    @CSharpModifiers(code = {"public", "virtual"})
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate predicate) {
+        NodeTest nodeTest = Navigator.nodeTestFromPredicate(predicate);
         int nodeKind = getNodeKind();
         switch (axisNumber) {
             case AxisInfo.ANCESTOR:
@@ -390,7 +378,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      *         although arbitrary, must be consistent with document order.
      */
 
-    protected abstract AxisIterator iterateAttributes(Predicate<? super NodeInfo> nodeTest);
+    protected abstract AxisIterator iterateAttributes(NodeTest nodeTest);
 
     /**
      * Return an iterator over the children of this node.
@@ -400,7 +388,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * @return an iterator over the child nodes, in document order.
      */
 
-    protected abstract AxisIterator iterateChildren(Predicate<? super NodeInfo> nodeTest);
+    protected abstract AxisIterator iterateChildren(NodeTest nodeTest);
 
     /**
      * Return an iterator over the siblings of this node.
@@ -411,7 +399,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * @return an iterator over the sibling nodes, in axis order.
      */
 
-    protected abstract AxisIterator iterateSiblings(Predicate<? super NodeInfo> nodeTest, boolean forwards);
+    protected abstract AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards);
 
     /**
      * Return an iterator over the descendants of this node.
@@ -422,7 +410,8 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * @return an iterator over the sibling nodes, in axis order.
      */
 
-    protected AxisIterator iterateDescendants(Predicate<? super NodeInfo> nodeTest, boolean includeSelf) {
+    @CSharpModifiers(code={"protected", "virtual"})
+    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
         AxisIterator iter = new Navigator.DescendantEnumeration(this, includeSelf, true);
         if (!(nodeTest instanceof AnyNodeTest)) {
             iter = new Navigator.AxisFilter(iter, nodeTest);
@@ -451,6 +440,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      *      <p>For a node other than an element, the method returns null.</p>
      */
     @Override
+    @CSharpModifiers(code = {"public", "virtual"})
     public NamespaceBinding[] getDeclaredNamespaces(NamespaceBinding[] buffer) {
         return new NamespaceBinding[0];
     }
@@ -466,9 +456,10 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * @return the in-scope namespaces for an element, or null for any other kind of node.
      */
     @Override
+    @CSharpModifiers(code={"public", "virtual"})
     public NamespaceMap getAllNamespaces() {
         if (getNodeKind() == Type.ELEMENT) {
-            throw new AssertionError("not implemented for " + getClass());
+            throw new AssertionError("getAllNamespaces() not implemented for " + getClass());
         }
         return null;
     }
@@ -499,6 +490,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      */
 
     @Override
+    @CSharpModifiers(code = {"public", "virtual"})
     public boolean hasChildNodes() {
         switch (getNodeKind()) {
             case Type.DOCUMENT:
@@ -517,6 +509,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      *                                       hasFingerprint() returns false;
      */
     @Override
+    @CSharpModifiers(code = {"public", "virtual"})
     public int getFingerprint() {
         throw new UnsupportedOperationException();
     }
@@ -525,6 +518,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * Test whether a fingerprint is available for the node name
      */
     @Override
+    @CSharpModifiers(code = {"public", "virtual"})
     public boolean hasFingerprint() {
         return false;
     }

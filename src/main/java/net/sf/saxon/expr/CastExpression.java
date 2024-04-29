@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,15 +9,21 @@ package net.sf.saxon.expr;
 
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.String_1;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -54,7 +60,7 @@ public class CastExpression extends CastingExpression implements Callable {
 
         Configuration config = visitor.getConfiguration();
         final TypeHierarchy th = config.getTypeHierarchy();
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.TYPE_OP, "cast as", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.TYPE_OP, "cast as", 0);
         ItemType sourceItemType;
 
         TypeChecker tc = config.getTypeChecker(false);
@@ -67,11 +73,10 @@ public class CastExpression extends CastingExpression implements Callable {
             if (allowsEmpty()) {
                 return Literal.makeEmptySequence();
             } else {
-                XPathException err = new XPathException("Cast does not allow an empty sequence as input");
-                err.setErrorCode("XPTY0004");
-                err.setLocation(getLocation());
-                err.setIsTypeError(true);
-                throw err;
+                throw new XPathException("Cast does not allow an empty sequence as input")
+                        .withErrorCode("XPTY0004")
+                        .withLocation(getLocation())
+                        .asTypeError();
             }
         }
 
@@ -88,14 +93,14 @@ public class CastExpression extends CastingExpression implements Callable {
             ConversionRules rules = visitor.getConfiguration().getConversionRules();
 
             if (sourceType.isAtomicType() && sourceType != BuiltInAtomicType.ANY_ATOMIC) {
+                //System.err.println("Allocating converter from " + sourceType + " to " + getTargetType());
                 converter = rules.getConverter((AtomicType)sourceType, getTargetType());
                 if (converter == null) {
-                    XPathException err = new XPathException("Casting from " + sourceType + " to " + getTargetType() +
-                            " can never succeed");
-                    err.setErrorCode("XPTY0004");
-                    err.setLocation(getLocation());
-                    err.setIsTypeError(true);
-                    throw err;
+                    throw new XPathException("Casting from " + sourceType + " to " + getTargetType() +
+                            " can never succeed")
+                            .withErrorCode("XPTY0004")
+                            .withLocation(getLocation())
+                            .asTypeError();
                 } else {
                     if (getTargetType().isNamespaceSensitive()) {
                         converter = converter.setNamespaceResolver(getRetainedStaticContext());
@@ -219,7 +224,7 @@ public class CastExpression extends CastingExpression implements Callable {
      */
 
     protected Expression preEvaluate() throws XPathException {
-        GroundedValue literalOperand = ((Literal) getBaseExpression()).getValue();
+        GroundedValue literalOperand = ((Literal) getBaseExpression()).getGroundedValue();
         if (literalOperand instanceof AtomicValue && converter != null) {
             ConversionResult result = converter.convert((AtomicValue) literalOperand);
             if (result instanceof ValidationFailure) {
@@ -250,7 +255,7 @@ public class CastExpression extends CastingExpression implements Callable {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return allowsEmpty() && Cardinality.allowsZero(getBaseExpression().getCardinality())
                 ? StaticProperty.ALLOWS_ZERO_OR_ONE : StaticProperty.EXACTLY_ONE;
     }
@@ -283,7 +288,7 @@ public class CastExpression extends CastingExpression implements Callable {
      * @return the expression properties
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         if (getTargetType() == BuiltInAtomicType.UNTYPED_ATOMIC) {
             p = p &~ StaticProperty.NOT_UNTYPED_ATOMIC;
@@ -348,19 +353,18 @@ public class CastExpression extends CastingExpression implements Callable {
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue result = doCast((AtomicValue)arguments[0].head(), context);
-        return result == null ? EmptySequence.getInstance() : result;
+        return SequenceTool.itemOrEmpty(result);
     }
 
-    private AtomicValue doCast(AtomicValue value, XPathContext context) throws XPathException {
+    public AtomicValue doCast(AtomicValue value, XPathContext context) throws XPathException {
         if (value == null) {
             if (allowsEmpty()) {
                 return null;
             } else {
-                XPathException e = new XPathException("Cast does not allow an empty sequence");
-                e.setXPathContext(context);
-                e.setLocation(getLocation());
-                e.setErrorCode("XPTY0004");
-                throw e;
+                throw new XPathException("Cast does not allow an empty sequence")
+                        .withXPathContext(context)
+                        .withLocation(getLocation())
+                        .withErrorCode("XPTY0004");
             }
         }
 
@@ -369,11 +373,11 @@ public class CastExpression extends CastingExpression implements Callable {
             ConversionRules rules = context.getConfiguration().getConversionRules();
             converter = rules.getConverter(value.getPrimitiveType(), getTargetType());
             if (converter == null) {
-                XPathException e = new XPathException("Casting from " + value.getPrimitiveType() + " to " + getTargetType() + " is not permitted");
-                e.setXPathContext(context);
-                e.setLocation(getLocation());
-                e.setErrorCode("XPTY0004");
-                throw e;
+                throw new XPathException("Casting from " + value.getPrimitiveType() +
+                                                 " to " + getTargetType() + " is not permitted")
+                        .withXPathContext(context)
+                        .withLocation(getLocation())
+                        .withErrorCode("XPTY0004");
             }
             if (getTargetType().isNamespaceSensitive()) {
                 converter = converter.setNamespaceResolver(getRetainedStaticContext());
@@ -382,10 +386,9 @@ public class CastExpression extends CastingExpression implements Callable {
         ConversionResult result = converter.convert(value);
         if (result instanceof ValidationFailure) {
             ValidationFailure err = (ValidationFailure) result;
-            XPathException xe = err.makeException();
-            xe.maybeSetErrorCode("FORG0001");
-            xe.maybeSetLocation(getLocation());
-            throw xe;
+            throw err.makeException()
+                    .maybeWithErrorCode("FORG0001")
+                    .maybeWithLocation(getLocation());
         }
         return (AtomicValue) result;
     }
@@ -397,13 +400,7 @@ public class CastExpression extends CastingExpression implements Callable {
     /*@Nullable*/
     @Override
     public AtomicValue evaluateItem(XPathContext context) throws XPathException {
-        try {
-            AtomicValue value = (AtomicValue) getBaseExpression().evaluateItem(context);
-            return doCast(value, context);
-        } catch (ClassCastException e) {
-            e.printStackTrace();
-            throw e;
-        }
+        return (AtomicValue) makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -423,7 +420,7 @@ public class CastExpression extends CastingExpression implements Callable {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode() ^ getTargetType().hashCode();
     }
 
@@ -465,7 +462,34 @@ public class CastExpression extends CastingExpression implements Callable {
         return "cast";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new CastExprElaborator();
+    }
 
+    /**
+     * Elaborator for {@code cast as} expression, or the equivalent constructor function call
+     */
+
+    public static class CastExprElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            CastExpression exp = (CastExpression) getExpression();
+            Expression arg = exp.getBaseExpression();
+            ItemEvaluator argEval = arg.makeElaborator().elaborateForItem();
+
+            return context -> {
+                AtomicValue value = (AtomicValue) argEval.eval(context);
+                return exp.doCast(value, context);
+            };
+        }
+
+    }
 }
 

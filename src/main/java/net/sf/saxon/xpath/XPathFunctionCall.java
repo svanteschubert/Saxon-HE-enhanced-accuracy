@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,10 @@ package net.sf.saxon.xpath;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.SequenceEvaluator;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.parser.RebindingMap;
@@ -31,14 +35,17 @@ import java.util.List;
 
 public class XPathFunctionCall extends FunctionCall implements Callable {
 
-    private StructuredQName name;
-    private XPathFunction function;
+    private final StructuredQName name;
+    private final XPathFunction function;
 
     /**
      * Default constructor
+     * @param name the qualified name of the function
+     * @param function the target function
      */
 
     public XPathFunctionCall(StructuredQName name, XPathFunction function) {
+        this.name = name;
         this.function = function;
     }
 
@@ -59,7 +66,7 @@ public class XPathFunctionCall extends FunctionCall implements Callable {
      * @return always null
      */
     @Override
-    public Function getTargetFunction(XPathContext context) {
+    public FunctionItem getTargetFunction(XPathContext context) {
         return null;
     }
 
@@ -115,7 +122,7 @@ public class XPathFunctionCall extends FunctionCall implements Callable {
      * calling expression.</p>
      *
      * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet
+     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
      * @return the pathMapNode representing the focus established by this expression, in the case where this
      *         expression is the first operand of a path expression or filter expression. For an expression that does
      *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
@@ -166,7 +173,7 @@ public class XPathFunctionCall extends FunctionCall implements Callable {
         Configuration config = context.getConfiguration();
         for (Sequence argValue : argValues) {
             List<Object> target = new ArrayList<>();
-            argValue.iterate().forEachOrFail(item -> {
+            SequenceTool.supply(argValue.iterate(), (ItemConsumer<? super Item>) item -> {
                 PJConverter converter = PJConverter.allocate(
                         config, Type.getItemType(item, config.getTypeHierarchy()), StaticProperty.ALLOWS_ONE, Object.class);
                 target.add(converter.convert(item, Object.class, context));
@@ -213,11 +220,37 @@ public class XPathFunctionCall extends FunctionCall implements Callable {
      * @return ZERO_OR_MORE (we don't know)
      */
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new XPathFunctionCallElaborator();
+    }
 
+    private static class XPathFunctionCallElaborator extends PullElaborator {
 
+        @Override
+        public PullEvaluator elaborateForPull() {
+            XPathFunctionCall expr = (XPathFunctionCall)getExpression();
+            SequenceEvaluator[] argEvals = new SequenceEvaluator[expr.getArity()];
+            for (int i = 0; i < argEvals.length; i++) {
+                argEvals[i] = expr.getArg(i).makeElaborator().lazily(true, false);
+            }
+            return context -> {
+                Sequence[] argValues = new Sequence[expr.getArity()];
+                for (int i = 0; i < argEvals.length; i++) {
+                    argValues[i] = argEvals[i].evaluate(context);
+                }
+                return expr.call(context, argValues).iterate();
+            };
+        }
+    }
 }
 

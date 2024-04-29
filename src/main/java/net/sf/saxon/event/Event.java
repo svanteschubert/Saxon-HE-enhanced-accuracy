@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,12 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.AttributeMap;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NodeName;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -23,7 +27,7 @@ public abstract class Event {
      * Send the event to a receiver
      *
      * @param out the receiver to which the event is to be sent
-     * @throws XPathException the the receiver reports an error
+     * @throws XPathException if the receiver reports an error
      */
 
     public void replay(Receiver out) throws XPathException {
@@ -114,12 +118,12 @@ public abstract class Event {
 
     public static class Text extends Event {
 
-        String content;
+        UnicodeString content;
         Location location;
         int properties;
 
-        public Text(CharSequence content, Location location, int properties) {
-            this.content = content.toString();
+        public Text(UnicodeString content, Location location, int properties) {
+            this.content = content;
             this.location = location;
             this.properties = properties;
         }
@@ -136,12 +140,12 @@ public abstract class Event {
 
     public static class Comment extends Event {
 
-        String content;
+        UnicodeString content;
         Location location;
         int properties;
 
-        public Comment(CharSequence content, Location location, int properties) {
-            this.content = content.toString();
+        public Comment(UnicodeString content, Location location, int properties) {
+            this.content = content;
             this.location = location;
             this.properties = properties;
         }
@@ -158,13 +162,13 @@ public abstract class Event {
 
     public static class ProcessingInstruction extends Event {
         String target;
-        String content;
+        UnicodeString content;
         Location location;
         int properties;
 
-        public ProcessingInstruction(String target, CharSequence content, Location location, int properties) {
+        public ProcessingInstruction(String target, UnicodeString content, Location location, int properties) {
             this.target = target;
-            this.content = content.toString();
+            this.content = content;
             this.location = location;
             this.properties = properties;
         }

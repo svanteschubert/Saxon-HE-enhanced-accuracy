@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -34,7 +34,7 @@ import javax.xml.transform.Source;
 
 public class JDOM2ObjectModel extends TreeModel implements ExternalObjectModel {
 
-    private final static JDOM2ObjectModel THE_INSTANCE = new JDOM2ObjectModel();
+    private static final JDOM2ObjectModel THE_INSTANCE = new JDOM2ObjectModel();
 
     public static JDOM2ObjectModel getInstance() {
         return THE_INSTANCE;
@@ -118,7 +118,7 @@ public class JDOM2ObjectModel extends TreeModel implements ExternalObjectModel {
         if (isRecognizedNodeClass(sourceClass)) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object object, XPathContext context) {
+                public GroundedValue convert(Object object, XPathContext context) {
                     return convertObjectToXPathValue(object, context.getConfiguration());
                 }
 
@@ -179,17 +179,6 @@ public class JDOM2ObjectModel extends TreeModel implements ExternalObjectModel {
     }
 
     /**
-     * Test whether this object model recognizes a particular kind of JAXP Source object,
-     * and if it does, send the contents of the document to a supplied Receiver, and return true.
-     * Otherwise, return false.
-     */
-
-    @Override
-    public boolean sendSource(Source source, Receiver receiver) {
-        return false;
-    }
-
-    /**
      * Wrap or unwrap a node using this object model to return the corresponding Saxon node. If the supplied
      * source does not belong to this object model, return null
      */
@@ -212,7 +201,7 @@ public class JDOM2ObjectModel extends TreeModel implements ExternalObjectModel {
      */
 
     /*@Nullable*/
-    private Sequence convertObjectToXPathValue(Object object, Configuration config) {
+    private GroundedValue convertObjectToXPathValue(Object object, Configuration config) {
         if (isRecognizedNode(object)) {
             if (object instanceof Document) {
                 return wrapDocument(object, config).getRootNode();

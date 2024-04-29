@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,6 +19,8 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
+
+import java.util.function.Supplier;
 
 /**
  * Handler for xsl:copy elements in stylesheet. <br>
@@ -53,12 +55,12 @@ public class XSLCopy extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String copyNamespacesAtt = null;
         String validationAtt = null;
@@ -145,8 +147,8 @@ public class XSLCopy extends StyleElement {
 
         select = typeCheck("select", select);
         try {
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:copy/select", 0);
-            role.setErrorCode("XTTE3180");
+            Supplier<RoleDiagnostic> role =
+                    () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:copy/select", 0, "XTTE3180");
             select = getConfiguration().getTypeChecker(false).staticTypeCheck(select, SequenceType.OPTIONAL_ITEM,
                                                                               role, makeExpressionVisitor());
         } catch (XPathException err) {
@@ -183,6 +185,7 @@ public class XSLCopy extends StyleElement {
                 schemaType,
                 validationAction);
 
+        inst.setLocation(saveLocation());
         inst.setContentExpression(content);
 
         if (selectSpecified) {

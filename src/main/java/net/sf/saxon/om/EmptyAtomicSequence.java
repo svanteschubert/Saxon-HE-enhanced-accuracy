@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,8 @@
 
 package net.sf.saxon.om;
 
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.value.AtomicValue;
@@ -18,9 +20,12 @@ import java.util.Iterator;
  * An implementation of AtomicSequence that contains no items.
  */
 
-public enum EmptyAtomicSequence implements AtomicSequence {
+public class EmptyAtomicSequence implements AtomicSequence {
 
-    INSTANCE;
+    // TODO: this class appears equivalent to AtomicArray.EMPTY_ATOMIC_ARRAY
+
+    private EmptyAtomicSequence() {}
+    private final static EmptyAtomicSequence INSTANCE = new EmptyAtomicSequence();
 
     public static EmptyAtomicSequence getInstance() {
         return INSTANCE;
@@ -32,7 +37,7 @@ public enum EmptyAtomicSequence implements AtomicSequence {
     }
 
     @Override
-    public AtomicIterator<AtomicValue> iterate() {
+    public AtomicIterator iterate() {
         return EmptyIterator.ofAtomic();
     }
 
@@ -54,28 +59,13 @@ public enum EmptyAtomicSequence implements AtomicSequence {
      *         of casting to string according to the XPath 2.0 rules
      */
     @Override
-    public CharSequence getCanonicalLexicalRepresentation() {
-        return "";
-    }
-
-    /**
-     * Get a Comparable value that implements the XML Schema ordering comparison semantics for this value.
-     * The default implementation is written to compare sequences of atomic values.
-     * This method is overridden for AtomicValue and its subclasses.
-     * <p>In the case of data types that are partially ordered, the returned Comparable extends the standard
-     * semantics of the compareTo() method by returning the value {@link net.sf.saxon.om.SequenceTool#INDETERMINATE_ORDERING} when there
-     * is no defined order relationship between two given values.</p>
-     *
-     * @return a Comparable that follows XML Schema comparison rules
-     */
-    @Override
-    public Comparable<?> getSchemaComparable() {
-        return AtomicArray.EMPTY_ATOMIC_ARRAY.getSchemaComparable();
+    public UnicodeString getCanonicalLexicalRepresentation() {
+        return EmptyUnicodeString.getInstance();
     }
 
     @Override
-    public CharSequence getStringValueCS() {
-        return "";
+    public UnicodeString getUnicodeStringValue() {
+        return EmptyUnicodeString.getInstance();
     }
 
     @Override
@@ -125,7 +115,7 @@ public enum EmptyAtomicSequence implements AtomicSequence {
 
     @Override
     public Iterator<AtomicValue> iterator() {
-        return Collections.<AtomicValue>emptyList().iterator();
+        return Collections.emptyIterator();
     }
 }
 

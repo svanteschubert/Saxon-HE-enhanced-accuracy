@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -57,7 +57,7 @@ public class IntToIntArrayMap implements IntToIntMap {
      * @return true if the key is mapped
      */
     @Override
-    public boolean find(int key) {
+    public boolean contains(int key) {
         for (int i = 0; i < used; i++) {
             if (keys[i] == key) {
                 return true;
@@ -104,7 +104,7 @@ public class IntToIntArrayMap implements IntToIntMap {
     /*@NotNull*/
     @Override
     public IntIterator keyIterator() {
-        return new KeyIterator();
+        return new KeyIterator(this);
     }
 
     /**
@@ -171,23 +171,24 @@ public class IntToIntArrayMap implements IntToIntMap {
         return used;
     }
 
-    private class KeyIterator implements IntIterator {
+    private static class KeyIterator implements IntIterator {
 
+        private IntToIntArrayMap map;
         private int i = 0;
-        private static final long serialVersionUID = 1720894017771245276L;
 
-        public KeyIterator() {
+        public KeyIterator(IntToIntArrayMap map) {
+            this.map = map;
             i = 0;
         }
 
         @Override
         public boolean hasNext() {
-            return i < used;
+            return i < map.used;
         }
 
         @Override
         public int next() {
-            return keys[i++];
+            return map.keys[i++];
         }
     }
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,16 @@ package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
+import net.sf.saxon.event.ComplexContentOutputter;
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.event.Receiver;
+import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.StandardURIChecker;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
@@ -21,8 +26,11 @@ import net.sf.saxon.pattern.ContentTypeTest;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -36,10 +44,10 @@ import net.sf.saxon.value.*;
 
 public class ComputedElement extends ElementCreator {
 
-    private Operand nameOp;
+    private final Operand nameOp;
     private Operand namespaceOp;
 
-    private boolean allowNameAsQName;
+    private final boolean allowNameAsQName;
     private ItemType itemType;
 
     /**
@@ -150,20 +158,17 @@ public class ComputedElement extends ElementCreator {
         Configuration config = visitor.getConfiguration();
         TypeHierarchy th = config.getTypeHierarchy();
 
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "element/name", 0);
         if (allowNameAsQName) {
             // Can only happen in XQuery
-            setNameExp(config.getTypeChecker(false).staticTypeCheck(getNameExp(),
-                                                                                SequenceType.SINGLE_ATOMIC, role, visitor));
+            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "element/name", 0);
+            setNameExp(config.getTypeChecker(false).staticTypeCheck(
+                    getNameExp(), SequenceType.SINGLE_ATOMIC, role, visitor));
             ItemType supplied = getNameExp().getItemType();
             if (th.relationship(supplied, BuiltInAtomicType.STRING) == Affinity.DISJOINT &&
                     th.relationship(supplied, BuiltInAtomicType.UNTYPED_ATOMIC) == Affinity.DISJOINT &&
                     th.relationship(supplied, BuiltInAtomicType.QNAME) == Affinity.DISJOINT) {
-                XPathException de = new XPathException("The name of a constructed element must be a string, QName, or untypedAtomic");
-                de.setErrorCode("XPTY0004");
-                de.setIsTypeError(true);
-                de.setLocation(getLocation());
-                throw de;
+                throw new XPathException("The name of a constructed element must be a string, QName, or untypedAtomic")
+                        .withErrorCode("XPTY0004").asTypeError().withLocation(getLocation());
             }
         } else {
             if (!th.isSubType(getNameExp().getItemType(), BuiltInAtomicType.STRING)) {
@@ -173,31 +178,25 @@ public class ComputedElement extends ElementCreator {
         if (Literal.isAtomic(getNameExp())) {
             // Check we have a valid lexical QName, whose prefix is in scope where necessary
             try {
-                AtomicValue val = (AtomicValue) ((Literal) getNameExp()).getValue();
+                AtomicValue val = (AtomicValue) ((Literal) getNameExp()).getGroundedValue();
                 if (val instanceof StringValue) {
-                    String[] parts = NameChecker.checkQNameParts(val.getStringValueCS());
+                    String[] parts = NameChecker.checkQNameParts(val.getStringValue());
                     if (getNamespaceExp() == null) {
                         String prefix = parts[0];
-                        String uri = getNamespaceResolver().getURIForPrefix(prefix, true);
+                        NamespaceUri uri = getNamespaceResolver().getURIForPrefix(prefix, true);
                         if (uri == null) {
-                            XPathException se = new XPathException("Prefix " + prefix + " has not been declared");
-                            se.setErrorCode("XPST0081");
-                            se.setIsStaticError(true);
-                            throw se;
+                            throw new XPathException("Prefix " + prefix + " has not been declared")
+                                    .withErrorCode("XPST0081").asStaticError();
                         }
-                        setNamespaceExp(new StringLiteral(uri));
+                        setNamespaceExp(new StringLiteral(uri.toString()));
                     }
                 }
             } catch (XPathException e) {
-                String code = e.getErrorCodeLocalPart();
-                if (code == null || code.equals("FORG0001")) {
-                    e.setErrorCode(isXSLT() ? "XTDE0820" : "XQDY0074");
-                } else if (code.equals("XPST0081")) {
-                    e.setErrorCode(isXSLT() ? "XTDE0830" : "XQDY0074");
-                }
-                e.maybeSetLocation(getLocation());
-                e.setIsStaticError(true);
-                throw e;
+                throw e.maybeWithErrorCode(isXSLT() ? "XTDE0820" : "XQDY0074")
+                        .replacingErrorCode("FORG0001", isXSLT() ? "XTDE0820" : "XQDY0074")
+                        .replacingErrorCode("XPST0081", isXSLT() ? "XTDE0830" : "XQDY0074")
+                        .maybeWithLocation(getLocation())
+                        .asStaticError();
             }
         }
         return super.typeCheck(visitor, contextInfo);
@@ -261,10 +260,7 @@ public class ComputedElement extends ElementCreator {
             } else {
                 msg += "has a complex type with simple content";
             }
-            XPathException err = new XPathException(msg);
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException(msg).asTypeError().withLocation(getLocation());
         }
         // NOTE: we could in principle check that if all the elements permitted in the content of the parentType
         // themselves have a simple type (not uncommon, perhaps) then this element must not have element content.
@@ -276,12 +272,10 @@ public class ComputedElement extends ElementCreator {
      * for the element name
      *
      * @param context    The evaluation context (not used)
-     * @param copiedNode Not applicable to this overload
      * @return the name code for the element name
      */
 
-    @Override
-    public NodeName getElementName(XPathContext context, NodeInfo copiedNode)
+    public NodeName getElementName(XPathContext context)
             throws XPathException {
 
         Controller controller = context.getController();
@@ -289,7 +283,7 @@ public class ComputedElement extends ElementCreator {
 
         String prefix;
         String localName;
-        String uri = null;
+        NamespaceUri uri = null;
 
         // name needs to be evaluated at run-time
         AtomicValue nameValue = (AtomicValue) getNameExp().evaluateItem(context);
@@ -302,7 +296,8 @@ public class ComputedElement extends ElementCreator {
         if (nameValue instanceof StringValue) {  // which includes UntypedAtomic
             // this will always be the case in XSLT
             String rawName = nameValue.getStringValue();
-            rawName = Whitespace.trimWhitespace(rawName).toString();
+            rawName = Whitespace.trim(rawName);
+            // this will always be the case in XSLT
             if (rawName.startsWith("Q{") && allowNameAsQName) {
                 // Unclear whether this is allowed: see https://github.com/w3c/qtspecs/issues/9
                 // It clearly is NOT allowed in XSLT 3.0 (though for no good reason)
@@ -310,13 +305,12 @@ public class ComputedElement extends ElementCreator {
                     StructuredQName qn = StructuredQName.fromEQName(rawName);
                     prefix = "";
                     localName = qn.getLocalPart();
-                    uri = qn.getURI();
+                    uri = qn.getNamespaceUri();
                 } catch (IllegalArgumentException e) {
                     throw new XPathException("Invalid EQName in computed element constructor: " + e.getMessage(), "XQDY0074");
                 }
                 if (!NameChecker.isValidNCName(localName)) {
                     throw new XPathException("Local part of EQName in computed element constructor is invalid", "XQDY0074");
-
                 }
             } else {
                 try {
@@ -359,10 +353,10 @@ public class ComputedElement extends ElementCreator {
         } else {
             if (uri == null) {
                 if (getNamespaceExp() instanceof StringLiteral) {
-                    uri = ((StringLiteral) getNamespaceExp()).getStringValue();
+                    uri = NamespaceUri.of(((StringLiteral) getNamespaceExp()).stringify());
                 } else {
-                    uri = getNamespaceExp().evaluateAsString(context).toString();
-                    if (!StandardURIChecker.getInstance().isValidURI(uri)) {
+                    uri = NamespaceUri.of(getNamespaceExp().evaluateAsString(context).toString());
+                    if (!StandardURIChecker.getInstance().isValidURI(uri.toString())) {
                         XPathException de = new XPathException(
                             "The value of the namespace attribute must be a valid URI", "XTDE0835", getLocation());
                         throw dynamicError(getLocation(), de, context);
@@ -379,12 +373,12 @@ public class ComputedElement extends ElementCreator {
                 prefix = "x-xmlns";
             }
         }
-        if (uri.equals(NamespaceConstant.XMLNS)) {
+        if (uri.equals(NamespaceUri.XMLNS)) {
             String errorCode = isXSLT() ? "XTDE0835" : "XQDY0096";
             XPathException err = new XPathException("Cannot create element in namespace " + uri, errorCode, getLocation());
             throw dynamicError(getLocation(), err, context);
         }
-        if (uri.equals(NamespaceConstant.XML) != prefix.equals("xml")) {
+        if (uri.equals(NamespaceUri.XML) != prefix.equals("xml")) {
             String message;
             if (prefix.equals("xml")) {
                 message = "When the prefix is 'xml', the namespace URI must be " + NamespaceConstant.XML;
@@ -411,18 +405,34 @@ public class ComputedElement extends ElementCreator {
     }
 
     @Override
-    public String getNewBaseURI(XPathContext context, NodeInfo copiedNode) {
-        return getStaticBaseURIString();
+    @CSharpInnerClass(outer = true)
+    public ElementCreationDetails makeElementCreationDetails() {
+        return new ElementCreationDetails() {
+            @Override
+            public NodeName getNodeName(XPathContext context) throws XPathException {
+                return getElementName(context);
+            }
+
+            @Override
+            public String getSystemId(XPathContext context) {
+                return getStaticBaseURIString();
+            }
+
+            @Override
+            public void processContent(Outputter outputter, XPathContext context) throws XPathException {
+                getContentExpression().process(outputter, context);
+            }
+        };
     }
 
     /**
      * Callback to output namespace nodes for the new element.
      * @param out        the Outputter where the namespace nodes are to be written
      * @param nodeName   The name of the element node being output
-     * @param copiedNode Where this is a copied node, the node being copied
+     * @param details Where this is a copied node, the node being copied
      */
     @Override
-    public void outputNamespaceNodes(Outputter out, NodeName nodeName, NodeInfo copiedNode)
+    public void outputNamespaceNodes(Outputter out, NodeName nodeName, ElementCreationDetails details)
             throws XPathException {
         // no action
     }
@@ -462,6 +472,200 @@ public class ComputedElement extends ElementCreator {
         out.setChildRole("content");
         getContentExpression().export(out);
         out.endElement();
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new ComputedElementElaborator();
+    }
+
+    /**
+     * Elaborator for a FixedElement (literal result element) expression.
+     */
+
+    public static class ComputedElementElaborator extends ComplexNodePushElaborator {
+
+        @Override
+        @CSharpInnerClass(outer = false, extra = {"Saxon.Hej.expr.instruct.FixedElement instr", "Saxon.Hej.expr.elab.PushEvaluator contentPusher"})
+        public PushEvaluator elaborateForPush() {
+            final ComputedElement expr = (ComputedElement) getExpression();
+            final boolean isXsltInstruction = expr.isXSLT();
+            final PushEvaluator contentPusher =
+                    expr.getContentExpression().makeElaborator().elaborateForPush();
+
+            final StringEvaluator namespaceEvaluator = expr.getNamespaceExp() == null ?
+                    null : expr.getNamespaceExp().makeElaborator().elaborateForString(true);
+            final ItemEvaluator localNameEvaluator = expr.getNameExp().makeElaborator().elaborateForItem();
+            final ItemEvaluator nodeNameEvaluator = context -> {
+                Controller controller = context.getController();
+                assert controller != null;
+
+                String prefix;
+                String localName;
+                NamespaceUri uri = null;
+
+                AtomicValue nameValue = (AtomicValue) localNameEvaluator.eval(context);
+                if (nameValue == null) {
+                    String errorCode = isXsltInstruction ? "XTDE0820" : "XPTY0004";
+                    XPathException err1 = new XPathException("Invalid element name (empty sequence)", errorCode, expr.getLocation());
+                    throw dynamicError(expr.getLocation(), err1, context);
+                }
+                if (nameValue instanceof StringValue) {  // which includes UntypedAtomic
+                    // this will always be the case in XSLT
+                    String rawName = nameValue.getStringValue();
+                    rawName = Whitespace.trim(rawName);
+                    // this will always be the case in XSLT
+                    if (rawName.startsWith("Q{") && expr.allowNameAsQName) {
+                        // Unclear whether this is allowed: see https://github.com/w3c/qtspecs/issues/9
+                        // It clearly is NOT allowed in XSLT 3.0 (though for no good reason)
+                        try {
+                            StructuredQName qn = StructuredQName.fromEQName(rawName);
+                            prefix = "";
+                            localName = qn.getLocalPart();
+                            uri = qn.getNamespaceUri();
+                        } catch (IllegalArgumentException e) {
+                            throw new XPathException("Invalid EQName in computed element constructor: " + e.getMessage(), "XQDY0074");
+                        }
+                        if (!NameChecker.isValidNCName(localName)) {
+                            throw new XPathException("Local part of EQName in computed element constructor is invalid", "XQDY0074");
+                        }
+                    } else {
+                        try {
+                            String[] parts = NameChecker.getQNameParts(rawName);
+                            prefix = parts[0];
+                            localName = parts[1];
+                        } catch (QNameException err) {
+                            String message = "Invalid element name. " + err.getMessage();
+                            if (rawName.length() == 0) {
+                                message = "Supplied element name is a zero-length string";
+                            }
+                            String errorCode = isXsltInstruction ? "XTDE0820" : "XQDY0074";
+                            XPathException err1 = new XPathException(message, errorCode, expr.getLocation());
+                            throw dynamicError(expr.getLocation(), err1, context);
+                        }
+                    }
+                } else if (nameValue instanceof QNameValue && expr.allowNameAsQName) {
+                    // this is allowed in XQuery
+                    localName = ((QNameValue) nameValue).getLocalName();
+                    uri = ((QNameValue) nameValue).getNamespaceURI();
+                    prefix = ((QNameValue) nameValue).getPrefix();
+                    if (prefix.equals("xmlns")) {
+                        XPathException err = new XPathException("Computed element name has prefix xmlns", "XQDY0096", expr.getLocation());
+                        throw dynamicError(expr.getLocation(), err, context);
+                    }
+                } else {
+                    String errorCode = isXsltInstruction ? "XTDE0820" : "XPTY0004";
+                    XPathException err = new XPathException("Computed element name has incorrect type", errorCode, expr.getLocation());
+                    err.setIsTypeError(true);
+                    throw dynamicError(expr.getLocation(), err, context);
+                }
+
+                if (namespaceEvaluator == null && uri == null) {
+                    uri = expr.getRetainedStaticContext().getURIForPrefix(prefix, true);
+                    if (uri == null) {
+                        String errorCode = isXsltInstruction ? "XTDE0830" : prefix.equals("xmlns") ? "XQDY0096" : "XQDY0074";
+                        XPathException err = new XPathException("Undeclared prefix in element name: " + prefix, errorCode, expr.getLocation());
+                        throw dynamicError(expr.getLocation(), err, context);
+                    }
+                } else {
+                    if (uri == null) {
+                        String nsUri = namespaceEvaluator.eval(context);
+                        uri = NamespaceUri.of(nsUri);
+                        // TODO: bypass check if it's a string literal
+                        if (!StandardURIChecker.getInstance().isValidURI(uri.toString())) {
+                            XPathException de = new XPathException(
+                                    "The value of the namespace attribute must be a valid URI", "XTDE0835", expr.getLocation());
+                            throw dynamicError(expr.getLocation(), de, context);
+                        }
+                    }
+                    if (uri.isEmpty()) {
+                        // there is a special rule for this case in the specification;
+                        // we force the element to go in the null namespace
+                        prefix = "";
+                    }
+                    if (prefix.equals("xmlns")) {
+                        // this isn't a legal prefix so we mustn't use it
+                        prefix = "x-xmlns";
+                    }
+                }
+                if (uri.equals(NamespaceUri.XMLNS)) {
+                    String errorCode = isXsltInstruction ? "XTDE0835" : "XQDY0096";
+                    XPathException err = new XPathException("Cannot create element in namespace " + uri, errorCode, expr.getLocation());
+                    throw dynamicError(expr.getLocation(), err, context);
+                }
+                if (uri.equals(NamespaceUri.XML) != prefix.equals("xml")) {
+                    String message;
+                    if (prefix.equals("xml")) {
+                        message = "When the prefix is 'xml', the namespace URI must be " + NamespaceConstant.XML;
+                    } else {
+                        message = "When the namespace URI is " + NamespaceConstant.XML + ", the prefix must be 'xml'";
+                    }
+                    String errorCode = isXsltInstruction ? "XTDE0835" : "XQDY0096";
+                    XPathException err = new XPathException(message, errorCode, expr.getLocation());
+                    throw dynamicError(expr.getLocation(), err, context);
+                }
+
+                return new QNameValue(prefix, uri, localName);
+            };
+
+            SchemaType typeCode = expr.getValidationAction() == Validation.PRESERVE
+                    ? AnyType.getInstance()
+                    : Untyped.getInstance();
+
+            return (out, context) -> {
+                try {
+
+                    QNameValue elemName = (QNameValue)nodeNameEvaluator.eval(context);
+
+                    Receiver elemOut = out;
+                    if (!expr.preservingTypes) {
+                        ParseOptions options = expr.getValidationOptions()
+                                .withTopLevelElement(elemName.getStructuredQName());
+                        context.getConfiguration().prepareValidationReporting(context, options);
+                        Receiver validator = context.getConfiguration().getElementValidator(
+                                elemOut, options, expr.getLocation());
+
+                        if (validator != elemOut) {
+                            out = new ComplexContentOutputter(validator);
+                        }
+                    }
+
+                    if (out.getSystemId() == null) {
+                        out.setSystemId(expr.getStaticBaseURIString());
+                    }
+                    int properties = ReceiverOption.NONE;
+                    if (!expr.bequeathNamespacesToChildren) {
+                        properties |= ReceiverOption.DISINHERIT_NAMESPACES;
+                    }
+                    if (!expr.inheritNamespacesFromParent) {
+                        properties |= ReceiverOption.REFUSE_NAMESPACES;
+                    }
+                    properties |= ReceiverOption.ALL_NAMESPACES;
+
+                    out.startElement(new FingerprintedQName(elemName.getStructuredQName()),
+                                     typeCode, expr.getLocation(), properties);
+
+                    // process subordinate instructions to generate attributes and content
+                    TailCall tc = contentPusher.processLeavingTail(out, context);
+                    Expression.dispatchTailCall(tc);
+
+                    // output the element end tag (which will fail if validation fails)
+                    out.endElement();
+
+                } catch (XPathException e) {
+                    throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                }
+                return null;
+            };
+        }
+
+
     }
 
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -66,8 +66,12 @@ public class StandardCollationURIResolver implements CollationURIResolver {
             }
             Properties props = new Properties();
             String query = uuri.getRawQuery();
+            if (query.startsWith("?")) {
+                // Happens on .NET
+                query = query.substring(1);
+            }
             StringTokenizer queryTokenizer = new StringTokenizer(query, ";&");
-            while (queryTokenizer.hasMoreElements()) {
+            while (queryTokenizer.hasMoreTokens()) {
                 String param = queryTokenizer.nextToken();
                 int eq = param.indexOf('=');
                 if (eq > 0 && eq < param.length() - 1) {
@@ -94,7 +98,7 @@ public class StandardCollationURIResolver implements CollationURIResolver {
                 Properties props = new Properties();
                 String query = AnyURIValue.decode(uuri.getRawQuery());
                 for (String param : query.split(";")) {
-                    String tokens[] = param.split("=");
+                    String[] tokens = param.split("=");
                     if (tokens.length == 2) {
                         String kw = tokens[0];
                         String val = tokens[1];

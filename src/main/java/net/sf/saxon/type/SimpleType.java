@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,13 +10,14 @@ package net.sf.saxon.type;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.str.UnicodeString;
 
 /**
  * This interface represents a simple type, which may be a built-in simple type, or
  * a user-defined simple type.
  */
 
-public interface SimpleType extends SchemaType {
+public interface SimpleType extends SchemaType, HyperType {
 
     /**
      * Test whether this Simple Type is an atomic type
@@ -73,7 +74,7 @@ public interface SimpleType extends SchemaType {
      * @throws ValidationException if the supplied value is not in the lexical space of the data type
      */
 
-    AtomicSequence getTypedValue(CharSequence value, /*@Nullable*/ NamespaceResolver resolver, ConversionRules rules)
+    AtomicSequence getTypedValue(UnicodeString value, /*@Nullable*/ NamespaceResolver resolver, ConversionRules rules)
             throws ValidationException;
 
     /**
@@ -92,19 +93,8 @@ public interface SimpleType extends SchemaType {
 
     /*@Nullable*/
     ValidationFailure validateContent(
-            /*@NotNull*/ CharSequence value, /*@Nullable*/ NamespaceResolver nsResolver, /*@NotNull*/ ConversionRules rules);
+            /*@NotNull*/ UnicodeString value, /*@Nullable*/ NamespaceResolver nsResolver, /*@NotNull*/ ConversionRules rules);
 
-    /**
-     * Test whether this type is namespace sensitive, that is, if a namespace context is needed
-     * to translate between the lexical space and the value space. This is true for types derived
-     * from, or containing, QNames and NOTATIONs
-     *
-     * @return true if the type is namespace-sensitive, or if the namespace-sensitivity cannot be determined
-     * because there are missing schema components. (However, for xs:anyAtomicType, the result returned is
-     * false, even though the type allows xs:QName instances.)
-     */
-
-    boolean isNamespaceSensitive();
 
     /**
      * Determine how values of this simple type are whitespace-normalized.
@@ -113,7 +103,7 @@ public interface SimpleType extends SchemaType {
      *         {@link net.sf.saxon.value.Whitespace#REPLACE}.
      */
 
-    public int getWhitespaceAction();
+    int getWhitespaceAction();
 
     /**
      * Apply any pre-lexical facets, other than whitespace. At the moment the only such
@@ -124,7 +114,7 @@ public interface SimpleType extends SchemaType {
      * @throws ValidationException if preprocessing detects that the value is invalid
      */
 
-    public CharSequence preprocess(CharSequence input) throws ValidationException;
+    UnicodeString preprocess(UnicodeString input) throws ValidationException;
 
     /**
      * Reverse any pre-lexical facets, other than whitespace. At the moment the only such
@@ -137,7 +127,7 @@ public interface SimpleType extends SchemaType {
      * @throws ValidationException if postprocessing detects that the value is invalid
      */
 
-    public CharSequence postprocess(CharSequence input) throws ValidationException;
+    UnicodeString postprocess(UnicodeString input) throws ValidationException;
 
 }
 

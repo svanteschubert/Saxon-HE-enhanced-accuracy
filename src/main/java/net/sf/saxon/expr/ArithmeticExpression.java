@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,9 @@ package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.compat.ArithmeticExpression10;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.StandardNames;
@@ -16,6 +19,8 @@ import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
+
+import java.util.function.Supplier;
 
 /**
  * Arithmetic Expression: an expression using one of the operators
@@ -60,7 +65,7 @@ public class ArithmeticExpression extends BinaryExpression {
      * for some subclasses.
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NOT_UNTYPED_ATOMIC;
     }
@@ -106,7 +111,7 @@ public class ArithmeticExpression extends BinaryExpression {
 
         SequenceType atomicType = SequenceType.OPTIONAL_ATOMIC;
 
-        RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+        Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
         //role0.setSourceLocator(this);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), atomicType, role0, visitor));
         final ItemType itemType0 = getLhsExpression().getItemType();
@@ -126,8 +131,7 @@ public class ArithmeticExpression extends BinaryExpression {
 
         // System.err.println("First operand"); operand0.display(10);
 
-        RoleDiagnostic role1 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
-        //role1.setSourceLocator(this);
+        Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), atomicType, role1, visitor));
         final ItemType itemType1 = getRhsExpression().getItemType();
         if (itemType1 instanceof ErrorType) {
@@ -145,10 +149,8 @@ public class ArithmeticExpression extends BinaryExpression {
         }
 
         if (itemType0.getUType().union(itemType1.getUType()).overlaps(UType.EXTENSION)) {
-            XPathException de = new XPathException("Arithmetic operators are not defined for external objects");
-            de.setLocation(getLocation());
-            de.setErrorCode("XPTY0004");
-            throw de;
+            throw new XPathException("Arithmetic operators are not defined for external objects")
+                    .withLocation(getLocation()).withErrorCode("XPTY0004");
         }
 
         if (getLhsExpression() != oldOp0) {
@@ -167,8 +169,8 @@ public class ArithmeticExpression extends BinaryExpression {
 
 
         if (operator == Token.NEGATE) {
-            if (getRhsExpression() instanceof Literal && ((Literal) getRhsExpression()).getValue() instanceof NumericValue) {
-                NumericValue nv = (NumericValue) ((Literal) getRhsExpression()).getValue();
+            if (getRhsExpression() instanceof Literal && ((Literal) getRhsExpression()).getGroundedValue() instanceof NumericValue) {
+                NumericValue nv = (NumericValue) ((Literal) getRhsExpression()).getGroundedValue();
                 return Literal.makeLiteral(nv.negate(), this);
             } else {
                 NegateExpression ne = new NegateExpression(getRhsExpression());
@@ -188,25 +190,22 @@ public class ArithmeticExpression extends BinaryExpression {
                 type0.getFingerprint(), type1.getFingerprint(), mapOpCode(operator), mustResolve);
 
         if (calculator == null) {
-            XPathException de = new XPathException("Arithmetic operator is not defined for arguments of types (" +
-                    type0.getDescription() + ", " + type1.getDescription() + ")");
-            de.setLocation(getLocation());
-            de.setIsTypeError(true);
-            de.setErrorCode("XPTY0004");
-            throw de;
+            throw new XPathException("Arithmetic operator is not defined for arguments of types (" +
+                    type0.getDescription() + ", " + type1.getDescription() + ")")
+                    .withLocation(getLocation()).asTypeError().withErrorCode("XPTY0004");
         }
 
         // If the calculator is going to promote arguments to xs:double, then promote any literal arguments now.
         // (Could generalize this, but this is the common case)
-        if (calculator.code().matches("d.d")) {
+        if (calculator instanceof Calculator.DoubleOpDouble) {
             if (getLhsExpression() instanceof Literal && !type0.equals(BuiltInAtomicType.DOUBLE)) {
-                GroundedValue value = ((Literal) getLhsExpression()).getValue();
+                GroundedValue value = ((Literal) getLhsExpression()).getGroundedValue();
                 if (value instanceof NumericValue) {
                     setLhsExpression(Literal.makeLiteral(new DoubleValue(((NumericValue) value).getDoubleValue()), this));
                 }
             }
             if (getRhsExpression() instanceof Literal && !type1.equals(BuiltInAtomicType.DOUBLE)) {
-                GroundedValue value = ((Literal) getRhsExpression()).getValue();
+                GroundedValue value = ((Literal) getRhsExpression()).getGroundedValue();
                 if (value instanceof NumericValue) {
                     setRhsExpression(Literal.makeLiteral(new DoubleValue(((NumericValue) value).getDoubleValue()), this));
                 }
@@ -267,6 +266,7 @@ public class ArithmeticExpression extends BinaryExpression {
                             return null;
                         }
                     }
+                    return null;
                 case Token.DIV:
                 case Token.IDIV:
                     if (getRhsExpression() instanceof Literal) {
@@ -425,24 +425,7 @@ public class ArithmeticExpression extends BinaryExpression {
 
     @Override
     public AtomicValue evaluateItem(XPathContext context) throws XPathException {
-        AtomicValue v0 = (AtomicValue) getLhsExpression().evaluateItem(context);
-        if (v0 == null) {
-            return null;
-        }
-
-        AtomicValue v1 = (AtomicValue) getRhsExpression().evaluateItem(context);
-        if (v1 == null) {
-            return null;
-        }
-
-        try {
-            return calculator.compute(v0, v1, context);
-        } catch (XPathException e) {
-            e.maybeSetLocation(getLocation());
-            e.maybeSetFailingExpression(this);
-            e.maybeSetContext(context);
-            throw e;
-        }
+        return (AtomicValue)makeElaborator().elaborateForItem().eval(context);
     }
 
     @Override
@@ -457,7 +440,65 @@ public class ArithmeticExpression extends BinaryExpression {
         }
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new ArithmeticElaborator();
+    }
 
 
+    /**
+     * Elaborator for an ArithmeticExpression (for example P + Q)
+     */
+
+    public static class ArithmeticElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final ArithmeticExpression exp = (ArithmeticExpression)getExpression();
+            final ItemEvaluator arg0Eval = exp.getLhsExpression().makeElaborator().elaborateForItem();
+            final ItemEvaluator arg1Eval = exp.getRhsExpression().makeElaborator().elaborateForItem();
+            // Allow the null checks to be skipped if not needed
+            final boolean nullable0 = Cardinality.allowsZero(exp.getLhsExpression().getCardinality());
+            final boolean nullable1 = Cardinality.allowsZero(exp.getRhsExpression().getCardinality());
+            final Calculator calc = exp.getCalculator();
+            if (nullable0 || nullable1) {
+                return context -> {
+                    AtomicValue v0 = (AtomicValue) arg0Eval.eval(context);
+                    if (v0 == null) {
+                        return null;
+                    }
+                    AtomicValue v1 = (AtomicValue) arg1Eval.eval(context);
+                    if (v1 == null) {
+                        return null;
+                    }
+                    try {
+                        return calc.compute(v0, v1, context);
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(exp.getLocation()).maybeWithContext(context);
+                    }
+                };
+            } else if (calc instanceof Calculator.DoublePlusDouble && exp.getRhsExpression() instanceof Literal) {
+                // Fast path for common case such as $x + 1
+                double addend = ((NumericValue)((Literal)exp.getRhsExpression()).getGroundedValue()).getDoubleValue();
+                return context -> new DoubleValue(((NumericValue)arg0Eval.eval(context)).getDoubleValue() + addend);
+            } else {
+                return context -> {
+                    AtomicValue v0 = (AtomicValue) arg0Eval.eval(context);
+                    AtomicValue v1 = (AtomicValue) arg1Eval.eval(context);
+                    try {
+                        return calc.compute(v0, v1, context);
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(exp.getLocation()).maybeWithContext(context);
+                    }
+                };
+            }
+        }
+
+    }
 }
 

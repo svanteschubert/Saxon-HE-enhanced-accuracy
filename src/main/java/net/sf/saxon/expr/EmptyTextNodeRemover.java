@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
@@ -24,8 +27,7 @@ import net.sf.saxon.type.Type;
  *
  * @since 9.3
  */
-public class EmptyTextNodeRemover extends UnaryExpression
-        implements ItemMappingFunction {
+public class EmptyTextNodeRemover extends UnaryExpression implements ItemMappingFunction {
 
     public EmptyTextNodeRemover(Expression p0) {
         super(p0);
@@ -46,7 +48,7 @@ public class EmptyTextNodeRemover extends UnaryExpression
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality() | StaticProperty.ALLOWS_ZERO;
     }
 
@@ -59,7 +61,7 @@ public class EmptyTextNodeRemover extends UnaryExpression
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings   variables that must be re-bound
      */
 
     /*@NotNull*/
@@ -106,15 +108,14 @@ public class EmptyTextNodeRemover extends UnaryExpression
      *
      * @param item The input item to be mapped.
      * @return the result of the mapping: maybe null
-     * @throws XPathException
+     * @throws XPathException probably can't happen
      */
 
     /*@Nullable*/
-    @Override
     public Item mapItem(Item item) throws XPathException {
         if (item instanceof NodeInfo &&
             ((NodeInfo) item).getNodeKind() == Type.TEXT &&
-            item.getStringValueCS().length() == 0) {
+                    item.getUnicodeStringValue().isEmpty()) {
             return null;
         } else {
             return item;
@@ -137,5 +138,31 @@ public class EmptyTextNodeRemover extends UnaryExpression
         return "emptyTextNodeRemover";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new EmptyTextNodeRemoverElaborator();
+    }
+
+    /**
+     * Elaborator for an empty text node remove expression - inserted into a pipeline for node construction
+     */
+
+    public static class EmptyTextNodeRemoverElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+
+            final EmptyTextNodeRemover expr = (EmptyTextNodeRemover) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+
+            return context -> new ItemMappingIterator(baseEval.iterate(context), expr);
+        }
+
+    }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.jaxp;
 
 import net.sf.saxon.event.Receiver;
+import net.sf.saxon.lib.ResourceResolverWrappingURIResolver;
 import net.sf.saxon.lib.SerializerFactory;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.serialize.SerializationProperties;
@@ -27,7 +28,7 @@ import javax.xml.transform.sax.TransformerHandler;
  */
 public class TransformerImpl extends AbstractTransformerImpl {
 
-    private XsltTransformer xsltTransformer;
+    private final XsltTransformer xsltTransformer;
 
     protected TransformerImpl(XsltExecutable e, XsltTransformer t) {
         super(e);
@@ -106,7 +107,9 @@ public class TransformerImpl extends AbstractTransformerImpl {
     @Override
     public void setURIResolver(URIResolver resolver) {
         super.setURIResolver(resolver);
-        xsltTransformer.setURIResolver(resolver);
+        if (resolver != null) {
+            xsltTransformer.setResourceResolver(new ResourceResolverWrappingURIResolver(resolver));
+        }
     }
 
 
@@ -144,10 +147,15 @@ public class TransformerImpl extends AbstractTransformerImpl {
      *             or "{uri}local")
      * @throws IllegalArgumentException if the argument is invalid, for example if the
      *                                  format of the name is incorrect or if there is no mode with this name
+     *                                  or if the mode is private
      */
 
     public void setInitialMode(String name) throws IllegalArgumentException {
-        xsltTransformer.setInitialMode(QName.fromClarkName(name));
+        try {
+            xsltTransformer.setInitialMode(QName.fromClarkName(name));
+        } catch (SaxonApiException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     /**

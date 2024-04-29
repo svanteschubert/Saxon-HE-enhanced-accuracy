@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.QNameValue;
 
 
@@ -31,11 +32,13 @@ public class ResolveQName extends SystemFunction {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue lex = (AtomicValue) arguments[0].head();
-        return new ZeroOrOne(
-                lex == null ? null :
-                        resolveQName(lex.getStringValueCS(), (NodeInfo) arguments[1].head()));
+        if (lex == null) {
+            return EmptySequence.getInstance();
+        } else {
+            return resolveQName(lex.getStringValue(), (NodeInfo) arguments[1].head());
+        }
     }
 
     /**
@@ -49,7 +52,7 @@ public class ResolveQName extends SystemFunction {
      */
 
     /*@Nullable*/
-    public static QNameValue resolveQName(CharSequence lexicalQName, NodeInfo element) throws XPathException {
+    public static QNameValue resolveQName(String lexicalQName, NodeInfo element) throws XPathException {
         NamespaceResolver resolver = element.getAllNamespaces();
         StructuredQName qName = StructuredQName.fromLexicalQName(lexicalQName, true, false, resolver);
         return new QNameValue(qName, BuiltInAtomicType.QNAME);

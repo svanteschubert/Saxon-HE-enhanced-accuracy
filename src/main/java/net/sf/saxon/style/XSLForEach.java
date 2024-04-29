@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,8 +13,8 @@ import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.instruct.ForEach;
 import net.sf.saxon.expr.sort.SortExpression;
 import net.sf.saxon.expr.sort.SortKeyDefinitionList;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -72,34 +72,31 @@ public class XSLForEach extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
-
-        String selectAtt = null;
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String f = attName.getDisplayName();
             String value = att.getValue();
             if (f.equals("select")) {
-                selectAtt = value;
-                select = makeExpression(selectAtt, att);
+                select = makeExpression(value, att);
             } else if (f.equals("separator")) {
-                requireSyntaxExtensions("separator");
-                separator = makeAttributeValueTemplate(value, att);
-            } else if (attName.getLocalPart().equals("threads") && attName.hasURI(NamespaceConstant.SAXON)) {
-                String threadsAtt = Whitespace.trim(value);
-                threads = makeAttributeValueTemplate(threadsAtt, att);
+                if (requireXslt40Attribute("separator")) {
+                    separator = makeAttributeValueTemplate(value, att);
+                }
+            } else if (attName.getLocalPart().equals("threads") && attName.hasURI(NamespaceUri.SAXON)) {
+                threads = makeAttributeValueTemplate(Whitespace.trim(value), att);
                 if (getCompilation().getCompilerInfo().isCompileWithTracing()) {
-                    compileWarning("saxon:threads - no multithreading takes place when compiling with trace enabled",
+                    issueWarning("saxon:threads - no multithreading takes place when compiling with trace enabled",
                             SaxonErrorCode.SXWN9012);
                     threads = new StringLiteral("0");
                 } else if (!"EE".equals(getConfiguration().getEditionCode())) {
-                    compileWarning("saxon:threads - ignored when not running Saxon-EE",
+                    issueWarning("saxon:threads - ignored when not running Saxon-EE",
                             SaxonErrorCode.SXWN9013);
                     threads = new StringLiteral("0");
                 }
@@ -108,7 +105,7 @@ public class XSLForEach extends StyleElement {
             }
         }
 
-        if (selectAtt == null) {
+        if (select == null) {
             reportAbsence("select");
             select = Literal.makeEmptySequence();
         }
@@ -126,7 +123,7 @@ public class XSLForEach extends StyleElement {
             threads = typeCheck("threads", threads);
         }
         if (!hasChildNodes()) {
-            compileWarning("An empty xsl:for-each instruction has no effect", SaxonErrorCode.SXWN9009);
+            issueWarning("An empty xsl:for-each instruction has no effect", SaxonErrorCode.SXWN9009);
         }
     }
 

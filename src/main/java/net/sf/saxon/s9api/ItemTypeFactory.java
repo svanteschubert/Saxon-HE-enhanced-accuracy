@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,20 +8,20 @@
 package net.sf.saxon.s9api;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.parser.Token;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.expr.parser.XPathParser;
+import net.sf.saxon.lib.Feature;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
+import net.sf.saxon.sxpath.IndependentContext;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.ExternalObject;
 import net.sf.saxon.value.ObjectValue;
 
 import java.util.Map;
@@ -32,7 +32,7 @@ import java.util.Map;
  */
 public class ItemTypeFactory {
 
-    private Processor processor;
+    private final Configuration config;
 
     /**
      * Create an ItemTypeFactory
@@ -43,7 +43,37 @@ public class ItemTypeFactory {
      */
 
     public ItemTypeFactory(Processor processor) {
-        this.processor = processor;
+        this.config = processor.getUnderlyingConfiguration();
+    }
+
+    /**
+     * Parse an item type in XPath syntax.
+     * <p>XPath 4.0 experimental extensions such as union types and record types are enabled if the processor
+     * option {@link Feature#XQUERY_VERSION} is set to "4.0".</p>
+     * @param typeDesignation the lexical representation of the item type in XPath syntax, for example
+     *                        <code>map(xs:string, node()*)</code>. The namespace prefix <code>xs</code>
+     *                        is recognized; any other namespaced names should be written using <code>Q{uri}local</code>
+     *                        notation.
+     * @return the ItemType
+     * @throws SaxonApiException if the syntax is invalid
+     * @since 12.0
+     */
+
+    public ItemType parseItemType(String typeDesignation) throws SaxonApiException {
+        try {
+            IndependentContext env = new IndependentContext(config);
+            XPathParser parser = new XPathParser(env);
+            env.setXPathLanguageLevel("4.0".equals(config.getConfigurationProperty(Feature.XQUERY_VERSION)) ? 40 : 31);
+            env.declareNamespace("xs", NamespaceUri.SCHEMA);
+            net.sf.saxon.value.SequenceType st = parser.parseSequenceType(typeDesignation, env);
+            if (st.getCardinality() != StaticProperty.EXACTLY_ONE) {
+                parser.grumble("No occurrence indicator is allowed");
+            }
+            net.sf.saxon.type.ItemType it = st.getPrimaryType();
+            return new ConstructedItemType(it, config);
+        } catch (XPathException err) {
+            throw new SaxonApiException(err);
+        }
     }
 
     /**
@@ -64,11 +94,9 @@ public class ItemTypeFactory {
     }
 
     private ItemType getAtomicType(StructuredQName name) throws SaxonApiException {
-        String uri = name.getURI();
-        String local = name.getLocalPart();
-        if (NamespaceConstant.SCHEMA.equals(uri)) {
-            int fp = StandardNames.getFingerprint(uri, local);
-            Configuration config = processor.getUnderlyingConfiguration();
+        if (name.hasURI(NamespaceUri.SCHEMA)) {
+            String local = name.getLocalPart();
+            int fp = StandardNames.getFingerprint(NamespaceUri.SCHEMA, local);
             if (config.getXsdVersion() == Configuration.XSD10 && config.getXMLVersion() == Configuration.XML10) {
                 return getBuiltInAtomicType(fp);
             } else {
@@ -76,12 +104,11 @@ public class ItemTypeFactory {
                         (ItemType.BuiltInAtomicItemType) getBuiltInAtomicType(fp), config.getConversionRules());
             }
         } else {
-            Configuration config = processor.getUnderlyingConfiguration();
-            SchemaType type = config.getSchemaType(new StructuredQName("", uri, local));
+            SchemaType type = config.getSchemaType(name);
             if (type == null || !type.isAtomicType()) {
                 throw new SaxonApiException("Unknown atomic type " + name.getClarkName());
             }
-            return new ConstructedItemType((AtomicType) type, processor);
+            return new ConstructedItemType((AtomicType) type, config);
         }
     }
 
@@ -90,9 +117,6 @@ public class ItemTypeFactory {
         switch (fp) {
             case StandardNames.XS_ANY_ATOMIC_TYPE:
                 return ItemType.ANY_ATOMIC_VALUE;
-
-//            case StandardNames.XS_NUMERIC:
-//                return ItemType.NUMERIC;
 
             case StandardNames.XS_STRING:
                 return ItemType.STRING;
@@ -231,7 +255,7 @@ public class ItemTypeFactory {
 
             default:
                 throw new SaxonApiException("Unknown atomic type " +
-                        processor.getUnderlyingConfiguration().getNamePool().getClarkName(fp));
+                        config.getNamePool().getClarkName(fp));
         }
     }
 
@@ -286,12 +310,12 @@ public class ItemTypeFactory {
     public ItemType getItemType(XdmNodeKind kind, QName name) {
         int k = kind.getNumber();
         if (k == Type.ELEMENT || k == Type.ATTRIBUTE || k == Type.PROCESSING_INSTRUCTION) {
-            if (k == Type.PROCESSING_INSTRUCTION && name.getNamespaceURI().isEmpty()) {
+            if (k == Type.PROCESSING_INSTRUCTION && name.getNamespaceUri().isEmpty()) {
                 throw new IllegalArgumentException("The name of a processing instruction must not be in a namespace");
             }
             NameTest type = new NameTest(k,
-                    name.getNamespaceURI(), name.getLocalName(), processor.getUnderlyingConfiguration().getNamePool());
-            return new ConstructedItemType(type, processor);
+                                         name.getNamespaceUri(), name.getLocalName(), config.getNamePool());
+            return new ConstructedItemType(type, config);
         } else {
             throw new IllegalArgumentException("Node kind must be element, attribute, or processing-instruction");
         }
@@ -311,14 +335,13 @@ public class ItemTypeFactory {
      */
 
     public ItemType getSchemaElementTest(QName name) throws SaxonApiException {
-        Configuration config = processor.getUnderlyingConfiguration();
         SchemaDeclaration decl = config.getElementDeclaration(name.getStructuredQName());
         if (decl == null) {
             throw new SaxonApiException("No global declaration found for element " + name.getClarkName());
         }
         try {
             NodeTest test = decl.makeSchemaNodeTest();
-            return new ConstructedItemType(test, processor);
+            return new ConstructedItemType(test, config);
         } catch (MissingComponentException e) {
             throw new SaxonApiException(e);
         }
@@ -342,16 +365,15 @@ public class ItemTypeFactory {
      */
 
     public ItemType getElementTest(/*@Nullable*/ QName name, QName schemaType, boolean nillable) throws SaxonApiException {
-        Configuration config = processor.getUnderlyingConfiguration();
         NameTest nameTest = null;
         ContentTypeTest contentTest = null;
         if (name != null) {
-            int elementFP = config.getNamePool().allocateFingerprint(name.getNamespaceURI(), name.getLocalName());
+            int elementFP = config.getNamePool().allocateFingerprint(name.getNamespaceUri(), name.getLocalName());
             nameTest = new NameTest(Type.ELEMENT, elementFP, config.getNamePool());
         }
         if (schemaType != null) {
             SchemaType type = config.getSchemaType(
-                new StructuredQName("", schemaType.getNamespaceURI(), schemaType.getLocalName()));
+                new StructuredQName("", schemaType.getNamespaceUri(), schemaType.getLocalName()));
             if (type == null) {
                 throw new SaxonApiException("Unknown schema type " + schemaType.getClarkName());
             }
@@ -361,17 +383,17 @@ public class ItemTypeFactory {
             if (nameTest == null) {
                 return getNodeKindTest(XdmNodeKind.ELEMENT);
             } else {
-                return new ConstructedItemType(nameTest, processor);
+                return new ConstructedItemType(nameTest, config);
             }
         } else {
             if (nameTest == null) {
-                return new ConstructedItemType(contentTest, processor);
+                return new ConstructedItemType(contentTest, config);
             } else {
                 CombinedNodeTest combo = new CombinedNodeTest(
                         nameTest,
                         Token.INTERSECT,
                         contentTest);
-                return new ConstructedItemType(combo, processor);
+                return new ConstructedItemType(combo, config);
             }
         }
     }
@@ -390,15 +412,14 @@ public class ItemTypeFactory {
      */
 
     public ItemType getSchemaAttributeTest(QName name) throws SaxonApiException {
-        Configuration config = processor.getUnderlyingConfiguration();
-        StructuredQName nn = new StructuredQName("", name.getNamespaceURI(), name.getLocalName());
+        StructuredQName nn = new StructuredQName("", name.getNamespaceUri(), name.getLocalName());
         SchemaDeclaration decl = config.getAttributeDeclaration(nn);
         if (decl == null) {
             throw new SaxonApiException("No global declaration found for attribute " + name.getClarkName());
         }
         try {
             NodeTest test = decl.makeSchemaNodeTest();
-            return new ConstructedItemType(test, processor);
+            return new ConstructedItemType(test, config);
         } catch (MissingComponentException e) {
             throw new SaxonApiException(e);
         }
@@ -422,14 +443,13 @@ public class ItemTypeFactory {
     public ItemType getAttributeTest(QName name, QName schemaType) throws SaxonApiException {
         NameTest nameTest = null;
         ContentTypeTest contentTest = null;
-        Configuration config = processor.getUnderlyingConfiguration();
         if (name != null) {
-            int attributeFP = config.getNamePool().allocateFingerprint(name.getNamespaceURI(), name.getLocalName());
+            int attributeFP = config.getNamePool().allocateFingerprint(name.getNamespaceUri(), name.getLocalName());
             nameTest = new NameTest(Type.ATTRIBUTE, attributeFP, config.getNamePool());
         }
         if (schemaType != null) {
             SchemaType type = config.getSchemaType(
-                new StructuredQName("", schemaType.getNamespaceURI(), schemaType.getLocalName()));
+                new StructuredQName("", schemaType.getNamespaceUri(), schemaType.getLocalName()));
             if (type == null) {
                 throw new SaxonApiException("Unknown schema type " + schemaType.getClarkName());
             }
@@ -439,17 +459,17 @@ public class ItemTypeFactory {
             if (nameTest == null) {
                 return getNodeKindTest(XdmNodeKind.ATTRIBUTE);
             } else {
-                return new ConstructedItemType(nameTest, processor);
+                return new ConstructedItemType(nameTest, config);
             }
         } else {
             if (nameTest == null) {
-                return new ConstructedItemType(contentTest, processor);
+                return new ConstructedItemType(contentTest, config);
             } else {
                 CombinedNodeTest combo = new CombinedNodeTest(
                         nameTest,
                         Token.INTERSECT,
                         contentTest);
-                return new ConstructedItemType(combo, processor);
+                return new ConstructedItemType(combo, config);
             }
         }
     }
@@ -472,7 +492,7 @@ public class ItemTypeFactory {
             throw new IllegalArgumentException("Supplied itemType is not an element test");
         }
         DocumentNodeTest docTest = new DocumentNodeTest((NodeTest) test);
-        return new ConstructedItemType(docTest, processor);
+        return new ConstructedItemType(docTest, config);
     }
 
     /**
@@ -484,8 +504,12 @@ public class ItemTypeFactory {
      */
 
     public ItemType getExternalObjectType(Class externalClass) {
-        JavaExternalObjectType type = processor.getUnderlyingConfiguration().getJavaExternalObjectType(externalClass);
-        return new ConstructedItemType(type, processor);
+        JavaExternalObjectType result;
+        synchronized(config) {
+            result = JavaExternalObjectType.of(externalClass);
+        }
+        JavaExternalObjectType type = result;
+        return new ConstructedItemType(type, config);
     }
 
     /**
@@ -503,6 +527,7 @@ public class ItemTypeFactory {
         return (XdmItem) XdmItem.wrap(new ObjectValue<>(object));
     }
 
+
     /**
      * Obtain a map type, that is a type for XDM maps with a given key type and value type
      * @param keyType the type of the keys in the map
@@ -515,7 +540,26 @@ public class ItemTypeFactory {
             throw new IllegalArgumentException("Map key must be atomic");
         }
         return new ConstructedItemType(
-                new MapType((AtomicType)keyType.getUnderlyingItemType(), valueType.getUnderlyingSequenceType()), processor);
+                new MapType((AtomicType)keyType.getUnderlyingItemType(), valueType.getUnderlyingSequenceType()),
+                config);
+    }
+
+    /**
+     * Obtain a function type, that is a type for XDM functions with given argument types and a given result type.
+     * @param returnType   the type of the function's result
+     * @param argumentTypes the types of the argument values
+     * @return the required function type
+     */
+
+    public ItemType getFunctionType(SequenceType returnType, SequenceType... argumentTypes) {
+        net.sf.saxon.value.SequenceType basicReturnType = returnType.getUnderlyingSequenceType();
+        net.sf.saxon.value.SequenceType[] basicArgTypes = new net.sf.saxon.value.SequenceType[argumentTypes.length];
+        for (int i=0; i<argumentTypes.length; i++) {
+            basicArgTypes[i] = argumentTypes[i].getUnderlyingSequenceType();
+        }
+        return new ConstructedItemType(
+                new SpecificFunctionType(basicArgTypes, basicReturnType),
+                config);
     }
 
     /**
@@ -526,11 +570,13 @@ public class ItemTypeFactory {
      */
 
     public ItemType getArrayType(SequenceType memberType) {
-        return new ConstructedItemType(new ArrayItemType(memberType.getUnderlyingSequenceType()), processor);
+        return new ConstructedItemType(new ArrayItemType(memberType.getUnderlyingSequenceType()), config);
     }
 
     /**
      * Factory method to construct a map item from a Java map
+     * <p>Note: this is merely a wrapper around {@link XdmMap#makeMap}, which is probably more convenient
+     * to use.</p>
      * @param map the input map. The contents of this map are shallow-copied, so subsequent changes to the
      * Java map do not affect the XDM map. The keys in the map must be convertible to atomic values,
      * and the values in the map must be convertible to XDM values.
@@ -538,8 +584,10 @@ public class ItemTypeFactory {
      * because XDM maps are functions (from the key to the value).
      * @throws SaxonApiException if there are values that cannot be converted.
      * @since 9.6
+     * @deprecated since 12.0 - use {@link XdmMap#makeMap} instead
      */
 
+    @Deprecated
     public XdmMap newMap(Map<?, ?> map) throws SaxonApiException {
         try {
             return XdmMap.makeMap(map);
@@ -551,15 +599,19 @@ public class ItemTypeFactory {
     /**
      * Get an ItemType representing the type of a supplied XdmItem.
      *
-     * <p>If the supplied item is
-     * an atomic value, the returned ItemType will reflect the most specific atomic type of the
-     * item.</p>
+     * <p>Note that the results are to some extent arbitrary, since an item may conform
+     * to many different item types, and none of them is necessarily more specific
+     * than all the others.</p>
+     *
+     * <p>If the supplied item is an atomic value, the returned ItemType will
+     * reflect the most specific atomic type of the item.</p>
      *
      * <p>If the supplied item is a node, the returned item type will reflect the node kind,
      * and if the node has a name, then its name. It will not reflect the type annotation.</p>
      *
-     * <p>For a map, the result is {@link net.sf.saxon.s9api.ItemType#ANY_MAP}. For an array, the result is
-     * {@link net.sf.saxon.s9api.ItemType#ANY_ARRAY}. For any other function, it is {@link net.sf.saxon.s9api.ItemType#ANY_FUNCTION}.</p>
+     * <p>For a map, the result is simply {@link net.sf.saxon.s9api.ItemType#ANY_MAP}. For an array, the result is
+     * simply {@link net.sf.saxon.s9api.ItemType#ANY_ARRAY}. For any other function, it is an instance of
+     * {@link XdmFunctionItem} that reflects the signature of the function.</p>
      *
      * <p>If the item is an external object, a suitable item type object is constructed.</p>
      *
@@ -573,14 +625,14 @@ public class ItemTypeFactory {
         if (item.isAtomicValue()) {
             AtomicValue value = (AtomicValue) item.getUnderlyingValue();
             AtomicType type = value.getItemType();
-            return new ConstructedItemType(type, processor);
+            return new ConstructedItemType(type, config);
         } else if (item.isNode()) {
             NodeInfo node = (NodeInfo) item.getUnderlyingValue();
             int kind = node.getNodeKind();
             if (node.getLocalPart().isEmpty()) {
-                return new ConstructedItemType(NodeKindTest.makeNodeKindTest(kind), processor);
+                return new ConstructedItemType(NodeKindTest.makeNodeKindTest(kind), config);
             } else {
-                return new ConstructedItemType(new SameNameTest(node), processor);
+                return new ConstructedItemType(new SameNameTest(node), config);
             }
         } else {
             Item it = item.getUnderlyingValue();
@@ -588,10 +640,16 @@ public class ItemTypeFactory {
                 return ItemType.ANY_MAP;
             } else if (it instanceof ArrayItem) {
                 return ItemType.ANY_ARRAY;
-            } else if (it instanceof ExternalObject) {
-                return new ConstructedItemType(ExternalObjectType.THE_INSTANCE, processor);
+            } else if (it.getGenre() == Genre.EXTERNAL) {
+                return new ConstructedItemType(ExternalObjectType.THE_INSTANCE, config);
             } else {
-                return ItemType.ANY_FUNCTION;
+                FunctionItem functionItem = (FunctionItem)it;
+                FunctionItemType fit = functionItem.getFunctionItemType();
+                net.sf.saxon.value.SequenceType basicReturnType = fit.getResultType();
+                net.sf.saxon.value.SequenceType[] basicArgTypes = fit.getArgumentTypes();
+                return new ConstructedItemType(
+                        new SpecificFunctionType(basicArgTypes, basicReturnType),
+                        config);
             }
         }
     }
@@ -605,7 +663,7 @@ public class ItemTypeFactory {
      */
 
     public ItemType exposeItemType(net.sf.saxon.type.ItemType it) {
-        return new ConstructedItemType(it, processor);
+        return new ConstructedItemType(it, config);
     }
 
 }

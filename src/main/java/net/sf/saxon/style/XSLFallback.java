@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -36,7 +36,7 @@ public class XSLFallback extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -52,7 +52,7 @@ public class XSLFallback extends StyleElement {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             checkUnknownAttribute(attName);
@@ -75,5 +75,19 @@ public class XSLFallback extends StyleElement {
         return null;
     }
 
+    /**
+     * Get the effective version of this element. xsl:fallback has special rules in XSLT 4.0, which
+     * we use even when running as a 3.0 processor. See XSLT 4.0 issue 649.
+     *
+     * @return the version number times ten as an integer
+     */
+    @Override
+    int getEffectiveVersion() {
+        if (getAttributeValue("version") != null) {
+            return super.getEffectiveVersion();
+        } else {
+            return getCompilation().getCompilerInfo().getXsltVersion();
+        }
+    }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,13 @@ package net.sf.saxon.expr.sort;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.AxisInfo;
+import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.Pattern;
@@ -21,6 +26,9 @@ import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.Comparator;
+import java.util.function.Supplier;
+
 
 /**
  * A DocumentSorter is an expression that sorts a sequence of nodes into
@@ -28,7 +36,7 @@ import net.sf.saxon.value.SequenceType;
  */
 public class DocumentSorter extends UnaryExpression {
 
-    private ItemOrderComparer comparer;
+    private final Comparator<? super NodeInfo> comparer;
 
     public DocumentSorter(Expression base) {
         super(base);
@@ -68,7 +76,7 @@ public class DocumentSorter extends UnaryExpression {
         return "docOrder";
     }
 
-    public ItemOrderComparer getComparer() {
+    public Comparator<? super NodeInfo> getComparer() {
         return comparer;
     }
 
@@ -93,7 +101,7 @@ public class DocumentSorter extends UnaryExpression {
         if (th.relationship(getBaseExpression().getItemType(), AnyNodeTest.getInstance()) == Affinity.DISJOINT) {
             return getBaseExpression();
         }
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.MISC, "document-order sorter", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.MISC, "document-order sorter", 0);
         Expression operand = visitor.getConfiguration().getTypeChecker(false).staticTypeCheck(
                 getBaseExpression(), SequenceType.NODE_SEQUENCE, role, visitor);
         setBaseExpression(operand);
@@ -217,7 +225,7 @@ public class DocumentSorter extends UnaryExpression {
 
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return getBaseExpression().getSpecialProperties() | StaticProperty.ORDERED_NODESET;
     }
 
@@ -296,6 +304,38 @@ public class DocumentSorter extends UnaryExpression {
     @Override
     public String getStreamerName() {
         return "DocumentSorterAdjunct";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new DocumentSorterElaborator();
+    }
+
+    /**
+     * Elaborator for a docOrder expression - sorts nodes into document order and eliminates duplicates
+     */
+
+    public static class DocumentSorterElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final DocumentSorter expr = (DocumentSorter) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            final Comparator<? super NodeInfo> comparer = expr.getComparer();
+
+            return context -> new DocumentOrderIterator(baseEval.iterate(context), comparer);
+        }
+
+        public BooleanEvaluator elaborateForBoolean() {
+            final DocumentSorter expr = (DocumentSorter) getExpression();
+            return expr.getBaseExpression().makeElaborator().elaborateForBoolean();
+        }
+
     }
 }
 

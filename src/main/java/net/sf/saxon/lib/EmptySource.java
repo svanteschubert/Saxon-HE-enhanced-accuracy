@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,7 @@ import javax.xml.transform.Source;
 /**
  * This class is an implementation of the JAXP Source interface. It represents
  * a dummy Source, which resolves to an empty sequence. A URIResolver (called
- * perhaps in furtherance of the doc() or document() function can choose to
+ * perhaps in furtherance of the doc() or document() function) can choose to
  * return an {@code EmptySource} for example if a URI is not accessible; the effect
  * is that the call on doc() or document() returns an empty sequence. This may
  * be useful to emulate the behaviour of earlier versions of XSLT.

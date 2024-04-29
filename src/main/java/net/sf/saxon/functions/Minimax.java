@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import net.sf.saxon.expr.sort.GenericAtomicComparer;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.ZeroOrOne;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
@@ -138,8 +138,8 @@ public abstract class Minimax extends CollatingFunctionFixed {
             // typically the min/max is the start/end of the range. But we need to be careful about handling
             // an empty sequence (A to B where A > B)
             if (isMaxFunction()) {
-                Expression start = ((RangeExpression) arguments[0]).getLhsExpression();
-                Expression end = ((RangeExpression)arguments[0]).getRhsExpression();
+                Expression start = ((RangeExpression) arguments[0]).getStartExpression();
+                Expression end = ((RangeExpression) arguments[0]).getEndExpression();
                 if (start instanceof Literal && end instanceof Literal) {
                     return end;
                 }
@@ -210,16 +210,14 @@ public abstract class Minimax extends CollatingFunctionFixed {
                 return null;
             }
             prim = min;
-            if (min instanceof UntypedAtomicValue) {
+            if (min.isUntypedAtomic()) {
                 try {
-                    min = new DoubleValue(converter.stringToNumber(min.getStringValueCS()));
+                    min = new DoubleValue(converter.stringToNumber(min.getUnicodeStringValue()));
                     prim = min;
                     foundDouble = true;
                 } catch (NumberFormatException e) {
-                    XPathException de = new XPathException("Failure converting " + Err.wrap(min.getStringValueCS()) + " to a number");
-                    de.setErrorCode("FORG0001");
-                    de.setXPathContext(context);
-                    throw de;
+                    throw new XPathException("Failure converting " + Err.wrap(min.getUnicodeStringValue()) + " to a number")
+                            .withErrorCode("FORG0001").withXPathContext(context);
                 }
             } else {
                 if (prim instanceof DoubleValue) {
@@ -244,11 +242,8 @@ public abstract class Minimax extends CollatingFunctionFixed {
                 }
             } else {
                 if (!prim.getPrimitiveType().isOrdered(false)) {
-                    XPathException de = new XPathException("Type " + prim.getPrimitiveType() + " is not an ordered type");
-                    de.setErrorCode("FORG0006");
-                    de.setIsTypeError(true);
-                    de.setXPathContext(context);
-                    throw de;
+                    throw new XPathException("Type " + prim.getPrimitiveType() + " is not an ordered type")
+                            .withErrorCode("FORG0006").asTypeError().withXPathContext(context);
                 }
                 break;          // process the rest of the sequence
             }
@@ -261,19 +256,17 @@ public abstract class Minimax extends CollatingFunctionFixed {
             }
             AtomicValue test2 = test;
             prim = test2;
-            if (test instanceof UntypedAtomicValue) {
+            if (test.isUntypedAtomic()) {
                 try {
-                    test2 = new DoubleValue(converter.stringToNumber(test.getStringValueCS()));
+                    test2 = new DoubleValue(converter.stringToNumber(test.getUnicodeStringValue()));
                     if (foundNaN) {
                         return DoubleValue.NaN;
                     }
                     prim = test2;
                     foundDouble = true;
                 } catch (NumberFormatException e) {
-                    XPathException de = new XPathException("Failure converting " + Err.wrap(test.getStringValueCS()) + " to a number");
-                    de.setErrorCode("FORG0001");
-                    de.setXPathContext(context);
-                    throw de;
+                    throw new XPathException("Failure converting " + Err.wrap(test.getStringValue()) + " to a number")
+                            .withErrorCode("FORG0001").withXPathContext(context);
                 }
             } else {
                 if (prim instanceof DoubleValue) {
@@ -307,11 +300,8 @@ public abstract class Minimax extends CollatingFunctionFixed {
                         // internal error
                         throw err;
                     } else {
-                        XPathException de = new XPathException("Cannot compare " + min.getItemType() + " with " + test2.getItemType());
-                        de.setErrorCode("FORG0006");
-                        de.setIsTypeError(true);
-                        de.setXPathContext(context);
-                        throw de;
+                        throw new XPathException("Cannot compare " + min.getItemType() + " with " + test2.getItemType())
+                                .withErrorCode("FORG0006").asTypeError().withXPathContext(context);
                     }
                 }
             }
@@ -343,9 +333,13 @@ public abstract class Minimax extends CollatingFunctionFixed {
      * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
-        return new ZeroOrOne(
-                minimax(arguments[0].iterate(), isMaxFunction(), getAtomicComparer(context), ignoreNaN, context));
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+        return SequenceTool.itemOrEmpty(minimax(
+                        arguments[0].iterate(),
+                        isMaxFunction(),
+                        getAtomicComparer(context),
+                        ignoreNaN,
+                        context));
     }
 
     @Override

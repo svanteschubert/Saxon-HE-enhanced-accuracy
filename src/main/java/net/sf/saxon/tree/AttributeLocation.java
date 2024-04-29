@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,11 +19,11 @@ import net.sf.saxon.tree.util.Navigator;
 
 public class AttributeLocation implements Location {
 
-    private String systemId;
-    private int lineNumber;
-    private int columnNumber;
-    private StructuredQName elementName;
-    private StructuredQName attributeName;
+    private final String systemId;
+    private final int lineNumber;
+    private final int columnNumber;
+    private final StructuredQName elementName;
+    private final StructuredQName attributeName;
     private NodeInfo elementNode;
 
     public AttributeLocation(NodeInfo element, StructuredQName attributeName) {
@@ -48,6 +48,8 @@ public class AttributeLocation implements Location {
     /**
      * Add a reference to the containing element node. This needs care because we don't want to retain
      * links to the source stylesheet at run-time; it is therefore done only for static errors
+     *
+     * @param node the containing element node
      */
 
     public void setElementNode(NodeInfo node) {

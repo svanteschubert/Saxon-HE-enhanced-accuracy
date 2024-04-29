@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,12 @@
 package net.sf.saxon.option.dom4j;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.event.Receiver;
+import net.sf.saxon.lib.ActiveSource;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.om.GenericTreeInfo;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.trans.XPathException;
 import org.dom4j.Branch;
 import org.dom4j.Document;
 import org.dom4j.Element;
@@ -22,7 +26,7 @@ import java.util.List;
  * TreeInfo class for a virtual tree that wraps a DOM4J tree
  */
 
-public class DOM4JDocumentWrapper extends GenericTreeInfo {
+public class DOM4JDocumentWrapper extends GenericTreeInfo implements ActiveSource {
 
     /**
      * Create a Saxon wrapper for a dom4j document
@@ -34,11 +38,21 @@ public class DOM4JDocumentWrapper extends GenericTreeInfo {
 
     public DOM4JDocumentWrapper(Document doc, String baseURI, Configuration config) {
         super(config);
-        if (!config.isLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION)) {
-            config.requireProfessionalLicense("DOM4J");
-        }
+        config.requireProfessionalLicense("DOM4J");
         setRootNode(wrap(doc));
         setSystemId(baseURI);
+    }
+
+    /**
+     * Implement ActiveSource by delivering the document to a supplied receiver
+     *
+     * @param receiver the receiver to which events representing the parsed XML document will be sent
+     * @param options  options for parsing the source
+     * @throws XPathException if things don't work out
+     */
+    @Override
+    public void deliver(Receiver receiver, ParseOptions options) throws XPathException {
+        getRootNode().deliver(receiver, options);
     }
 
     /**
@@ -66,11 +80,15 @@ public class DOM4JDocumentWrapper extends GenericTreeInfo {
     @Override
     public NodeInfo selectID(String id, boolean getParent) {
         HashMap<String, Element> idIndex = (HashMap<String, Element>)getUserData("saxon-id-index");
-        if (idIndex != null) {
+        if (idIndex == null) {
+            // System-constructed document
+            Element e = ((DOM4JNodeWrapper)getRootNode()).getUnderlyingNode().getDocument().elementByID(id);
+            return e == null ? null : wrap(e);
+        } else {
+            // Document constructed using Dom4JWriter
             Element e = idIndex.get(id);
             return e==null ? null : wrap(e);
         }
-        return null;
     }
 
     /**
@@ -85,9 +103,8 @@ public class DOM4JDocumentWrapper extends GenericTreeInfo {
      */
 
     public static Branch searchForParent(Branch subtree, Node node) {
-        List content = subtree.content();
-        for (Object o : content) {
-            Node child = (Node) o;
+        List<Node> content = (List<Node>)subtree.content();
+        for (Node child : content) {
             if (child == node) {
                 return subtree;
             } else if (child.hasContent()) {

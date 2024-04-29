@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.serialize.charcode;
 
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
 
 import javax.xml.transform.OutputKeys;
 import java.nio.charset.Charset;
@@ -32,7 +33,7 @@ import java.util.Properties;
 
 public class CharacterSetFactory {
 
-    private HashMap<String, CharacterSet> characterSets = new HashMap<String, CharacterSet>(10);
+    private final HashMap<String, CharacterSet> characterSets = new HashMap<>(10);
 
     /**
      * Class has a single instance per Configuration
@@ -78,6 +79,7 @@ public class CharacterSetFactory {
      *
      * @param details the serialization properties
      * @return the constructed CharacterSet
+     * @throws XPathException if the encoding is not recognized
      */
 
     public CharacterSet getCharacterSet(Properties details)
@@ -94,6 +96,7 @@ public class CharacterSetFactory {
      * Make a CharacterSet appropriate to the encoding
      * @param encoding the required encoding
      * @return the constructed CharacterSet
+     * @throws XPathException if the encoding is not recognized
      */
 
     public CharacterSet getCharacterSet(String encoding)
@@ -108,6 +111,9 @@ public class CharacterSetFactory {
                 return cs;
             }
 
+            CSharp.emitCode("return Saxon.Helpers.DotNetCharacterSet.GetCharacterSet(encoding);");
+
+
             // Otherwise see if the Java VM knows anything about the character set
 
             Charset charset;
@@ -117,22 +123,20 @@ public class CharacterSetFactory {
                 characterSets.put(encodingKey, res);
                 return res;
             } catch (IllegalCharsetNameException err) {
-                XPathException e = new XPathException("Invalid encoding name: " + encoding);
-                e.setErrorCode("SESU0007");
-                throw e;
+                throw new XPathException("Invalid encoding name: " + encoding, "SESU0007");
             } catch (UnsupportedCharsetException err) {
-                XPathException e = new XPathException("Unknown encoding requested: " + encoding);
-                e.setErrorCode("SESU0007");
-                throw e;
+                throw new XPathException("Unknown encoding requested: " + encoding, "SESU0007");
             }
         }
     }
+
 
     /**
      * Main program is a utility to give a list of the character sets supported
      * by the Java VM
      *
      * @param args command line arguments (none needed)
+     * @throws Exception if anything goes wrong
      */
 
     public static void main(String[] args) throws Exception {

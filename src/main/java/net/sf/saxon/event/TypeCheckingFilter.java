@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,11 @@ import net.sf.saxon.pattern.ContentTypeTest;
 import net.sf.saxon.pattern.NameTest;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceMethod;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
@@ -37,24 +41,24 @@ public class TypeCheckingFilter extends ProxyOutputter {
 
     private ItemType itemType;
     private int cardinality;
-    private RoleDiagnostic role;
+    private RoleDiagnostic roleDiagnostic;
     private Location locator;
     private int count = 0;
     private int level = 0;
-    private HashSet<Long> checkedElements = new HashSet<>(10);
+    private final HashSet<Long> checkedElements = new HashSet<>(10);
     // used to avoid repeated checking when a template creates large numbers of elements of the same type
     // The key is a (namecode, typecode) pair, packed into a single long
-    private TypeHierarchy typeHierarchy;
+    private final TypeHierarchy typeHierarchy;
 
     public TypeCheckingFilter(Outputter next) {
         super(next);
         typeHierarchy = getConfiguration().getTypeHierarchy();
     }
 
-    public void setRequiredType(ItemType type, int cardinality, RoleDiagnostic role, Location locator) {
+    public void setRequiredType(ItemType type, int cardinality, RoleDiagnostic roleDiagnostic, Location locator) {
         itemType = type;
         this.cardinality = cardinality;
-        this.role = role;
+        this.roleDiagnostic = roleDiagnostic;
         this.locator = locator;
     }
 
@@ -62,12 +66,12 @@ public class TypeCheckingFilter extends ProxyOutputter {
      * Notify a namespace binding.
      */
     @Override
-    public void namespace(String prefix, String namespaceUri, int properties) throws XPathException {
+    public void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException {
         if (level == 0) {
             if (++count == 2) {
                 checkAllowsMany(Loc.NONE);
             }
-            checkItemType(NodeKindTest.NAMESPACE, null, Loc.NONE);
+            checkItemType(NodeKindTest.NAMESPACE, Loc.NONE);
         }
         getNextOutputter().namespace(prefix, namespaceUri, properties);
     }
@@ -76,7 +80,7 @@ public class TypeCheckingFilter extends ProxyOutputter {
      * Notify an attribute.
      */
     @Override
-    public void attribute(NodeName attName, SimpleType typeCode, CharSequence value, Location location, int properties) throws XPathException {
+    public void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties) throws XPathException {
         if (level == 0) {
             if (++count == 2) {
                 checkAllowsMany(location);
@@ -85,7 +89,7 @@ public class TypeCheckingFilter extends ProxyOutputter {
                     new NameTest(Type.ATTRIBUTE, attName, getConfiguration().getNamePool()),
                     Token.INTERSECT,
                     new ContentTypeTest(Type.ATTRIBUTE, typeCode, getConfiguration(), false));
-            checkItemType(type, nodeSupplier(Type.ATTRIBUTE, attName, typeCode, value), location);
+            checkItemType(type, nodeSupplier(Type.ATTRIBUTE, attName, typeCode, StringView.tidy(value)), location);
         }
         getNextOutputter().attribute(attName, typeCode, value, location, properties);
     }
@@ -95,12 +99,12 @@ public class TypeCheckingFilter extends ProxyOutputter {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (level == 0) {
             if (++count == 2) {
                 checkAllowsMany(locationId);
             }
-            checkItemType(NodeKindTest.TEXT, nodeSupplier(Type.TEXT, null, null, chars), locationId);
+            checkItemType(NodeKindTest.TEXT, nodeSupplier(Type.TEXT, null, null, chars.tidy()), locationId);
         }
         getNextOutputter().characters(chars, locationId, properties);
     }
@@ -110,12 +114,12 @@ public class TypeCheckingFilter extends ProxyOutputter {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (level == 0) {
             if (++count == 2) {
                 checkAllowsMany(locationId);
             }
-            checkItemType(NodeKindTest.COMMENT, nodeSupplier(Type.COMMENT, null, null, chars), locationId);
+            checkItemType(NodeKindTest.COMMENT, nodeSupplier(Type.COMMENT, null, null, chars.tidy()), locationId);
         }
         getNextOutputter().comment(chars, locationId, properties);
     }
@@ -125,13 +129,13 @@ public class TypeCheckingFilter extends ProxyOutputter {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (level == 0) {
             if (++count == 2) {
                 checkAllowsMany(locationId);
             }
             checkItemType(NodeKindTest.PROCESSING_INSTRUCTION,
-                          nodeSupplier(Type.PROCESSING_INSTRUCTION, new NoNamespaceName(target), null, data), locationId);
+                          nodeSupplier(Type.PROCESSING_INSTRUCTION, new NoNamespaceName(target), null, data.tidy()), locationId);
         }
         getNextOutputter().processingInstruction(target, data, locationId, properties);
     }
@@ -147,7 +151,7 @@ public class TypeCheckingFilter extends ProxyOutputter {
                 checkAllowsMany(Loc.NONE);
             }
             checkItemType(NodeKindTest.DOCUMENT,
-                          nodeSupplier(Type.DOCUMENT, null, null, ""), Loc.NONE);
+                          nodeSupplier(Type.DOCUMENT, null, null, EmptyUnicodeString.getInstance()), Loc.NONE);
         }
         level++;
         getNextOutputter().startDocument(properties);
@@ -193,7 +197,7 @@ public class TypeCheckingFilter extends ProxyOutputter {
                         new NameTest(Type.ELEMENT, elemName, namePool),
                         Token.INTERSECT,
                         new ContentTypeTest(Type.ELEMENT, elemType, config, false));
-                checkItemType(type, nodeSupplier(Type.ELEMENT, elemName, elemType, ""), location);
+                checkItemType(type, nodeSupplier(Type.ELEMENT, elemName, elemType, EmptyUnicodeString.getInstance()), location);
             } else {
                 if (count == 2) {
                     checkAllowsMany(location);
@@ -204,7 +208,7 @@ public class TypeCheckingFilter extends ProxyOutputter {
                             new NameTest(Type.ELEMENT, elemName, namePool),
                             Token.INTERSECT,
                             new ContentTypeTest(Type.ELEMENT, elemType, config, false));
-                    checkItemType(type, nodeSupplier(Type.ELEMENT, elemName, elemType, ""), location);
+                    checkItemType(type, nodeSupplier(Type.ELEMENT, elemName, elemType, EmptyUnicodeString.getInstance()), location);
                     checkedElements.add(key);
                 }
             }
@@ -244,10 +248,10 @@ public class TypeCheckingFilter extends ProxyOutputter {
 
     public void finalCheck() throws XPathException {
         if (count == 0 && !Cardinality.allowsZero(cardinality)) {
+            String errorCode = roleDiagnostic.getErrorCode();
             XPathException err = new XPathException("An empty sequence is not allowed as the " +
-                                                            role.getMessage());
-            String errorCode = role.getErrorCode();
-            err.setErrorCode(errorCode);
+                                                            roleDiagnostic.getMessage())
+                    .withErrorCode(errorCode);
             if (!"XPDY0050".equals(errorCode)) {
                 err.setIsTypeError(true);
             }
@@ -255,7 +259,7 @@ public class TypeCheckingFilter extends ProxyOutputter {
         }
     }
 
-    private Supplier<NodeInfo> nodeSupplier(short nodeKind, NodeName name, SchemaType type, CharSequence value) {
+    private Supplier<NodeInfo> nodeSupplier(short nodeKind, NodeName name, SchemaType type, UnicodeString value) {
         return () -> {
             Orphan o = new Orphan(getPipelineConfiguration().getConfiguration());
             o.setNodeKind(nodeKind);
@@ -311,9 +315,20 @@ public class TypeCheckingFilter extends ProxyOutputter {
         return true;
     }
 
+    @CSharpReplaceMethod(code="    private void checkItemType<T>(Saxon.Hej.type.ItemType type, Saxon.Ejava.util.function.Supplier<T> itemSupplier, Saxon.Hej.s9api.Location locationId) where T : Saxon.Hej.om.Item {"
+            + "        if (!(typeHierarchy.isSubType(type, itemType))) {"
+            + "            throwTypeError(type, itemSupplier(), locationId);"
+            + "        }"
+            + "    }")
     private void checkItemType(ItemType type, Supplier<? extends Item> itemSupplier, Location locationId) throws XPathException {
         if (!typeHierarchy.isSubType(type, itemType)) {
-            throwTypeError(type, itemSupplier == null ? null : itemSupplier.get(), locationId);
+            throwTypeError(type, itemSupplier.get(), locationId);
+        }
+    }
+
+    private void checkItemType(ItemType type, Location locationId) throws XPathException {
+        if (!typeHierarchy.isSubType(type, itemType)) {
+            throwTypeError(type, null, locationId);
         }
     }
 
@@ -327,39 +342,23 @@ public class TypeCheckingFilter extends ProxyOutputter {
     private void throwTypeError(ItemType suppliedType, Item item, Location locationId) throws XPathException {
         String message;
         if (item == null) {
-            message = role.composeErrorMessage(itemType, suppliedType);
+            message = roleDiagnostic.composeErrorMessage(itemType, suppliedType);
         } else {
-            message = role.composeErrorMessage(itemType, item, typeHierarchy);
+            message = roleDiagnostic.composeErrorMessage(itemType, item, typeHierarchy);
         }
-        String errorCode = role.getErrorCode();
-        XPathException err = new XPathException(message);
-        err.setErrorCode(errorCode);
-        if (!"XPDY0050".equals(errorCode)) {
-            err.setIsTypeError(true);
-        }
-        if (locationId == null) {
-            err.setLocation(locator);
-        } else {
-            err.setLocation(locationId.saveLocation());
-        }
-        throw err;
+        String errorCode = roleDiagnostic.getErrorCode();
+        throw new XPathException(message, errorCode)
+                .asTypeErrorIf(!"XPDY0050".equals(errorCode))
+                .withLocation(locationId == null ? locator : locationId.saveLocation());
     }
 
     private void checkAllowsMany(Location locationId) throws XPathException {
         if (!Cardinality.allowsMany(cardinality)) {
-            XPathException err = new XPathException("A sequence of more than one item is not allowed as the " +
-                    role.getMessage());
-            String errorCode = role.getErrorCode();
-            err.setErrorCode(errorCode);
-            if (!"XPDY0050".equals(errorCode)) {
-                err.setIsTypeError(true);
-            }
-            if (locationId == null || locationId == Loc.NONE) {
-                err.setLocator(locator);
-            } else {
-                err.setLocator(locationId);
-            }
-            throw err;
+            throw new XPathException("A sequence of more than one item is not allowed as the " +
+                                                            roleDiagnostic.getMessage())
+                    .withErrorCode(roleDiagnostic.getErrorCode())
+                    .asTypeErrorIf(!"XPDY0050".equals(roleDiagnostic.getErrorCode()))
+                    .withLocation(locationId == null || locationId == Loc.NONE ? locator : locationId);
         }
     }
 

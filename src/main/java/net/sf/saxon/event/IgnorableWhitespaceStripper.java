@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.om.AttributeMap;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ComplexType;
 import net.sf.saxon.type.SchemaType;
@@ -76,8 +77,8 @@ public class IgnorableWhitespaceStripper extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (chars.length() > 0 && (!stripStack[top] || !Whitespace.isWhite(chars))) {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (!chars.isEmpty() && (!stripStack[top] || !Whitespace.isAllWhite(chars))) {
             nextReceiver.characters(chars, locationId, properties);
         }
     }
@@ -96,4 +97,4 @@ public class IgnorableWhitespaceStripper extends ProxyReceiver {
     }
 }
 
-// Copyright (c) 2005-2020 Saxonica Limited
+// Copyright (c) 2005-2023 Saxonica Limited

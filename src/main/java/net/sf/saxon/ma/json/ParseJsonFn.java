@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,10 @@ import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.OptionsParameter;
 import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.SequenceType;
@@ -28,16 +29,20 @@ import java.util.Map;
  */
 public class ParseJsonFn extends JsonToXMLFn {
 
+    @CSharpModifiers(code={"public", "static", "new"})
     public static OptionsParameter OPTION_DETAILS;
     static {
         SpecificFunctionType fallbackType = new SpecificFunctionType(
                 new SequenceType[]{SequenceType.SINGLE_STRING}, SequenceType.SINGLE_STRING);
+        SpecificFunctionType parserType = new SpecificFunctionType(
+                new SequenceType[]{SequenceType.SINGLE_STRING}, SequenceType.SINGLE_ATOMIC);
         OptionsParameter parseJsonOptions = new OptionsParameter();
         parseJsonOptions.addAllowedOption("liberal", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
-        parseJsonOptions.addAllowedOption("duplicates", SequenceType.SINGLE_STRING, new StringValue("use-first"));
+        parseJsonOptions.addAllowedOption("duplicates", SequenceType.SINGLE_STRING, StringValue.bmp("use-first"));
         parseJsonOptions.setAllowedValues("duplicates", "FOJS0005", "reject", "use-first", "use-last");
         parseJsonOptions.addAllowedOption("escape", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         parseJsonOptions.addAllowedOption("fallback", SequenceType.makeSequenceType(fallbackType, StaticProperty.EXACTLY_ONE), null);
+        parseJsonOptions.addAllowedOption("number-parser", SequenceType.makeSequenceType(parserType, StaticProperty.EXACTLY_ONE), null);
         OPTION_DETAILS = parseJsonOptions;
     }
 
@@ -48,12 +53,12 @@ public class ParseJsonFn extends JsonToXMLFn {
      * @param input   JSON input string
      * @param options options for the conversion as a map of xs:string : value pairs
      * @param context XPath evaluation context
-     * @return the result of the parsing, as an XML element
+     * @return the result of the parsing, typically a map or array
      * @throws XPathException if the syntax of the input is incorrect
      */
     @Override
     protected Item eval(String input, MapItem options, XPathContext context) throws XPathException {
-        Map<String, Sequence> checkedOptions = null;
+        Map<String, GroundedValue> checkedOptions = null;
         if (options != null) {
             checkedOptions = getDetails().optionDetails.processSuppliedOptions(options, context);
         }
@@ -66,15 +71,15 @@ public class ParseJsonFn extends JsonToXMLFn {
      * @param input   JSON input string
      * @param options options for the conversion as a map of xs:string : value pairs
      * @param context XPath evaluation context
-     * @return the result of the parsing, as an XML element
+     * @return the result of the parsing, as an item (null in the case where the JSON input is "null")
      * @throws XPathException if the syntax of the input is incorrect
      */
 
-    public static Item parse(String input, Map<String, Sequence> options, XPathContext context) throws XPathException {
+    public static Item parse(String input, Map<String, GroundedValue> options, XPathContext context) throws XPathException {
         JsonParser parser = new JsonParser();
         int flags = 0;
         if (options != null) {
-            flags = JsonParser.getFlags(options, context, false);
+            flags = JsonParser.getFlags(options, false, false);
         }
         JsonHandlerMap handler = new JsonHandlerMap(context, flags);
         if ((flags & JsonParser.DUPLICATES_RETAINED) != 0) {
@@ -85,6 +90,7 @@ public class ParseJsonFn extends JsonToXMLFn {
         }
         if (options != null) {
             handler.setFallbackFunction(options, context);
+            parser.setNumberParser(options, context);
         }
         parser.parse(input, flags, handler, context);
         return handler.getResult().head();
@@ -93,4 +99,4 @@ public class ParseJsonFn extends JsonToXMLFn {
 
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

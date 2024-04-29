@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,11 +10,13 @@ package net.sf.saxon.functions;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * A FunctionLibrary handles the binding of function calls in XPath (or XQuery) expressions.
@@ -27,6 +29,12 @@ import java.util.List;
 
 public interface FunctionLibrary {
 
+    /**
+     * Supply details of the configuration in use.
+     * @param config the configuration. The default implementation does nothing (many function libraries
+     *               do not need to know any configuration details)
+     */
+
     default void setConfiguration(Configuration config) {}
 
     /**
@@ -35,11 +43,12 @@ public interface FunctionLibrary {
      *
      * @param functionName the qualified name of the function being called, together with its arity.
      *                     For legacy reasons, the arity may be set to -1 to mean any arity will do
+     * @param languageLevel the XPath language level (times 10, e.g. 31 for XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
 
     /*@Nullable*/
-    boolean isAvailable(SymbolicName.F functionName);
+    boolean isAvailable(SymbolicName.F functionName, int languageLevel);
 
 
     /**
@@ -48,8 +57,7 @@ public interface FunctionLibrary {
      * time.
      *
      * @param functionName the QName of the function being called
-     * @param staticArgs   May be null; if present, the length of the array must match the
-     *                     value of arity. Contains the expressions supplied statically in arguments to the function call.
+     * @param staticArgs   Contains the expressions supplied statically in arguments to the function call.
      *                     The intention is
      *                     that the static type of the arguments (obtainable via getItemType() and getCardinality()) may
      *                     be used as part of the binding algorithm. In some cases it may be possible for the function
@@ -59,16 +67,21 @@ public interface FunctionLibrary {
      *                     example, the result of f(4) is expected to be the same as f(2+2). The actual expression is supplied
      *                     here to enable the binding mechanism to select the most efficient possible implementation (including
      *                     compile-time pre-evaluation where appropriate).</p>
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          The static context of the function call
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
      *                     functions could be used.
      * @return An expression equivalent to a call on the specified function, if one is found;
      *         null if no function was found matching the required name and arity.
+     * @throws XPathException if a matching function was identified, but the call is incorrect,
+     * for example because it uses incorrect argument keywords
      */
 
     /*@Nullable*/
-    Expression bind(SymbolicName.F functionName, Expression[] staticArgs, StaticContext env, List<String> reasons);
+    Expression bind(SymbolicName.F functionName, Expression[] staticArgs,
+                    Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons) throws XPathException;
 
     /**
      * This method creates a copy of a FunctionLibrary: if the original FunctionLibrary allows
@@ -95,7 +108,7 @@ public interface FunctionLibrary {
      */
 
     /*@Nullable*/
-    Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext)
+    FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext)
             throws XPathException;
 
 

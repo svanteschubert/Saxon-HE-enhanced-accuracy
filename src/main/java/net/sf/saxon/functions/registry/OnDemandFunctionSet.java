@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,14 +11,17 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * The <tt>OnDemandFunctionSet</tt> represents a function library where the implementation classes
+ * The <code>OnDemandFunctionSet</code> represents a function library where the implementation classes
  * are loaded dynamically on demand. The idea is that no failure should occur if implementations
  * are not available unless the functions are actually required. The class contains the name of
  * a real FunctionLibrary containing the function implementations; that FunctionLibrary is dynamically
@@ -32,12 +35,12 @@ import java.util.List;
 
 public class OnDemandFunctionSet implements FunctionLibrary {
 
-    private Configuration config;
-    private String namespace;
-    private String libraryClass;
+    private final Configuration config;
+    private final NamespaceUri namespace;
+    private final String libraryClass;
     private FunctionLibrary library;
 
-    public OnDemandFunctionSet(Configuration config, String namespace, String libraryClass) {
+    public OnDemandFunctionSet(Configuration config, NamespaceUri namespace, String libraryClass) {
         this.config = config;
         this.namespace = namespace;
         this.libraryClass = libraryClass;
@@ -80,16 +83,22 @@ public class OnDemandFunctionSet implements FunctionLibrary {
     }
 
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         boolean match = load(functionName, null);
-        return match && library.isAvailable(functionName);
+        return match && library.isAvailable(functionName, languageLevel);
     }
 
     @Override
-    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs, StaticContext env, List<String> reasons) {
+    public Expression bind(SymbolicName.F functionName, Expression[] staticArgs,
+                           Map<StructuredQName, Integer> keywords, StaticContext env,
+                           List<String> reasons) throws XPathException {
         boolean match = load(functionName, reasons);
         if (match) {
-            return library.bind(functionName, staticArgs, env, reasons);
+            if (keywords != null && !keywords.isEmpty()) {
+                reasons.add("Calls to Saxon SQL functions cannot use keyword arguments");
+                return null;
+            }
+            return library.bind(functionName, staticArgs, null, env, reasons);
         } else {
             return null;
         }
@@ -101,7 +110,7 @@ public class OnDemandFunctionSet implements FunctionLibrary {
     }
 
     @Override
-    public Function getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
         boolean match = load(functionName, null);
         if (match) {
             return library.getFunctionItem(functionName, staticContext);

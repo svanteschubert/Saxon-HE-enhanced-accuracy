@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,12 @@
 
 package net.sf.saxon.value;
 
+import net.sf.saxon.expr.sort.XPathComparable;
+import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.NameChecker;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -28,24 +31,23 @@ public final class NotationValue extends QualifiedNameValue {
      *                  default prefix.
      * @param uri       The namespace part of the QName. Use null or "" to represent the null namespace.
      * @param localName The local part of the QName
-     * @param check   Used for request checking names against XML 1.0 or XML 1.1 syntax rules
+     * @param check     Used for request checking names against XML 1.0 or XML 1.1 syntax rules
+     * @throws XPathException if an error is detected
      */
 
-    public NotationValue(String prefix, String uri, String localName, boolean check) throws XPathException {
+    public NotationValue(String prefix, NamespaceUri uri, String localName, boolean check) throws XPathException {
+        super(new StructuredQName(prefix, uri, localName), BuiltInAtomicType.NOTATION);
         if (check && !NameChecker.isValidNCName(localName)) {
-            XPathException err = new XPathException("Malformed local name in NOTATION: '" + localName + '\'');
-            err.setErrorCode("FORG0001");
-            throw err;
+            throw new XPathException("Malformed local name in NOTATION: '" + localName + '\'', "FORG0001");
         }
         prefix = prefix == null ? "" : prefix;
-        uri = uri == null ? "" : uri;
         if (check && uri.isEmpty() && prefix.length() != 0) {
-            XPathException err = new XPathException("NOTATION has null namespace but non-empty prefix");
-            err.setErrorCode("FOCA0002");
-            throw err;
+            throw new XPathException("NOTATION has null namespace but non-empty prefix", "FOCA0002");
         }
-        qName = new StructuredQName(prefix, uri, localName);
-        typeLabel = BuiltInAtomicType.NOTATION;
+    }
+
+    public NotationValue(String prefix, String uri, String localName, boolean check) throws XPathException {
+        this(prefix, NamespaceUri.of(uri), localName, check);
     }
 
     /**
@@ -57,9 +59,8 @@ public final class NotationValue extends QualifiedNameValue {
      * @param localName The local part of the QName
      */
 
-    public NotationValue(String prefix, String uri, String localName) {
-        qName = new StructuredQName(prefix, uri, localName);
-        typeLabel = BuiltInAtomicType.NOTATION;
+    public NotationValue(String prefix, NamespaceUri uri, String localName) {
+        super(new StructuredQName(prefix, uri, localName), BuiltInAtomicType.NOTATION);
     }
 
     /**
@@ -72,9 +73,8 @@ public final class NotationValue extends QualifiedNameValue {
      * @param typeLabel A type derived from xs:NOTATION to be used for the new value
      */
 
-    public NotationValue(String prefix, String uri, String localName, AtomicType typeLabel) {
-        qName = new StructuredQName(prefix, uri, localName);
-        this.typeLabel = typeLabel;
+    public NotationValue(String prefix, NamespaceUri uri, String localName, AtomicType typeLabel) {
+        super(new StructuredQName(prefix, uri, localName), typeLabel);
     }
 
     /**
@@ -85,14 +85,7 @@ public final class NotationValue extends QualifiedNameValue {
      */
 
     public NotationValue(/*@Nullable*/ StructuredQName qName, /*@Nullable*/ AtomicType typeLabel) {
-        if (qName == null) {
-            throw new NullPointerException("qName");
-        }
-        if (typeLabel == null) {
-            throw new NullPointerException("typeLabel");
-        }
-        this.qName = qName;
-        this.typeLabel = typeLabel;
+        super(qName, typeLabel);
     }
 
 
@@ -106,9 +99,7 @@ public final class NotationValue extends QualifiedNameValue {
     /*@NotNull*/
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        NotationValue v = new NotationValue(getPrefix(), getNamespaceURI(), getLocalName());
-        v.typeLabel = typeLabel;
-        return v;
+        return new NotationValue(getStructuredQName(), typeLabel);
     }
 
     /**
@@ -136,41 +127,24 @@ public final class NotationValue extends QualifiedNameValue {
         return other instanceof NotationValue && qName.equals(((NotationValue) other).qName);
     }
 
-    /*@NotNull*/
     @Override
-    public Comparable getSchemaComparable() {
-        return new NotationComparable();
+    public int hashCode() {
+        return qName.hashCode();
     }
 
-    private class NotationComparable implements Comparable {
-
-        /*@NotNull*/
-        public NotationValue getNotationValue() {
-            return NotationValue.this;
-        }
-
-        @Override
-        public int compareTo(/*@NotNull*/ Object o) {
-            return equals(o) ? 0 : SequenceTool.INDETERMINATE_ORDERING;
-        }
-
-        public boolean equals(/*@NotNull*/ Object o) {
-            return (o instanceof NotationComparable && qName.equals(((NotationComparable) o).getNotationValue().qName));
-        }
-
-        public int hashCode() {
-            return qName.hashCode();
-        }
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return null;
     }
 
     /**
-     * The toString() method returns the name in the form QName("uri", "local")
+     * The show() method returns the name in the form <code>NOTATION({uri}local)</code>
      *
      * @return the name in Clark notation: {uri}local
      */
 
-    /*@NotNull*/
-    public String toString() {
+    @Override
+    public String show() {
         return "NOTATION(" + getClarkName() + ')';
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,12 +15,13 @@ import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.StringValue;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Stack;
 
 /**
@@ -68,7 +69,8 @@ public class JsonHandlerMap extends JsonHandler {
      */
     @Override
     public void startArray() {
-        ArrayItem map = new SimpleArrayItem(new ArrayList<>());
+        List<GroundedValue> memberList = new ArrayList<>();
+        ArrayItem map = new SimpleArrayItem(memberList);
         stack.push(map);
     }
 
@@ -127,13 +129,12 @@ public class JsonHandlerMap extends JsonHandler {
 
     /**
      * Write a numeric value
-     *
-     * @param asString the string representation of the value
-     * @param asDouble the double representation of the value
+     *  @param asString the string representation of the value
+     * @param parsedValue the double representation of the value
      */
     @Override
-    public void writeNumeric(String asString, double asDouble) {
-        writeItem(new DoubleValue(asDouble));
+    public void writeNumeric(String asString, AtomicValue parsedValue) {
+        writeItem(parsedValue);
     }
 
     /**

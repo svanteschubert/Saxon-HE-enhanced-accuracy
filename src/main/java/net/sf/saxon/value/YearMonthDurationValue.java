@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,12 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
@@ -20,20 +23,16 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * A value of type xs:yearMonthDuration.
+ * A value of type xs:yearMonthDuration (or a subtype thereof).
  * <p>The state retained by this class is essentially a signed 32-bit integer representing the number
  * of months: that is, {@code year*12 + month}; plus a type label allowing subtypes of {@code xs:yearMonthDuration}
  * to be represented.</p>
  */
 
-public final class YearMonthDurationValue extends DurationValue implements Comparable<YearMonthDurationValue> {
+public final class YearMonthDurationValue extends DurationValue implements XPathComparable, ContextFreeAtomicValue {
 
-    /**
-     * Private constructor for internal use
-     */
-
-    private YearMonthDurationValue() {
-        typeLabel = BuiltInAtomicType.YEAR_MONTH_DURATION;
+    public YearMonthDurationValue(int months, AtomicType typeLabel) {
+        super(0, months, 0, 0, 0, 0, 0, typeLabel);
     }
 
     /**
@@ -45,7 +44,7 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
      *         not in the lexical space of xs:yearMonthDuration.
      */
 
-    public static ConversionResult makeYearMonthDurationValue(CharSequence s) {
+    public static ConversionResult makeYearMonthDurationValue(UnicodeString s) {
         ConversionResult d = DurationValue.makeDuration(s, true, false);
         if (d instanceof ValidationFailure) {
             return d;
@@ -64,9 +63,7 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
     /*@NotNull*/
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        YearMonthDurationValue v = YearMonthDurationValue.fromMonths(getLengthInMonths());
-        v.typeLabel = typeLabel;
-        return v;
+        return new YearMonthDurationValue(getLengthInMonths(), typeLabel);
     }
 
     /**
@@ -88,25 +85,25 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
      */
 
     @Override
-    public CharSequence getPrimitiveStringValue() {
+    public UnicodeString getPrimitiveStringValue() {
 
         // The canonical representation has months in the range 0-11
 
         int y = getYears();
         int m = getMonths();
 
-        FastStringBuffer sb = new FastStringBuffer(32);
-        if (negative) {
-            sb.cat('-');
+        UnicodeBuilder sb = new UnicodeBuilder(16);
+        if (_negative) {
+            sb.append('-');
         }
-        sb.cat('P');
+        sb.append('P');
         if (y != 0) {
             sb.append(y + "Y");
         }
         if (m != 0 || y == 0) {
             sb.append(m + "M");
         }
-        return sb;
+        return sb.toUnicodeString();
 
     }
 
@@ -117,7 +114,7 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
      */
 
     public int getLengthInMonths() {
-        return months * (negative ? -1 : +1);
+        return _months * (_negative ? -1 : +1);
     }
 
     /**
@@ -128,12 +125,7 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
      */
 
     public static YearMonthDurationValue fromMonths(int months) {
-        YearMonthDurationValue mdv = new YearMonthDurationValue();
-        mdv.negative = months < 0;
-        mdv.months = months < 0 ? -months : months;
-        mdv.seconds = 0;
-        mdv.nanoseconds = 0;
-        return mdv;
+        return new YearMonthDurationValue(months, BuiltInAtomicType.YEAR_MONTH_DURATION);
     }
 
     /**
@@ -146,7 +138,7 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
     @Override
     public YearMonthDurationValue multiply(long factor) throws XPathException {
         // Fast path for simple cases
-        if (Math.abs(factor) < 30_000 && Math.abs(months) < 30_000) {
+        if (Math.abs(factor) < 30_000 && Math.abs(_months) < 30_000) {
             return YearMonthDurationValue.fromMonths((int)factor * getLengthInMonths());
         } else {
             return multiply((double)factor);
@@ -160,18 +152,30 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
     @Override
     public YearMonthDurationValue multiply(double n) throws XPathException {
         if (Double.isNaN(n)) {
-            XPathException err = new XPathException("Cannot multiply a duration by NaN");
-            err.setErrorCode("FOCA0005");
-            throw err;
+            throw new XPathException("Cannot multiply a duration by NaN", "FOCA0005");
         }
-        double m = (double) getLengthInMonths();
+        double m = getLengthInMonths();
         double product = n * m;
         if (Double.isInfinite(product) || product > Integer.MAX_VALUE || product < Integer.MIN_VALUE) {
-            XPathException err = new XPathException("Overflow when multiplying a duration by a number");
-            err.setErrorCode("FODT0002");
-            throw err;
+            throw new XPathException("Overflow when multiplying a duration by a number", "FODT0002");
         }
-        return fromMonths((int) Math.round(product));
+        // following code is needed to get the correct rounding on both Java and C#
+        return fromMonths((int)new DoubleValue(product).round(0).longValue());
+    }
+
+    /**
+     * Multiply duration by a decimal.
+     */
+
+    @Override
+    public YearMonthDurationValue multiply(BigDecimal n) throws XPathException {
+        int m = getLengthInMonths();
+        BigDecimal product = n.multiply(BigDecimal.valueOf(m));
+        if (product.abs().compareTo(BigDecimal.valueOf(Integer.MAX_VALUE)) > 0) {
+            throw new XPathException("Overflow when multiplying a duration by a number", "FODT0002");
+        }
+        // following code is needed to get the correct rounding on both Java and C#
+        return fromMonths((int) new BigDecimalValue(product).round(0).longValue());
     }
 
 
@@ -182,18 +186,15 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
     @Override
     public DurationValue divide(double n) throws XPathException {
         if (Double.isNaN(n)) {
-            XPathException err = new XPathException("Cannot divide a duration by NaN");
-            err.setErrorCode("FOCA0005");
-            throw err;
+            throw new XPathException("Cannot divide a duration by NaN", "FOCA0005");
         }
-        double m = (double) getLengthInMonths();
+        double m = getLengthInMonths();
         double product = m / n;
         if (Double.isInfinite(product) || product > Integer.MAX_VALUE || product < Integer.MIN_VALUE) {
-            XPathException err = new XPathException("Overflow when dividing a duration by a number");
-            err.setErrorCode("FODT0002");
-            throw err;
+            throw new XPathException("Overflow when dividing a duration by a number", "FODT0002");
         }
-        return fromMonths((int) Math.round(product));
+        // following code is needed to get the correct rounding on both Java and C#
+        return fromMonths((int) new DoubleValue(product).round(0).longValue());
     }
 
     /**
@@ -210,16 +211,17 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
             BigDecimal v1 = BigDecimal.valueOf(getLengthInMonths());
             BigDecimal v2 = BigDecimal.valueOf(((YearMonthDurationValue) other).getLengthInMonths());
             if (v2.signum() == 0) {
-                XPathException err = new XPathException("Divide by zero (durations)");
-                err.setErrorCode("FOAR0001");
-                throw err;
+                throw new XPathException("Divide by zero (durations)", "FOAR0001");
             }
-            return new BigDecimalValue(v1.divide(v2, 20, RoundingMode.HALF_EVEN));
+            return new BigDecimalValue(divideBigDecimal(v1, v2));
         } else {
-            XPathException err = new XPathException("Cannot divide two durations of different type");
-            err.setErrorCode("XPTY0004");
-            throw err;
+            throw new XPathException("Cannot divide two durations of different type", "XPTY0004");
         }
+    }
+
+    @CSharpReplaceBody(code="return Singulink.Numerics.BigDecimal.Divide(v1, v2, 20, Singulink.Numerics.RoundingMode.MidpointToEven);")
+    private BigDecimal divideBigDecimal(BigDecimal v1, BigDecimal v2) {
+        return v1.divide(v2, 20, RoundingMode.HALF_EVEN);
     }
 
     /**
@@ -232,9 +234,7 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
             return fromMonths(getLengthInMonths() +
                     ((YearMonthDurationValue) other).getLengthInMonths());
         } else {
-            XPathException err = new XPathException("Cannot add two durations of different type");
-            err.setErrorCode("XPTY0004");
-            throw err;
+            throw new XPathException("Cannot add two durations of different type", "XPTY0004").asTypeError();
         }
     }
 
@@ -248,9 +248,7 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
             return fromMonths(getLengthInMonths() -
                     ((YearMonthDurationValue) other).getLengthInMonths());
         } else {
-            XPathException err = new XPathException("Cannot subtract two durations of different type");
-            err.setErrorCode("XPTY0004");
-            throw err;
+            throw new XPathException("Cannot subtract two durations of different type", "XPTY0004").asTypeError();
         }
     }
 
@@ -276,8 +274,22 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
      */
 
     @Override
-    public int compareTo(YearMonthDurationValue other) {
-        return Integer.compare(getLengthInMonths(), other.getLengthInMonths());
+    public int compareTo(XPathComparable other) {
+        if (other instanceof YearMonthDurationValue) {
+            return Integer.compare(getLengthInMonths(), ((YearMonthDurationValue) other).getLengthInMonths());
+        } else {
+            throw new ClassCastException("Cannot compare xs:yearMonthDuration with " + other);
+        }
+    }
+
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) {
+        return this;
+    }
+
+    @Override
+    public XPathComparable getXPathComparable() {
+        return this;
     }
 
     /**
@@ -285,14 +297,12 @@ public final class YearMonthDurationValue extends DurationValue implements Compa
      * Returns null if the value is not comparable according to XPath rules. The default implementation
      * returns the value itself. This is modified for types such as
      * xs:duration which allow ordering comparisons in XML Schema, but not in XPath.
-     *
-     * @param ordered true if ordered comparisons need to be supported
-     * @param collator for comparing strings - not used
+     *  @param collator for comparing strings - not used
      * @param implicitTimezone implicit timezone in the dynamic context - not used
      */
 
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone) {
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
         return this;
     }
 

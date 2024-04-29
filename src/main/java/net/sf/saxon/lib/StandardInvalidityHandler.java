@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -29,7 +29,7 @@ import javax.xml.transform.dom.DOMLocator;
 
 public class StandardInvalidityHandler extends StandardDiagnostics implements InvalidityHandler {
 
-    private Configuration config;
+    private final Configuration config;
     private Logger logger;
 
     /**
@@ -96,13 +96,11 @@ public class StandardInvalidityHandler extends StandardDiagnostics implements In
 
         String explanation = getExpandedMessage(failure);
         String constraintReference = getConstraintReferenceMessage(failure);
-        String validationLocation = ((ValidationFailure) failure).getValidationLocationText();
         String contextLocation = ((ValidationFailure) failure).getContextLocationText();
         String finalMessage = "Validation error " +
                 getLocationMessage(failure) +
                 "\n  " +
                 wordWrap(explanation) +
-                //wordWrap(validationLocation.isEmpty() ? "" : "\n  " + validationLocation) +
                 wordWrap(contextLocation.isEmpty() ? "" : "\n  " + contextLocation) +
                 wordWrap(constraintReference == null ? "" : "\n  " + constraintReference) +
                 formatListOfOffendingNodes((ValidationFailure)failure);
@@ -120,17 +118,20 @@ public class StandardInvalidityHandler extends StandardDiagnostics implements In
 
     public String getLocationMessage(Invalidity err) {
         String locMessage = "";
-        String systemId = null;
+        String systemId;
         NodeInfo node = err.getInvalidNode();
         AbsolutePath path;
         String nodeMessage = null;
         int lineNumber = err.getLineNumber();
         if (err instanceof DOMLocator) {
             nodeMessage = "at " + ((DOMLocator) err).getOriginatingNode().getNodeName() + ' ';
-        } else if (lineNumber == -1 && (path = err.getPath()) != null) {
-            nodeMessage = "at " + path + ' ';
-        } else if (node != null) {
-            nodeMessage = "at " + Navigator.getPath(node) + ' ';
+        }
+        if (nodeMessage == null) {
+            if (lineNumber == -1 && (path = err.getPath()) != null) {
+                nodeMessage = "at " + path + ' ';
+            } else if (node != null) {
+                nodeMessage = "at " + Navigator.getPath(node) + ' ';
+            }
         }
         boolean containsLineNumber = lineNumber != -1;
         if (nodeMessage != null) {
@@ -178,7 +179,7 @@ public class StandardInvalidityHandler extends StandardDiagnostics implements In
         if (err.getSchemaPart() == -1) {
             return null;
         }
-        return "See http://www.w3.org/TR/xmlschema-" + err.getSchemaPart() + "/#" + err.getConstraintName()
+        return "See https://www.w3.org/TR/xmlschema11-" + err.getSchemaPart() + "/#" + err.getConstraintName()
             + " clause " + err.getConstraintClauseNumber();
     }
 

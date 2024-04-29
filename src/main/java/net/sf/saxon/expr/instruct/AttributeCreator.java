@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,10 +15,9 @@ import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.om.NameOfNode;
-import net.sf.saxon.om.NodeName;
-import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Orphan;
@@ -35,7 +34,7 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
     /*@Nullable*/ SimpleType schemaType = null;
     private int validationAction;
     private int options = ReceiverOption.NONE;
-    private boolean isInstruction;
+    private boolean _isInstruction;
 
     /**
      * Say whether this attribute creator originates as an XSLT instruction
@@ -43,7 +42,7 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
      */
 
     public void setInstruction(boolean inst) {
-        isInstruction = inst;
+        _isInstruction = inst;
     }
 
     /**
@@ -55,7 +54,7 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
 
     @Override
     public boolean isInstruction() {
-        return isInstruction;
+        return _isInstruction;
     }
 
     /**
@@ -153,7 +152,7 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
      * @return a set of flags indicating static properties of this expression
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         if (getValidationAction() == Validation.SKIP) {
             p |= StaticProperty.ALL_NODES_UNTYPED;
@@ -183,9 +182,33 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
      */
 
     @Override
-    public void processValue(CharSequence value, Outputter output, XPathContext context) throws XPathException {
+    public void processValue(UnicodeString value, Outputter output, XPathContext context) throws XPathException {
         NodeName attName = evaluateNodeName(context);
         int opt = getOptions();
+        SimpleType ann = validate(attName, value, context);
+        if (attName.equals(StandardNames.XML_ID_NAME)) {
+            value = Whitespace.collapseWhitespace(value);
+        }
+
+        try {
+            output.attribute(attName, ann, value.toString(), getLocation(), opt);
+        } catch (XPathException err) {
+            throw dynamicError(getLocation(), err, context);
+        }
+
+    }
+
+    /**
+     * Validate that the attribute value is valid, and return the type with which the constructed
+     * attribute should be annotated
+     * @param attName the attribute name
+     * @param value the string value of the attribute
+     * @param context the evaluation context
+     * @return the type annotation to be used
+     * @throws XPathException if validation fails
+     */
+
+    protected SimpleType validate(NodeName attName, UnicodeString value, XPathContext context) throws XPathException {
         SimpleType ann;
 
         // we may need to change the namespace prefix if the one we chose is
@@ -215,26 +238,16 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
                 Configuration config = context.getConfiguration();
                 ann = config.validateAttribute(attName.getStructuredQName(), value, validationAction);
             } catch (ValidationException e) {
-                XPathException err = XPathException.makeXPathException(e);
-                err.maybeSetErrorCode(validationAction == Validation.STRICT ? "XTTE1510" : "XTTE1515");
-                err.setXPathContext(context);
-                err.maybeSetLocation(getLocation());
-                err.setIsTypeError(true);
-                throw err;
+                throw XPathException.makeXPathException(e)
+                        .maybeWithErrorCode(validationAction == Validation.STRICT ? "XTTE1510" : "XTTE1515")
+                        .withXPathContext(context)
+                        .maybeWithLocation(getLocation())
+                        .asTypeError();
             }
         } else {
             ann = BuiltInAtomicType.UNTYPED_ATOMIC;
         }
-        if (attName.equals(StandardNames.XML_ID_NAME)) {
-            value = Whitespace.collapseWhitespace(value);
-        }
-
-        try {
-            output.attribute(attName, ann, value, getLocation(), opt);
-        } catch (XPathException err) {
-            throw dynamicError(getLocation(), err, context);
-        }
-
+        return ann;
     }
 
     /**
@@ -252,9 +265,9 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
         int validationAction = getValidationAction();
         if (schemaType != null) {
             ValidationFailure err = schemaType.validateContent(
-                    orphan.getStringValueCS(), DummyNamespaceResolver.getInstance(), rules);
+                    orphan.getUnicodeStringValue(), DummyNamespaceResolver.getInstance(), rules);
             if (err != null) {
-                err.setMessage("Attribute value " + Err.wrap(orphan.getStringValueCS(), Err.VALUE) +
+                err.setMessage("Attribute value " + Err.wrap(orphan.getUnicodeStringValue(), Err.VALUE) +
                                        " does not the match the required type " +
                                        schemaType.getDescription() + ". " +
                                        err.getMessage());
@@ -271,15 +284,14 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
                 final Controller controller = context.getController();
                 assert controller != null;
                 SimpleType ann = controller.getConfiguration().validateAttribute(
-                        NameOfNode.makeName(orphan).getStructuredQName(), orphan.getStringValueCS(), validationAction);
+                        NameOfNode.makeName(orphan).getStructuredQName(), orphan.getUnicodeStringValue(), validationAction);
                 orphan.setTypeAnnotation(ann);
             } catch (ValidationException e) {
-                XPathException err = XPathException.makeXPathException(e);
-                err.setErrorCodeQName(e.getErrorCodeQName());
-                err.setXPathContext(context);
-                err.setLocation(getLocation());
-                err.setIsTypeError(true);
-                throw err;
+                throw XPathException.makeXPathException(e)
+                        .withErrorCode(e.getErrorCodeQName())
+                        .withXPathContext(context)
+                        .withLocation(getLocation())
+                        .asTypeError();
             }
         }
     }

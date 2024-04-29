@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,8 +12,8 @@ package net.sf.saxon.s9api;
  */
 public class SequenceType {
 
-    private ItemType itemType;
-    private OccurrenceIndicator occurrenceIndicator;
+    private final ItemType itemType;
+    private final OccurrenceIndicator occurrenceIndicator;
 
     /**
      * Constant representing the universal sequence type <code>item()*</code>, which permits any value
@@ -73,6 +73,18 @@ public class SequenceType {
     }
 
     /**
+     * Test whether a supplied value is an instance of this SequenceType
+     * @param value the value to be tested
+     * @return true if <code>value</code> is an instance of this type, as defined by the XPath
+     * <code>instance of</code> operator
+     * @since 12.0
+     */
+
+    public boolean matches(XdmValue value) {
+        return value.matches(this);
+    }
+
+    /**
      * Test whether two SequenceType objects represent the same type
      *
      * @param other the other SequenceType object
@@ -111,6 +123,9 @@ public class SequenceType {
     /**
      * Factory method to construct a s9api {@code SequenceType} from an underlying
      *  instance of {@link net.sf.saxon.value.SequenceType}
+     * @param processor the processor
+     * @param st the internal SequenceType
+     * @return the s9api SequenceType
      * @since 10.0
      */
 

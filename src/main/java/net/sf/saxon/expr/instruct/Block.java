@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,13 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.om.*;
+import net.sf.saxon.ma.zeno.ZenoSequence;
+import net.sf.saxon.om.AxisInfo;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
@@ -22,6 +25,7 @@ import net.sf.saxon.value.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Supplier;
 
 
 /**
@@ -81,7 +85,7 @@ public class Block extends Instruction {
      * @return the number of child subexpressions
      */
 
-    private int size() {
+    public int size() {
         return operanda.length;
     }
 
@@ -195,7 +199,7 @@ public class Block extends Instruction {
 
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         if (size() == 0) {
             // An empty sequence has all special properties except "has side effects".
             return StaticProperty.SPECIAL_PROPERTY_MASK & ~StaticProperty.HAS_SIDE_EFFECTS;
@@ -209,14 +213,14 @@ public class Block extends Instruction {
         boolean allChildAxis = true;
         boolean allSubtreeAxis = true;
         for (Operand o : operands()) {
-            Expression child = o.getChildExpression();
-            if (!(child instanceof AxisExpression)) {
+            Expression childExpr = o.getChildExpression();
+            if (!(childExpr instanceof AxisExpression)) {
                 allAxisExpressions = false;
                 allChildAxis = false;
                 allSubtreeAxis = false;
                 break;
             }
-            int axis = ((AxisExpression) child).getAxis();
+            int axis = ((AxisExpression) childExpr).getAxis();
             if (axis != AxisInfo.CHILD) {
                 allChildAxis = false;
             }
@@ -256,7 +260,7 @@ public class Block extends Instruction {
      *
      * @param req                 the required type
      * @param backwardsCompatible true if backwards compatibility mode applies
-     * @param role                the role of the expression in relation to the required type
+     * @param roleSupplier                the role of the expression in relation to the required type
      * @param visitor             an expression visitor
      * @return the expression after type checking (perhaps augmented with dynamic type checking code)
      * @throws XPathException if failures occur, for example if the static type of one branch of the conditional
@@ -266,13 +270,13 @@ public class Block extends Instruction {
     @Override
     public Expression staticTypeCheck(SequenceType req,
                                       boolean backwardsCompatible,
-                                      RoleDiagnostic role, ExpressionVisitor visitor)
+                                      Supplier<RoleDiagnostic> roleSupplier, ExpressionVisitor visitor)
             throws XPathException {
 
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(backwardsCompatible);
         if (backwardsCompatible && !Cardinality.allowsMany(req.getCardinality())) {
             Expression first = FirstItemExpression.makeFirstItemExpression(this);
-            return tc.staticTypeCheck(first, req, role, visitor);
+            return tc.staticTypeCheck(first, req, roleSupplier, visitor);
         }
         Expression[] checked = new Expression[operanda.length];
         SequenceType subReq = req;
@@ -280,7 +284,7 @@ public class Block extends Instruction {
             subReq = SequenceType.makeSequenceType(req.getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE);
         }
         for (int i=0; i<operanda.length; i++) {
-            checked[i] = tc.staticTypeCheck(operanda[i].getChildExpression(), subReq, role, visitor);
+            checked[i] = tc.staticTypeCheck(operanda[i].getChildExpression(), subReq, roleSupplier, visitor);
         }
         Block b2 = new Block(checked);
         ExpressionTool.copyLocationInfo(this, b2);
@@ -290,15 +294,16 @@ public class Block extends Instruction {
         int suppliedCard = b2.getCardinality();
         if (!Cardinality.subsumes(req.getCardinality(), suppliedCard)) {
             if ((reqCard & suppliedCard) == 0) {
-                XPathException err = new XPathException(
+                RoleDiagnostic role = roleSupplier.get();
+                throw new XPathException(
                         "The required cardinality of the " + role.getMessage() +
-                                " is " + Cardinality.toString(reqCard) +
-                                ", but the supplied cardinality is " + Cardinality.toString(suppliedCard), role.getErrorCode(), getLocation());
-                err.setIsTypeError(true);
-                err.setFailingExpression(this);
-                throw err;
+                                " is " + Cardinality.describe(reqCard) +
+                                ", but the supplied cardinality is " +
+                                Cardinality.describe(suppliedCard), role.getErrorCode(), getLocation())
+                        .asTypeError()
+                        .withFailingExpression(this);
             } else {
-                return CardinalityChecker.makeCardinalityChecker(b2, reqCard, role);
+                return CardinalityChecker.makeCardinalityChecker(b2, reqCard, roleSupplier);
             }
         }
         return b2;
@@ -350,7 +355,7 @@ public class Block extends Instruction {
             for (int i = 0; i < size(); i++) {
                 if (isLiteralText[i]) {
                     pendingText = (pendingText == null ? "" : pendingText) +
-                            ((StringLiteral) ((ValueOf) child(i)).getSelect()).getStringValue();
+                            ((StringLiteral) ((ValueOf) child(i)).getSelect()).getString();
                 } else {
                     if (pendingText != null) {
                         ValueOf inst = new ValueOf(new StringLiteral(pendingText), false, false);
@@ -409,9 +414,9 @@ public class Block extends Instruction {
         ItemType t1 = null;
         TypeHierarchy th = getConfiguration().getTypeHierarchy();
         for (int i = 0; i < size(); i++) {
-            Expression child = child(i);
-            if (!(child instanceof Message)) {
-                ItemType t = child.getItemType();
+            Expression childExpr = child(i);
+            if (!(childExpr instanceof MessageInstr)) {
+                ItemType t = childExpr.getItemType();
                 t1 = t1 == null ? t : Type.getCommonSuperType(t1, t, th);
                 if (t1 instanceof AnyItemType) {
                     return t1;  // no point going any further
@@ -452,7 +457,7 @@ public class Block extends Instruction {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         if (size() == 0) {
             return StaticProperty.EMPTY;
         }
@@ -497,19 +502,17 @@ public class Block extends Instruction {
             Expression child = o.getChildExpression();
             if (ExpressionTool.isNotAllowedInUpdatingContext(child)) {
                 if (updating) {
-                    XPathException err = new XPathException(
-                            "If any subexpression is updating, then all must be updating", "XUST0001");
-                    err.setLocation(child.getLocation());
-                    throw err;
+                    throw new XPathException(
+                            "If any subexpression is updating, then all must be updating", "XUST0001")
+                            .withLocation(child.getLocation());
                 }
                 nonUpdating = true;
             }
             if (child.isUpdatingExpression()) {
                 if (nonUpdating) {
-                    XPathException err = new XPathException(
-                            "If any subexpression is updating, then all must be updating", "XUST0001");
-                    err.setLocation(child.getLocation());
-                    throw err;
+                    throw new XPathException(
+                            "If any subexpression is updating, then all must be updating", "XUST0001")
+                            .withLocation(child.getLocation());
                 }
                 updating = true;
             }
@@ -583,9 +586,10 @@ public class Block extends Instruction {
         } else if (allAtomic) {
             AtomicValue[] values = new AtomicValue[size()];
             for (int c = 0; c < size(); c++) {
-                values[c] = (AtomicValue) ((Literal) child(c)).getValue();
+                values[c] = (AtomicValue) ((Literal) child(c)).getGroundedValue();
             }
-            Expression result = Literal.makeLiteral(new SequenceExtent(values), this);
+            @SuppressWarnings("Convert2Diamond")
+            Expression result = Literal.makeLiteral(new SequenceExtent.Of<AtomicValue>(values), this);
             result.setParentExpression(getParentExpression());
             return result;
         } else {
@@ -599,10 +603,9 @@ public class Block extends Instruction {
      *
      * @param targetList the new list of expressions comprising the contents of the block
      *                   after simplification
-     * @throws XPathException should not happen
      */
 
-    private void flatten(List<Expression> targetList) throws XPathException {
+    private void flatten(List<Expression> targetList)  {
         List<Item> currentLiteralList = null;
         for (Operand o : operands()) {
             Expression child = o.getChildExpression();
@@ -612,13 +615,12 @@ public class Block extends Instruction {
                 flushCurrentLiteralList(currentLiteralList, targetList);
                 currentLiteralList = null;
                 ((Block) child).flatten(targetList);
-            } else if (child instanceof Literal && !(((Literal) child).getValue() instanceof IntegerRange)) {
-                SequenceIterator iterator = ((Literal) child).getValue().iterate();
+            } else if (child instanceof Literal && !(((Literal) child).getGroundedValue() instanceof IntegerRange)) {
+                SequenceIterator iterator = ((Literal) child).getGroundedValue().iterate();
                 if (currentLiteralList == null) {
                     currentLiteralList = new ArrayList<>(10);
                 }
-                Item item;
-                while ((item = iterator.next()) != null) {
+                for (Item item; (item = iterator.next()) != null; ) {
                     currentLiteralList.add(item);
                 }
                 // no-op
@@ -633,7 +635,7 @@ public class Block extends Instruction {
 
     private void flushCurrentLiteralList(List<Item> currentLiteralList, List<Expression> list) {
         if (currentLiteralList != null) {
-            ListIterator<Item> iter = new ListIterator<>(currentLiteralList);
+            ListIterator.Of<Item> iter = new ListIterator.Of<>(currentLiteralList);
             Literal lit = Literal.makeLiteral(iter.materialize(), this);
             list.add(lit);
         }
@@ -679,7 +681,7 @@ public class Block extends Instruction {
                 canSimplify = true;
                 break;
             }
-            if (child instanceof Literal && !(((Literal) child).getValue() instanceof IntegerRange)) {
+            if (child instanceof Literal && !(((Literal) child).getGroundedValue() instanceof IntegerRange)) {
                 if (prevLiteral || Literal.isEmptySequence(child)) {
                     canSimplify = true;
                     break;
@@ -742,27 +744,6 @@ public class Block extends Instruction {
         return "(" + child(0).toShortString() + ", ...)";
     }
 
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        TailCall tc = null;
-        for (Operand o : operands()) {
-            Expression child = o.getChildExpression();
-            try {
-                if (child instanceof TailCallReturner) {
-                    tc = ((TailCallReturner) child).processLeavingTail(output, context);
-                } else {
-                    child.process(output, context);
-                    tc = null;
-                }
-            } catch (XPathException e) {
-                e.maybeSetLocation(child.getLocation());
-                e.maybeSetContext(context);
-                throw e;
-            }
-        }
-        return tc;
-    }
-
     /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
      * This method indicates which of these methods is provided. This implementation provides both iterate() and
@@ -782,7 +763,7 @@ public class Block extends Instruction {
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
         if (size() == 0) {
-            return EmptyIterator.emptyIterator();
+            return EmptyIterator.getInstance();
         } else if (size() == 1) {
             return child(0).iterate(context);
         } else {
@@ -791,26 +772,147 @@ public class Block extends Instruction {
     }
 
 
-    /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     */
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        for (Operand o : operands()) {
-            Expression child = o.getChildExpression();
-            child.evaluatePendingUpdates(context, pul);
-        }
-    }
-
     @Override
     public String getStreamerName() {
         return "Block";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new BlockElaborator();
+    }
+
+    @FunctionalInterface
+    public interface ChainAction {
+        ZenoSequence perform(ZenoSequence in, XPathContext context) throws XPathException;
+    }
+    /**
+     * Elaborator for a "Block", which is typically either an XPath sequence expression (a, b, c)
+     * or an XSLT sequence constructor
+     */
+    public static class BlockElaborator extends PullElaborator {
+
+        @Override
+        public SequenceEvaluator lazily(boolean repeatable, boolean lazyEvaluationRequired) {
+            final Block expr = (Block) getExpression();
+            if (expr.isCandidateForSharedAppend()) {
+                return new SharedAppendEvaluator(expr);
+            } else {
+                return super.lazily(repeatable, lazyEvaluationRequired);
+            }
+        }
+
+        public PullEvaluator elaborateForPull() {
+            final Block expr = (Block) getExpression();
+            final Operand[] operanda = expr.getOperanda();
+            final int size = operanda.length;
+            final PullEvaluator[] actions = new PullEvaluator[size];
+            for (int i = 0; i < size; i++) {
+                actions[i] = operanda[i].getChildExpression().makeElaborator().elaborateForPull();
+            }
+            return context -> new BlockIterator(actions, context);
+        }
+
+        private static class BlockIterator extends AbstractBlockIterator {
+
+            private final PullEvaluator[] pullers;
+            public BlockIterator(PullEvaluator[] pullers, XPathContext context) {
+                this.pullers = pullers;
+                init(pullers.length, context);
+            }
+
+            @Override
+            public SequenceIterator getNthChildIterator(int n) throws XPathException {
+                return pullers[n].iterate(context);
+            }
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            final Block expr = (Block) getExpression();
+            final Operand[] operanda = expr.getOperanda();
+            final int size = operanda.length;
+            final PushEvaluator[] actions = new PushEvaluator[size];
+            for (int i = 0; i < size; i++) {
+                actions[i] = operanda[i].getChildExpression().makeElaborator().elaborateForPush();
+            }
+            switch (size) {
+                // Unroll loop for small sequence constructors
+                case 2: {
+                    PushEvaluator act0 = actions[0];
+                    PushEvaluator act1 = actions[1];
+                    return (out, context) -> {
+                        TailCall tail = act0.processLeavingTail(out, context);
+                        Expression.dispatchTailCall(tail);
+                        return act1.processLeavingTail(out, context);
+                    };
+                }
+                case 3: {
+                    PushEvaluator act0 = actions[0];
+                    PushEvaluator act1 = actions[1];
+                    PushEvaluator act2 = actions[2];
+                    return (out, context) -> {
+                        TailCall tail = act0.processLeavingTail(out, context);
+                        Expression.dispatchTailCall(tail);
+
+                        tail = act1.processLeavingTail(out, context);
+                        Expression.dispatchTailCall(tail);
+
+                        return act2.processLeavingTail(out, context);
+                    };
+                }
+                case 4: {
+                    PushEvaluator act0 = actions[0];
+                    PushEvaluator act1 = actions[1];
+                    PushEvaluator act2 = actions[2];
+                    PushEvaluator act3 = actions[3];
+                    return (out, context) -> {
+                        TailCall tail = act0.processLeavingTail(out, context);
+                        Expression.dispatchTailCall(tail);
+
+                        tail = act1.processLeavingTail(out, context);
+                        Expression.dispatchTailCall(tail);
+
+                        tail = act2.processLeavingTail(out, context);
+                        Expression.dispatchTailCall(tail);
+
+                        return act3.processLeavingTail(out, context);
+                    };
+                }
+                default:
+                    return (out, context) -> {
+                        TailCall tail = null;
+                        for (int i = 0; i < size; i++) {
+                            while (tail != null) {
+                                tail = tail.processLeavingTail();
+                            }
+                            tail = actions[i].processLeavingTail(out, context);
+                        }
+                        return tail;
+                    };
+            }
+        }
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            final Block expr = (Block) getExpression();
+            final Operand[] operanda = expr.getOperanda();
+            final int size = operanda.length;
+            final UpdateEvaluator[] actions = new UpdateEvaluator[size];
+            for (int i=0; i<size; i++) {
+                actions[i] = expr.child(i).makeElaborator().elaborateForUpdate();
+            }
+            return (context, pul) -> {
+                for (UpdateEvaluator action : actions) {
+                     action.registerUpdates(context, pul);
+                }
+            };
+        }
+    }
 }

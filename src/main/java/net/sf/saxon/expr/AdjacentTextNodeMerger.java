@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.instruct.Choose;
 import net.sf.saxon.expr.instruct.ValueOf;
@@ -47,7 +50,7 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
      */
 
     public static Expression makeAdjacentTextNodeMerger(Expression base) {
-        if (base instanceof Literal && ((Literal) base).getValue() instanceof AtomicSequence) {
+        if (base instanceof Literal && ((Literal) base).getGroundedValue() instanceof AtomicSequence) {
             return base;
         } else {
             return new AdjacentTextNodeMerger(base);
@@ -62,7 +65,7 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
     @Override
     public Expression simplify() throws XPathException {
         Expression operand = getBaseExpression();
-        if (operand instanceof Literal && ((Literal) operand).getValue() instanceof AtomicValue) {
+        if (operand instanceof Literal && ((Literal) operand).getGroundedValue() instanceof AtomicValue) {
             return operand;
         } else {
             return super.simplify();
@@ -97,7 +100,6 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
             return choose;
         }
         // In a Block expression, check whether adjacent text nodes can occur (used in test strmode089)
-        // Code deleted:
         if (getBaseExpression() instanceof Block) {
             Block block = (Block) getBaseExpression();
             Operand[] actions = block.getOperanda();
@@ -112,7 +114,7 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
                     Expression content = ((ValueOf) action).getSelect();
                     if (content instanceof StringLiteral) {
                         // if it's empty, we could remove it now, but that's awkward and probably doesn't happen
-                        maybeEmpty |= ((StringLiteral) content).getStringValue().isEmpty();
+                        maybeEmpty |= ((StringLiteral) content).getString().isEmpty();
                     } else {
                         maybeEmpty = true;
                     }
@@ -169,7 +171,7 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality() | StaticProperty.ALLOWS_ZERO;
     }
 
@@ -247,5 +249,30 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
         return item instanceof NodeInfo && ((NodeInfo) item).getNodeKind() == Type.TEXT;
     }
 
+    /**
+     * Make an elaborator for this expression
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new AdjacentTextNodeMergerElaborator();
+    }
+
+    /**
+     * Elaborator for an adjacent text node merging expression - inserted into a pipeline for node construction
+     */
+
+    public static class AdjacentTextNodeMergerElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+
+            final AdjacentTextNodeMerger expr = (AdjacentTextNodeMerger) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+
+            return context -> new AdjacentTextNodeMergingIterator(baseEval.iterate(context));
+        }
+
+    }
 }
 

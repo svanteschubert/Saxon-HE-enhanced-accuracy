@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
@@ -16,6 +19,7 @@ import net.sf.saxon.expr.sort.DocumentSorter;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.HomogeneityCheckerIterator;
 import net.sf.saxon.type.Affinity;
@@ -107,7 +111,7 @@ public class HomogeneityChecker extends UnaryExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings   variables that must be re-bound
      */
     /*@NotNull*/
     @Override
@@ -158,6 +162,36 @@ public class HomogeneityChecker extends UnaryExpression {
     @Override
     public String getExpressionName() {
         return "homCheck";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new HomogeneityCheckerElaborator();
+    }
+
+    /**
+     * Elaborator for a homogeneity checker, which checks that the items in a sequence are
+     * either all nodes, or all non-nodes.
+     */
+
+    public static class HomogeneityCheckerElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            HomogeneityChecker exp = (HomogeneityChecker) getExpression();
+            Location location = exp.getLocation();
+            Expression arg = exp.getBaseExpression();
+            PullEvaluator argEval = arg.makeElaborator().elaborateForPull();
+
+            return context -> new HomogeneityCheckerIterator(argEval.iterate(context), location);
+        }
+
     }
 }
 

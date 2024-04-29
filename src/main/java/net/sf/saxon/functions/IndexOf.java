@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,8 @@ import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -62,10 +64,10 @@ public class IndexOf extends CollatingFunctionFixed  {
 
     private static class IndexIterator implements SequenceIterator {
         private int index = 0;
-        private SequenceIterator base;
-        private BuiltInAtomicType searchType;
-        private AtomicComparer comparer;
-        private AtomicValue key;
+        private final SequenceIterator base;
+        private final BuiltInAtomicType searchType;
+        private final AtomicComparer comparer;
+        private final AtomicValue key;
 
         public IndexIterator(SequenceIterator base, BuiltInAtomicType searchType, AtomicValue key, AtomicComparer comparer) {
             this.base = base;
@@ -100,20 +102,24 @@ public class IndexOf extends CollatingFunctionFixed  {
          * on next() has returned null, no further calls should be made. The preferred
          * action for an iterator if subsequent calls on next() are made is to return
          * null again, and all implementations within Saxon follow this rule.
-         * @throws net.sf.saxon.trans.XPathException if an error occurs retrieving the next item
+         * @throws UncheckedXPathException if an error occurs retrieving the next item
          * @since 8.4
          */
         @Override
-        public Int64Value next() throws XPathException {
-            AtomicValue baseItem;
-            while ((baseItem = (AtomicValue) base.next()) != null) {
-                index++;
-                if (Type.isGuaranteedComparable(searchType, baseItem.getPrimitiveType(), false) &&
-                        comparer.comparesEqual(baseItem, key)) {
-                    return new Int64Value(index);
+        public Int64Value next() {
+            try {
+                AtomicValue baseItem;
+                while ((baseItem = (AtomicValue) base.next()) != null) {
+                    index++;
+                    if (Type.isGuaranteedComparable(searchType, baseItem.getPrimitiveType(), false) &&
+                            comparer.comparesEqual(baseItem, key)) {
+                        return new Int64Value(index);
+                    }
                 }
+                return null;
+            } catch (NoDynamicContextException e) {
+                throw new UncheckedXPathException(e);
             }
-            return null;
         }
 
     }

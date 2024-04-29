@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,18 +11,22 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StandardURIChecker;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.ItemType;
-import net.sf.saxon.value.AnyURIValue;
-import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.SequenceType;
-import net.sf.saxon.value.Whitespace;
+import net.sf.saxon.type.Type;
+import net.sf.saxon.value.*;
+
+import java.util.function.Supplier;
 
 /**
  * A namespace constructor instruction. (xsl:namespace in XSLT 2.0, or namespace{}{} in XQuery 1.1)
@@ -30,7 +34,7 @@ import net.sf.saxon.value.Whitespace;
 
 public class NamespaceConstructor extends SimpleNodeConstructor {
 
-    private Operand nameOp;
+    private final Operand nameOp;
 
     /**
      * Create an xsl:namespace instruction for dynamic construction of namespace nodes
@@ -80,7 +84,7 @@ public class NamespaceConstructor extends SimpleNodeConstructor {
         StaticContext env = visitor.getStaticContext();
         nameOp.typeCheck(visitor, contextItemType);
 
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "namespace/name", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "namespace/name", 0);
         // See bug 2110. XQuery does not use the function conversion rules here, and disallows xs:anyURI.
         // In XSLT the name is an AVT so we automatically get a string; in XQuery we'll use the standard
         // mechanism to get an atomic value, and then check the type "by hand" at run time.
@@ -100,7 +104,7 @@ public class NamespaceConstructor extends SimpleNodeConstructor {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     /*@NotNull*/
@@ -124,14 +128,19 @@ public class NamespaceConstructor extends SimpleNodeConstructor {
         if (value == null) {
             return "";
         }
-        if (!(value instanceof net.sf.saxon.value.StringValue) || value instanceof AnyURIValue) {
+        if (!(value instanceof StringValue) || value instanceof AnyURIValue) {
             // Can only happen in XQuery
             XPathException err = new XPathException(
                 "Namespace prefix is not an xs:string or xs:untypedAtomic", "XPTY0004", getLocation());
             err.setIsTypeError(true);
             throw dynamicError(getLocation(), err, context);
         }
-        String prefix = Whitespace.trim(value.getStringValueCS());
+        String prefix = Whitespace.trim(value.getStringValue());
+        return checkPrefix(prefix, context);
+    }
+
+    public String checkPrefix(String prefix, XPathContext context) throws XPathException {
+        prefix = Whitespace.trim(prefix);
         if (!(prefix.isEmpty() || NameChecker.isValidNCName(prefix))) {
             String errorCode = isXSLT() ? "XTDE0920" : "XQDY0074";
             XPathException err = new XPathException("Namespace prefix is invalid: " + prefix, errorCode, getLocation());
@@ -146,13 +155,14 @@ public class NamespaceConstructor extends SimpleNodeConstructor {
         return prefix;
     }
 
+
     @Override
-    public void processValue(CharSequence value, Outputter output, XPathContext context) throws XPathException {
+    public void processValue(UnicodeString value, Outputter output, XPathContext context) throws XPathException {
         String prefix = evaluatePrefix(context);
         String uri = value.toString();
         checkPrefixAndUri(prefix, uri, context);
 
-        output.namespace(prefix, uri, ReceiverOption.REJECT_DUPLICATES);
+        output.namespace(prefix, NamespaceUri.of(uri), ReceiverOption.REJECT_DUPLICATES);
     }
 
 
@@ -224,5 +234,97 @@ public class NamespaceConstructor extends SimpleNodeConstructor {
         out.endElement();
     }
 
+    @Override
+    public Elaborator getElaborator() {
+        return new NamespaceConstructorElaborator();
+    }
 
+
+    private static class NamespaceConstructorElaborator extends SimpleNodePushElaborator {
+        @Override
+        public PushEvaluator elaborateForPush() {
+            NamespaceConstructor expr = (NamespaceConstructor) getExpression();
+            Location loc = expr.getLocation();
+            String literalPrefix = expr.getNameExp() instanceof StringLiteral
+                    ? ((StringLiteral)expr.getNameExp()).stringify() : null;
+            NamespaceUri literalUri = expr.getSelect() instanceof StringLiteral
+                    ? NamespaceUri.of(((StringLiteral)expr.getSelect()).stringify()) : null;
+            if (literalPrefix != null && literalUri != null) {
+                try {
+                    expr.checkPrefix(literalPrefix, getConfiguration().getConversionContext());
+                    expr.checkPrefixAndUri(literalPrefix, literalUri.toString(), getConfiguration().getConversionContext());
+                } catch (XPathException e) {
+                    return (output, context) -> {
+                        throw e;
+                    };
+                }
+                return (output, context) ->  {
+                    output.namespace(literalPrefix, literalUri, ReceiverOption.REJECT_DUPLICATES);
+                    return null;
+                };
+            } else {
+                StringEvaluator nameEval = expr.getNameExp().makeElaborator().elaborateForString(true);
+                StringEvaluator contentEval = expr.getSelect().makeElaborator().elaborateForString(true);
+                return (output, context) -> {
+                    String prefix = nameEval.eval(context);
+                    String uri = contentEval.eval(context);
+                    expr.checkPrefix(prefix, context);
+                    expr.checkPrefixAndUri(prefix, uri, context);
+                    try {
+                        output.namespace(prefix, NamespaceUri.of(uri), ReceiverOption.REJECT_DUPLICATES);
+                    } catch (XPathException err) {
+                        throw Instruction.dynamicError(loc, err, context);
+                    }
+
+                    return null;
+                };
+            }
+
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            NamespaceConstructor expr = (NamespaceConstructor) getExpression();
+            Location loc = expr.getLocation();
+            String literalPrefix = expr.getNameExp() instanceof StringLiteral
+                    ? ((StringLiteral) expr.getNameExp()).stringify() : null;
+            NamespaceUri literalUri = expr.getSelect() instanceof StringLiteral
+                    ? NamespaceUri.of(((StringLiteral) expr.getSelect()).stringify()) : null;
+            if (literalPrefix != null && literalUri != null) {
+                try {
+                    expr.checkPrefix(literalPrefix, getConfiguration().getConversionContext());
+                    expr.checkPrefixAndUri(literalPrefix, literalUri.toString(), getConfiguration().getConversionContext());
+                } catch (XPathException e) {
+                    return (context) -> {
+                        throw e;
+                    };
+                }
+                return (context) -> {
+                    Orphan o = new Orphan(context.getConfiguration());
+                    o.setNodeKind(Type.NAMESPACE);
+                    o.setStringValue(literalUri.toUnicodeString());
+                    if (!literalPrefix.isEmpty()) {
+                        o.setNodeName(new NoNamespaceName(literalPrefix));
+                    }
+                    return o;
+                };
+            } else {
+                StringEvaluator nameEval = expr.getNameExp().makeElaborator().elaborateForString(true);
+                UnicodeStringEvaluator contentEval = expr.getSelect().makeElaborator().elaborateForUnicodeString(true);
+                return context -> {
+                    String prefix = nameEval.eval(context);
+                    UnicodeString uri = contentEval.eval(context);
+                    expr.checkPrefix(prefix, context);
+                    expr.checkPrefixAndUri(prefix, uri.toString(), context);
+                    Orphan o = new Orphan(context.getConfiguration());
+                    o.setNodeKind(Type.NAMESPACE);
+                    o.setStringValue(uri);
+                    if (!prefix.isEmpty()) {
+                        o.setNodeName(new NoNamespaceName(prefix));
+                    }
+                    return o;
+                };
+            }
+        }
+    }
 }

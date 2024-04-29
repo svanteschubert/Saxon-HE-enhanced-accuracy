@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.trans.DecimalFormatManager;
 import net.sf.saxon.trans.XPathException;
 
@@ -31,14 +32,14 @@ import java.util.Iterator;
  */
 public class RetainedStaticContext implements NamespaceResolver {
 
-    private Configuration config;
+    private final Configuration config;
     private PackageData packageData;
     private URI staticBaseUri;
     private String staticBaseUriString;
     private String defaultCollationName;
-    private NamespaceResolver namespaces;
-    private String defaultFunctionNamespace = NamespaceConstant.FN;
-    private String defaultElementNamespace;
+    private NamespaceResolver namespaces;  // Normally a NamespaceMap, except for the JAXP case
+    private NamespaceUri defaultFunctionNamespace = NamespaceUri.FN;
+    private NamespaceUri defaultElementNamespace;
     private DecimalFormatManager decimalFormatManager;
     private boolean backwardsCompatibility;
 
@@ -66,22 +67,8 @@ public class RetainedStaticContext implements NamespaceResolver {
         this.defaultElementNamespace = sc.getDefaultElementNamespace();
         defaultFunctionNamespace = sc.getDefaultFunctionNamespace();
         backwardsCompatibility = sc.isInBackwardsCompatibleMode();
-        if (Version.platform.JAXPStaticContextCheck(this, sc)) {
-            //updated in method
-        } else {
-            NamespaceResolver resolver = sc.getNamespaceResolver();
-            if (resolver instanceof NamespaceMap) {
-                namespaces = resolver;
-            } else {
-                NamespaceMap map = NamespaceMap.emptyMap();
-                for (Iterator<String> it = resolver.iteratePrefixes(); it.hasNext(); ) {
-                    String prefix = it.next();
-                    if (!prefix.equals("xml")) {
-                        map = map.put(prefix, resolver.getURIForPrefix(prefix, true));
-                    }
-                }
-                namespaces = map;
-            }
+        if (!Version.platform.JAXPStaticContextCheck(this, sc)) {
+            namespaces = sc.getNamespaceResolver();
         }
 
     }
@@ -144,7 +131,7 @@ public class RetainedStaticContext implements NamespaceResolver {
 
     public URI getStaticBaseUri() throws XPathException {
         if (staticBaseUri == null) {
-            if (staticBaseUriString == null) {
+            if (staticBaseUriString == null || staticBaseUriString.isEmpty()) {
                 return null;
             } else {
                 throw new XPathException("Supplied static base URI " + staticBaseUriString + " is not a valid URI");
@@ -189,7 +176,7 @@ public class RetainedStaticContext implements NamespaceResolver {
      * @return the default namespace for functions
      */
 
-    public String getDefaultFunctionNamespace() {
+    public NamespaceUri getDefaultFunctionNamespace() {
         return defaultFunctionNamespace;
     }
 
@@ -199,7 +186,7 @@ public class RetainedStaticContext implements NamespaceResolver {
      * @param defaultFunctionNamespace the default namespace for functions
      */
 
-    public void setDefaultFunctionNamespace(String defaultFunctionNamespace) {
+    public void setDefaultFunctionNamespace(NamespaceUri defaultFunctionNamespace) {
         this.defaultFunctionNamespace = defaultFunctionNamespace;
     }
 
@@ -209,8 +196,8 @@ public class RetainedStaticContext implements NamespaceResolver {
      * @return the default namespace for elements and types. Return "" if the default is "no namespace"
      */
 
-    public String getDefaultElementNamespace() {
-        return defaultElementNamespace == null ? "" : defaultElementNamespace;
+    public NamespaceUri getDefaultElementNamespace() {
+        return defaultElementNamespace == null ? NamespaceUri.NULL : defaultElementNamespace;
     }
 
     /**
@@ -219,7 +206,7 @@ public class RetainedStaticContext implements NamespaceResolver {
      * @param ns the default namespace for elements and types.
      */
 
-    public void setDefaultElementNamespace(String ns) {
+    public void setDefaultElementNamespace(NamespaceUri ns) {
         defaultElementNamespace = ns;
     }
 
@@ -258,7 +245,7 @@ public class RetainedStaticContext implements NamespaceResolver {
      * @param uri    the namespace URI
      */
 
-    public void declareNamespace(String prefix, String uri) {
+    public void declareNamespace(String prefix, NamespaceUri uri) {
         if (namespaces instanceof NamespaceMap) {
             namespaces = ((NamespaceMap) namespaces).put(prefix, uri);
         } else {
@@ -281,7 +268,7 @@ public class RetainedStaticContext implements NamespaceResolver {
      * The "null namespace" is represented by the pseudo-URI "".
      */
     @Override
-    public String getURIForPrefix(String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
         return namespaces.getURIForPrefix(prefix, useDefault);
     }
 
@@ -299,6 +286,7 @@ public class RetainedStaticContext implements NamespaceResolver {
 
     /**
      * Test whether this static context declares the same namespaces as another static context
+     * @param other the other static context
      * @return true if the namespace bindings (prefix:uri pairs) are the same
      */
 
@@ -307,7 +295,7 @@ public class RetainedStaticContext implements NamespaceResolver {
     }
 
     public int hashCode() {
-        int h = 0x8457cbce;
+        int h = 0x2457cbce;
         if (staticBaseUriString != null) {
             h ^= staticBaseUriString.hashCode();
         }
@@ -329,9 +317,20 @@ public class RetainedStaticContext implements NamespaceResolver {
                 && namespaces.equals(r.namespaces);
     }
 
+    /**
+     * Set the in-scope namespaces.
+     * @param namespaces the in-scope namespaces. The preferred representation is as a NamespaceMap;
+     *                   however this is not possible in the case of the JAXP XPath API, which does
+     *                   not allow the in-scope namespaces to be enumerated.
+     */
 
     public void setNamespaces(NamespaceResolver namespaces) {
         this.namespaces = namespaces;
+    }
+
+    public NamespaceMap getNamespaceMap() {
+        // This fails for a JAXP static context, whose namespaces cannot be enumerated
+        return NamespaceMap.fromNamespaceResolver(namespaces);
     }
 
 

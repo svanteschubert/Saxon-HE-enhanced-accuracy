@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,8 @@
 
 package net.sf.saxon.serialize.charcode;
 
-import java.util.function.IntPredicate;
+import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.IntPredicateProxy;
 
 /**
  * A class to hold some static constants and methods associated with processing UTF16 and surrogate pairs
@@ -15,7 +16,7 @@ import java.util.function.IntPredicate;
 
 public class UTF16CharacterSet implements CharacterSet {
 
-    private static UTF16CharacterSet theInstance = new UTF16CharacterSet();
+    private static final UTF16CharacterSet theInstance = new UTF16CharacterSet();
 
     /**
      * Private constructor to force the singular instance to be used
@@ -48,10 +49,10 @@ public class UTF16CharacterSet implements CharacterSet {
     public static final int NONBMP_MIN = 0x10000;
     public static final int NONBMP_MAX = 0x10FFFF;
 
-    public static final char SURROGATE1_MIN = 0xD800;
-    public static final char SURROGATE1_MAX = 0xDBFF;
-    public static final char SURROGATE2_MIN = 0xDC00;
-    public static final char SURROGATE2_MAX = 0xDFFF;
+    public static final char SURROGATE1_MIN = (char)0xD800;
+    public static final char SURROGATE1_MAX = (char)0xDBFF;
+    public static final char SURROGATE2_MIN = (char)0xDC00;
+    public static final char SURROGATE2_MAX = (char)0xDFFF;
 
     /**
      * Return the non-BMP character corresponding to a given surrogate pair
@@ -120,36 +121,17 @@ public class UTF16CharacterSet implements CharacterSet {
     }
 
     /**
-     * Test whether a CharSequence contains any surrogates (i.e. any non-BMP characters
-     *
-     * @param s the string to be tested
-     */
-
-    public static boolean containsSurrogates(/*@NotNull*/ CharSequence s) {
-        for (int i = 0; i < s.length(); i++) {
-            if (isSurrogate(s.charAt(i))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Test whether all the characters in a CharSequence are valid XML characters
      *
-     * @param chars the character sequence to be tested
+     * @param iter iterator over the character sequence to be tested
      * @param predicate the predicate that all characters must satisfy
      * @return the codepoint of the first invalid character in the character sequence (according to the supplied predicate);
      *         or -1 if all characters in the character sequence are valid
      */
 
-    public static int firstInvalidChar(CharSequence chars, IntPredicate predicate) {
-        for (int c = 0; c < chars.length(); c++) {
-            int ch32 = chars.charAt(c);
-            if (UTF16CharacterSet.isHighSurrogate(ch32)) {
-                char low = chars.charAt(c++);
-                ch32 = UTF16CharacterSet.combinePair((char) ch32, low);
-            }
+    public static int firstInvalidChar(IntIterator iter, IntPredicateProxy predicate) {
+        while (iter.hasNext()) {
+            int ch32 = iter.next();
             if (!predicate.test(ch32)) {
                 return ch32;
             }
@@ -157,9 +139,5 @@ public class UTF16CharacterSet implements CharacterSet {
         return -1;
     }
 
-    public static void main(String[] args) {
-        System.err.println(Integer.toHexString(highSurrogate(0xeffff)));
-        System.err.println(Integer.toHexString(lowSurrogate(0xeffff)));
-    }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,13 +9,10 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.accum.Accumulator;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.AttributeInfo;
-import net.sf.saxon.om.NodeName;
-import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.*;
-import net.sf.saxon.trans.rules.*;
+import net.sf.saxon.trans.rules.RuleManager;
+import net.sf.saxon.type.Type;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
 
@@ -39,8 +36,8 @@ public class XSLMode extends StyleElement {
     private SimpleMode mode;
     private Set<? extends Accumulator> accumulators;
     private boolean prepared = false;
-    private boolean traceMatching = false;
     private boolean streamable = false;
+    private boolean traceMatching = false;
 
     /**
      * Ask whether this node is a declaration, that is, a permitted child of xsl:stylesheet
@@ -75,7 +72,7 @@ public class XSLMode extends StyleElement {
     public StructuredQName getObjectName() {
         StructuredQName qn = super.getObjectName();
         if (qn == null) {
-            String nameAtt = Whitespace.trim(getAttributeValue("", "name"));
+            String nameAtt = Whitespace.trim(getAttributeValue(NamespaceUri.NULL, "name"));
             if (nameAtt == null) {
                 return Mode.UNNAMED_MODE_NAME;
             }
@@ -96,9 +93,10 @@ public class XSLMode extends StyleElement {
     @Override
     public void index(ComponentDeclaration decl, PrincipalStylesheetModule top) throws XPathException {
         StructuredQName name = getObjectName();
+        boolean enclosing = hasChildNodes();
         SymbolicName sName = new SymbolicName(StandardNames.XSL_MODE, name);
         HashMap<SymbolicName, Component> componentIndex = top.getStylesheetPackage().getComponentIndex();
-        // see if there is already a named template with this precedence
+        // see if there is already a named mode with this precedence
         if (!name.equals(Mode.UNNAMED_MODE_NAME)) {
             Component other = componentIndex.get(sName);
             if (other != null && other.getDeclaringPackage() != top.getStylesheetPackage()) {
@@ -107,8 +105,13 @@ public class XSLMode extends StyleElement {
                                      other.getDeclaringPackage().getPackageName(), "XTSE3050");
 
             }
+            if (other != null && (((Mode)other.getActor()).isEnclosingMode() || hasChildNodes())) {
+                compileError("The mode name " + name.getDisplayName() +
+                                     " identifies an enclosing mode so its name must be unique ", "XTSE4025");
+            }
         }
         mode = (SimpleMode)top.getRuleManager().obtainMode(name, true);
+        mode.setEnclosingMode(enclosing);
         if (name.equals(Mode.UNNAMED_MODE_NAME)) {
             top.getRuleManager().setUnnamedModeExplicit(true);
         } else if (mode.getDeclaringComponent().getDeclaringPackage() != getContainingPackage()) {
@@ -116,19 +119,19 @@ public class XSLMode extends StyleElement {
         } else {
             top.indexMode(decl);
             Visibility declaredVisibility = getDeclaredVisibility();
-            Visibility actualVisibility = declaredVisibility == null ? Visibility.PRIVATE : declaredVisibility;
-            VisibilityProvenance provenance = declaredVisibility == null ? VisibilityProvenance.DEFAULTED : VisibilityProvenance.EXPLICIT;
+            Visibility actualVisibility = declaredVisibility == Visibility.UNDEFINED ? Visibility.PRIVATE : declaredVisibility;
+            VisibilityProvenance provenance = declaredVisibility == Visibility.UNDEFINED ? VisibilityProvenance.DEFAULTED : VisibilityProvenance.EXPLICIT;
             mode.getDeclaringComponent().setVisibility(actualVisibility, provenance);
             top.indexMode(decl);
         }
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String nameAtt = null;
         String visibilityAtt = null;
-        String extraAsAtt = null;
+        String asAtt = null;
 
         if (prepared) {
             return;
@@ -137,7 +140,7 @@ public class XSLMode extends StyleElement {
 
         Visibility visibility = Visibility.PRIVATE;
 
-        for (AttributeInfo att : attributes()){
+        for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String f = attName.getDisplayName();
             String value = att.getValue();
@@ -159,10 +162,7 @@ public class XSLMode extends StyleElement {
                 case "on-multiple-match": {
                     switch (Whitespace.trim(value)) {
                         case "fail":
-                            boolean failOnMultipleMatch = true;
-                            break;
                         case "use-last":
-                            failOnMultipleMatch = false;
                             break;
                         default:
                             invalidAttribute(f, "fail|use-last");
@@ -173,22 +173,14 @@ public class XSLMode extends StyleElement {
                 case "on-no-match":
                     switch (Whitespace.trim(value)) {
                         case "text-only-copy":
-                            // no action, this is the default
-                            break;
                         case "shallow-copy":
-                            BuiltInRuleSet defaultRules = ShallowCopyRuleSet.getInstance();
-                            break;
                         case "deep-copy":
-                            defaultRules = DeepCopyRuleSet.getInstance();
-                            break;
                         case "shallow-skip":
-                            defaultRules = ShallowSkipRuleSet.getInstance();
-                            break;
                         case "deep-skip":
-                            defaultRules = DeepSkipRuleSet.getInstance();
-                            break;
                         case "fail":
-                            defaultRules = FailRuleSet.getInstance();
+                            break;
+                        case "shallow-copy-all":
+                            requireXslt40Attribute("on-no-match");
                             break;
                         default:
                             invalidAttribute(f, "text-only-copy|shallow-copy|deep-copy|shallow-skip|deep-skip|fail");
@@ -196,11 +188,11 @@ public class XSLMode extends StyleElement {
                     }
                     break;
                 case "warning-on-multiple-match": {
-                    boolean warningOnMultipleMatch = processBooleanAttribute("warning-on-multiple-match", value);
+                    processBooleanAttribute("warning-on-multiple-match", value);
                     break;
                 }
                 case "warning-on-no-match": {
-                    boolean warningOnNoMatch = processBooleanAttribute("warning-on-no-match", value);
+                    processBooleanAttribute("warning-on-no-match", value);
                     break;
                 }
                 case "typed": {
@@ -215,15 +207,19 @@ public class XSLMode extends StyleElement {
                         invalidAttribute(f, "public|private|final");
                     }
                     mode.setDeclaredVisibility(visibility);
-
+                    break;
+                case "as":
+                    if (requireXslt40Attribute("as")) {
+                        asAtt = value;
+                    }
                     break;
                 default:
-                    if (attName.hasURI(NamespaceConstant.SAXON)) {
+                    if (attName.hasURI(NamespaceUri.SAXON)) {
                         isExtensionAttributeAllowed(attName.getDisplayName());
                         if (attName.getLocalPart().equals("trace")) {
                             traceMatching = processBooleanAttribute("saxon:trace", value);
                         } else if (attName.getLocalPart().equals("as")) {
-                            extraAsAtt = value;
+                            asAtt = value;
                         }
                     } else {
                         checkUnknownAttribute(attName);
@@ -242,7 +238,7 @@ public class XSLMode extends StyleElement {
         } else {
             Mode m = manager.obtainMode(getObjectName(), true);
             if (m instanceof SimpleMode) {
-                mode = (SimpleMode)m;
+                mode = (SimpleMode) m;
             } else {
                 compileError("Mode name refers to an overridden mode");
                 mode = manager.getUnnamedMode();
@@ -250,16 +246,15 @@ public class XSLMode extends StyleElement {
         }
 
 
-
         mode.obtainDeclaringComponent(this);    // TODO: how does this work with multiple mode declarations?
         mode.setModeTracing(traceMatching);     // Saxon extension; ignore the complications of multiple xsl:mode declarations for now
 
-        if (extraAsAtt != null) {               // Saxon extension; ignore the complications of multiple xsl:mode declarations for now
-            SequenceType extraResultType = null;
+        if (asAtt != null) {               // Saxon extension; ignore the complications of multiple xsl:mode declarations for now
+            SequenceType extraResultType;
             try {
-                extraResultType = makeExtendedSequenceType(extraAsAtt);
+                extraResultType = makeExtendedSequenceType(asAtt);
             } catch (XPathException e) {
-                compileErrorInAttribute(e.getMessage(), e.getErrorCodeLocalPart(), "saxon:as");
+                compileErrorInAttribute(e, "saxon:as");
                 extraResultType = SequenceType.ANY_SEQUENCE; // error recovery
             }
             mode.setDefaultResultType(extraResultType);
@@ -280,9 +275,9 @@ public class XSLMode extends StyleElement {
                     f.equals("typed") || f.equals("visibility")) {
                 String trimmed = Whitespace.trim(attValue);
                 String normalizedAtt;
-                if ("true".equals(trimmed)||"1".equals(trimmed)){
+                if ("true".equals(trimmed) || "1".equals(trimmed)) {
                     normalizedAtt = "yes";
-                } else if ("false".equals(trimmed)||"0".equals(trimmed)){
+                } else if ("false".equals(trimmed) || "0".equals(trimmed)) {
                     normalizedAtt = "no";
                 } else {
                     normalizedAtt = trimmed;
@@ -293,12 +288,12 @@ public class XSLMode extends StyleElement {
                 }
                 mode.getActivePart().setExplicitProperty(f, normalizedAtt, decl.getPrecedence());
                 if (mode.isMustBeTyped() && getContainingPackage().getTargetEdition().matches("JS\\d?")) {
-                    compileWarning("In Saxon-JS, all data is untyped", "XTTE3110");
+                    issueWarning("In SaxonJS, all data is untyped", "XTTE3110");
                 }
             } else if (f.equals("use-accumulators") && accumulators != null /*Can be null after an error*/) {
                 String[] names = new String[accumulators.size()];
-                int i=0;
-                for (Accumulator acc: accumulators) {
+                int i = 0;
+                for (Accumulator acc : accumulators) {
                     names[i++] = acc.getAccumulatorName().getEQName();
                 }
                 Arrays.sort(names);
@@ -315,7 +310,33 @@ public class XSLMode extends StyleElement {
                 mode.getActivePart().setExplicitProperty(f, allNames.toString(), decl.getPrecedence());
             }
         }
-        checkEmpty();
+        if (getCompilation().getCompilerInfo().getXsltVersion() != 40) {
+            checkEmpty();
+        } else {
+            if (hasChildNodes()) {
+                if (getAttributeValue(NamespaceUri.NULL, "name") == null) {
+                    compileError("A xsl:mode declaration with child xsl:template elements "
+                                         + "must have a name attribute", "XTSE4005");
+                }
+                String v = getAttributeValue(NamespaceUri.NULL, "default-mode");
+                if (v != null && !getObjectName().equals(makeQName(v, null, "default-mode"))) {
+                    compileError("A xsl:mode declaration with child xsl:template elements must not have "
+                                         + "a default-mode attribute that differs from the mode name", "XTSE4015");
+
+                }
+                for (NodeInfo n : children()) {
+                    if (n.getNodeKind() == Type.ELEMENT && !(n instanceof XSLTemplate)) {
+                        compileError("The only children permitted for xsl:mode are xsl;template elements");
+                    }
+                    v = n.getAttributeValue(NamespaceUri.NULL, "default-mode");
+                    if (v != null && !getObjectName().equals(makeQName(v, null, "default-mode"))) {
+                        compileError("An xsl:template declaration within an enclosing xsl:mode must not have "
+                                             + "a default-mode attribute that differs from the mode name", "XTSE4015");
+
+                    }
+                }
+            }
+        }
         checkTopLevel("XTSE0010", false);
     }
 
@@ -325,6 +346,12 @@ public class XSLMode extends StyleElement {
         Component c = pack.getComponent(mode.getSymbolicName());
         if (c == null) {
             throw new AssertionError();
+        }
+        for (NodeInfo t : children()) {
+            if (t instanceof XSLTemplate) {
+                ComponentDeclaration templateDecl = new ComponentDeclaration(decl.getModule(), (XSLTemplate)t);
+                ((XSLTemplate)t).compileDeclaration(compilation, templateDecl);
+            }
         }
     }
 

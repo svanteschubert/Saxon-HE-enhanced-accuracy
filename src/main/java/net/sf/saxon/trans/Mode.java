@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,13 +17,13 @@ import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.instruct.TemplateRule;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.TraceListener;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trace.ModeTraceListener;
+import net.sf.saxon.trace.TemplateRuleTraceListener;
 import net.sf.saxon.trans.rules.*;
+import net.sf.saxon.transpile.CSharpDelegate;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
@@ -33,6 +33,7 @@ import net.sf.saxon.value.SequenceType;
 
 import java.util.Collections;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * A Mode is a collection of rules; the selection of a rule to apply to a given element
@@ -42,12 +43,13 @@ import java.util.Set;
 
 public abstract class Mode extends Actor {
 
-    public static final StructuredQName OMNI_MODE =
-            new StructuredQName("saxon", NamespaceConstant.SAXON, "_omniMode");
+    public static final StructuredQName OMNI_MODE_NAME =
+            new StructuredQName("saxon", NamespaceUri.SAXON, "_omniMode");
     public static final StructuredQName UNNAMED_MODE_NAME =
-            new StructuredQName("xsl", NamespaceConstant.XSLT, "unnamed");
+            new StructuredQName("xsl", NamespaceUri.XSLT, "unnamed");
     public static final StructuredQName DEFAULT_MODE_NAME =
-        new StructuredQName("xsl", NamespaceConstant.XSLT, "default");
+        new StructuredQName("xsl", NamespaceUri.XSLT, "default");
+
 
     protected StructuredQName modeName;
     private boolean streamable;
@@ -60,6 +62,7 @@ public abstract class Mode extends Actor {
     boolean bindingSlotsAllocated = false;
     boolean modeTracing = false;
     SequenceType defaultResultType = null;
+    boolean enclosingMode = false;
 
     private Set<? extends Accumulator> accumulators;
 
@@ -137,12 +140,16 @@ public abstract class Mode extends Actor {
 
     /**
      * Get a title for the mode: either "Mode mode-name" or "The unnamed mode" as appropriate
-     *
+     * @param initialCaps true if the first letter should be upper case
      * @return a title for the mode
      */
 
-    public String getModeTitle() {
-        return isUnnamedMode() ? "The unnamed mode" : "Mode " + getModeName().getDisplayName();
+    public String getModeTitle(boolean initialCaps) {
+        if (initialCaps) {
+            return isUnnamedMode() ? "The unnamed mode" : "Mode " + getModeName().getDisplayName();
+        } else {
+            return isUnnamedMode() ? "the unnamed mode" : "mode " + getModeName().getDisplayName();
+        }
     }
 
     /**
@@ -163,7 +170,11 @@ public abstract class Mode extends Actor {
      * @return the list of accumulators applicable when this is the initial mode
      */
     public Set<? extends Accumulator> getAccumulators() {
-        return accumulators == null ? Collections.emptySet() : accumulators;
+        if (accumulators == null) {
+            return Collections.emptySet();
+        } else {
+            return accumulators;
+        }
     }
 
     /**
@@ -194,6 +205,24 @@ public abstract class Mode extends Actor {
      */
 
     public abstract boolean isEmpty();
+
+    /**
+     * Say whether this is an enclosing mode (4.0 feature)
+     * @param enclosing true if this is an enclosing mode
+     */
+
+    public void setEnclosingMode(boolean enclosing) {
+        this.enclosingMode = enclosing;
+    }
+
+    /**
+     * Ask whether this is an enclosing mode (4.0 feature)
+     * @return true if this is an enclosing mode
+     */
+
+    public boolean isEnclosingMode() {
+        return enclosingMode;
+    }
 
     /**
      * Set the policy for handling recoverable errors. Note that for some errors the decision can be
@@ -252,7 +281,7 @@ public abstract class Mode extends Actor {
      * @return the set of all namespace URIs of names explicitly matched by rules in this mode
      */
 
-    public abstract Set<String> getExplicitNamespaces(NamePool pool);
+    public abstract Set<NamespaceUri> getExplicitNamespaces(NamePool pool);
 
     public void setDefaultResultType(SequenceType type) {
         defaultResultType = type;
@@ -271,29 +300,6 @@ public abstract class Mode extends Actor {
      */
 
     public abstract void processRules(RuleAction action) throws XPathException;
-
-//    /**
-//     * Ask whether any template rule in this mode invokes the last() function in the
-//     * context of the calling xsl:apply-templates
-//     * @return true if any rule has a "top-level" call on the last() function
-//     */
-//
-//    public boolean callsLast() {
-//        List<Boolean> result = new ArrayList<>();
-//        try {
-//            processRules((rule) -> {
-//                if (result.isEmpty()) {
-//                    int dep = (((TemplateRule) rule.getAction()).getBody()).getDependencies();
-//                    if ((dep & StaticProperty.DEPENDS_ON_LAST) != 0) {
-//                        result.add(true);
-//                    }
-//                }
-//            });
-//            return !result.isEmpty();
-//        } catch (XPathException e) {
-//            return true;
-//        }
-//    }
 
     /**
      * Make a new XPath context for evaluating patterns if there is any possibility that the
@@ -336,7 +342,7 @@ public abstract class Mode extends Actor {
 
 
     /*@Nullable*/
-    public abstract Rule getRule(Item item, XPathContext context, SimpleMode.RuleFilter filter) throws XPathException;
+    public abstract Rule getRule(Item item, XPathContext context, Predicate<Rule> filter) throws XPathException;
 
     /**
      * Get the rule corresponding to a given Node, by finding the best Pattern match, subject to a minimum
@@ -351,11 +357,10 @@ public abstract class Mode extends Actor {
      */
 
     public Rule getRule(Item item, final int min, final int max, XPathContext context) throws XPathException {
-        RuleFilter filter = r -> {
+        return getRule(item, context, r -> {
             int p = r.getPrecedence();
             return p >= min && p <= max;
-        };
-        return getRule(item, context, filter);
+        });
     }
 
     /**
@@ -370,7 +375,7 @@ public abstract class Mode extends Actor {
      */
 
     public Rule getNextMatchRule(Item item, final Rule currentRule, XPathContext context) throws XPathException {
-        SimpleMode.RuleFilter filter = r -> {
+        return getRule(item, context, r -> {
             int comp = r.compareRank(currentRule);
             if (comp < 0) {
                 // the rule has lower precedence or priority than the current rule
@@ -386,8 +391,7 @@ public abstract class Mode extends Actor {
                 }
             }
             return false;
-        };
-        return getRule(item, context, filter);
+        });
     }
 
     /**
@@ -443,22 +447,16 @@ public abstract class Mode extends Actor {
             Location locationId)
             throws XPathException {
         Controller controller = context.getController();
-        boolean tracing = modeTracing || controller.isTracing();
         SequenceIterator iterator = context.getCurrentIterator();
         TailCall tc = null;
         TraceListener traceListener = null;
-        if (tracing) {
+        if (controller.isTracing()) {
             traceListener = controller.getTraceListener();
-            if (traceListener == null) {
-                traceListener = new ModeTraceListener();
-                controller.setTraceListener(traceListener);
-                traceListener.open(controller);
-            }
         }
 
         // Iterate over this sequence
 
-        boolean lookahead = iterator.getProperties().contains(SequenceIterator.Property.LOOKAHEAD);
+        boolean lookahead = iterator instanceof LookaheadIterator && ((LookaheadIterator)iterator).supportsHasNext();
         TemplateRule previousTemplate = null;
         boolean first = true;
 
@@ -493,36 +491,26 @@ public abstract class Mode extends Actor {
             }
 
             if (mustBeTyped) {
-                if (item instanceof NodeInfo) {
-                    int kind = ((NodeInfo) item).getNodeKind();
-                    if (kind == Type.ELEMENT || kind == Type.ATTRIBUTE) {
-                        SchemaType annotation = ((NodeInfo) item).getSchemaType();
-                        if (annotation == Untyped.getInstance() || annotation == BuiltInAtomicType.UNTYPED_ATOMIC) {
-                            throw new XPathException(getModeTitle() + " requires typed nodes, but the input is untyped", "XTTE3100");
-                        }
-                    }
-                }
+                checkMustBeTyped(item);
             } else if (mustBeUntyped) {
-                if (item instanceof NodeInfo) {
-                    int kind = ((NodeInfo) item).getNodeKind();
-                    if (kind == Type.ELEMENT || kind == Type.ATTRIBUTE) {
-                        SchemaType annotation = ((NodeInfo) item).getSchemaType();
-                        if (!(annotation == Untyped.getInstance() || annotation == BuiltInAtomicType.UNTYPED_ATOMIC)) {
-                            throw new XPathException(getModeTitle() + " requires untyped nodes, but the input is typed", "XTTE3110");
-                        }
-                    }
-                }
+                checkMustByUntyped(item);
             }
 
             // find the template rule for this node
 
-            if (tracing) {
+            if (traceListener != null) {
                 traceListener.startRuleSearch();
             }
 
             Rule rule = getRule(item, context);
-            if (tracing) {
-                traceListener.endRuleSearch((rule != null) ? rule : getBuiltInRuleSet(), this, item);
+
+            if (traceListener != null) {
+                handleTraceListener(rule, item, traceListener);
+            }
+
+            TemplateRuleTraceListener ruleTraceListener = null;
+            if (modeTracing) {
+                ruleTraceListener = handleRuleTraceListener(ruleTraceListener, controller, locationId, item, rule);
             }
 
             if (rule == null) {             // Use the default action for the node
@@ -530,49 +518,99 @@ public abstract class Mode extends Actor {
                 getBuiltInRuleSet().process(item, parameters, tunnelParameters, output, context, locationId);
 
             } else {
-
-                TemplateRule template = (TemplateRule) rule.getAction();
-//                if (modeTracing) {
-//                    controller.getConfiguration().getLogger().info(
-//                            getModeTitle() + " processing " + Err.depict(item) + " using template rule with match=\"" +
-//                                    rule.getPattern().toShortString() + "\" on line " + template.getLineNumber() + " of " + template.getSystemId()
-//                    );
-//                }
-                if (template != previousTemplate) {
-                    // Reuse the previous stackframe unless it's a different template rule
-                    previousTemplate = template;
-                    template.initialize();
-                    context.openStackFrame(template.getStackFrameMap());
-                    context.setLocalParameters(parameters);
-                    context.setTunnelParameters(tunnelParameters);
-                    context.setCurrentMergeGroupIterator(null);
-                }
-                context.setCurrentTemplateRule(rule);
-                if (tracing) {
-                    traceListener.startCurrentItem(item);
-                    if (modeTracing) {
-                        traceListener.enter(template, Collections.emptyMap(), context);
-                    }
-                    tc = template.applyLeavingTail(output, context);
-                    if (tc != null) {
-                        // disable tail call optimization while tracing
-                        do {
-                            tc = tc.processLeavingTail();
-                        } while (tc != null);
-                    }
-                    if (modeTracing) {
-                        traceListener.leave(template);
-                    }
-                    traceListener.endCurrentItem(item);
-                } else {
-                    tc = template.applyLeavingTail(output, context);
-                }
+                Object[] result = handleRuleNotNull(rule, traceListener, context, item, previousTemplate, parameters, tunnelParameters, output);
+                tc = (TailCall) result[0];
+                previousTemplate = (TemplateRule) result[1];
+            }
+            if (modeTracing) {
+                ruleTraceListener.leave();
             }
         }
 
         // return the TailCall returned from the last node processed
         return tc;
     }
+
+    private void checkMustBeTyped(Item item) throws XPathException
+    {
+        if (item instanceof NodeInfo) {
+            int kind = ((NodeInfo) item).getNodeKind();
+            if (kind == Type.ELEMENT || kind == Type.ATTRIBUTE) {
+                SchemaType annotation = ((NodeInfo) item).getSchemaType();
+                if (annotation == Untyped.getInstance() || annotation == BuiltInAtomicType.UNTYPED_ATOMIC) {
+                    throw new XPathException(getModeTitle(true) + " requires typed nodes, but the input is untyped", "XTTE3100");
+                }
+            }
+        }
+    }
+
+    private void checkMustByUntyped(Item item) throws XPathException
+    {
+        if (item instanceof NodeInfo) {
+            int kind = ((NodeInfo) item).getNodeKind();
+            if (kind == Type.ELEMENT || kind == Type.ATTRIBUTE) {
+                SchemaType annotation = ((NodeInfo) item).getSchemaType();
+                if (!(annotation == Untyped.getInstance() || annotation == BuiltInAtomicType.UNTYPED_ATOMIC)) {
+                    throw new XPathException(getModeTitle(true) + " requires untyped nodes, but the input is typed", "XTTE3110");
+                }
+            }
+        }
+    }
+
+    private Object[] handleRuleNotNull(Rule rule, TraceListener traceListener, XPathContextMajor context, Item item, TemplateRule previousTemplate, ParameterSet parameters,
+            ParameterSet tunnelParameters, Outputter output) throws XPathException
+    {
+        TemplateRule template = (TemplateRule) rule.getAction();
+        if (template != previousTemplate) {
+            // Reuse the previous stackframe unless it's a different template rule
+            previousTemplate = template;
+            template.initialize();
+            context.openStackFrame(template.getStackFrameMap());
+            context.setLocalParameters(parameters);
+            context.setTunnelParameters(tunnelParameters);
+            context.setCurrentMergeGroupIterator(null);
+        }
+        context.setCurrentTemplateRule(rule);
+        TailCall tc;
+        if (traceListener != null) {
+            traceListener.startCurrentItem(item);
+            tc = template.applyLeavingTail(output, context);
+            if (tc != null) {
+                // disable tail call optimization while tracing
+                do {
+                    tc = tc.processLeavingTail();
+                } while (tc != null);
+            }
+
+            traceListener.endCurrentItem(item);
+        } else {
+            tc = template.applyLeavingTail(output, context);
+        }
+
+        return new Object[]{tc, previousTemplate};
+    }
+
+    private TemplateRuleTraceListener handleRuleTraceListener(TemplateRuleTraceListener ruleTraceListener, Controller controller, Location locationId, Item item, Rule rule)
+    {
+        ruleTraceListener = ((XsltController)controller).getTemplateRuleTraceListener();
+        if (ruleTraceListener == null) {
+            ruleTraceListener = new TemplateRuleTraceListener(controller.getConfiguration().getLogger());
+            ((XsltController) controller).setTemplateRuleTraceListener(ruleTraceListener);
+        }
+        ruleTraceListener.enter("apply-templates", locationId, item, rule==null ? null : (TemplateRule)rule.getAction());
+
+        return ruleTraceListener;
+    }
+
+    private void handleTraceListener(Rule rule, Item item, TraceListener traceListener)
+    {
+        if (rule == null) {
+            traceListener.endRuleSearch(getBuiltInRuleSet(), this, item);
+        } else {
+            traceListener.endRuleSearch(rule, this, item);
+        }
+    }
+
 
     public abstract int getStackFrameSlotsNeeded();
 
@@ -583,7 +621,9 @@ public abstract class Mode extends Actor {
      * @return a simple string code or "???" if the ruleset is unknown
      */
     public String getCodeForBuiltInRuleSet(BuiltInRuleSet builtInRuleSet) {
-        if (builtInRuleSet instanceof ShallowCopyRuleSet) {
+        if (builtInRuleSet instanceof ShallowCopyAllRuleSet) {
+            return "CA";
+        } else if (builtInRuleSet instanceof ShallowCopyRuleSet) {
             return "SC";
         } else if (builtInRuleSet instanceof ShallowSkipRuleSet) {
             return "SS";
@@ -622,6 +662,8 @@ public abstract class Mode extends Actor {
             base = FailRuleSet.getInstance();
         } else if (code.startsWith("TC")) {
             base = TextOnlyCopyRuleSet.getInstance();
+        } else if (code.startsWith("CA")) {
+            base = ShallowCopyAllRuleSet.getInstance();
         } else {
             throw new IllegalArgumentException(code);
         }
@@ -717,7 +759,7 @@ public abstract class Mode extends Actor {
      * Interface for helper classes used to filter a chain of rules
      */
 
-    protected interface RuleFilter {
+    public interface RuleFilter {
         /**
          * Test a rule to see whether it should be included
          *
@@ -731,6 +773,8 @@ public abstract class Mode extends Actor {
      * Interface for helper classes used to process all the rules in the Mode
      */
 
+    @FunctionalInterface
+    @CSharpDelegate(true)
     public interface RuleAction {
         /**
          * Process a given rule

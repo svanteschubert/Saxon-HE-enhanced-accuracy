@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,9 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.value.*;
 
 import java.math.BigDecimal;
@@ -115,6 +118,15 @@ public abstract class Converter {
     }
 
     /**
+     * Ask if this converter implements promotion rules
+     * @return true if this Converter handles type promotion in the coercion rules
+     */
+
+    public boolean isPromoter() {
+        return false;
+    }
+
+    /**
      * Provide a namespace resolver, needed for conversion to namespace-sensitive types such as QName and NOTATION.
      * The resolver is ignored if the target type is not namespace-sensitive
      *
@@ -200,10 +212,16 @@ public abstract class Converter {
 
     public static class DownCastingConverter extends Converter {
         private final AtomicType newType;
-
+        private String errorCode = null;
         public DownCastingConverter(AtomicType annotation, ConversionRules rules) {
             this.newType = annotation;
             setConversionRules(rules);
+        }
+
+        public DownCastingConverter(AtomicType annotation, ConversionRules rules, String errorCode) {
+            this.newType = annotation;
+            setConversionRules(rules);
+            this.errorCode = errorCode;
         }
 
         public AtomicType getTargetType() {
@@ -216,18 +234,27 @@ public abstract class Converter {
             return convert(input, input.getCanonicalLexicalRepresentation());
         }
 
-        public ConversionResult convert(AtomicValue input, CharSequence lexicalForm) {
+        public ConversionResult convert(AtomicValue input, UnicodeString lexicalForm) {
+            if (Type.isSubType(input.getItemType(), newType)) {
+                return input;
+            }
+            if (input.getUType() != newType.getUType()) {
+                return new ValidationFailure("Cannot convert " + input.toShortString() + " to " + newType.getDisplayName(), errorCode);
+            }
             ValidationFailure f = newType.validate(input, lexicalForm, getConversionRules());
             if (f == null) {
                 // success
                 return input.copyAsSubType(newType);
             } else {
                 // validation failed
+                if (errorCode != null) {
+                    f.setErrorCode(errorCode);
+                }
                 return f;
             }
         }
 
-        public ValidationFailure validate(AtomicValue input, CharSequence lexicalForm) {
+        public ValidationFailure validate(AtomicValue input, UnicodeString lexicalForm) {
             return newType.validate(input, lexicalForm, getConversionRules());
         }
     }
@@ -282,8 +309,8 @@ public abstract class Converter {
     public static class ToUntypedAtomicConverter extends UnfailingConverter {
         public static final ToUntypedAtomicConverter INSTANCE = new ToUntypedAtomicConverter();
         @Override
-        public UntypedAtomicValue convert(AtomicValue input) {
-            return new UntypedAtomicValue(input.getStringValueCS());
+        public StringValue convert(AtomicValue input) {
+            return StringValue.makeUntypedAtomic(input.getUnicodeStringValue());
         }
     }
 
@@ -295,7 +322,7 @@ public abstract class Converter {
         public static final ToStringConverter INSTANCE = new ToStringConverter();
         @Override
         public StringValue convert(AtomicValue input) {
-            return new StringValue(input.getStringValueCS());
+            return new StringValue(input.getUnicodeStringValue().tidy());
         }
     }
 
@@ -437,7 +464,7 @@ public abstract class Converter {
         public final static DoubleToInteger INSTANCE = new DoubleToInteger();
         @Override
         public ConversionResult convert(AtomicValue input) {
-            return IntegerValue.makeIntegerValue((DoubleValue)input);
+            return IntegerValue.fromDouble(((DoubleValue)input).getDoubleValue());
         }
     }
 
@@ -449,7 +476,7 @@ public abstract class Converter {
         public final static FloatToInteger INSTANCE = new FloatToInteger();
         @Override
         public ConversionResult convert(AtomicValue input) {
-            return IntegerValue.makeIntegerValue(new DoubleValue(((FloatValue) input).getDoubleValue()));
+            return IntegerValue.fromDouble(((FloatValue) input).getDoubleValue());
         }
     }
 
@@ -465,7 +492,7 @@ public abstract class Converter {
             if (input instanceof IntegerValue) {
                 return (IntegerValue)input;
             }
-            return BigIntegerValue.makeIntegerValue(((BigDecimalValue) input).getDecimalValue().toBigInteger());
+            return BigIntegerValue.makeIntegerValue(((DecimalValue) input).getDecimalValue().toBigInteger());
         }
     }
 
@@ -482,9 +509,9 @@ public abstract class Converter {
                 if (in instanceof IntegerValue) {
                     return in;
                 } else if (in instanceof DoubleValue) {
-                    return IntegerValue.makeIntegerValue((DoubleValue) in);
+                    return IntegerValue.fromDouble(in.getDoubleValue());
                 } else if (in instanceof FloatValue) {
-                    return IntegerValue.makeIntegerValue(new DoubleValue(in.getDoubleValue()));
+                    return IntegerValue.fromDouble(in.getDoubleValue());
                 } else {
                     return BigIntegerValue.makeIntegerValue(in.getDecimalValue().toBigInteger());
                 }
@@ -634,7 +661,8 @@ public abstract class Converter {
         @Override
         public TimeValue convert(AtomicValue input) {
             DateTimeValue dt = (DateTimeValue) input;
-            return new TimeValue(dt.getHour(), dt.getMinute(), dt.getSecond(), dt.getNanosecond(), dt.getTimezoneInMinutes(), "");
+            return new TimeValue(dt.getHour(), dt.getMinute(), dt.getSecond(), dt.getNanosecond(),
+                                 dt.getTimezoneInMinutes(), BuiltInAtomicType.TIME);
         }
     }
 
@@ -705,6 +733,10 @@ public abstract class Converter {
 
     public static class PromoterToDouble extends Converter {
 
+        public PromoterToDouble(ConversionRules rules) {
+            super(rules);
+        }
+
         /*@Nullable*/ private StringConverter stringToDouble = null;
 
         /*@NotNull*/
@@ -714,7 +746,7 @@ public abstract class Converter {
                 return input;
             } else if (input instanceof NumericValue) {
                 return new DoubleValue(((NumericValue) input).getDoubleValue());
-            } else if (input instanceof UntypedAtomicValue) {
+            } else if (input.isUntypedAtomic()) {
                 if (stringToDouble == null) {
                     stringToDouble = BuiltInAtomicType.DOUBLE.getStringConverter(getConversionRules());
                 }
@@ -726,6 +758,10 @@ public abstract class Converter {
                 return err;
             }
         }
+
+        public boolean isPromoter() {
+            return true;
+        }
     }
 
     /**
@@ -735,6 +771,10 @@ public abstract class Converter {
     public static class PromoterToFloat extends Converter {
 
         /*@Nullable*/ private StringConverter stringToFloat = null;
+
+        public PromoterToFloat(ConversionRules rules) {
+            super(rules);
+        }
 
         /*@NotNull*/
         @Override
@@ -748,7 +788,7 @@ public abstract class Converter {
                 return err;
             } else if (input instanceof NumericValue) {
                 return new FloatValue((float) ((NumericValue) input).getDoubleValue());
-            } else if (input instanceof UntypedAtomicValue) {
+            } else if (input.isUntypedAtomic()) {
                 if (stringToFloat == null) {
                     stringToFloat = BuiltInAtomicType.FLOAT.getStringConverter(getConversionRules());
                 }
@@ -759,6 +799,128 @@ public abstract class Converter {
                 err.setErrorCode("XPTY0004");
                 return err;
             }
+        }
+
+        @Override
+        public boolean isPromoter() {
+            return true;
+        }
+    }
+
+    /**
+     * Converter that implements the promotion rules from xs:anyURI to xs:string
+     */
+
+    public static class PromoterToString extends Converter {
+
+        public static PromoterToString INSTANCE = new PromoterToString();
+        @Override
+        public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
+            switch (input.getPrimitiveType().getFingerprint()) {
+                case StandardNames.XS_STRING:
+                    return input;
+                case StandardNames.XS_ANY_URI:
+                case StandardNames.XS_UNTYPED_ATOMIC:
+                    return new StringValue(input.getUnicodeStringValue());
+                default:
+                    ValidationFailure err = new ValidationFailure(
+                            "Required type is xs:string; supplied value is " + Err.depict(input));
+                    err.setErrorCode("XPTY0004");
+                    return err;
+            }
+        }
+
+        @Override
+        public boolean isPromoter() {
+            return true;
+        }
+    }
+
+    /**
+     * Converter that implements the promotion rules from xs:string to xs:anyURI
+     */
+
+    public static class PromoterToAnyURI extends Converter {
+
+        public static PromoterToAnyURI INSTANCE = new PromoterToAnyURI();
+
+        @Override
+        public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
+            switch (input.getPrimitiveType().getFingerprint()) {
+                case StandardNames.XS_ANY_URI:
+                    return input;
+                case StandardNames.XS_STRING:
+                case StandardNames.XS_UNTYPED_ATOMIC:
+                    return new AnyURIValue(input.getUnicodeStringValue());
+                default:
+                    ValidationFailure err = new ValidationFailure(
+                            "Required type is xs:anyURI; supplied value is " + Err.depict(input));
+                    err.setErrorCode("XPTY0004");
+                    return err;
+            }
+        }
+
+        @Override
+        public boolean isPromoter() {
+            return true;
+        }
+    }
+
+    /**
+     * Converter that implements the promotion rules from xs:string to xs:anyURI
+     */
+
+    public static class PromoterToHexBinary extends Converter {
+
+        public static PromoterToHexBinary INSTANCE = new PromoterToHexBinary();
+
+        @Override
+        public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
+            switch (input.getPrimitiveType().getFingerprint()) {
+                case StandardNames.XS_HEX_BINARY:
+                    return input;
+                case StandardNames.XS_BASE64_BINARY:
+                    return new HexBinaryValue(((Base64BinaryValue)input).getBinaryValue());
+                case StandardNames.XS_UNTYPED_ATOMIC:
+                    return StringConverter.StringToHexBinary.INSTANCE.convertString(input.getUnicodeStringValue());
+                default:
+                    ValidationFailure err = new ValidationFailure(
+                            "Required type is xs:hexBinary; supplied value is " + Err.depict(input));
+                    err.setErrorCode("XPTY0004");
+                    return err;
+            }
+        }
+
+        @Override
+        public boolean isPromoter() {
+            return true;
+        }
+    }
+
+    public static class PromoterToBase64Binary extends Converter {
+
+        public static PromoterToBase64Binary INSTANCE = new PromoterToBase64Binary();
+
+        @Override
+        public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
+            switch (input.getPrimitiveType().getFingerprint()) {
+                case StandardNames.XS_BASE64_BINARY:
+                    return input;
+                case StandardNames.XS_HEX_BINARY:
+                    return new Base64BinaryValue(((HexBinaryValue) input).getBinaryValue());
+                case StandardNames.XS_UNTYPED_ATOMIC:
+                    return StringConverter.StringToBase64Binary.INSTANCE.convertString(input.getUnicodeStringValue());
+                default:
+                    ValidationFailure err = new ValidationFailure(
+                            "Required type is xs:base64Binary; supplied value is " + Err.depict(input));
+                    err.setErrorCode("XPTY0004");
+                    return err;
+            }
+        }
+
+        @Override
+        public boolean isPromoter() {
+            return true;
         }
     }
 

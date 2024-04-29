@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,10 @@
 
 package net.sf.saxon.expr.instruct;
 
+import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.LocalBinding;
 import net.sf.saxon.expr.VariableReference;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.FunctionStreamability;
@@ -25,11 +25,13 @@ public class UserFunctionParameter implements LocalBinding {
     private SequenceType requiredType;
     private StructuredQName variableQName;
     private int slotNumber;
-    private int referenceCount = 999;
+    private final int referenceCount = 999;
     // The initial value is deliberately set to indicate "many" so that it will be assumed a parameter
     // is referenced repeatedly until proved otherwise
     private boolean isIndexed = false;
+    private boolean isRequiredParam = true;
     private FunctionStreamability functionStreamability = FunctionStreamability.UNCLASSIFIED;
+    private Expression defaultValue;   // In 4.0, function parameters can have a default value
 
     /**
      * Create a UserFunctionParameter
@@ -61,6 +63,24 @@ public class UserFunctionParameter implements LocalBinding {
     @Override
     public final boolean isAssignable() {
         return false;
+    }
+
+    /**
+     * Say whether the parameter is a required parameter
+     * @param required true of the parameter is required, false if optional
+     */
+
+    public void setRequired(boolean required) {
+        isRequiredParam = required;
+    }
+
+    /**
+     * Ask whether the parameter is a required parameters
+     * @return true of the parameter is required, false if optional
+     */
+
+    public final boolean isRequired() {
+        return isRequiredParam;
     }
 
     /**
@@ -141,6 +161,25 @@ public class UserFunctionParameter implements LocalBinding {
     public void addReference(VariableReference ref, boolean isLoopingReference) {
 
     }
+
+    /**
+     * Set an expression used to compute the default value of the parameter
+     * @param select the default value expression
+     */
+
+    public void setDefaultValueExpression(Expression select) {
+        this.defaultValue = select;
+    }
+
+    /**
+     * Get the expression used to compute the default value of the parameter
+     * @return the default value expression, if there is one, otherwise null
+     */
+
+    public Expression getDefaultValueExpression() {
+        return defaultValue;
+    }
+
 
 //    /**
 //     * Set the (nominal) number of references within the function body to this parameter, where a reference

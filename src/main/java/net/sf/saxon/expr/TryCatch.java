@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,17 +11,19 @@ import net.sf.saxon.event.EventMonitor;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.OutputterEventBuffer;
 import net.sf.saxon.event.PipelineConfiguration;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.instruct.BreakInstr;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.lib.ErrorReporter;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.QNameTest;
 import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
@@ -40,8 +42,8 @@ import java.util.List;
 
 public class TryCatch extends Expression {
 
-    private Operand tryOp;
-    private List<CatchClause> catchClauses = new ArrayList<>();
+    private final Operand tryOp;
+    private final List<CatchClause> catchClauses = new ArrayList<>();
     private boolean rollbackOutput;
 
     public TryCatch(Expression tryExpr) {
@@ -121,7 +123,7 @@ public class TryCatch extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         int card = getTryExpr().getCardinality();
         for (CatchClause catchClause : catchClauses) {
             card = Cardinality.union(card, catchClause.catchOp.getChildExpression().getCardinality());
@@ -204,8 +206,8 @@ public class TryCatch extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
-        int h = 0x836b12a0;
+    protected int computeHashCode() {
+        int h = 0x636b12a0;
         for (int i = 0; i < catchClauses.size(); i++) {
             h ^= catchClauses.get(i).hashCode()<<i;
         }
@@ -239,29 +241,7 @@ public class TryCatch extends Expression {
 
     @Override
     public Item evaluateItem(XPathContext c) throws XPathException {
-        XPathContext c1 = c.newMinorContext();
-        try {
-            return ExpressionTool.eagerEvaluate(tryOp.getChildExpression(), c1).head();
-        } catch (XPathException err) {
-            if (err.isGlobalError()) {
-                err.setIsGlobalError(false);
-            } else {
-                StructuredQName code = err.getErrorCodeQName();
-                if (code == null) {
-                    code = new StructuredQName("saxon", NamespaceConstant.SAXON, "XXXX9999");
-                }
-                for (CatchClause clause : catchClauses) {
-                    if (clause.nameTest.matches(code)) {
-                        Expression caught = clause.catchOp.getChildExpression();
-                        XPathContextMajor c2 = c.newContext();
-                        c2.setCurrentException(err);
-                        return caught.evaluateItem(c2);
-                    }
-                }
-            }
-            err.setHasBeenReported(false);
-            throw err;
-        }
+        return makeElaborator().elaborateForItem().eval(c);
     }
 
     /**
@@ -271,114 +251,12 @@ public class TryCatch extends Expression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext c) throws XPathException {
-        XPathContextMajor c1 = c.newContext();
-        c1.createThreadManager();
-        c1.setErrorReporter(new FilteringErrorReporter(c.getErrorReporter()));
-        try {
-            // Need to do eager iteration of the first argument to flush any errors out
-            Sequence v = ExpressionTool.eagerEvaluate(tryOp.getChildExpression(), c1);
-            c1.waitForChildThreads();
-            // check for xsl:break within xsl:try - test iterate-035
-            TailCallLoop.TailCallInfo tci = c1.getTailCallInfo();
-            if (tci instanceof BreakInstr) {
-                ((BreakInstr)tci).markContext(c);
-            }
-            return v.iterate();
-        } catch (XPathException err) {
-            if (err.isGlobalError()) {
-                err.setIsGlobalError(false);
-            } else {
-                StructuredQName code = err.getErrorCodeQName();
-                if (code == null) {
-                    code = new StructuredQName("saxon", NamespaceConstant.SAXON, "XXXX9999");
-                }
-                for (CatchClause clause : catchClauses) {
-                    if (clause.nameTest.matches(code)) {
-                        Expression caught = clause.catchOp.getChildExpression();
-                        XPathContextMajor c2 = c.newContext();
-                        c2.setCurrentException(err);
-                        // check for xsl:break within xsl:catch - test iterate-036
-                        Sequence v = ExpressionTool.eagerEvaluate(caught, c2);
-                        TailCallLoop.TailCallInfo tci = c2.getTailCallInfo();
-                        if (tci instanceof BreakInstr) {
-                            ((BreakInstr) tci).markContext(c);
-                        }
-                        return v.iterate();
-                    }
-                }
-            }
-            err.setHasBeenReported(false);
-            throw err;
-        }
+        return makeElaborator().elaborateForPull().iterate(c);
     }
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        PipelineConfiguration pipe = output.getPipelineConfiguration();
-        XPathContextMajor c1 = context.newContext();
-        c1.createThreadManager();
-        c1.setErrorReporter(new FilteringErrorReporter(context.getErrorReporter()));
-        //Outputter original = context.getReceiver();
-        Outputter o2;
-        if (rollbackOutput) {
-            o2 = new OutputterEventBuffer();
-            o2.setPipelineConfiguration(pipe);
-        } else {
-            o2 = new EventMonitor(output);
-            o2.setPipelineConfiguration(pipe);
-        }
-        try {
-            tryOp.getChildExpression().process(o2, c1);
-            c1.waitForChildThreads();
-            //context.setReceiver(original);
-            // check for xsl:break within xsl:try - test iterate-035
-            TailCallLoop.TailCallInfo tci = c1.getTailCallInfo();
-            if (tci instanceof BreakInstr) {
-                ((BreakInstr) tci).markContext(context);
-            }
-            if (rollbackOutput) {
-                ((OutputterEventBuffer)o2).replay(output);
-            }
-        } catch (XPathException err) {
-            if (err.isGlobalError()) {
-                err.setIsGlobalError(false);
-            } else {
-                StructuredQName code = err.getErrorCodeQName();
-                if (code == null) {
-                    code = new StructuredQName("saxon", NamespaceConstant.SAXON, "XXXX9999");
-                }
-                for (CatchClause clause : catchClauses) {
-                    if (clause.nameTest.matches(code)) {
-                        if (o2 instanceof EventMonitor && ((EventMonitor)o2).hasBeenWrittenTo()) {
-                            // rollback=no was specified, and output has been written, so we cannot recover
-                            String message = err.getMessage() +
-                                    ". The error could not be caught, because rollback-output=no was specified, and output was already written to the result tree";
-                            XPathException xe = new XPathException(message, "XTDE3530");
-                            xe.setLocation(err.getLocator());
-                            xe.setXPathContext(context);
-                            throw xe;
-                        }
-                        Expression caught = clause.catchOp.getChildExpression();
-                        XPathContextMajor c2 = context.newContext();
-                        c2.setCurrentException(err);
-                        // check for xsl:break within xsl:catch - test iterate-036
-                        Sequence v = ExpressionTool.eagerEvaluate(caught, c2);
-                        TailCallLoop.TailCallInfo tci = c2.getTailCallInfo();
-                        if (tci instanceof BreakInstr) {
-                            ((BreakInstr) tci).markContext(context);
-                        }
-                        ((GroundedValue) v).iterate().forEachOrFail(
-                                item -> output.append(item)
-                        );
-                        return;
-                    }
-                }
-            }
-            err.setHasBeenReported(false);
-            throw err;
-
-        }
-
+        dispatchTailCall(makeElaborator().elaborateForPush().processLeavingTail(output, context));
     }
 
     /**
@@ -410,15 +288,20 @@ public class TryCatch extends Expression {
         for (CatchClause clause : catchClauses) {
             out.startElement("catch");
             out.emitAttribute("errors", clause.nameTest.exportQNameTest());
-//            out.emitAttribute("err", clause.nameTest.toString());
-//            if ("JS".equals(((ExpressionPresenter.ExportOptions) out.getOptions()).target)) {
-//                int targetVersion = ((ExpressionPresenter.ExportOptions) out.getOptions()).targetVersion;
-//                out.emitAttribute("test", clause.nameTest.generateJavaScriptNameTest(targetVersion));
-//            }
             clause.catchOp.getChildExpression().export(out);
             out.endElement();
         }
         out.endElement();
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new TryCatchElaborator();
     }
 
     public static class CatchClause {
@@ -427,20 +310,192 @@ public class TryCatch extends Expression {
         public QNameTest nameTest;
     }
 
+    private static class TryCatchElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            TryCatch expr = (TryCatch) getExpression();
+            PushEvaluator tryPush = expr.getTryExpr().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+                PipelineConfiguration pipe = output.getPipelineConfiguration();
+                XPathContextMajor c1 = context.newContext();
+                c1.createThreadManager();
+                c1.setErrorReporter(new FilteringErrorReporter(context.getErrorReporter(), expr.catchClauses));
+                //Outputter original = context.getReceiver();
+                Outputter o2;
+                if (expr.rollbackOutput) {
+                    o2 = new OutputterEventBuffer();
+                    o2.setPipelineConfiguration(pipe);
+                } else {
+                    o2 = new EventMonitor(output);
+                    o2.setPipelineConfiguration(pipe);
+                }
+                try {
+                    try {
+                        TailCall tc = tryPush.processLeavingTail(o2, c1);
+                        Expression.dispatchTailCall(tc);
+                        c1.waitForChildThreads();
+                        //context.setReceiver(original);
+                        // check for xsl:break within xsl:try - test iterate-035
+                        TailCallLoop.TailCallInfo tci = c1.getTailCallInfo();
+                        if (tci instanceof BreakInstr) {
+                            ((BreakInstr) tci).markContext(context);
+                        }
+                        if (expr.rollbackOutput) {
+                            assert o2 instanceof OutputterEventBuffer;
+                            ((OutputterEventBuffer) o2).replay(output);
+                        }
+                    } catch (UncheckedXPathException ue) {
+                        throw ue.getXPathException();
+                    }
+                } catch (XPathException err) {
+                    if (err.isGlobalError()) {
+                        err.setIsGlobalError(false);
+                    } else {
+                        StructuredQName code = err.getErrorCodeQName();
+                        if (code == null) {
+                            code = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
+                        }
+                        for (CatchClause clause : expr.catchClauses) {
+                            if (clause.nameTest.matches(code)) {
+                                if (o2 instanceof EventMonitor && ((EventMonitor) o2).hasBeenWrittenTo()) {
+                                    // rollback=no was specified, and output has been written, so we cannot recover
+                                    String message = err.getMessage() +
+                                            ". The error could not be caught, because rollback-output=no was specified, and output was already written to the result tree";
+                                    throw new XPathException(message, "XTDE3530")
+                                            .withLocation(err.getLocator())
+                                            .withXPathContext(context);
+                                }
+                                Expression caught = clause.catchOp.getChildExpression();
+                                XPathContextMajor c2 = context.newContext();
+                                c2.setCurrentException(err);
+                                // check for xsl:break within xsl:catch - test iterate-036
+                                GroundedValue v = ExpressionTool.eagerEvaluate(caught, c2);
+                                TailCallLoop.TailCallInfo tci = c2.getTailCallInfo();
+                                if (tci instanceof BreakInstr) {
+                                    ((BreakInstr) tci).markContext(context);
+                                }
+                                //noinspection Convert2MethodRef
+                                SequenceTool.supply(v.iterate(), (ItemConsumer<? super Item>) item -> output.append(item));
+                                return null;
+                            }
+                        }
+                    }
+                    err.setHasBeenReported(false);
+                    throw err;
+
+                }
+                return null;
+            };
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            TryCatch expr = (TryCatch)getExpression();
+            SequenceEvaluator tryEval = expr.getTryExpr().makeElaborator().eagerly();
+            return context -> {
+                XPathContextMajor c1 = context.newContext();
+                c1.createThreadManager();
+                c1.setErrorReporter(new FilteringErrorReporter(context.getErrorReporter(), expr.catchClauses));
+                try {
+                    try {
+                        // Need to do eager iteration of the first argument to flush any errors out
+                        Sequence v = tryEval.evaluate(c1);
+                        c1.waitForChildThreads();
+                        // check for xsl:break within xsl:try - test iterate-035
+                        TailCallLoop.TailCallInfo tci = c1.getTailCallInfo();
+                        if (tci instanceof BreakInstr) {
+                            ((BreakInstr) tci).markContext(context);
+                        }
+                        return v.iterate();
+                    } catch (UncheckedXPathException ue) {
+                        throw ue.getXPathException();
+                    }
+                } catch (XPathException err) {
+                    if (err.isGlobalError()) {
+                        err.setIsGlobalError(false);
+                    } else {
+                        StructuredQName code = err.getErrorCodeQName();
+                        if (code == null) {
+                            code = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
+                        }
+                        for (CatchClause clause : expr.catchClauses) {
+                            if (clause.nameTest.matches(code)) {
+                                Expression caught = clause.catchOp.getChildExpression();
+                                XPathContextMajor c2 = context.newContext();
+                                c2.setCurrentException(err);
+                                // check for xsl:break within xsl:catch - test iterate-036
+                                Sequence v = ExpressionTool.eagerEvaluate(caught, c2);
+                                TailCallLoop.TailCallInfo tci = c2.getTailCallInfo();
+                                if (tci instanceof BreakInstr) {
+                                    ((BreakInstr) tci).markContext(context);
+                                }
+                                return v.iterate();
+                            }
+                        }
+                    }
+                    err.setHasBeenReported(false);
+                    throw err;
+                }
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            TryCatch expr = (TryCatch) getExpression();
+            SequenceEvaluator tryEval = expr.getTryExpr().makeElaborator().eagerly();
+            return context -> {
+                XPathContext c1 = context.newMinorContext();
+                try {
+                    try {
+                        return tryEval.evaluate(c1).head();
+                    } catch (UncheckedXPathException e) {
+                        throw e.getXPathException();
+                    }
+                } catch (XPathException err) {
+                    if (err.isGlobalError()) {
+                        err.setIsGlobalError(false);
+                    } else {
+                        StructuredQName code = err.getErrorCodeQName();
+                        if (code == null) {
+                            code = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
+                        }
+                        for (CatchClause clause : expr.catchClauses) {
+                            if (clause.nameTest.matches(code)) {
+                                Expression caught = clause.catchOp.getChildExpression();
+                                XPathContextMajor c2 = context.newContext();
+                                c2.setCurrentException(err);
+                                return caught.evaluateItem(c2);
+                            }
+                        }
+                    }
+                    err.setHasBeenReported(false);
+                    throw err;
+                }
+            };
+        }
+    }
+
     /**
      * An error listener that filters out reporting of any errors that are caught be the try/catch
      */
 
-    private class FilteringErrorReporter implements ErrorReporter {
+    private static class FilteringErrorReporter implements ErrorReporter {
 
-        private ErrorReporter base;
+        private final ErrorReporter base;
+        private final List<CatchClause> catchClauses;
 
-        FilteringErrorReporter(ErrorReporter base) {
+        FilteringErrorReporter(ErrorReporter base, List<CatchClause> catchClauses) {
             this.base = base;
+            this.catchClauses = catchClauses;
         }
 
         private boolean isCaught(XmlProcessingError err) {
-            StructuredQName code = err.getErrorCode().getStructuredQName();
+            net.sf.saxon.s9api.QName errorCode = err.getErrorCode();
+            if (errorCode == null) {
+                return false;
+            }
+            StructuredQName code = errorCode.getStructuredQName();
             for (CatchClause clause : catchClauses) {
                 if (clause.nameTest.matches(code)) {
                     return true;

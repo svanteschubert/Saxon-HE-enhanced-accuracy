@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,7 +11,7 @@ import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.expr.instruct.AttributeSet;
 import net.sf.saxon.expr.instruct.GlobalVariable;
 import net.sf.saxon.expr.instruct.NamedTemplate;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -19,7 +19,6 @@ import net.sf.saxon.trans.Mode;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.VisibilityProvenance;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +49,7 @@ public class Component {
      * @param provenance        where the visibility property came from
      * @param containingPackage the package to which this component belongs
      * @param declaringPackage  the package in which the original declaration of the component appears
+     * @return the constructed component
      */
 
     public static Component makeComponent(
@@ -215,7 +215,7 @@ public class Component {
     }
 
     public String listComponentReferences(Map<Component, Integer> componentIdMap) {
-        FastStringBuffer fsb = new FastStringBuffer(128);
+        StringBuilder fsb = new StringBuilder(128);
         for (ComponentBinding ref : getComponentBindings()) {
             Component target = ref.getTarget();
             int targetId = obtainComponentId(target, componentIdMap);
@@ -228,8 +228,8 @@ public class Component {
     }
 
     private int obtainComponentId(Component component, Map<Component, Integer> componentIdMap) {
-        Integer id = componentIdMap.get(component);
-        if (id == null) {
+        int id = componentIdMap.getOrDefault(component, Integer.MIN_VALUE);
+        if (id == Integer.MIN_VALUE) {
             id = componentIdMap.size();
             componentIdMap.put(component, id);
         }
@@ -259,7 +259,7 @@ public class Component {
             return StandardNames.XSL_TEMPLATE;
         } else if (actor instanceof GlobalVariable) {
             return StandardNames.XSL_VARIABLE;
-        } else if (actor instanceof Function) {
+        } else if (actor instanceof FunctionItem) {
             return StandardNames.XSL_FUNCTION;
         } else if (actor instanceof AttributeSet) {
             return StandardNames.XSL_ATTRIBUTE_SET;

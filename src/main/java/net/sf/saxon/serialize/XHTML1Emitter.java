@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,11 @@
 
 package net.sf.saxon.serialize;
 
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.str.StringConstants;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -28,9 +30,9 @@ public class XHTML1Emitter extends XMLEmitter {
      * Table of XHTML tags that have no closing tag
      */
 
-    static Set<String> emptyTags1 = new HashSet<String>(31);
+    static Set<String> emptyTags1 = new HashSet<>(31);
 
-    private static String[] emptyTagNames1 = {
+    private static final String[] emptyTagNames1 = {
             "area", "base", "basefont", "br", "col", "embed", "frame", "hr", "img", "input", "isindex", "link", "meta", "param"
             // added "embed" in 9.5
     };
@@ -42,7 +44,7 @@ public class XHTML1Emitter extends XMLEmitter {
 
 
     private boolean isRecognizedHtmlElement(NodeName name) {
-        return name.hasURI(NamespaceConstant.XHTML);
+        return name.hasURI(NamespaceUri.XHTML);
 
     }
 
@@ -51,11 +53,13 @@ public class XHTML1Emitter extends XMLEmitter {
      */
 
     @Override
-    protected String emptyElementTagCloser(String displayName, /*@NotNull*/ NodeName name) {
+    protected void writeEmptyElementTagCloser(String displayName, /*@NotNull*/ NodeName name) throws IOException {
         if (isRecognizedHtmlElement(name) && emptyTags1.contains(name.getLocalPart())) {
-            return " />";
+            writer.writeAscii(StringConstants.EMPTY_TAG_END_XHTML);
         } else {
-            return "></" + displayName + '>';
+            writer.writeAscii(StringConstants.EMPTY_TAG_MIDDLE);
+            writer.write(displayName);
+            writer.writeCodePoint('>');
         }
     }
 

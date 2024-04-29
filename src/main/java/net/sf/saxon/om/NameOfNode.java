@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.om;
 
+import net.sf.saxon.tree.tiny.TinyNodeImpl;
 import net.sf.saxon.tree.wrapper.AbstractVirtualNode;
 
 /**
@@ -15,7 +16,7 @@ import net.sf.saxon.tree.wrapper.AbstractVirtualNode;
  */
 public class NameOfNode implements NodeName {
 
-    private NodeInfo node;
+    private final NodeInfo node;
 
     /**
      * Constructor is private to protect against use with mutable nodes
@@ -34,7 +35,7 @@ public class NameOfNode implements NodeName {
 
     public static NodeName makeName(NodeInfo node) {
         if (node instanceof MutableNodeInfo) {
-            return new FingerprintedQName(node.getPrefix(), node.getURI(), node.getLocalPart());
+            return new FingerprintedQName(node.getPrefix(), node.getNamespaceUri(), node.getLocalPart());
         } else if (node instanceof AbstractVirtualNode) {
             return new NameOfNode(((AbstractVirtualNode)node).getUnderlyingNode());
         } else {
@@ -58,8 +59,8 @@ public class NameOfNode implements NodeName {
      * @return the URI. Returns the empty string to represent the no-namespace
      */
     @Override
-    public String getURI() {
-        return node.getURI();
+    public NamespaceUri getNamespaceUri() {
+        return node.getNamespaceUri();
     }
 
     /**
@@ -89,7 +90,7 @@ public class NameOfNode implements NodeName {
      */
     @Override
     public StructuredQName getStructuredQName() {
-        return new StructuredQName(getPrefix(), getURI(), getLocalPart());
+        return new StructuredQName(getPrefix(), getNamespaceUri(), getLocalPart());
     }
 
     /**
@@ -99,8 +100,12 @@ public class NameOfNode implements NodeName {
      * @return true if the name is in the specified namespace
      */
     @Override
-    public boolean hasURI(String ns) {
-        return node.getURI().equals(ns);
+    public boolean hasURI(NamespaceUri ns) {
+        if (node instanceof TinyNodeImpl) {
+            // fast path (avoids object allocation)
+            return ((TinyNodeImpl)node).hasURI(ns);
+        }
+        return node.getNamespaceUri().equals(ns);
     }
 
     /**
@@ -112,7 +117,7 @@ public class NameOfNode implements NodeName {
 
     @Override
     public NamespaceBinding getNamespaceBinding() {
-        return NamespaceBinding.makeNamespaceBinding(getPrefix(), getURI());
+        return new NamespaceBinding(getPrefix(), getNamespaceUri());
     }
 
     /**
@@ -152,7 +157,7 @@ public class NameOfNode implements NodeName {
         if (node.hasFingerprint()) {
             return node.getFingerprint();
         } else {
-            return namePool.allocateFingerprint(node.getURI(), node.getLocalPart());
+            return namePool.allocateFingerprint(node.getNamespaceUri(), node.getLocalPart());
         }
     }
 
@@ -161,7 +166,7 @@ public class NameOfNode implements NodeName {
      */
     @Override
     public int hashCode() {
-        return StructuredQName.computeHashCode(getURI(), getLocalPart());
+        return StructuredQName.computeHashCode(getNamespaceUri(), getLocalPart());
     }
 
     /**
@@ -174,7 +179,7 @@ public class NameOfNode implements NodeName {
             if (node.hasFingerprint() && n.hasFingerprint()) {
                 return node.getFingerprint() == n.getFingerprint();
             } else {
-                return n.getLocalPart().equals(node.getLocalPart()) && n.hasURI(node.getURI());
+                return n.getLocalPart().equals(node.getLocalPart()) && n.hasURI(node.getNamespaceUri());
             }
         } else {
             return false;
@@ -186,8 +191,8 @@ public class NameOfNode implements NodeName {
      * test than equality (even schema-equality); for example two dateTime values are not identical unless
      * they are in the same timezone.
      *
-     * @param other
-     * @return true if the two values are indentical, false otherwise
+     * @param other the value to be compared with
+     * @return true if the two values are identical, false otherwise
      */
     @Override
     public boolean isIdentical(IdentityComparable other) {

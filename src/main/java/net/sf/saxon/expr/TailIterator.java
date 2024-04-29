@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,16 +7,10 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.om.EnumSetTool;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.ArrayIterator;
-import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.LookaheadIterator;
-
-import java.util.EnumSet;
+import net.sf.saxon.tree.iter.*;
 
 /**
  * TailIterator iterates over a base sequence starting at an element other than the first.
@@ -26,8 +20,8 @@ import java.util.EnumSet;
 public class TailIterator
         implements SequenceIterator, LastPositionFinder, LookaheadIterator {
 
-    private SequenceIterator base;
-    private int start;
+    private final SequenceIterator base;
+    private final int start;
 
     /**
      * Private constructor: external callers should use the public factory method.
@@ -53,8 +47,9 @@ public class TailIterator
      * underlying array. This optimization is important when doing recursion over a node-set using
      * repeated calls of <code>$nodes[position()&gt;1]</code>
      *
-     * @param base  An iteration of the items to be filtered
-     * @param start The position of the first item to be included (base 1). If &lt;= 1, the whole of the
+     * @param base  An iteration of the items to be filtered. The state of this iterator after
+     *              the operation is undefined - it may or may not be consumed
+     * @param start The position of the first item to be included (origin 1). If &lt;= 1, the whole of the
      *              base sequence is returned
      * @return an iterator over the items in the sequence from the start item to the end of the sequence.
      *         The returned iterator will not necessarily be an instance of this class.
@@ -62,24 +57,28 @@ public class TailIterator
      *          if a dynamic error occurs
      */
 
-    public static <T extends Item> SequenceIterator make(SequenceIterator base, int start) throws XPathException {
+    public static SequenceIterator make(SequenceIterator base, int start) throws XPathException {
         if (start <= 1) {
             return base;
         } else if (base instanceof ArrayIterator) {
             return ((ArrayIterator) base).makeSliceIterator(start, Integer.MAX_VALUE);
-        } else if (base.getProperties().contains(SequenceIterator.Property.GROUNDED)) {
-            GroundedValue value = base.materialize();
-            if (start > value.getLength()) {
-                return EmptyIterator.emptyIterator();
-            } else {
-                return new ValueTailIterator(value, start - 1);
+        } else if (base instanceof GroundedIterator && ((GroundedIterator)base).isActuallyGrounded()) {
+            try {
+                GroundedValue value = SequenceTool.toGroundedValue(base);
+                if (start > value.getLength()) {
+                    return EmptyIterator.getInstance();
+                } else {
+                    return new ValueTailIterator(value, start - 1);
+                }
+            } catch (UncheckedXPathException e) {
+                throw e.getXPathException();
             }
         } else {
             // discard the first n-1 items from the underlying iterator
             for (int i = 0; i < start - 1; i++) {
                 Item b = base.next();
                 if (b == null) {
-                    return EmptyIterator.emptyIterator();
+                    return EmptyIterator.getInstance();
                 }
             }
             return new TailIterator(base, start);
@@ -88,9 +87,15 @@ public class TailIterator
 
 
     @Override
-    public Item next() throws XPathException {
+    public Item next() {
         return base.next();
     }
+
+    @Override
+    public boolean supportsHasNext() {
+        return base instanceof LookaheadIterator && ((LookaheadIterator)base).supportsHasNext();
+    }
+
 
     @Override
     public boolean hasNext() {
@@ -98,9 +103,14 @@ public class TailIterator
     }
 
     @Override
-    public int getLength() throws XPathException {
-        int bl = ((LastPositionFinder) base).getLength() - start + 1;
-        return bl > 0 ? bl : 0;
+    public boolean supportsGetLength() {
+        return SequenceTool.supportsGetLength(base);
+    }
+
+    @Override
+    public int getLength() {
+        int bl = SequenceTool.getLength(base) - start + 1;
+        return Math.max(bl, 0);
     }
 
     @Override
@@ -108,21 +118,5 @@ public class TailIterator
         base.close();
     }
 
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSetTool.intersect(
-                base.getProperties(),
-                EnumSet.of(Property.LAST_POSITION_FINDER, Property.LOOKAHEAD));
-    }
 }
 

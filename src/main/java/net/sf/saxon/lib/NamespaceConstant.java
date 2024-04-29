@@ -1,11 +1,13 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.lib;
+
+import net.sf.saxon.value.Whitespace;
 
 /**
  * This class is not instantiated, it exists to hold a set of constants representing known
@@ -267,17 +269,17 @@ public class NamespaceConstant {
     public static final String EXPATH_ZIP = "http://expath.org/ns/zip";
 
     /**
-     * URI for the user extension calls in Saxon.js
+     * URI for the user extension calls in SaxonJS
      */
     public static final String GLOBAL_JS = "http://saxonica.com/ns/globalJS";
 
     /**
-     * URI for the user extension calls in Saxon/C for C++ and PHP
+     * URI for the user extension calls in SaxonC for C++ and PHP
      */
     public static final String PHP = "http://php.net/xsl";
 
     /**
-     * URI for interactive XSLT extensions in Saxon-CE and Saxon-JS
+     * URI for interactive XSLT extensions in Saxon-CE and SaxonJS
      */
     public static final String IXSL = "http://saxonica.com/ns/interactiveXSLT";
 
@@ -448,6 +450,8 @@ public class NamespaceConstant {
     }
 
     private static boolean isSimilar(String s1, String s2) {
+        s1 = Whitespace.removeAllWhitespace(s1);
+        s2 = Whitespace.removeAllWhitespace(s2);
         if (s1.equalsIgnoreCase(s2)) {
             return true;
         } else if (s1.startsWith(s2) && s1.length() - s2.length() < 3) {

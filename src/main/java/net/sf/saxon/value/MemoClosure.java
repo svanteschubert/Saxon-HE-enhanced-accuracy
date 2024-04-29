@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,11 @@ import net.sf.saxon.expr.ContextOriginator;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.om.*;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.iter.GroundedIterator;
 
 /**
  * A MemoClosure represents a value that has not yet been evaluated: the value is represented
@@ -52,19 +55,10 @@ public class MemoClosure extends Closure implements ContextOriginator {
 
     private Sequence sequence;
 
-    /**
-     * Constructor should not be called directly, instances should be made using the make() method.
-     */
 
-    //private static int closureCount = 0;
-    public MemoClosure() {
-        //System.err.println("************** Creating MemoClosure " + closureCount);
-        //closureCount++; if ((closureCount % 1000) == 0) System.err.println("MemoClosures: " + closureCount);
-    }
-    //private static int closureCount = 0;
-
-    public MemoClosure(Expression expr, XPathContext context) throws XPathException {
-        setExpression(expr);
+    public MemoClosure(Expression expr, PullEvaluator inputEvaluator, XPathContext context) throws XPathException {
+        //Instrumentation.count("MemoClosure(X)");
+        setInputEvaluator(inputEvaluator);
         XPathContextMajor c2 = context.newContext();
         c2.setOrigin(this);
         setSavedXPathContext(c2);
@@ -77,15 +71,33 @@ public class MemoClosure extends Closure implements ContextOriginator {
 
     /*@NotNull*/
     @Override
-    public synchronized SequenceIterator iterate() throws XPathException {
-        makeSequence();
+    public synchronized SequenceIterator iterate()  {
+        try {
+            makeSequence();
+        } catch (XPathException e) {
+            throw new UncheckedXPathException(e);
+        }
         return sequence.iterate();
     }
 
     private void makeSequence() throws XPathException {
         if (sequence == null) {
-            inputIterator = expression.iterate(savedXPathContext);
-            sequence = SequenceTool.toMemoSequence(inputIterator);
+            inputIterator = inputEvaluator.iterate(savedXPathContext);
+            if (inputIterator instanceof GroundedIterator && ((GroundedIterator)inputIterator).isActuallyGrounded()) {
+                sequence = ((GroundedIterator)inputIterator).materialize();
+                // If we find that the input iterator is grounded, this means there was no point
+                // in doing lazy evaluation. If this happens once, it will probably happen all the time,
+                // so send a message back to the binding instruction encouraging it to use eager
+                // evaluation in future.
+                if (learningEvaluator != null) {
+                    learningEvaluator.reportCompletion(serialNumber);
+                }
+            } else {
+                sequence = SequenceTool.toMemoSequence(inputIterator);
+                if (sequence instanceof MemoSequence && learningEvaluator != null) {
+                    ((MemoSequence) sequence).setLearningEvaluator(learningEvaluator, serialNumber);
+                }
+            }
         }
     }
 
@@ -120,10 +132,14 @@ public class MemoClosure extends Closure implements ContextOriginator {
     /*@Nullable*/
     @Override
     public GroundedValue reduce() throws XPathException {
-        if (sequence instanceof GroundedValue) {
-            return (GroundedValue)sequence;
-        } else {
-            return iterate().materialize();
+        try {
+            if (sequence instanceof GroundedValue) {
+                return (GroundedValue)sequence;
+            } else {
+                return SequenceTool.toGroundedValue(iterate());
+            }
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
     }
 
@@ -132,6 +148,9 @@ public class MemoClosure extends Closure implements ContextOriginator {
         return this;
     }
 
+    public Sequence getSequenceAsIs() {
+        return sequence;
+    }
 
 }
 

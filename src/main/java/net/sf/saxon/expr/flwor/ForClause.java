@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,19 +10,21 @@ package net.sf.saxon.expr.flwor;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.KeyFn;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.Feature;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.FOR;
 
@@ -31,11 +33,12 @@ import static net.sf.saxon.expr.flwor.Clause.ClauseName.FOR;
  */
 public class ForClause extends Clause {
 
-    private LocalVariableBinding rangeVariable;
+    protected LocalVariableBinding rangeVariable;
     /*@Nullable*/
-    private LocalVariableBinding positionVariable;
-    private Operand sequenceOp;
-    private boolean allowsEmpty;
+    protected LocalVariableBinding positionVariable;
+    protected Operand sequenceOp;
+    protected PullEvaluator sequenceOperandEvaluator;
+    protected boolean allowsEmpty;
 
     public ForClause() {
     }
@@ -69,6 +72,25 @@ public class ForClause extends Clause {
 
     public Expression getSequence() {
         return sequenceOp.getChildExpression();
+    }
+
+    public Operand getSequenceOp() {
+        return this.sequenceOp;
+    }
+
+    /**
+     * Get an iterator over the items or members in the input sequence.
+     *
+     * @param context dynamic evaluation context
+     * @return for a simple "for $x" clause, the sequence of items to which $x will be bound.
+     * For a "for member ¢x" clause, the sequence of array members, each wrapped as an object value
+     * @throws XPathException if evaluation fails
+     */
+    protected SequenceIterator getIterator(XPathContext context) throws XPathException {
+        if (sequenceOperandEvaluator == null) {
+            sequenceOperandEvaluator = getSequence().makeElaborator().elaborateForPull();
+        }
+        return sequenceOperandEvaluator.iterate(context);
     }
 
     /**
@@ -113,9 +135,9 @@ public class ForClause extends Clause {
     }
 
     /**
-     * Get the number of variables bound by this clause
+     * Get the variables bound by this clause
      *
-     * @return the number of variable bindings (1 or 2 depending on whether there is a position variable)
+     * @return the variable bindings (1 or 2 depending on whether there is a position variable)
      */
     @Override
     public LocalVariableBinding[] getRangeVariables() {
@@ -153,18 +175,25 @@ public class ForClause extends Clause {
     public void typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         SequenceType decl = rangeVariable.getRequiredType();
         if (allowsEmpty && !Cardinality.allowsZero(decl.getCardinality())) {
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, rangeVariable.getVariableQName().getDisplayName(), 0);
+            Supplier<RoleDiagnostic> emptyRole =
+                    () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, rangeVariable.getVariableQName().getDisplayName(), 0);
             Expression checker =
                     CardinalityChecker.makeCardinalityChecker(
-                            getSequence(), StaticProperty.ALLOWS_ONE_OR_MORE, role);
+                            getSequence(), StaticProperty.ALLOWS_ONE_OR_MORE, emptyRole);
             setSequence(checker);
         }
         SequenceType sequenceType = SequenceType.makeSequenceType(
                 decl.getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE);
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, rangeVariable.getVariableQName().getDisplayName(), 0);
-        setSequence(
-                TypeChecker.strictTypeCheck(
-                        getSequence(), sequenceType, role, visitor.getStaticContext()));
+        Supplier<RoleDiagnostic> role =
+                () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, rangeVariable.getVariableQName().getDisplayName(), 0);
+        if (visitor.getStaticContext().getXPathVersion() < 40) {
+            setSequence(
+                    TypeChecker.strictTypeCheck(
+                            getSequence(), sequenceType, role, visitor.getStaticContext()));
+        } else {
+            TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
+            setSequence(tc.staticTypeCheck(getSequence(), sequenceType, role, visitor));
+        }
     }
 
     /**
@@ -244,7 +273,9 @@ public class ForClause extends Clause {
 
         boolean changed = false;
 
+
         if (positionVariable != null && positionVariable.getNominalReferenceCount() == 0) {
+            // Eliminating an unused position variable opens up optimisation opportunities: bug 4947
             positionVariable = null;
         }
 
@@ -326,7 +357,6 @@ public class ForClause extends Clause {
                     if (rel != Affinity.DISJOINT) {
                         RetainedStaticContext rsc = new RetainedStaticContext(visitor.getStaticContext());
                         predicate = SystemFunction.makeCall("boolean", rsc, predicate);
-                        assert predicate != null;
                     }
                     selection = new FilterExpression(selection, predicate);
                     ExpressionTool.copyLocationInfo(predicate, selection);
@@ -348,11 +378,7 @@ public class ForClause extends Clause {
                 if (path instanceof SlashExpression) {
                     ExpressionTool.copyLocationInfo(condition, path);
                     Expression k = visitor.obtainOptimizer().convertPathExpressionToKey((SlashExpression) path, visitor);
-                    if (k == null) {
-                        setSequence(path);
-                    } else {
-                        setSequence(k);
-                    }
+                    setSequence(k == null ? path : k);
                     sequenceOp.typeCheck(visitor, contextItemType);
                     sequenceOp.optimize(visitor, contextItemType);
                 }
@@ -403,7 +429,7 @@ public class ForClause extends Clause {
      */
     @Override
     public void explain(ExpressionPresenter out) throws XPathException {
-        out.startElement("for");
+        out.startElement(getClauseKey().toString().toLowerCase());
         out.emitAttribute("var", getRangeVariable().getVariableQName());
         out.emitAttribute("slot", getRangeVariable().getLocalSlotNumber() + "");
         LocalVariableBinding posVar = getPositionVariable();
@@ -417,34 +443,27 @@ public class ForClause extends Clause {
 
     @Override
     public String toShortString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
-        fsb.append("for $");
-        fsb.append(rangeVariable.getVariableQName().getDisplayName());
-        fsb.cat(' ');
-        LocalVariableBinding posVar = getPositionVariable();
-        if (posVar != null) {
-            fsb.append("at $");
-            fsb.append(posVar.getVariableQName().getDisplayName());
-            fsb.cat(' ');
-        }
-        fsb.append("in ");
-        fsb.append(getSequence().toShortString());
-        return fsb.toString();
+        return stringify(true);
     }
 
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
-        fsb.append("for $");
+        return stringify(false);
+    }
+
+    private String stringify(boolean abbreviate) {
+        StringBuilder fsb = new StringBuilder(64);
+        fsb.append(getClauseKey().toString().toLowerCase());
+        fsb.append(" $");
         fsb.append(rangeVariable.getVariableQName().getDisplayName());
-        fsb.cat(' ');
+        fsb.append(' ');
         LocalVariableBinding posVar = getPositionVariable();
         if (posVar != null) {
             fsb.append("at $");
             fsb.append(posVar.getVariableQName().getDisplayName());
-            fsb.cat(' ');
+            fsb.append(' ');
         }
         fsb.append("in ");
-        fsb.append(getSequence().toString());
+        fsb.append(abbreviate ? getSequence().toShortString() : getSequence().toString());
         return fsb.toString();
     }
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,17 +9,19 @@ package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.query.QueryModule;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * This class represents a FLWOR expression, evaluated using tuple streams
@@ -28,6 +30,7 @@ public class FLWORExpression extends Expression {
 
     public List<Clause> clauses;
     public Operand returnClauseOp;
+    public PushEvaluator returnPushEvaluator; // needed if generating push bytecode
 
     public FLWORExpression() {}
 
@@ -68,6 +71,19 @@ public class FLWORExpression extends Expression {
     /*@NotNull*/
     public Expression getReturnClause() {
         return returnClauseOp.getChildExpression();
+    }
+
+    /**
+     * Get a push-evaluator for the return clause (used from bytecode)
+     */
+
+    public PushEvaluator getReturnPushEvaluator() {
+        synchronized(this) {
+            if (returnPushEvaluator == null) {
+                returnPushEvaluator = makeElaborator().elaborateForPush();
+            }
+        }
+        return returnPushEvaluator;
     }
 
     /**
@@ -207,7 +223,7 @@ public class FLWORExpression extends Expression {
      *
      * @param req                 the required type
      * @param backwardsCompatible true if backwards compatibility mode applies
-     * @param role                the role of the expression in relation to the required type
+     * @param roleSupplier                the role of the expression in relation to the required type
      * @param visitor             an expression visitor
      * @return the expression after type checking (perhaps augmented with dynamic type checking code)
      * @throws XPathException if failures occur, for example if the static type of one branch of the conditional
@@ -217,12 +233,12 @@ public class FLWORExpression extends Expression {
     @Override
     public Expression staticTypeCheck(SequenceType req,
                                       boolean backwardsCompatible,
-                                      RoleDiagnostic role, ExpressionVisitor visitor)
+                                      Supplier<RoleDiagnostic> roleSupplier, ExpressionVisitor visitor)
             throws XPathException {
         // only called if implementsStaticTypeCheck() returns true
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(backwardsCompatible);
         returnClauseOp.setChildExpression(
-                tc.staticTypeCheck(getReturnClause(), req, role, visitor));
+                tc.staticTypeCheck(getReturnClause(), req, roleSupplier, visitor));
         return this;
     }
 
@@ -251,6 +267,11 @@ public class FLWORExpression extends Expression {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
+    @Override
+    public int computeDependencies() {
+        return super.computeDependencies() | StaticProperty.DEPENDS_ON_OWN_RANGE_VARIABLES;
+    }
+
     /**
      * Get the immediate sub-expressions of this expression, with information about the relationship
      * of each expression to its parent expression. Default implementation
@@ -262,13 +283,10 @@ public class FLWORExpression extends Expression {
     @Override
     public Iterable<Operand> operands() {
         final List<Operand> list = new ArrayList<>(5);
-        boolean repeatable = false;
         try {
             for (Clause c : clauses) {
-                c.processOperands(list::add);
-                if (c instanceof ForClause) {
-                    repeatable = true;
-                }
+                //noinspection Convert2MethodRef
+                c.processOperands(op -> list.add(op));
             }
         } catch (XPathException e) {
             throw new IllegalStateException(e);
@@ -367,7 +385,7 @@ public class FLWORExpression extends Expression {
     public void injectCode(CodeInjector injector) {
         if (injector != null) {
             for (Clause clause : clauses) {
-                // if there's already a TraceClause, do nothing
+                // if there are already trace clauses present, do nothing
                 if (clause instanceof TraceClause) {
                     return;
                 }
@@ -375,9 +393,9 @@ public class FLWORExpression extends Expression {
             List<Clause> expandedList = new ArrayList<>(clauses.size() * 2);
             expandedList.add(clauses.get(0));
             for (int i = 1; i < clauses.size(); i++) {
-                Clause extra = injector.injectClause(this, clauses.get(i - 1));
-                if (extra != null) {
-                    expandedList.add(extra);
+                Clause extraClause = injector.injectClause(this, clauses.get(i - 1));
+                if (extraClause != null) {
+                    expandedList.add(extraClause);
                 }
                 expandedList.add(clauses.get(i));
             }
@@ -386,6 +404,8 @@ public class FLWORExpression extends Expression {
                 expandedList.add(extra);
             }
             clauses = expandedList;
+            returnClauseOp.setChildExpression(ExpressionTool.injectCode(returnClauseOp.getChildExpression(), injector));
+
         }
     }
     /**
@@ -515,6 +535,7 @@ public class FLWORExpression extends Expression {
                     LetClause lc = (LetClause) c;
                     if (!ExpressionTool.dependsOnVariable(this, new Binding[]{lc.getRangeVariable()})) {
                         clauses.remove(c);
+                        opt.trace("Removed unused variable " + lc.getRangeVariable().getVariableQName().getDisplayName(), this);
                         tryAgain = true;
                         break;
                     }
@@ -532,7 +553,7 @@ public class FLWORExpression extends Expression {
                         if (oneRef || simpleSeq) {
                             ExpressionTool.replaceVariableReferences(this, lc.getRangeVariable(), lc.getSequence(), true);
                             clauses.remove(c);
-                            opt.trace("Inlined let $" + lc.getRangeVariable().getVariableQName().getDisplayName(), this);
+                            opt.trace("Inlined variable " + lc.getRangeVariable().getVariableQName().getDisplayName(), this);
                             if (clauses.isEmpty()) {
                                 return getReturnClause();
                             }
@@ -608,6 +629,11 @@ public class FLWORExpression extends Expression {
         return this;
     }
 
+    private static class WhereClauseStruct {
+        int whereIndex = 0;
+        WhereClause whereClause;
+    }
+
     /**
      * @param visitor         the expression visitor
      * @param contextItemType the type of the context item
@@ -622,10 +648,6 @@ public class FLWORExpression extends Expression {
             throws XPathException {
         WhereClause whereClause;
         int whereIndex = 0;
-        class WhereClauseStruct {
-            int whereIndex = 0;
-            WhereClause whereClause;
-        }
         List<WhereClauseStruct> whereList = new ArrayList<>();
 
         for (Clause c : clauses) {
@@ -676,12 +698,14 @@ public class FLWORExpression extends Expression {
                             boolean added = ((ForClause) clause).addPredicate(this, visitor, contextItemType, term);
                             //If we cannot add the WhereClause term as a predicate then put it back into the list of clauses
                             if (!added) {
-                                clauses.add(c + 1, new WhereClause(this, removedExpr));
+                                WhereClause newWhere = new WhereClause(this, removedExpr);
+                                newWhere.setLocation(clause.getLocation());
+                                clauses.add(c + 1, newWhere);
                             }
                         } else {
                             // the clause is not a "for" clause, so just move the "where" to this place in the list of clauses
                             WhereClause newWhere = new WhereClause(this, term);
-                            newWhere.setLocation(whereClause.getLocation());
+                            newWhere.setLocation(clause.getLocation());
                             clauses.add(c + 1, newWhere);
                         }
                         // we found a variable on which the term depends so we can't move it any further
@@ -696,7 +720,7 @@ public class FLWORExpression extends Expression {
                         whereClause.setPredicate(makeAndCondition(list));
                     }
                     WhereClause newWhere = new WhereClause(this, term);
-                    newWhere.setLocation(whereClause.getLocation());
+                    newWhere.setLocation(condition.getLocation());
                     clauses.add(0, newWhere);
                 }
             }
@@ -810,11 +834,7 @@ public class FLWORExpression extends Expression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        TuplePull stream = new SingularityPull();
-        for (Clause c : clauses) {
-            stream = c.getPullStream(stream, context);
-        }
-        return new ReturnClauseIterator(stream, this, context);
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
 
@@ -829,37 +849,8 @@ public class FLWORExpression extends Expression {
      */
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
-        TuplePush destination = new ReturnClausePush(output, getReturnClause());
-        for (int i = clauses.size() - 1; i >= 0; i--) {
-            Clause c = clauses.get(i);
-            destination = c.getPushStream(destination, output, context);
-        }
-        destination.processTuple(context);
-        destination.close();
-    }
-
-    /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     * @throws net.sf.saxon.trans.XPathException
-     *                                       if evaluation fails
-     * @throws UnsupportedOperationException if the expression is not an updating expression
-     */
-
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        TuplePull stream = new SingularityPull();
-        for (Clause c : clauses) {
-            stream = c.getPullStream(stream, context);
-        }
-        while (stream.nextTuple(context)) {
-            getReturnClause().evaluatePendingUpdates(context, pul);
-        }
+        TailCall tc = makeElaborator().elaborateForPush().processLeavingTail(output, context);
+        Expression.dispatchTailCall(tc);
     }
 
     /**
@@ -881,7 +872,7 @@ public class FLWORExpression extends Expression {
      */
     @Override
     public String toShortString() {
-        FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder sb = new StringBuilder(64);
         sb.append(clauses.get(0).toShortString());
         sb.append(" ... return ");
         sb.append(getReturnClause().toShortString());
@@ -893,10 +884,10 @@ public class FLWORExpression extends Expression {
      */
 
     public String toString() {
-        FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder sb = new StringBuilder(64);
         for (Clause c : clauses) {
             sb.append(c.toString());
-            sb.cat(' ');
+            sb.append(' ');
         }
         sb.append(" return ");
         sb.append(getReturnClause().toString());
@@ -972,5 +963,60 @@ public class FLWORExpression extends Expression {
         return false;
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new FLWORElaborator();
+    }
+
+    private static class FLWORElaborator extends PullElaborator {
+        @Override
+        public PullEvaluator elaborateForPull() {
+            FLWORExpression expr = (FLWORExpression)getExpression();
+            PullEvaluator returnPull = expr.getReturnClause().makeElaborator().elaborateForPull();
+            return context -> {
+                TuplePull stream = new SingularityPull();
+                for (Clause c : expr.clauses) {
+                    stream = c.getPullStream(stream, context);
+                }
+                return new ReturnClauseIterator(stream, returnPull, context);
+            };
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            FLWORExpression expr = (FLWORExpression) getExpression();
+            expr.returnPushEvaluator = expr.getReturnClause().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+                TuplePush destination = new ReturnClausePush(output, expr.returnPushEvaluator);
+                for (int i = expr.clauses.size() - 1; i >= 0; i--) {
+                    Clause c = expr.clauses.get(i);
+                    destination = c.getPushStream(destination, output, context);
+                }
+                destination.processTuple(context);
+                destination.close();
+                return null;
+            };
+        }
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            FLWORExpression expr = (FLWORExpression) getExpression();
+            UpdateEvaluator returnAction = expr.getReturnClause().makeElaborator().elaborateForUpdate();
+            return (context, pul) -> {
+                TuplePull stream = new SingularityPull();
+                for (Clause c : expr.clauses) {
+                    stream = c.getPullStream(stream, context);
+                }
+                while (stream.nextTuple(context)) {
+                    returnAction.registerUpdates(context, pul);
+                }
+            };
+        }
+    }
 }
 

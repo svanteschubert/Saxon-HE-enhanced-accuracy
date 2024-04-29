@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.wrapper.VirtualNode;
@@ -41,7 +42,7 @@ import java.util.List;
  */
 public abstract class PJConverter {
 
-    private static HashMap<Class, SequenceType> jpmap = new HashMap<>();
+    private static final HashMap<Class<?>, SequenceType> jpmap = new HashMap<>();
 
     static {
         jpmap.put(boolean.class, SequenceType.SINGLE_BOOLEAN);
@@ -66,6 +67,7 @@ public abstract class PJConverter {
         jpmap.put(URL.class, SequenceType.OPTIONAL_ANY_URI);
         jpmap.put(BigInteger.class, SequenceType.OPTIONAL_INTEGER);
         jpmap.put(BigDecimal.class, SequenceType.OPTIONAL_DECIMAL);
+        jpmap.put(UnicodeString.class, SequenceType.OPTIONAL_STRING);
 
         jpmap.put(StringValue.class, SequenceType.OPTIONAL_STRING);
         jpmap.put(BooleanValue.class, SequenceType.OPTIONAL_BOOLEAN);
@@ -89,7 +91,7 @@ public abstract class PJConverter {
         jpmap.put(GDayValue.class, SequenceType.OPTIONAL_G_DAY);
         jpmap.put(Base64BinaryValue.class, SequenceType.OPTIONAL_BASE64_BINARY);
         jpmap.put(HexBinaryValue.class, SequenceType.OPTIONAL_HEX_BINARY);
-        jpmap.put(Function.class, SequenceType.OPTIONAL_FUNCTION_ITEM);
+        jpmap.put(FunctionItem.class, SequenceType.OPTIONAL_FUNCTION_ITEM);
         jpmap.put(MapItem.class, MapType.OPTIONAL_MAP_ITEM);
         jpmap.put(NodeInfo.class, SequenceType.OPTIONAL_NODE);
         jpmap.put(TreeInfo.class, SequenceType.OPTIONAL_DOCUMENT_NODE);
@@ -107,9 +109,9 @@ public abstract class PJConverter {
      * @return the nearest equivalent XPath SequenceType
      */
 
-    public static SequenceType getEquivalentSequenceType(Class javaClass) {
+    public static SequenceType getEquivalentSequenceType(Class<?> javaClass) {
         if (javaClass.isArray()) {
-            Class memberClass = javaClass.getComponentType();
+            Class<?> memberClass = javaClass.getComponentType();
             if (memberClass == byte.class) {
                 // special-case byte[] which maps to xs:unsignedByte* - see bugs 3525, 3818
                 return SequenceType.makeSequenceType(BuiltInAtomicType.UNSIGNED_BYTE, StaticProperty.ALLOWS_ZERO_OR_MORE);
@@ -217,9 +219,13 @@ public abstract class PJConverter {
         if (!itemType.isPlainType()) {
             List<ExternalObjectModel> externalObjectModels = config.getExternalObjectModels();
             for (ExternalObjectModel model : externalObjectModels) {
-                PJConverter converter = model.getPJConverter(targetClass);
-                if (converter != null) {
-                    return converter;
+                try {
+                    PJConverter converter = model.getPJConverter(targetClass);
+                    if (converter != null) {
+                        return converter;
+                    }
+                } catch (Throwable e) {
+                    config.deregisterExternalObjectModel(model);
                 }
             }
 
@@ -240,21 +246,23 @@ public abstract class PJConverter {
             if (itemType.isPlainType()) {
                 if (itemType == ErrorType.getInstance()) {
                     // supplied value is (); we need to convert it to null; this converter does the job.
-                    return StringValueToString.INSTANCE;
+                    return StringItemToString.INSTANCE;
                 } else if (th.isSubType(itemType, BuiltInAtomicType.STRING)) {
                     if (targetClass == Object.class || targetClass == String.class || targetClass == CharSequence.class) {
-                        return StringValueToString.INSTANCE;
+                        return StringItemToString.INSTANCE;
                     } else if (targetClass.isAssignableFrom(StringValue.class)) {
                         return Identity.INSTANCE;
                     } else if (targetClass == char.class || targetClass == Character.class) {
-                        return StringValueToChar.INSTANCE;
+                        return StringItemToChar.INSTANCE;
+                    } else if (targetClass == UnicodeString.class) {
+                        return StringItemToUnicodeString.INSTANCE;
                     } else {
                         throw cannotConvert(itemType, targetClass, config);
                     }
                 } else if (itemType == BuiltInAtomicType.UNTYPED_ATOMIC) {
                     if (targetClass == Object.class || targetClass == String.class || targetClass == CharSequence.class) {
-                        return StringValueToString.INSTANCE;
-                    } else if (targetClass.isAssignableFrom(UntypedAtomicValue.class)) {
+                        return StringItemToString.INSTANCE;
+                    } else if (targetClass.isAssignableFrom(StringValue.class)) {
                         return Identity.INSTANCE;
                     } else {
                         try {
@@ -345,7 +353,7 @@ public abstract class PJConverter {
                     } else if (URL.class.isAssignableFrom(targetClass)) {
                         return AnyURIValueToURL.INSTANCE;
                     } else if (targetClass == String.class || targetClass == CharSequence.class) {
-                        return StringValueToString.INSTANCE;
+                        return StringItemToString.INSTANCE;
                     } else if (targetClass.isAssignableFrom(AnyURIValue.class)) {
                         return Identity.INSTANCE;
                     } else {
@@ -569,13 +577,11 @@ public abstract class PJConverter {
                 try {
                     list = (Collection<Object>)targetClass.newInstance();
                 } catch (InstantiationException e) {
-                    XPathException de = new XPathException("Cannot instantiate collection class " + targetClass);
-                    de.setXPathContext(context);
-                    throw de;
+                    throw new XPathException("Cannot instantiate collection class " + targetClass)
+                            .withXPathContext(context);
                 } catch (IllegalAccessException e) {
-                    XPathException de = new XPathException("Cannot access collection class " + targetClass);
-                    de.setXPathContext(context);
-                    throw de;
+                    throw new XPathException("Cannot access collection class " + targetClass)
+                            .withXPathContext(context);
                 }
             }
             Configuration config = context.getConfiguration();
@@ -603,7 +609,7 @@ public abstract class PJConverter {
 
     public static class ToArray extends PJConverter {
 
-        private PJConverter itemConverter;
+        private final PJConverter itemConverter;
 
         public ToArray(PJConverter itemConverter) {
             this.itemConverter = itemConverter;
@@ -611,14 +617,13 @@ public abstract class PJConverter {
 
         @Override
         public Object convert(Sequence value, Class<?> targetClass, XPathContext context) throws XPathException {
-            if (value instanceof ExternalObject && targetClass.isAssignableFrom(((ExternalObject) value).getObject().getClass())) {
-                return ((ExternalObject) value).getObject();
+            if (value instanceof AnyExternalObject && targetClass.isAssignableFrom(((AnyExternalObject) value).getWrappedObject().getClass())) {
+                return ((AnyExternalObject) value).getWrappedObject();
             }
-            Class componentClass = targetClass.getComponentType();
+            Class<?> componentClass = targetClass.getComponentType();
             List<Object> list = new ArrayList<>(20);
             SequenceIterator iter = value.iterate();
-            Item item;
-            while ((item = iter.next()) != null) {
+            for (Item item; (item = iter.next()) != null; ) {
                 Object obj = itemConverter.convert(item, componentClass, context);
                 if (obj != null) {
                     list.add(obj);
@@ -696,7 +701,7 @@ public abstract class PJConverter {
 
         @Override
         public ZeroOrMore<Item> convert(Sequence value, Class<?> targetClass, XPathContext context) throws XPathException {
-            return new ZeroOrMore<>(value.iterate());
+            return ZeroOrMore.fromSequenceIterator(value.iterate());
         }
 
     }
@@ -753,7 +758,7 @@ public abstract class PJConverter {
             if (head == null) {
                 return null;
             }
-            if (!(head instanceof ExternalObject)) {
+            if (!(head instanceof AnyExternalObject)) {
                 if (Sequence.class.isAssignableFrom(targetClass)) {
                     head = new ObjectValue<>(value);
                 } else {
@@ -761,7 +766,7 @@ public abstract class PJConverter {
                             ", got " + head.getClass());
                 }
             }
-            Object obj = ((ExternalObject) head).getObject();
+            Object obj = ((AnyExternalObject) head).getWrappedObject();
             if (!targetClass.isAssignableFrom(obj.getClass())) {
                 throw new XPathException("External object has wrong class (is "
                         + obj.getClass().getName() + ", expected " + targetClass.getName() + ")");
@@ -771,9 +776,46 @@ public abstract class PJConverter {
 
     }
 
-    public static class StringValueToString extends PJConverter {
+    public static class ConditionalUnwrapExternalObject extends PJConverter {
 
-        public static final StringValueToString INSTANCE = new StringValueToString();
+        public static final ConditionalUnwrapExternalObject INSTANCE = new ConditionalUnwrapExternalObject();
+
+        @Override
+        public Object convert(Sequence value, Class<?> targetClass, XPathContext context) throws XPathException {
+            SequenceIterator iter = value.iterate();
+            Item head = iter.next();
+            if (head == null) {
+                if (targetClass.isAssignableFrom(EmptySequence.class)) {
+                    return EmptySequence.getInstance();
+                } else {
+                    throw new XPathException("Supplied value is empty: expected + " + targetClass.getName());
+                }
+            }
+            if (head instanceof AnyExternalObject) {
+                Object obj = ((AnyExternalObject) head).getWrappedObject();
+                if (!targetClass.isAssignableFrom(obj.getClass())) {
+                    throw new XPathException(
+                            "External object has wrong class (is " + obj.getClass().getName() +
+                                    ", expected " + targetClass.getName() + ")");
+                }
+                if (iter.next() != null) {
+                    throw new XPathException(
+                            "Supplied sequence has more than one item: expected a single instance of " +
+                                    targetClass.getName());
+
+                }
+                return obj;
+            } else {
+                return value;
+            }
+        }
+
+    }
+
+
+    public static class StringItemToString extends PJConverter {
+
+        public static final StringItemToString INSTANCE = new StringItemToString();
 
         @Override
         public String convert(Sequence value, Class<?> targetClass, XPathContext context) throws XPathException {
@@ -783,9 +825,21 @@ public abstract class PJConverter {
 
     }
 
-    public static class StringValueToChar extends PJConverter {
+    public static class StringItemToUnicodeString extends PJConverter {
 
-        public static final StringValueToChar INSTANCE = new StringValueToChar();
+        public static final StringItemToUnicodeString INSTANCE = new StringItemToUnicodeString();
+
+        @Override
+        public UnicodeString convert(Sequence value, Class<?> targetClass, XPathContext context) throws XPathException {
+            Item first = value.head();
+            return first == null ? null : first.getUnicodeStringValue();
+        }
+
+    }
+
+    public static class StringItemToChar extends PJConverter {
+
+        public static final StringItemToChar INSTANCE = new StringItemToChar();
 
         @Override
         public Object convert(Sequence value, Class<?> targetClass, XPathContext context) throws XPathException {
@@ -797,10 +851,9 @@ public abstract class PJConverter {
             if (str.length() == 1) {
                 return str.charAt(0);
             } else {
-                XPathException de = new XPathException("Cannot convert xs:string to Java char unless length is 1");
-                de.setXPathContext(context);
-                de.setErrorCode(SaxonErrorCode.SXJE0005);
-                throw de;
+                throw new XPathException("Cannot convert xs:string to Java char unless length is 1")
+                        .withXPathContext(context)
+                        .withErrorCode(SaxonErrorCode.SXJE0005);
             }
         }
 

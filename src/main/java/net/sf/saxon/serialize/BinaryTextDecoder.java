@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,10 @@ package net.sf.saxon.serialize;
 import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.tiny.CharSlice;
 import net.sf.saxon.value.Base64BinaryValue;
 import net.sf.saxon.value.HexBinaryValue;
 
@@ -24,8 +25,6 @@ import java.util.Properties;
 /**
  * This class generates decodes processing instructions in text output that represent text encoded
  * in base64 binary or hexBinary
- *
- * @author Michael H. Kay
  */
 
 public class BinaryTextDecoder extends ProxyReceiver {
@@ -43,6 +42,7 @@ public class BinaryTextDecoder extends ProxyReceiver {
      * Set output properties
      *
      * @param details the output serialization properties
+     * @throws XPathException if any error occurs
      */
 
     public void setOutputProperties(Properties details) throws XPathException {
@@ -59,7 +59,7 @@ public class BinaryTextDecoder extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String name, /*@NotNull*/ CharSequence value, Location locationId, int properties)
+    public void processingInstruction(String name, /*@NotNull*/ UnicodeString value, Location locationId, int properties)
             throws XPathException {
         String encoding;
         byte[] bytes = null;
@@ -70,10 +70,11 @@ public class BinaryTextDecoder extends ProxyReceiver {
         } else {
             encoding = outputEncoding;
         }
+        UnicodeString tValue = value.tidy();
         if (name.equals("hex")) {
-            bytes = new HexBinaryValue(value).getBinaryValue();
+            bytes = new HexBinaryValue(tValue).getBinaryValue();
         } else if (name.equals("b64")) {
-            bytes = new Base64BinaryValue(value).getBinaryValue();
+            bytes = new Base64BinaryValue(tValue).getBinaryValue();
         }
         if (bytes != null) {
             try {
@@ -81,7 +82,7 @@ public class BinaryTextDecoder extends ProxyReceiver {
                 InputStreamReader reader = new InputStreamReader(stream, encoding);
                 char[] array = new char[bytes.length];
                 int used = reader.read(array, 0, array.length);
-                nextReceiver.characters(new CharSlice(array, 0, used), locationId, properties);
+                nextReceiver.characters(StringView.of(new String(array, 0, used)), locationId, properties);
             } catch (IOException e) {
                 throw new XPathException(
                         "Text output method: failed to decode binary data " + Err.wrap(value.toString(), Err.VALUE));

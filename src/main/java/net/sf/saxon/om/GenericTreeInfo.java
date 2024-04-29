@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,13 @@ package net.sf.saxon.om;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.tree.util.DocumentNumberAllocator;
 
-import java.util.*;
+import javax.xml.transform.Source;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+
+import static net.sf.saxon.om.Durability.UNDEFINED;
 
 /**
  * A generic (model-independent) implementation of the TreeInfo interface, suitable for use with all
@@ -18,14 +24,16 @@ import java.util.*;
  * implementation
  */
 
-public class GenericTreeInfo implements TreeInfo {
-
+public class GenericTreeInfo implements TreeInfo
+    , Source
+{
     private Configuration config;
     protected NodeInfo root;
     private String systemId;
     private Map<String, Object> userData;
     private long documentNumber = -1;
     private SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.getInstance();
+    private Durability durability = UNDEFINED;
 
     /**
      * Create the TreeInfo
@@ -97,7 +105,6 @@ public class GenericTreeInfo implements TreeInfo {
      * @param systemId the system ID
      */
 
-    @Override
     public void setSystemId(String systemId) {
         this.systemId = systemId;
     }
@@ -107,7 +114,6 @@ public class GenericTreeInfo implements TreeInfo {
      * @return the system ID
      */
 
-    @Override
     public String getSystemId() {
         return systemId;
     }
@@ -121,6 +127,19 @@ public class GenericTreeInfo implements TreeInfo {
     public String getPublicId() {
         return null;
     }
+
+//    /**
+//     * Deliver the content of the source to a supplied Receiver
+//     *
+//     * @param receiver the receiver to which events representing the parsed XML document will be sent
+//     * @param options  options for parsing the source
+//     * @throws XPathException if parsing fails for any reason. The detailed diagnostics will
+//     *                        have been sent to the error reporter.
+//     */
+//
+//    public void deliver(Receiver receiver, ParseOptions options) throws XPathException {
+//        getRootNode().deliver(receiver, options);
+//    }
 
     /**
      * Get the document number, which identifies this tree uniquely within a Configuration
@@ -167,6 +186,29 @@ public class GenericTreeInfo implements TreeInfo {
     }
 
     /**
+     * Set the durability property of this node tree
+     * @param durability the durability. This (a) indicates how long the node is expected to remain in memory,
+     *                   and (b) whether the node is mutable. This information is used when the node appears
+     *                   in the arguments to a memo function.
+     *
+     */
+    public void setDurability(Durability durability) {
+        this.durability = durability;
+    }
+
+    public Durability getDurability() {
+        if (durability == UNDEFINED) {
+            return isMutable() ? Durability.MUTABLE : Durability.LASTING;
+        } else {
+            return durability;
+        }
+    }
+
+    public boolean isMutable() {
+        return durability == Durability.MUTABLE;
+    }
+
+    /**
      * Get the list of unparsed entities defined in this document
      *
      * @return an Iterator, whose items are of type String, containing the names of all
@@ -176,8 +218,7 @@ public class GenericTreeInfo implements TreeInfo {
      */
     @Override
     public Iterator<String> getUnparsedEntityNames() {
-        List<String> e = Collections.emptyList();
-        return e.iterator();
+        return Collections.emptyIterator();
     }
 
     /**

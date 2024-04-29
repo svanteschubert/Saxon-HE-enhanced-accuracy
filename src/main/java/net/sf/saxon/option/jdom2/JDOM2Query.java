@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,11 +25,10 @@ import java.util.List;
 
 public class JDOM2Query extends Query {
 
-    public List preprocess(List sources) throws XPathException {
+    public List<JDOM2DocumentWrapper> preprocess(List<SAXSource> sources) throws XPathException {
         try {
-            ArrayList jdomSources = new ArrayList(sources.size());
-            for (int i = 0; i < sources.size(); i++) {
-                SAXSource ss = (SAXSource) sources.get(i);
+            ArrayList<JDOM2DocumentWrapper> jdomSources = new ArrayList<>(sources.size());
+            for (SAXSource ss : sources) {
                 SAXBuilder builder = new SAXBuilder();
                 org.jdom2.Document doc = builder.build(ss.getInputSource());
                 doc.setBaseURI(ss.getSystemId());
@@ -37,9 +36,7 @@ public class JDOM2Query extends Query {
                 jdomSources.add(jdom);
             }
             return jdomSources;
-        } catch (JDOMException e) {
-            throw new XPathException(e);
-        } catch (IOException e) {
+        } catch (JDOMException | IOException e) {
             throw new XPathException(e);
         }
     }

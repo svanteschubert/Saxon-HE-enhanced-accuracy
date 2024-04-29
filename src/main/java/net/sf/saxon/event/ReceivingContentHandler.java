@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,12 +13,11 @@ import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.*;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.QuitParsingException;
-import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.tiny.CharSlice;
-import net.sf.saxon.tree.tiny.CompressedWhitespace;
+import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Whitespace;
 import org.xml.sax.*;
@@ -61,7 +60,7 @@ public class ReceivingContentHandler
 
     private char[] buffer = new char[512];
     private int charsUsed = 0;
-    private CharSlice slice = new CharSlice(buffer, 0, 0);
+    //private CharSlice slice = new CharSlice(buffer, 0, 0);
 
     // stack for accumulating namespace information
 
@@ -129,7 +128,6 @@ public class ReceivingContentHandler
         ignoreIgnorable = false;
         retainDTDAttributeTypes = false;
         charsUsed = 0;
-        slice.setLength(0);
         namespaceStack = new Stack<>();
         currentNamespaceMap = NamespaceMap.emptyMap();
         namespaceStack.push(currentNamespaceMap);
@@ -275,8 +273,7 @@ public class ReceivingContentHandler
         } catch (QuitParsingException err) {
             // no action: not worth bothering at this stage of the game
         } catch (XPathException err) {
-            err.maybeSetLocation(localLocator);
-            throw new SAXException(err);
+            throw new SAXException(err.maybeWithLocation(localLocator));
         }
     }
 
@@ -305,7 +302,7 @@ public class ReceivingContentHandler
             // should never be reported, but it's been known to happen
             return;
         }
-        currentNamespaceMap = currentNamespaceMap.bind(prefix, uri);
+        currentNamespaceMap = currentNamespaceMap.bind(prefix, NamespaceUri.of(uri));
     }
 
     /**
@@ -366,7 +363,7 @@ public class ReceivingContentHandler
     @Override
     public void startElement(String uri, String localname, String rawname, Attributes atts)
             throws SAXException {
-        //System.err.println("ReceivingContentHandler#startElement " + localname + " (depth=" + namespaceStack.size() + ")");
+        //System.err.println("ReceivingContentHandler#startElement " + localname + " sysId=" + localLocator.getSystemId());
         //for (int a=0; a<atts.getLength(); a++) {
         //     System.err.println("  Attribute " + atts.getURI(a) + "/" + atts.getLocalName(a) + "/" + atts.getQName(a));
         //}
@@ -375,7 +372,17 @@ public class ReceivingContentHandler
 
             int options = ReceiverOption.NAMESPACE_OK | ReceiverOption.ALL_NAMESPACES;
             NodeName elementName = getNodeName(uri, localname, rawname);
-            AttributeMap attributes = makeAttributeMap(atts, localLocator);
+
+            AttributeMap attributes;
+
+            if (atts.getLength() == 0) {
+                attributes = EmptyAttributeMap.getInstance();
+            }
+            else
+            {
+                attributes = makeAttributeMap(atts, localLocator);
+            }
+
             receiver.startElement(elementName, Untyped.getInstance(),
                                   attributes, currentNamespaceMap,
                                   localLocator, options);
@@ -385,15 +392,15 @@ public class ReceivingContentHandler
             afterStartTag = true;
 
         } catch (XPathException err) {
-            err.maybeSetLocation(localLocator);
-            throw new SAXException(err);
+            throw new SAXException(err.maybeWithLocation(localLocator));
         }
     }
 
     private AttributeMap makeAttributeMap(Attributes atts, Location location) throws SAXException {
         boolean isAttributes2 = atts instanceof Attributes2;
         int length = atts.getLength();
-        List<AttributeInfo> list = new ArrayList<>(atts.getLength());
+
+        List<AttributeInfo> list = new ArrayList<>(length);
         for (int a=0; a<length; a++) {
             int properties = ReceiverOption.NAMESPACE_OK;
             String value = atts.getValue(a);
@@ -407,6 +414,7 @@ public class ReceivingContentHandler
                 continue;
             }
 
+            String uri = atts.getURI(a);
             if (isAttributes2 && !((Attributes2) atts).isSpecified(a)) {
                 // Attribute originates from DTD or schema defaulting.
                 if (defaultedAttributesAction == -1) {
@@ -419,34 +427,34 @@ public class ReceivingContentHandler
                 // Bug 4996 - if the attribute originates from Xerces schema processing,
                 // and if the attribute is namespaced, then the prefix and namespace declaration
                 // may be missing. Although Xerces is getting this wrong, we attempt to repair the damage.
-                if (atts.getURI(a) != null && !"".equals(atts.getURI(a)) && qname.indexOf(':') < 0) {
+                if (!uri.isEmpty() && qname.indexOf(':') < 0) {
                     // defaulted attribute has a URI but no prefix
-                    String uri = atts.getURI(a);
-                    String trialPrefix = getConfiguration().getNamePool().suggestPrefixForURI(uri);
-                    if (trialPrefix == null ) {
-                        String[] existingUris = currentNamespaceMap.getURIsAsArray();
+                    NamespaceUri nsUri = NamespaceUri.of(uri);
+                    String trialPrefix = getConfiguration().getNamePool().suggestPrefixForURI(nsUri);
+                    if (trialPrefix == null) {
+                        NamespaceUri[] existingUris = currentNamespaceMap.getURIsAsArray();
                         for (int u = 0; u < existingUris.length; u++) {
-                            if (existingUris[u].equals(uri)) {
+                            if (existingUris[u].equals(nsUri)) {
                                 trialPrefix = currentNamespaceMap.getPrefixArray()[u];
                             }
                         }
                     }
                     if (trialPrefix == null) {
-                        trialPrefix = "p" + Err.abbreviateURI(atts.getURI(a)).replace("/", "").replace("...", ".");
+                        trialPrefix = "p" + Err.abbreviateURI(uri).replace("/", "").replace("...", ".");
                         if (!NameChecker.isValidNCName(trialPrefix)) {
                             trialPrefix = "p" + "_" + qname;
                         }
                     }
-                    while (currentNamespaceMap.getURI(trialPrefix) != null && !currentNamespaceMap.getURI(trialPrefix).equals(uri)) {
+                    while (currentNamespaceMap.getNamespaceUri(trialPrefix) != null && !currentNamespaceMap.getNamespaceUri(trialPrefix).equals(nsUri)) {
                         trialPrefix = trialPrefix + "z";
                     }
-                    currentNamespaceMap = currentNamespaceMap.put(trialPrefix, uri);
+                    currentNamespaceMap = currentNamespaceMap.put(trialPrefix, nsUri);
                     qname = trialPrefix + ":" + qname;
-                    getConfiguration().getNamePool().suggestPrefix(trialPrefix, uri);
+                    getConfiguration().getNamePool().suggestPrefix(trialPrefix, nsUri);
                 }
             }
 
-            NodeName attCode = getNodeName(atts.getURI(a), atts.getLocalName(a), qname);
+            NodeName attCode = getNodeName(uri, atts.getLocalName(a), qname);
             String type = atts.getType(a);
             SimpleType typeCode = BuiltInAtomicType.UNTYPED_ATOMIC;
             if (retainDTDAttributeTypes) {
@@ -491,7 +499,7 @@ public class ReceivingContentHandler
             }
             list.add(new AttributeInfo(attCode, typeCode, value, location, properties));
         }
-        return AttributeMap.fromList(list);
+        return SequenceTool.attributeMapFromList(list);
     }
 
     /**
@@ -519,7 +527,7 @@ public class ReceivingContentHandler
             throw new SAXException("Parser configuration problem: namespace reporting is not enabled");
         }
 
-        // Following code maintains a local cache to remember all the element names that have been
+        // Following code maintains a local cache to remember all the elemen/attribute names that have been
         // allocated, which reduces contention on the NamePool. It also avoids parsing the lexical QName
         // when the same name is used repeatedly. We also get a tiny improvement by avoiding the first hash
         // table lookup for names in the null namespace.
@@ -546,7 +554,7 @@ public class ReceivingContentHandler
                 return qn;
             } else {
                 String prefix = NameChecker.getPrefix(rawname);
-                FingerprintedQName qn = new FingerprintedQName(prefix, uri, localname);
+                FingerprintedQName qn = new FingerprintedQName(prefix, NamespaceUri.of(uri), localname);
                 map2.put(rawname, qn);
                 return qn;
             }
@@ -576,8 +584,7 @@ public class ReceivingContentHandler
             err.setHasBeenReported(true);
             throw new SAXException(err);
         } catch (XPathException err) {
-            err.maybeSetLocation(localLocator);
-            throw new SAXException(err);
+            throw new SAXException(err.maybeWithLocation(localLocator));
         }
         afterStartTag = false;
         namespaceStack.pop();
@@ -596,7 +603,7 @@ public class ReceivingContentHandler
 
         while (charsUsed + length > buffer.length) {
             buffer = Arrays.copyOf(buffer, buffer.length*2);
-            slice = new CharSlice(buffer, 0, 0);
+            //slice = new CharSlice(buffer, 0, 0);
         }
         System.arraycopy(ch, start, buffer, charsUsed, length);
         charsUsed += length;
@@ -645,13 +652,13 @@ public class ReceivingContentHandler
                             return;
                         }
                     }
-                    CharSequence data;
+                    UnicodeString data;
                     if (remainder == null) {
                         // allowed by the spec but rarely seen: see Saxon bug 2491
-                        data = "";
+                        data = EmptyUnicodeString.getInstance();
                     } else {
                         // not strictly necessary (the parser should have done this) but needed in practice
-                        data = Whitespace.removeLeadingWhitespace(remainder);
+                        data = Whitespace.removeLeadingWhitespace(StringView.tidy(remainder));
                     }
                     receiver.processingInstruction(name, data, localLocator, ReceiverOption.NONE);
                 }
@@ -671,7 +678,7 @@ public class ReceivingContentHandler
         try {
             flush(true);
             if (!inDTD) {
-                receiver.comment(new CharSlice(ch, start, length), localLocator, ReceiverOption.NONE);
+                receiver.comment(StringView.of(new String(ch, start, length)), localLocator, ReceiverOption.NONE);
             }
         } catch (XPathException err) {
             throw new SAXException(err);
@@ -689,9 +696,9 @@ public class ReceivingContentHandler
 
     private void flush(boolean compress) throws XPathException {
         if (charsUsed > 0) {
-            slice.setLength(charsUsed);
-            CharSequence cs = compress ? CompressedWhitespace.compress(slice) : slice;
-            receiver.characters(cs, lastTextNodeLocator,
+            //CharSlice slice = new CharSlice(buffer, 0, charsUsed);
+            UnicodeString content = StringTool.compress(buffer, 0, charsUsed, compress);
+            receiver.characters(content, lastTextNodeLocator,
                     escapingDisabled ? ReceiverOption.DISABLE_ESCAPING : ReceiverOption.WHOLE_TEXT_NODE);
             charsUsed = 0;
             escapingDisabled = false;

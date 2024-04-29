@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,23 +8,30 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.ConstrainedIterator;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.value.EmptySequence;
 
 /**
  * A value that is a sequence containing zero or one items.
  */
 
+@CSharpInjectMembers(code=
+          "public static net.sf.saxon.om.ZeroOrOne<U> empty<U>() where U : net.sf.saxon.om.Item { return new ZeroOrOne<U>(default(U)); }")
+
 public class ZeroOrOne<T extends Item> implements GroundedValue {
 
-    private T item; // may be null, to represent an empty sequence
+    private final T item; // may be null, to represent an empty sequence
 
     @SuppressWarnings("rawtypes")
-    private static ZeroOrOne EMPTY = new ZeroOrOne<>(null);
+    private static final ZeroOrOne EMPTY = new ZeroOrOne<>(null);
 
     /**
      * Return the instance of ZeroOrOne that represents the empty sequence
+     * @param <T> the static type of the empty sequence
      * @return a representation of the empty sequence that satisfies the type ZeroOrOne
      */
 
@@ -45,25 +52,19 @@ public class ZeroOrOne<T extends Item> implements GroundedValue {
     }
 
     /**
-     * Get the string value of this sequence. The string value of an item is the result of applying the string()
-     * function. The string value of an empty sequence is the zero-length string.
-     *
-     * @return the string value of the sequence.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        return item == null ? "" : item.getStringValueCS();
-    }
-
-    /**
      * Convert the value to a string, using the serialization rules.
      * For atomic values this is the same as a cast; for sequence values
      * it gives a space-separated list. For QNames and NOTATIONS, or lists
      * containing them, it fails.
+     * @return the string value
      */
 
     /*@NotNull*/
+    @Override
+    public UnicodeString getUnicodeStringValue() {
+        return item == null ? EmptyUnicodeString.getInstance() : item.getUnicodeStringValue();
+    }
+
     @Override
     public String getStringValue() {
         return item == null ? "" : item.getStringValue();
@@ -135,45 +136,8 @@ public class ZeroOrOne<T extends Item> implements GroundedValue {
      * Return an iterator over this value.
      */
     @Override
-    public ConstrainedIterator<T> iterate() {
-        return new ConstrainedIterator<T>() {
-            boolean gone = false;
-
-            @Override
-            public boolean hasNext() {
-                return item != null && !gone;
-            }
-
-            @Override
-            public T next() {
-                if (gone) {
-                    return null;
-                } else {
-                    gone = true;
-                    return item;
-                }
-            }
-
-            @Override
-            public int getLength() {
-                return item == null ? 0 : 1;
-            }
-
-            @Override
-            public GroundedValue materialize() {
-                return item == null ? EmptySequence.getInstance() : item;
-            }
-
-            @Override
-            public GroundedValue getResidue() {
-                return gone ? EmptySequence.getInstance() : item;
-            }
-
-            @Override
-            public SequenceIterator getReverseIterator() {
-                return iterate();
-            }
-        };
+    public SequenceIterator iterate() {
+        return SingletonIterator.makeIterator(item);
     }
 
     /**

@@ -1,11 +1,13 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.trans;
+
+import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
  * When implementing certain interfaces Saxon is not able to throw a checked exception because
@@ -21,18 +23,50 @@ package net.sf.saxon.trans;
 
 public class UncheckedXPathException extends RuntimeException {
 
-    private XPathException cause;
+    /**
+     * Create an unchecked XPath exception that wraps a supplied checked exception
+     * @param cause the checked exception to be wrapped
+     */
 
     public UncheckedXPathException(XPathException cause) {
-        this.cause = cause;
+        super(cause);
     }
 
+    /**
+     * Create an unchecked XPath exception with supplied error message
+     * @param message the error message
+     */
+
+    @CSharpModifiers(code = {"public", "override"})
+    public UncheckedXPathException(String message) {
+        super(new XPathException(message));
+    }
+
+    /**
+     * Create an unchecked XPath exception with supplied error message and error code
+     * @param message the error message
+     * @param errorCode the local part of the error code
+     */
+
+    public UncheckedXPathException(String message, String errorCode) {
+        super(new XPathException(message, errorCode));
+    }
+
+    public UncheckedXPathException(Throwable cause) {
+        super(new XPathException(cause));
+    }
+
+    /**
+     * Get the underlying (checked) XPathException
+     * @return the checked XPathException wrapped by this UncheckedXPathException
+     */
     public XPathException getXPathException() {
-        return cause;
+        return (XPathException)getCause();
     }
 
     @Override
+    @CSharpModifiers(code = {"public", "override"})
     public String getMessage() {
-        return cause.getMessage();
+        return getCause().getMessage();
     }
 }

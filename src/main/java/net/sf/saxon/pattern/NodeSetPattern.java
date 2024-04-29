@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,12 +12,16 @@ import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.type.AlphaCode;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * A NodeSetPattern is a pattern based on an expression that is evaluated to return a set of nodes;
@@ -31,7 +35,7 @@ import net.sf.saxon.value.SequenceType;
 
 public class NodeSetPattern extends Pattern {
 
-    private Operand selectionOp;
+    private final Operand selectionOp;
     private ItemType itemType;
 
 
@@ -81,14 +85,15 @@ public class NodeSetPattern extends Pattern {
     @Override
     public Pattern typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
         selectionOp.setChildExpression(getSelectionExpression().typeCheck(visitor, contextItemType));
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.MATCH_PATTERN, getSelectionExpression().toString(), 0);
+        Supplier<RoleDiagnostic> role =
+                () ->  new RoleDiagnostic(RoleDiagnostic.MATCH_PATTERN, getSelectionExpression().toString(), 0);
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
-        Expression checked = getSelectionExpression();
+        Expression checked;
         try {
             checked = tc.staticTypeCheck(
                     getSelectionExpression(), SequenceType.NODE_SEQUENCE, role, visitor);
         } catch (XPathException e) {
-            visitor.issueWarning("Pattern will never match anything. " + e.getMessage(), getLocation());
+            visitor.issueWarning("Pattern will never match anything. " + e.getMessage(), SaxonErrorCode.SXWN9015, getLocation());
             checked = Literal.makeEmptySequence();
         }
         selectionOp.setChildExpression(checked);
@@ -171,7 +176,7 @@ public class NodeSetPattern extends Pattern {
                 }
             } catch (XPathException.Circularity | XPathException.StackOverflow e) {
                 throw e;
-            } catch (XPathException e) {
+            } catch (XPathException | UncheckedXPathException e) {
                 // treat pattern matching errors as a non-match
                 return false;
             }
@@ -222,7 +227,7 @@ public class NodeSetPattern extends Pattern {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return 0x73108728 ^ getSelectionExpression().hashCode();
     }
 

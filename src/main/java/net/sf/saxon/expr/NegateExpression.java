@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,21 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.NumericValue;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * Negate Expression: implements the unary minus operator.
@@ -67,13 +73,13 @@ public class NegateExpression extends UnaryExpression {
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         getOperand().typeCheck(visitor, contextInfo);
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.UNARY_EXPR, "-", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.UNARY_EXPR, "-", 0);
         Expression operand = visitor.getConfiguration().getTypeChecker(backwardsCompatible).staticTypeCheck(
                 getBaseExpression(), SequenceType.OPTIONAL_NUMERIC,
                 role, visitor);
         setBaseExpression(operand);
         if (operand instanceof Literal) {
-            GroundedValue v = ((Literal) operand).getValue();
+            GroundedValue v = ((Literal) operand).getGroundedValue();
             if (v instanceof NumericValue) {
                 return Literal.makeLiteral(((NumericValue) v).negate(), this);
             }
@@ -92,7 +98,7 @@ public class NegateExpression extends UnaryExpression {
     }
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality() & ~StaticProperty.ALLOWS_MANY;
     }
 
@@ -115,12 +121,7 @@ public class NegateExpression extends UnaryExpression {
 
     @Override
     public NumericValue evaluateItem(XPathContext context) throws XPathException {
-
-        NumericValue v1 = (NumericValue) getBaseExpression().evaluateItem(context);
-        if (v1 == null) {
-            return backwardsCompatible ? DoubleValue.NaN : null;
-        }
-        return v1.negate();
+        return (NumericValue)makeElaborator().elaborateForItem().eval(context);
     }
 
 
@@ -128,7 +129,7 @@ public class NegateExpression extends UnaryExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings  variables that need to be re-bound
      */
 
     /*@NotNull*/
@@ -164,6 +165,49 @@ public class NegateExpression extends UnaryExpression {
         }
         getBaseExpression().export(out);
         out.endElement();
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new NegateElaborator();
+    }
+
+    /**
+     * Elaborator for a negate expression (that is, unary minus)
+     */
+
+    public static class NegateElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+
+            final NegateExpression exp = (NegateExpression)getExpression();
+            final ItemEvaluator argEval = exp.getBaseExpression().makeElaborator().elaborateForItem();
+            final boolean maybeEmpty = Cardinality.allowsZero(exp.getBaseExpression().getCardinality());
+            final boolean backwardsCompatible = exp.isBackwardsCompatible();
+
+            if (maybeEmpty) {
+                if (backwardsCompatible) {
+                    return context -> {
+                        NumericValue v1 = (NumericValue) argEval.eval(context);
+                        return v1 == null ? DoubleValue.NaN : v1.negate();
+                    };
+                } else {
+                    return context -> {
+                        NumericValue v1 = (NumericValue) argEval.eval(context);
+                        return v1 == null ? null : v1.negate();
+                    };
+                }
+            } else {
+                return context -> ((NumericValue) argEval.eval(context)).negate();
+            }
+        }
+
     }
 }
 

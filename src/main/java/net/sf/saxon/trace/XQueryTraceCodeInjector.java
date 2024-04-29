@@ -16,9 +16,10 @@ import net.sf.saxon.expr.instruct.FixedAttribute;
  */
 public class XQueryTraceCodeInjector extends TraceCodeInjector {
 
+    public XQueryTraceCodeInjector() {}
+
     @Override
     protected boolean isApplicable(Expression exp) {
         return exp.isInstruction() || exp instanceof LetExpression || exp instanceof FixedAttribute;
     }
 }
-

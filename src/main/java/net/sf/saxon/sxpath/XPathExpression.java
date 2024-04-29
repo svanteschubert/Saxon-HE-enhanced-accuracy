@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,9 @@ import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.ItemConsumer;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
@@ -28,16 +30,15 @@ import java.util.List;
  * <p>In Saxon 9.6, the methods that returned Object and did implicit conversion to a native Java object
  * have been removed; all conversions must now be done explicitly.</p>
  *
- * @author Michael H. Kay
  */
 
 
 public class XPathExpression {
 
-    private StaticContext env;
-    private Expression expression;
+    private final StaticContext env;
+    private final Expression expression;
     private SlotManager stackFrameMap;
-    private Executable executable;
+    private final Executable executable;
     private int numberOfExternalVariables;
 
     /**
@@ -172,7 +173,7 @@ public class XPathExpression {
 
     public SequenceIterator iterate(XPathDynamicContext context) throws XPathException {
         context.checkExternalVariables(stackFrameMap, numberOfExternalVariables);
-        return expression.iterate(context.getXPathContextObject());
+        return expression.makeElaborator().elaborateForPull().iterate(context.getXPathContextObject());
     }
 
     /**
@@ -186,7 +187,9 @@ public class XPathExpression {
 
     public List<Item> evaluate(XPathDynamicContext context) throws XPathException {
         List<Item> list = new ArrayList<>(20);
-        expression.iterate(context.getXPathContextObject()).forEachOrFail(list::add);
+        // Don't replace with list::add - C# doesn't like it because list.add() returns boolean
+        //noinspection Convert2MethodRef
+        SequenceTool.supply(expression.iterate(context.getXPathContextObject()), (ItemConsumer<? super Item>) item -> list.add(item));
         return list;
     }
 
@@ -220,7 +223,7 @@ public class XPathExpression {
      */
 
     public boolean effectiveBooleanValue(XPathDynamicContext context) throws XPathException {
-        return expression.effectiveBooleanValue(context.getXPathContextObject());
+        return expression.makeElaborator().elaborateForBoolean().eval(context.getXPathContextObject());
     }
 
     /**

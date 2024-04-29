@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,19 +11,22 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Platform;
 import net.sf.saxon.dom.DOMEnvelope;
 import net.sf.saxon.dom.DOMObjectModel;
-import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.expr.sort.*;
 import net.sf.saxon.functions.FunctionLibraryList;
-import net.sf.saxon.lib.ModuleURIResolver;
-import net.sf.saxon.lib.StandardModuleURIResolver;
-import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.lib.*;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.pull.ActiveStAXSource;
 import net.sf.saxon.regex.ARegularExpression;
 import net.sf.saxon.regex.JavaRegularExpression;
 import net.sf.saxon.regex.RegularExpression;
+import net.sf.saxon.resource.ActiveSAXSource;
+import net.sf.saxon.resource.ActiveStreamSource;
 import net.sf.saxon.resource.StandardCollectionFinder;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.DynamicLoader;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ExternalObjectType;
 import net.sf.saxon.xpath.JAXPXPathStaticContext;
@@ -33,14 +36,23 @@ import org.xml.sax.XMLReader;
 import javax.xml.namespace.NamespaceContext;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParserFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.transform.Result;
 import javax.xml.transform.Source;
+import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactoryConfigurationError;
+import javax.xml.transform.sax.SAXSource;
+import javax.xml.transform.stax.StAXSource;
 import javax.xml.transform.stream.StreamSource;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Method;
+import java.net.URL;
 import java.text.CollationKey;
 import java.text.Collator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 
 /**
@@ -58,14 +70,90 @@ public class JavaPlatform implements Platform {
     public JavaPlatform() {
     }
 
+    /**
+     * Get the default language for localization.
+     *
+     * @return the default language
+     */
+    public String getDefaultLanguage() {
+        return Locale.getDefault().getLanguage();
+    }
+
+    /**
+     * Get the default country for localization.
+     *
+     * @return the default country
+     */
+    public String getDefaultCountry() {
+        return Locale.getDefault().getCountry();
+    }
+
+    /**
+     * Read a resource file issued with the Saxon product
+     *
+     * @param filename the filename of the file to be read
+     * @param messages List to be populated with messages in the event of failure
+     * @return an InputStream for reading the file/resource
+     */
+
+    /*@Nullable*/
+    public InputStream locateResource(String filename, List<String> messages) {
+        filename = "net/sf/saxon/data/" + filename;
+        ClassLoader loader = null;
+        try {
+            loader = Thread.currentThread().getContextClassLoader();
+        } catch (Exception err) {
+            messages.add("Failed to getContextClassLoader() - continuing\n");
+        }
+
+        InputStream in = null;
+
+        if (loader != null) {
+            URL u = loader.getResource(filename);
+            in = loader.getResourceAsStream(filename);
+            if (in == null) {
+                messages.add("Cannot read " + filename + " file located using ClassLoader " +
+                                     loader + " - continuing\n");
+            }
+        }
+
+        if (in == null) {
+            loader = Configuration.class.getClassLoader();
+            if (loader != null) {
+                in = loader.getResourceAsStream(filename);
+                if (in == null) {
+                    messages.add("Cannot read " + filename + " file located using ClassLoader " +
+                                         loader + " - continuing\n");
+                }
+            }
+        }
+
+        if (in == null) {
+            // Means we're in a very strange class-loading environment, things are getting desperate
+            URL url = ClassLoader.getSystemResource(filename);
+            if (url != null) {
+                try {
+                    in = url.openStream();
+                } catch (IOException ioe) {
+                    messages.add("IO error " + ioe.getMessage() +
+                                         " reading " + filename + " located using getSystemResource(): using defaults");
+                    in = null;
+                }
+            }
+        }
+        //loaders.add(loader);
+        return in;
+
+    }
+
 
     /**
      * Checks if the supplied static context is an instance of the JAXP static context.
      * On Java we create namespace information from the JAXP XPath static context.
      * On the .NET platform we do nothing.
      *
-     * @param retainedStaticContext
-     * @param sc
+     * @param retainedStaticContext the retained static context
+     * @param sc                    the supplied static context
      * @return boolean
      * @since 9.7.0.5
      */
@@ -94,8 +182,8 @@ public class JavaPlatform implements Platform {
         retainedStaticContext.setNamespaces(new NamespaceResolver() {
 
             @Override
-            public String getURIForPrefix(String prefix, boolean useDefault) {
-                return nc.getNamespaceURI(prefix);
+            public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
+                return NamespaceUri.of(nc.getNamespaceURI(prefix));
             }
 
             @Override
@@ -153,6 +241,15 @@ public class JavaPlatform implements Platform {
         return "J";
     }
 
+    /**
+     * Get the default DynamicLoader for the platform
+     *
+     * @return the default DynamicLoader
+     */
+
+    public IDynamicLoader getDefaultDynamicLoader() {
+        return new DynamicLoader();
+    }
 
     /**
      * Get a parser by instantiating the SAXParserFactory
@@ -222,22 +319,45 @@ public class JavaPlatform implements Platform {
     }
 
     /**
-     * Convert a StreamSource to either a SAXSource or a PullSource, depending on the native
-     * parser of the selected platform
+     * Convert a Source to an ActiveSource. This method is present in the Platform
+     * because different Platforms accept different kinds of Source object.
      *
-     * @param pipe          the pipeline configuration
-     * @param input         the supplied StreamSource
-     * @param validation    indicates whether schema validation is required
-     * @param dtdValidation indicates whether DTD validation is required
-     * @return the PullSource or SAXSource, initialized with a suitable parser, or the original
-     * input Source, if now special handling is required or possible. This implementation
-     * always returns the original input unchanged.
+     * @param source A source object, typically the source supplied as the first
+     *               argument to {@link Transformer#transform(Source, Result)}
+     *               or similar methods.
+     * @param config The Configuration. This provides the SourceResolver with access to
+     *               configuration information; it also allows the SourceResolver to invoke the
+     *               resolveSource() method on the Configuration object as a fallback implementation.
+     * @return a source object that Saxon knows how to process. Return null if the Source object is not
+     * recognized
+     * @throws XPathException if the Source object is recognized but cannot be processed
      */
-
     @Override
-    public Source getParserSource(PipelineConfiguration pipe, StreamSource input, int validation,
-                                  boolean dtdValidation) {
-        return input;
+    public ActiveSource resolveSource(Source source, Configuration config) throws XPathException {
+        if (source instanceof ActiveSource) {
+            return (ActiveSource)source;
+        }
+        if (source instanceof SAXSource) {
+            if (((SAXSource)source).getXMLReader() == null) {
+                final XMLReader sourceParser = config.getSourceParser();
+                ((SAXSource) source).setXMLReader(sourceParser);
+                ActiveSAXSource activeSource = new ActiveSAXSource((SAXSource) source);
+                activeSource.setParserPool(config::reuseSourceParser);
+                return activeSource;
+            }
+            return new ActiveSAXSource((SAXSource)source);
+        }
+        if (source instanceof StreamSource) {
+            return new ActiveStreamSource((StreamSource)source);
+        }
+        if (source instanceof StAXSource) {
+            try {
+                return ActiveStAXSource.fromStAXSource((StAXSource) source);
+            } catch (XMLStreamException e) {
+                throw new XPathException(e);
+            }
+        }
+        return null;
     }
 
     /**
@@ -316,7 +436,7 @@ public class JavaPlatform implements Platform {
 
     @Override
     public StringCollator makeUcaCollator(String uri, Configuration config) throws XPathException {
-        UcaCollatorUsingJava collator = new UcaCollatorUsingJava(uri);
+        UcaCollatorUsingJava collator = new UcaCollatorUsingJava(uri, config);
         if ("yes".equals(collator.getProperties().getProperty("numeric"))) {
             return new AlphanumericCollator(collator);
         } else {
@@ -336,7 +456,7 @@ public class JavaPlatform implements Platform {
      * @throws net.sf.saxon.trans.XPathException if the regular expression or the flags are invalid
      */
     @Override
-    public RegularExpression compileRegularExpression(Configuration config, CharSequence regex, String flags, String hostLanguage, List<String> warnings) throws XPathException {
+    public RegularExpression compileRegularExpression(Configuration config, UnicodeString regex, String flags, String hostLanguage, List<String> warnings) throws XPathException {
         // recognize "!" as a flag to mean: use native Java regex syntax
         if (flags.contains("!")) {
             // undocumented
@@ -376,7 +496,7 @@ public class JavaPlatform implements Platform {
     }
 
     @Override
-    public ExternalObjectType getExternalObjectType(Configuration config, String uri, String localName) {
+    public ExternalObjectType getExternalObjectType(Configuration config, NamespaceUri uri, String localName) {
         throw new UnsupportedOperationException("getExternalObjectType for Java");
     }
 
@@ -426,7 +546,6 @@ public class JavaPlatform implements Platform {
     public ModuleURIResolver makeStandardModuleURIResolver(Configuration config) {
         return new StandardModuleURIResolver(config);
     }
-
 
 
 

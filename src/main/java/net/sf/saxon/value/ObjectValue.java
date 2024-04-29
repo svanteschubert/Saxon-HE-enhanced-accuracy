@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,12 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.om.Genre;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.JavaExternalObjectType;
 import net.sf.saxon.type.TypeHierarchy;
 
 import java.util.Objects;
@@ -36,9 +40,9 @@ import java.util.Objects;
  * Java object.</p>
  */
 
-public class ObjectValue<T> implements ExternalObject<T> {
+public class ObjectValue<T> implements AnyExternalObject {
 
-    /*@NotNull*/ private T value;
+    /*@NotNull*/ private final T value;
 
     /**
      * Constructor
@@ -65,41 +69,16 @@ public class ObjectValue<T> implements ExternalObject<T> {
      * node as defined in the XPath 2.0 data model, except that all nodes are treated as being
      * untyped: it is not an error to get the string value of a node with a complex type.
      * For atomic values, the method returns the result of casting the atomic value to a string.
-     * <p>If the calling code can handle any CharSequence, the method {@link #getStringValueCS} should
-     * be used. If the caller requires a string, this method is preferred.</p>
      *
      * @return the string value of the item
      * @throws UnsupportedOperationException if the item is a function item (an unchecked exception
      *                                       is used here to avoid introducing exception handling to a large number of paths where it is not
      *                                       needed)
-     * @see #getStringValueCS
      * @since 8.4
      */
     @Override
-    public String getStringValue() {
-        return value.toString();
-    }
-
-    /**
-     * Get the string value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String. The method satisfies the rule that
-     * <code>X.getStringValueCS().toString()</code> returns a string that is equal to
-     * <code>X.getStringValue()</code>.
-     * <p>Note that two CharSequence values of different types should not be compared using equals(), and
-     * for the same reason they should not be used as a key in a hash table.</p>
-     * <p>If the calling code can handle any CharSequence, this method should
-     * be used. If the caller requires a string, the {@link #getStringValue} method is preferred.</p>
-     *
-     * @return the string value of the item
-     * @throws UnsupportedOperationException if the item is a function item (an unchecked exception
-     *                                       is used here to avoid introducing exception handling to a large number of paths where it is not
-     *                                       needed)
-     * @see #getStringValue
-     * @since 8.4
-     */
-    @Override
-    public CharSequence getStringValueCS() {
-        return value.toString();
+    public UnicodeString getUnicodeStringValue() {
+        return StringView.of(value.toString()).tidy();
     }
 
     /**
@@ -110,7 +89,7 @@ public class ObjectValue<T> implements ExternalObject<T> {
      */
     @Override
     public StringValue atomize() {
-        return new StringValue(getStringValue());
+        return new StringValue(getUnicodeStringValue().tidy());
     }
 
     /**
@@ -122,13 +101,17 @@ public class ObjectValue<T> implements ExternalObject<T> {
 
     /*@NotNull*/
     @Override
+    @CSharpReplaceBody(code="return Saxon.Hej.type.AnyExternalObjectType.THE_INSTANCE;")
     public ItemType getItemType(/*@Nullable*/ TypeHierarchy th) {
-        return th.getConfiguration().getJavaExternalObjectType(value.getClass());
+        synchronized(th.getConfiguration()) {
+            return JavaExternalObjectType.of(value.getClass());
+        }
     }
 
     /**
      * Display the type name for use in error messages
      *
+     * @param value a Java object
      * @return the type name. This will be in the form "java-type:" followed by the full class name of the
      * wrapped Java object.
      */
@@ -154,8 +137,19 @@ public class ObjectValue<T> implements ExternalObject<T> {
      * @return the Java object that this external object wraps
      */
 
-    @Override
     public T getObject() {
+        return value;
+    }
+
+    /**
+     * Get the encapsulated object. This version of the method does not use generics,
+     * enabling it to work the same way in Java and C#.
+     *
+     * @return the Java object that this external object wraps
+     */
+
+    @Override
+    public Object getWrappedObject() {
         return value;
     }
 
@@ -167,8 +161,8 @@ public class ObjectValue<T> implements ExternalObject<T> {
      */
 
     public boolean equals(/*@NotNull*/ Object other) {
-        if (other instanceof ObjectValue) {
-            Object o = ((ObjectValue) other).value;
+        if (other instanceof ObjectValue<?>) {
+            Object o = ((ObjectValue<?>) other).value;
             return value.equals(o);
         } else {
             return false;
@@ -185,7 +179,7 @@ public class ObjectValue<T> implements ExternalObject<T> {
         if (v.startsWith(value.getClass().getName())) {
             return v;
         } else {
-            return "(" + value.getClass().getSimpleName() + ")" + Err.truncate30(value.toString());
+            return "(" + value.getClass().getSimpleName() + ")" + Err.truncate30(StringView.tidy(value.toString()));
         }
     }
 }

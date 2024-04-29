@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,16 +8,18 @@
 package net.sf.saxon.serialize;
 
 import net.sf.saxon.event.ReceiverOption;
-import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.SaxonOutputKeys;
+import net.sf.saxon.om.AttributeMap;
 import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.*;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.tiny.CompressedWhitespace;
 import net.sf.saxon.type.SchemaType;
 
 import javax.xml.transform.OutputKeys;
+import java.io.IOException;
 import java.util.Stack;
 
 /**
@@ -35,15 +37,15 @@ public abstract class HTMLEmitter extends XMLEmitter {
     private static final int REP_DECIMAL = 2;
     private static final int REP_HEX = 3;
 
-    private int nonASCIIRepresentation = REP_NATIVE;
-    private int excludedRepresentation = REP_ENTITY;
+    private final int nonASCIIRepresentation = REP_NATIVE;
+    private final int excludedRepresentation = REP_ENTITY;
 
     private int inScript;
     protected int version = 5;
     private String parentElement;
-    private String uri;
+    private NamespaceUri uri;
     private boolean escapeNonAscii = false;
-    private Stack<NodeName> nodeNameStack = new Stack<>();
+    private final Stack<NodeName> nodeNameStack = new Stack<>();
 
     /**
      * Decode preferred representation
@@ -90,8 +92,8 @@ public abstract class HTMLEmitter extends XMLEmitter {
     // we use two HashMaps to avoid unnecessary string concatenations
 
     // Sizes must be large enough: this hash set cannot grow beyond the initial size
-    private static HTMLTagHashSet booleanAttributes = new HTMLTagHashSet(43);
-    private static HTMLTagHashSet booleanCombinations = new HTMLTagHashSet(57);
+    private static final HTMLTagHashSet booleanAttributes = new HTMLTagHashSet(43);
+    private static final HTMLTagHashSet booleanCombinations = new HTMLTagHashSet(57);
 
     // See http://www.w3.org/TR/html5/index.html#attributes-1 (checked 2014-01-07)
 
@@ -187,6 +189,7 @@ public abstract class HTMLEmitter extends XMLEmitter {
     /**
      * Decide whether an element is "serialized as an HTML element" in the language of the 3.0 specification
      *
+     * @param name the name of the element
      * @return true if the element is to be serialized as an HTML element
      */
 
@@ -202,9 +205,10 @@ public abstract class HTMLEmitter extends XMLEmitter {
 
     @Override
     protected void openDocument() throws XPathException {
-        if (writer == null) {
-            makeWriter();
-        }
+        assert writer != null;
+//        if (writer == null) {
+//            makeWriter();
+//        }
         if (started) {
             return;
         }
@@ -213,7 +217,7 @@ public abstract class HTMLEmitter extends XMLEmitter {
         if ("yes".equals(byteOrderMark) &&
                 "UTF-8".equalsIgnoreCase(outputProperties.getProperty(OutputKeys.ENCODING))) {
             try {
-                writer.write('\uFEFF');
+                writer.writeCodePoint(0xFEFF);
             } catch (java.io.IOException err) {
                 // Might be an encoding exception; just ignore it
             }
@@ -240,13 +244,23 @@ public abstract class HTMLEmitter extends XMLEmitter {
 
     /**
      * Output element start tag
+     *
+     * @param elemName   the name of the element
+     * @param type       the type annotation of the element
+     * @param attributes the attributes of this element
+     * @param namespaces the in-scope namespaces of this element: generally this is all the in-scope
+     *                   namespaces, without relying on inheriting namespaces from parent elements
+     * @param location   an object providing information about the module, line, and column where the node originated
+     * @param properties bit-significant properties of the element node. If there are no relevant
+     *                   properties, zero is supplied. The definitions of the bits are in class {@link ReceiverOption}
+     * @throws XPathException if an error occurs
      */
 
     @Override
     public void startElement(NodeName elemName, SchemaType type,
                              AttributeMap attributes, NamespaceMap namespaces,
                              Location location, int properties) throws XPathException {
-        uri = elemName.getURI();
+        uri = elemName.getNamespaceUri();
         super.startElement(elemName, type, attributes, namespaces, location, properties);
         parentElement = elementStack.peek();
         if (isHTMLElement(elemName) &&
@@ -269,10 +283,10 @@ public abstract class HTMLEmitter extends XMLEmitter {
      */
 
     @Override
-    protected void writeAttribute(NodeName elCode, String attname, CharSequence value, int properties) throws XPathException {
+    protected void writeAttribute(NodeName elCode, String attname, String value, int properties) throws XPathException {
         try {
             if (isHTMLElement(elCode)) {
-                if (isBooleanAttribute(elCode.getLocalPart(), attname, value.toString())) {
+                if (isBooleanAttribute(elCode.getLocalPart(), attname, value)) {
                     writer.write(attname);
                     return;
                 }
@@ -292,127 +306,107 @@ public abstract class HTMLEmitter extends XMLEmitter {
      */
 
     @Override
-    protected void writeEscape(final CharSequence chars, final boolean inAttribute)
+    protected void writeEscape(UnicodeString chars, final boolean inAttribute)
             throws java.io.IOException, XPathException {
 
         int segstart = 0;
         final boolean[] specialChars = inAttribute ? attSpecials : specialInText;
 
-        if (chars instanceof CompressedWhitespace) {
-            ((CompressedWhitespace) chars).writeEscape(specialChars, writer);
+        if (chars instanceof WhitespaceString) {
+            ((WhitespaceString) chars).writeEscape(specialChars, writer);
             return;
         }
         boolean disabled = false;
-
-        while (segstart < chars.length()) {
+        chars = chars.tidy();
+        int[] codePoints = StringTool.expand(chars);
+        while (segstart < codePoints.length) {
             int i = segstart;
 
             // find a maximal sequence of "ordinary" characters
 
             if (escapeNonAscii) {
-                char c;
-                while (i < chars.length() && (c = chars.charAt(i)) < 127 && !specialChars[c]) {
+                int c;
+                while (i < codePoints.length && (c = codePoints[i]) < 127 && !specialChars[c]) {
                     i++;
                 }
             } else {
-                char c;
-                while (i < chars.length() &&
-                        ((c = chars.charAt(i)) < 127 ? !specialChars[c] : (characterSet.inCharset(c) && c > 160)
-                        )
-                        ) {
+                int c;
+                while (i < codePoints.length &&
+                        ((c = codePoints[i]) < 127 ? !specialChars[c] : (characterSet.inCharset(c) && c > 160))) {
                     i++;
                 }
             }
 
             // if this was the whole string, output the string and quit
 
-            if (i == chars.length()) {
-                if (segstart == 0) {
-                    writeCharSequence(chars);
-                } else {
-                    writeCharSequence(chars.subSequence(segstart, i));
-                }
+            if (i == codePoints.length) {
+                writer.write(chars.substring(segstart));
                 return;
             }
 
             // otherwise, output this sequence and continue
             if (i > segstart) {
-                writeCharSequence(chars.subSequence(segstart, i));
+                writer.write(chars.substring(segstart, i));
             }
 
-            final char c = chars.charAt(i);
-            if (c == 0) {
+            final int ch = codePoints[i];
+            if (ch == 0) {
                 // used to switch escaping on and off
                 disabled = !disabled;
             } else if (disabled) {
-                writer.write(c);
-            } else if (c <= 127) {
+                writeCodePoint(ch);
+            } else if (ch <= 127) {
                 // handle a special ASCII character
                 if (inAttribute) {
-                    if (c == '<') {
-                        writer.write('<');      // not escaped
-                    } else if (c == '>') {
-                        writer.write("&gt;");   // recommended for older browsers
-                    } else if (c == '&') {
-                        if (i + 1 < chars.length() && chars.charAt(i + 1) == '{') {
-                            writer.write('&');                   // not escaped if followed by '{'
+                    if (ch == '<') {
+                        writer.writeCodePoint('<');      // not escaped
+                    } else if (ch == '>') {
+                        writer.writeAscii(StringConstants.ESCAPE_GT);   // recommended for older browsers
+                    } else if (ch == '&') {
+                        if (i + 1 < codePoints.length && codePoints[i + 1] == '{') {
+                            writer.writeCodePoint('&');                   // not escaped if followed by '{'
                         } else {
-                            writer.write("&amp;");
+                            writer.writeAscii(StringConstants.ESCAPE_AMP);
                         }
-                    } else if (c == '\"') {
-                        writer.write("&#34;");
-                    } else if (c == '\'') {
-                        writer.write("&#39;");
-                    } else if (c == '\n') {
-                        writer.write("&#xA;");
-                    } else if (c == '\t') {
-                        writer.write("&#x9;");
-                    } else if (c == '\r') {
-                        writer.write("&#xD;");
+                    } else if (ch == '\"') {
+                        writer.writeAscii(StringConstants.ESCAPE_QUOT);
+                    } else if (ch == '\'') {
+                        writer.writeAscii(StringConstants.ESCAPE_APOS);
+                    } else if (ch == '\n') {
+                        writer.writeAscii(StringConstants.ESCAPE_NL);
+                    } else if (ch == '\t') {
+                        writer.writeAscii(StringConstants.ESCAPE_TAB);
+                    } else if (ch == '\r') {
+                        writer.writeAscii(StringConstants.ESCAPE_CR);
                     }
                 } else {
-                    if (c == '<') {
-                        writer.write("&lt;");
-                    } else if (c == '>') {
-                        writer.write("&gt;");  // changed to allow for "]]>"
-                    } else if (c == '&') {
-                        writer.write("&amp;");
-                    } else if (c == '\r') {
-                        writer.write("&#xD;");
+                    if (ch == '<') {
+                        writer.writeAscii(StringConstants.ESCAPE_LT);
+                    } else if (ch == '>') {
+                        writer.writeAscii(StringConstants.ESCAPE_GT);
+                    } else if (ch == '&') {
+                        writer.writeAscii(StringConstants.ESCAPE_AMP);
+                    } else if (ch == '\r') {
+                        writer.writeAscii(StringConstants.ESCAPE_CR);
                     }
                 }
 
-            } else if (c < 160) {
+            } else if (ch < 160) {
                 if (rejectControlCharacters()) {
                     // these control characters are illegal in HTML
-                    XPathException err = new XPathException("Illegal HTML character: decimal " + (int) c);
-                    err.setErrorCode("SERE0014");
-                    throw err;
+                    throw new XPathException("Illegal HTML character: decimal " + ch, "SERE0014");
                 } else {
-                    characterReferenceGenerator.outputCharacterReference(c, writer);
+                    characterReferenceGenerator.outputCharacterReference(ch, writer);
                 }
 
-            } else if (c == 160) {
+            } else if (ch == 160) {
                 // always output NBSP as an entity reference
-                writer.write("&nbsp;");
+                writer.writeAscii(StringConstants.ESCAPE_NBSP);
 
-            } else if (c >= 55296 && c <= 56319) {  //handle surrogate pair
-
-                //A surrogate pair is two consecutive Unicode characters.  The first
-                //is in the range D800 to DBFF, the second is in the range DC00 to DFFF.
-                //To compute the numeric value of the character corresponding to a surrogate
-                //pair, use this formula (all numbers are hex):
-                //(FirstChar - D800) * 400 + (SecondChar - DC00) + 10000
-
-                // we'll trust the data to be sound
-                int charval = (((int) c - 55296) * 1024) + ((int) chars.charAt(i + 1) - 56320) + 65536;
-                characterReferenceGenerator.outputCharacterReference(charval, writer);
-                i++;
-
-            } else if (escapeNonAscii || !characterSet.inCharset(c)) {
-                characterReferenceGenerator.outputCharacterReference(c, writer);
+            } else if (ch > 65535 || escapeNonAscii || !characterSet.inCharset(ch)) {
+                characterReferenceGenerator.outputCharacterReference(ch, writer);
             } else {
-                writer.write(c);
+                writer.writeCodePoint(ch);
             }
             segstart = ++i;
         }
@@ -428,18 +422,18 @@ public abstract class HTMLEmitter extends XMLEmitter {
 
     /**
      * Close an empty element tag. (This is overridden in XHTMLEmitter).
-     *
-     * @param displayName the name of the empty element
+     *  @param displayName the name of the empty element
      * @param nameCode    the fingerprint of the name of the empty element
-     * @return the string used to close an empty element tag.
      */
 
     @Override
-    protected String emptyElementTagCloser(String displayName, NodeName nameCode) {
+    protected void writeEmptyElementTagCloser(String displayName, NodeName nameCode) throws IOException {
         if (isHTMLElement(nameCode)) {
-            return "></" + displayName + ">";
+            writer.writeAscii(StringConstants.EMPTY_TAG_MIDDLE);
+            writer.write(displayName);
+            writer.writeCodePoint('>');
         } else {
-            return "/>";
+            writer.writeAscii(StringConstants.EMPTY_TAG_END);
         }
     }
 
@@ -473,7 +467,7 @@ public abstract class HTMLEmitter extends XMLEmitter {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties)
+    public void characters(UnicodeString chars, Location locationId, int properties)
             throws XPathException {
         if (inScript > 0) {
             properties |= ReceiverOption.DISABLE_ESCAPING;
@@ -486,27 +480,24 @@ public abstract class HTMLEmitter extends XMLEmitter {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties)
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties)
             throws XPathException {
         if (!started) {
             openDocument();
         }
-        for (int i = 0; i < data.length(); i++) {
-            if (data.charAt(i) == '>') {
-                XPathException err = new XPathException("A processing instruction in HTML must not contain a > character");
-                err.setErrorCode("SERE0015");
-                throw err;
-            }
+        UnicodeString t = data.tidy();
+        if (t.indexOf('>') >= 0) {
+            throw new XPathException("A processing instruction in HTML must not contain a > character", "SERE0015");
         }
         try {
             if (openStartTag) {
                 closeStartTag();
             }
-            writer.write("<?");
+            writer.writeAscii(StringConstants.PI_START);
             writer.write(target);
-            writer.write(' ');
-            writeCharSequence(data);
-            writer.write('>');
+            writer.writeCodePoint(' ');
+            writer.write(t);
+            writer.writeCodePoint('>');
         } catch (java.io.IOException err) {
             throw new XPathException(err);
         }

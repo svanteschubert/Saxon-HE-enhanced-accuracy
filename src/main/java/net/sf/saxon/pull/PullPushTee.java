@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.NamespaceBinding;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringConstants;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.Type;
@@ -32,9 +33,9 @@ import java.util.Stack;
 
 public class PullPushTee extends PullFilter {
 
-    private Receiver branch;
+    private final Receiver branch;
     boolean previousAtomic = false;
-    private Stack<NamespaceMap> nsStack = new Stack<>();
+    private final Stack<NamespaceMap> nsStack = new Stack<>();
 
     /**
      * Create a PullPushTee
@@ -64,11 +65,11 @@ public class PullPushTee extends PullFilter {
      * copies it to the branch Receiver, and then returns the event to the caller.
      *
      * @return an integer code indicating the type of event. The code
-     *         {@link net.sf.saxon.pull.PullProvider.Event#END_OF_INPUT} is returned at the end of the sequence.
+     *         {@link PullEvent#END_OF_INPUT} is returned at the end of the sequence.
      */
 
     @Override
-    public Event next() throws XPathException {
+    public PullEvent next() throws XPathException {
         currentEvent = super.next();
         copyEvent(currentEvent);
         return currentEvent;
@@ -81,7 +82,7 @@ public class PullPushTee extends PullFilter {
      * @param event the pull event to be copied
      */
 
-    private void copyEvent(Event event) throws XPathException {
+    private void copyEvent(PullEvent event) throws XPathException {
         PullProvider in = getUnderlyingProvider();
         Location loc = in.getSourceLocator();
         if (loc == null) {
@@ -100,7 +101,9 @@ public class PullPushTee extends PullFilter {
                     if (binding == null) {
                         break;
                     }
-                    nsMap = nsMap.put(binding.getPrefix(), binding.getURI());
+                    if (!(binding.getPrefix().isEmpty() && binding.getNamespaceUri().equals(nsMap.getDefaultNamespace()))) {
+                        nsMap = nsMap.put(binding.getPrefix(), binding.getNamespaceUri());
+                    }
                 }
                 nsStack.push(nsMap);
                 out.startElement(in.getNodeName(), in.getSchemaType(),
@@ -110,7 +113,6 @@ public class PullPushTee extends PullFilter {
                 break;
 
             case TEXT:
-
                 out.characters(in.getStringValue(), loc, ReceiverOption.WHOLE_TEXT_NODE);
                 break;
 
@@ -152,10 +154,9 @@ public class PullPushTee extends PullFilter {
                     out.append(super.getAtomicValue(), loc, ReceiverOption.NONE);
                 } else {
                     if (previousAtomic) {
-                        out.characters(" ", loc, ReceiverOption.NONE);
+                        out.characters(StringConstants.SINGLE_SPACE, loc, ReceiverOption.NONE);
                     }
-                    CharSequence chars = in.getStringValue();
-                    out.characters(chars, loc, ReceiverOption.NONE);
+                    out.characters(in.getStringValue(), loc, ReceiverOption.NONE);
                 }
                 break;
 
@@ -164,7 +165,7 @@ public class PullPushTee extends PullFilter {
                     Orphan o = new Orphan(in.getPipelineConfiguration().getConfiguration());
                     o.setNodeName(getNodeName());
                     o.setNodeKind(Type.ATTRIBUTE);
-                    o.setStringValue(getStringValue());
+                    o.setStringValue(getStringValue().tidy());
                     out.append(o, loc, ReceiverOption.NONE);
                 }
                 break;
@@ -174,7 +175,7 @@ public class PullPushTee extends PullFilter {
                     Orphan o = new Orphan(in.getPipelineConfiguration().getConfiguration());
                     o.setNodeName(getNodeName());
                     o.setNodeKind(Type.NAMESPACE);
-                    o.setStringValue(getStringValue());
+                    o.setStringValue(getStringValue().tidy());
                     out.append(o, loc, ReceiverOption.NONE);
                 }
                 break;
@@ -183,7 +184,7 @@ public class PullPushTee extends PullFilter {
                 throw new UnsupportedOperationException("" + event);
 
         }
-        previousAtomic = event == Event.ATOMIC_VALUE;
+        previousAtomic = event == PullEvent.ATOMIC_VALUE;
     }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,16 +14,19 @@ import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.s9api.streams.Step;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.NumericValue;
+
+import java.util.function.Predicate;
 
 /**
  * An item type, as defined in the XPath/XQuery specifications.
@@ -34,13 +37,23 @@ import net.sf.saxon.value.NumericValue;
  * on a later version.</p>
  * <p>More complicated item types, especially those that are dependent on information in a schema,
  * are available using factory methods on the {@link ItemTypeFactory} object. The factory methods can
- * also be used to create variants of the types that use the rules given in the XML 1.1 and/or XSD 1.1 specifications.</p>
+ * also be used to create variants of the types that use the rules given in the XML 1.1 and/or XSD 1.1
+ * specifications. In addition the method {@link ItemTypeFactory#parseItemType} can be used to construct
+ * <code>ItemType</code> objects from their representation in XPath syntax.</p>
+ * <p>An <code>ItemType</code> can be used as a predicate in contexts where a predicate is required
+ * to filter items, for example in {@link Step#where}.</p>
  */
 
 @SuppressWarnings("WeakerAccess")
-public abstract class ItemType {
+public abstract class ItemType implements Predicate<XdmItem> {
 
-    private static ConversionRules defaultConversionRules = new ConversionRules();
+    protected final net.sf.saxon.type.ItemType underlyingType;
+
+    public ItemType(net.sf.saxon.type.ItemType underlyingType) {
+        this.underlyingType = underlyingType;
+    }
+
+    private static final ConversionRules defaultConversionRules = new ConversionRules();
 
     static {
         defaultConversionRules.setStringToDoubleConverter(StringToDouble.getInstance());
@@ -49,10 +62,65 @@ public abstract class ItemType {
     }
 
     /**
+     * Combine an item type with an occurrence indicator to produce a SequenceType. For example
+     * <code>ItemType.ANY_ITEM.with(OccurrenceIndicator.ONE_OR_MORE)</code> returns the sequence
+     * type <code>item()+</code>.
+     * @param occurrenceIndicator the occurrence indicator to be used
+     * @return the corresponding sequence type
+     */
+
+    public SequenceType with(OccurrenceIndicator occurrenceIndicator) {
+        return SequenceType.makeSequenceType(this, occurrenceIndicator);
+    }
+
+    /**
+     * Combine the item type with the occurrence indicator "exactly one"
+     * to form a sequence type.
+     * @return the result of <code>with(OccurrenceIndicator.ONE)</code>
+     */
+
+    public SequenceType one() {
+        return SequenceType.makeSequenceType(this, OccurrenceIndicator.ONE);
+    }
+
+    /**
+     * Combine the item type with the occurrence indicator "one or more" (+)
+     * to form a sequence type.
+     *
+     * @return the result of <code>with(OccurrenceIndicator.ONE_OR_MORE)</code>
+     */
+
+    public SequenceType oneOrMore() {
+        return SequenceType.makeSequenceType(this, OccurrenceIndicator.ONE_OR_MORE);
+    }
+
+    /**
+     * Combine the item type with the occurrence indicator "zero or more" (*)
+     * to form a sequence type.
+     *
+     * @return the result of <code>with(OccurrenceIndicator.ZERO_OR_MORE)</code>
+     */
+
+    public SequenceType zeroOrMore() {
+        return SequenceType.makeSequenceType(this, OccurrenceIndicator.ZERO_OR_MORE);
+    }
+
+    /**
+     * Combine the item type with the occurrence indicator "zero or one" (?)
+     * to form a sequence type.
+     *
+     * @return the result of <code>with(OccurrenceIndicator.ZERO_OR_ONE)</code>
+     */
+
+    public SequenceType zeroOrOne() {
+        return SequenceType.makeSequenceType(this, OccurrenceIndicator.ZERO_OR_ONE);
+    }
+
+    /**
      * ItemType representing the type item(), that is, any item at all
      */
 
-    public static ItemType ANY_ITEM = new ItemType() {
+    public static ItemType ANY_ITEM = new ItemType(AnyItemType.getInstance()) {
 
         @Override
         public ConversionRules getConversionRules() {
@@ -69,10 +137,6 @@ public abstract class ItemType {
             return true;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return AnyItemType.getInstance();
-        }
     };
 
 
@@ -80,11 +144,11 @@ public abstract class ItemType {
      * ItemType representing the type function(*), that is, any function
      */
 
-    public static ItemType ANY_FUNCTION = new ItemType() {
+    public static ItemType ANY_FUNCTION = new ItemType(AnyFunctionType.getInstance()) {
 
         @Override
         public boolean matches(XdmItem item) {
-            return item.getUnderlyingValue() instanceof Function;
+            return item.getUnderlyingValue() instanceof FunctionItem;
         }
 
         @Override
@@ -92,17 +156,13 @@ public abstract class ItemType {
             return other.getUnderlyingItemType() instanceof FunctionItemType;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return AnyFunctionType.getInstance();
-        }
     };
 
     /**
      * ItemType representing the type node(), that is, any node
      */
 
-    public static final ItemType ANY_NODE = new ItemType() {
+    public static final ItemType ANY_NODE = new ItemType(AnyNodeTest.getInstance()) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -114,10 +174,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType() instanceof NodeTest;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return AnyNodeTest.getInstance();
-        }
     };
 
 
@@ -125,7 +181,7 @@ public abstract class ItemType {
      * ItemType representing the ATTRIBUTE node() type
      */
 
-    public static final ItemType ATTRIBUTE_NODE = new ItemType() {
+    public static final ItemType ATTRIBUTE_NODE = new ItemType(NodeKindTest.ATTRIBUTE) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -138,10 +194,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType().getUType() == UType.ATTRIBUTE;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NodeKindTest.ATTRIBUTE;
-        }
     };
 
 
@@ -149,7 +201,7 @@ public abstract class ItemType {
      * ItemType representing the COMMENT node() type
      */
 
-    public static final ItemType COMMENT_NODE = new ItemType() {
+    public static final ItemType COMMENT_NODE = new ItemType(NodeKindTest.COMMENT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -162,10 +214,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType().getUType() == UType.COMMENT;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NodeKindTest.COMMENT;
-        }
     };
 
 
@@ -173,7 +221,7 @@ public abstract class ItemType {
      * ItemType representing the TEXT node() type
      */
 
-    public static final ItemType TEXT_NODE = new ItemType() {
+    public static final ItemType TEXT_NODE = new ItemType(NodeKindTest.TEXT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -186,10 +234,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType().getUType() == UType.TEXT;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NodeKindTest.TEXT;
-        }
     };
 
 
@@ -197,7 +241,7 @@ public abstract class ItemType {
      * ItemType representing the ELEMENT node() type
      */
 
-    public static final ItemType ELEMENT_NODE = new ItemType() {
+    public static final ItemType ELEMENT_NODE = new ItemType(NodeKindTest.ELEMENT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -210,17 +254,13 @@ public abstract class ItemType {
             return other.getUnderlyingItemType().getUType() == UType.ELEMENT;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NodeKindTest.ELEMENT;
-        }
     };
 
     /**
      * ItemType representing the DOCUMENT node() type
      */
 
-    public static final ItemType DOCUMENT_NODE = new ItemType() {
+    public static final ItemType DOCUMENT_NODE = new ItemType(NodeKindTest.DOCUMENT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -233,10 +273,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType().getUType() == UType.DOCUMENT;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NodeKindTest.DOCUMENT;
-        }
     };
 
 
@@ -244,7 +280,7 @@ public abstract class ItemType {
      * ItemType representing the NAMESPACE node() type
      */
 
-    public static final ItemType NAMESPACE_NODE = new ItemType() {
+    public static final ItemType NAMESPACE_NODE = new ItemType(NodeKindTest.NAMESPACE) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -257,10 +293,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType().getUType() == UType.NAMESPACE;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NodeKindTest.NAMESPACE;
-        }
     };
 
 
@@ -268,7 +300,7 @@ public abstract class ItemType {
      * ItemType representing the PROCESSING_INSTRUCTION node() type
      */
 
-    public static final ItemType PROCESSING_INSTRUCTION_NODE = new ItemType() {
+    public static final ItemType PROCESSING_INSTRUCTION_NODE = new ItemType(NodeKindTest.PROCESSING_INSTRUCTION) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -281,10 +313,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType().getUType() == UType.PI;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NodeKindTest.PROCESSING_INSTRUCTION;
-        }
     };
 
 
@@ -292,7 +320,7 @@ public abstract class ItemType {
      * ItemType representing the type map(*), that is, any map
      */
 
-    public static final ItemType ANY_MAP = new ItemType() {
+    public static final ItemType ANY_MAP = new ItemType(MapType.ANY_MAP_TYPE) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -304,17 +332,13 @@ public abstract class ItemType {
             return other.getUnderlyingItemType() instanceof MapType;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return MapType.ANY_MAP_TYPE;
-        }
     };
 
     /**
      * ItemType representing the type array(*), that is, any array
      */
 
-    public static final ItemType ANY_ARRAY = new ItemType() {
+    public static final ItemType ANY_ARRAY = new ItemType(ArrayItemType.ANY_ARRAY_TYPE) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -326,10 +350,6 @@ public abstract class ItemType {
             return other.getUnderlyingItemType() instanceof ArrayItemType;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return ArrayItemType.ANY_ARRAY_TYPE;
-        }
     };
 
 
@@ -337,29 +357,13 @@ public abstract class ItemType {
      * ItemType representing the type xs:anyAtomicType, that is, any atomic value
      */
 
-    public static final ItemType ANY_ATOMIC_VALUE = new ItemType() {
-
-        @Override
-        public boolean matches(XdmItem item) {
-            return item.getUnderlyingValue() instanceof AtomicValue;
-        }
-
-        @Override
-        public boolean subsumes(ItemType other) {
-            return other.getUnderlyingItemType() instanceof AtomicType;
-        }
-
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return BuiltInAtomicType.ANY_ATOMIC;
-        }
-    };
+    public static final ItemType ANY_ATOMIC_VALUE = atomic(BuiltInAtomicType.ANY_ATOMIC, defaultConversionRules);
 
     /**
      * ItemType representing the type xs:error: a type with no instances
      */
 
-    public static final ItemType ERROR = new ItemType() {
+    public static final ItemType ERROR = new ItemType(ErrorType.getInstance()) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -371,28 +375,23 @@ public abstract class ItemType {
             return other.getUnderlyingItemType() instanceof ErrorType;
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return ErrorType.getInstance();
-        }
     };
 
     /**
      * ItemType representing a built-in atomic type
      */
 
-    static class BuiltInAtomicItemType extends ItemType {
+    protected static class BuiltInAtomicItemType extends ItemType {
 
-        private BuiltInAtomicType underlyingType;
-        private ConversionRules conversionRules;
+        private final ConversionRules conversionRules;
 
         public BuiltInAtomicItemType(BuiltInAtomicType underlyingType, ConversionRules conversionRules) {
-            this.underlyingType = underlyingType;
+            super(underlyingType);
             this.conversionRules = conversionRules;
         }
 
         public static BuiltInAtomicItemType makeVariant(BuiltInAtomicItemType type, ConversionRules conversionRules) {
-            return new BuiltInAtomicItemType(type.underlyingType, conversionRules);
+            return new BuiltInAtomicItemType((BuiltInAtomicType)type.underlyingType, conversionRules);
         }
 
         @Override
@@ -424,7 +423,7 @@ public abstract class ItemType {
             BuiltInAtomicType builtIn =
                     type instanceof BuiltInAtomicType ? (BuiltInAtomicType) type : (BuiltInAtomicType) type.getBuiltInBaseType();
             while (true) {
-                if (builtIn.isSameType(underlyingType)) {
+                if (builtIn.isSameType((AtomicType)underlyingType)) {
                     return true;
                 }
                 SchemaType base = builtIn.getBaseType();
@@ -438,6 +437,11 @@ public abstract class ItemType {
         @Override
         public net.sf.saxon.type.ItemType getUnderlyingItemType() {
             return underlyingType;
+        }
+
+        @Override
+        public String toString() {
+            return "xs:" + ((BuiltInAtomicType)underlyingType).getStructuredQName().getLocalPart();
         }
     }
 
@@ -728,7 +732,7 @@ public abstract class ItemType {
      * ItemType representing the built-in union type xs:numeric defined in XDM 3.1
      */
 
-    public static final ItemType NUMERIC = new ItemType() {
+    public static final ItemType NUMERIC = new ItemType(NumericType.getInstance()) {
         @Override
         public ConversionRules getConversionRules() {
             return defaultConversionRules;
@@ -744,10 +748,6 @@ public abstract class ItemType {
             return DECIMAL.subsumes(other) || DOUBLE.subsumes(other) || FLOAT.subsumes(other);
         }
 
-        @Override
-        public net.sf.saxon.type.ItemType getUnderlyingItemType() {
-            return NumericType.getInstance();
-        }
     };
 
     /**
@@ -761,6 +761,19 @@ public abstract class ItemType {
     /*@Nullable*/
     public ConversionRules getConversionRules() {
         return defaultConversionRules;
+    }
+
+    /**
+     * Determine whether this item type matches a given item. This is a synonym of
+     * the {@link #matches} method, provided so that an <code>ItemType</code> can be
+     * used as a <code>Predicate</code>.
+     *
+     * @param item the item to be tested against this item type
+     * @return true if the item matches this item type, false if it does not match.
+     */
+
+    public boolean test(XdmItem item) {
+        return matches(item);
     }
 
     /**
@@ -792,7 +805,9 @@ public abstract class ItemType {
      * @return the underlying Saxon implementation object
      */
 
-    public abstract net.sf.saxon.type.ItemType getUnderlyingItemType();
+    public net.sf.saxon.type.ItemType getUnderlyingItemType() {
+        return underlyingType;
+    }
 
     /**
      * Get the name of the type, if it has one
@@ -836,10 +851,19 @@ public abstract class ItemType {
     }
 
     /**
-     * Get a string representation of the type. This will be a string that conforms to the
-     * XPath ItemType production, for example a QName (always in "Q{uri}local" format, or a construct
-     * such as "node()" or "map(*)". If the type is an anonymous schema type, the name of the nearest
-     * named base type will be given, preceded by the character "&lt;".
+     * Get a string representation of the type. This will be generally a string that conforms to the
+     * XPath ItemType production, for example a QName, or a construct
+     * such as "node()" or "map(*)".
+     *
+     * <p>QNames are generally in EQName (<code>Q{uri}local</code>) format, except that
+     * the prefix <code>xs:</code> is used for the XML Schema namespace.</p>
+     *
+     * <p>If the type is an anonymous schema type, the name of the nearest
+     * named base type will be given, preceded by the character "&lt;".</p>
+     *
+     * <p>In the case of a function item type, the returned string will be
+     * in parentheses (for example <code>(function() as xs:string)</code>) so
+     * that an occurrence indicator can be added without ambiguity.</p>
      *
      * @return a string representation of the type
      * @since 9.7

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,8 +17,11 @@ import net.sf.saxon.trans.XPathException;
  * <p>This is a specialization of the more general MappingFunction class: it differs in that
  * each item being processed becomes the context item while it is being processed.</p>
  *
+ * <p>NOTE: because this class is converted to a delegate in C#, it should not be subclassed;
+ * it should only be implemented by lambda expressions.</p>
  */
 
+@FunctionalInterface
 public interface ContextMappingFunction {
 
     /**

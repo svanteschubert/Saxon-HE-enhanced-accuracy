@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
@@ -79,10 +80,11 @@ public interface StaticContext {
     /**
      * Issue a compile-time warning.
      * @param message The warning message. This should not contain any prefix such as "Warning".
+     * @param errorCode Error code identifying the warning condition
      * @param locator the location of the construct in question. May be null.
      */
 
-    void issueWarning(String message, Location locator);
+    void issueWarning(String message, String errorCode, Location locator);
 
     /**
      * Get the System ID of the container of the expression. This is the containing
@@ -141,7 +143,7 @@ public interface StaticContext {
      * @return the default namespace, or {@link NamespaceConstant#NULL} for the non-namespace
      */
 
-    String getDefaultElementNamespace();
+    NamespaceUri getDefaultElementNamespace();
 
     /**
      * Get the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
@@ -150,6 +152,7 @@ public interface StaticContext {
      * which matches both the namespace given in {@link #getDefaultElementNamespace()} and the null namespace,
      * or {@link UnprefixedElementMatchingPolicy#ANY_NAMESPACE}, which matches any namespace (that is, it
      * matches by local name only).
+     * @return the policy for matching unprefixed element names
      */
 
     default UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy() {
@@ -162,7 +165,7 @@ public interface StaticContext {
      * @return the default namespace for function names
      */
 
-    String getDefaultFunctionNamespace();
+    NamespaceUri getDefaultFunctionNamespace();
 
     /**
      * Determine whether backwards compatibility mode is used
@@ -184,7 +187,7 @@ public interface StaticContext {
      * @return true if the given namespace has been imported
      */
 
-    boolean isImportedSchema(String namespace);
+    boolean isImportedSchema(NamespaceUri namespace);
 
     /**
      * Get the set of imported schemas
@@ -193,7 +196,7 @@ public interface StaticContext {
      *         using the zero-length string to denote the "null" namespace.
      */
 
-    Set<String> getImportedSchemaNamespaces();
+    Set<NamespaceUri> getImportedSchemaNamespaces();
 
     /**
      * Get a namespace resolver to resolve the namespaces declared in this static context.
@@ -227,9 +230,10 @@ public interface StaticContext {
     /**
      * Get the XPath language level supported, as an integer (being the actual version
      * number times ten). In Saxon 9.9 the possible values are 20 (XPath 2.0), 30 (XPath 3.0),
-     * 31 (XPath 3.1), and 305 (XPath 3.0 plus the extensions defined in XSLT 3.0).
+     * 31 (XPath 3.1), and 305 (XPath 3.0 plus the extensions defined in XSLT 3.0). Saxon 11
+     * adds support for 40 (XPath 4.0).
      *
-     * @return the XPath language level; the return value will be either 20, 30, 305, or 31
+     * @return the XPath language level; the return value will be either 20, 30, 305, 31 or 40
      * @since 9.7
      */
 

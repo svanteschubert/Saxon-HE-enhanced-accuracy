@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,7 @@ package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.expr.*;
 import net.sf.saxon.functions.AbstractFunction;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -19,10 +19,10 @@ import net.sf.saxon.type.FunctionItemType;
 /**
  * This class represents a function invoked using xsl:original from within an xs:override element.
  */
-public class OriginalFunction extends AbstractFunction implements Function, ContextOriginator {
+public class OriginalFunction extends AbstractFunction implements FunctionItem, ContextOriginator {
 
-    private UserFunction userFunction;
-    private Component component;
+    private final UserFunction userFunction;
+    private final Component component;
 
     public OriginalFunction(Component component) {
         this.component = component;
@@ -88,6 +88,8 @@ public class OriginalFunction extends AbstractFunction implements Function, Cont
 
     /**
      * Get the name of the package containing the function
+     *
+     * @return the name of the package containing the function
      */
 
     public String getContainingPackageName() {
@@ -100,7 +102,7 @@ public class OriginalFunction extends AbstractFunction implements Function, Cont
 
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
-        ExpressionPresenter.ExportOptions options = (ExpressionPresenter.ExportOptions) out.getOptions();
+        ExpressionPresenter.ExportOptions options = out.getOptions();
         out.startElement("origF");
         out.emitAttribute("name", getFunctionName());
         out.emitAttribute("arity", ""+getArity());

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,6 +25,8 @@ import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.function.Supplier;
+
 /**
  * This class provides type checking capability with XPath 1.0 backwards compatibility enabled.
  */
@@ -37,11 +39,11 @@ public class TypeChecker10 extends TypeChecker {
     @Override
     public Expression staticTypeCheck(Expression supplied,
                                       SequenceType req,
-                                      RoleDiagnostic role,
+                                      Supplier<RoleDiagnostic> roleSupplier,
                                       final ExpressionVisitor visitor) throws XPathException {
 
         if (supplied.implementsStaticTypeCheck()) {
-            return supplied.staticTypeCheck(req, true, role, visitor);
+            return supplied.staticTypeCheck(req, true, roleSupplier, visitor);
         }
 
 //        In a static function call, if XPath 1.0 compatibility mode is true and an argument of a static function is
@@ -68,14 +70,12 @@ public class TypeChecker10 extends TypeChecker {
         if (req.getPrimaryType().equals(BuiltInAtomicType.STRING) &&
                 !Cardinality.allowsMany(req.getCardinality()) &&
                 !th.isSubType(supplied.getItemType(), BuiltInAtomicType.STRING)) {
-            final RetainedStaticContext rsc = new RetainedStaticContext(config);
+            final RetainedStaticContext rsc = supplied.getRetainedStaticContext();
             Expression fn = SystemFunction.makeCall("string", rsc, supplied);
             try {
                 return fn.typeCheck(visitor, config.getDefaultContextItemStaticInfo());
             } catch (XPathException err) {
-                err.maybeSetLocation(supplied.getLocation());
-                err.setIsStaticError(true);
-                throw err;
+                throw err.maybeWithLocation(supplied.getLocation()).asStaticError();
             }
         }
 
@@ -83,17 +83,15 @@ public class TypeChecker10 extends TypeChecker {
         if (reqItemType.equals(NumericType.getInstance()) || reqItemType.equals(BuiltInAtomicType.DOUBLE) &&
                 !Cardinality.allowsMany(req.getCardinality()) &&
                 !th.isSubType(supplied.getItemType(), BuiltInAtomicType.DOUBLE)) {
-            final RetainedStaticContext rsc = new RetainedStaticContext(config);
+            final RetainedStaticContext rsc = supplied.getRetainedStaticContext();
             Expression fn = SystemFunction.makeCall("number", rsc, supplied);
             try {
                 return fn.typeCheck(visitor, config.getDefaultContextItemStaticInfo());
             } catch (XPathException err) {
-                err.maybeSetLocation(supplied.getLocation());
-                err.setIsStaticError(true);
-                throw err;
+                throw err.maybeWithLocation(supplied.getLocation()).asStaticError();
             }
         }
-        return super.staticTypeCheck(supplied, req, role, visitor);
+        return super.staticTypeCheck(supplied, req, roleSupplier, visitor);
 
     }
 

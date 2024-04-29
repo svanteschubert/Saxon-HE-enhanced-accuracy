@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -44,6 +44,7 @@ public abstract class JavaCollationFactory {
      * @param uri the Collation URI
      * @param props  the desired properties of the collation
      * @return a collation with these properties
+     * @throws XPathException if any error occurs
      */
 
     /*@Nullable*/
@@ -57,7 +58,12 @@ public abstract class JavaCollationFactory {
 
         String classAtt = props.getProperty("class");
         if (classAtt != null) {
-            Object comparator = config.getInstance(classAtt, null);
+            Object comparator;
+            try {
+                comparator = config.getInstance(classAtt);
+            } catch (XPathException e) {
+                throw new XPathException("Failed to load collation class " + classAtt + " (" + e.getMessage() + ")");
+            }
             if (comparator instanceof Collator) {
                 collator = (Collator) comparator;
             } else if (comparator instanceof StringCollator) {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.SequenceType;
 
 import java.io.IOException;
@@ -31,10 +32,11 @@ import java.util.Map;
  * <p>An XsltExecutable is created by using one of the <code>compile</code> methods on the
  * {@link XsltCompiler} class.</p>
  */
+@CSharpModifiers(code = {"internal"})
 public class XsltExecutable {
 
-    Processor processor;
-    PreparedStylesheet preparedStylesheet;
+    private final Processor processor;
+    private final PreparedStylesheet preparedStylesheet;
 
     protected XsltExecutable(Processor processor, PreparedStylesheet preparedStylesheet) {
         this.processor = processor;
@@ -96,9 +98,13 @@ public class XsltExecutable {
     /**
      * Produce a diagnostic representation of the compiled stylesheet, in XML form.
      * <p><i>The detailed form of this representation is not stable (or even documented).</i></p>
+     * <p>Note that although the format of the output is similar to the format of a stylesheet
+     * exported in SEF format, it is not identical, and the diagnostic explain output cannot
+     * be re-imported to reconstitute the stylesheet. For that purpose, use {@link #export(OutputStream, String)}.</p>
      *
      * @param destination the destination for the XML document containing the diagnostic representation
      *                    of the compiled stylesheet
+     * @throws SaxonApiException if an error is detected
      * @since 9.1
      */
 
@@ -143,7 +149,9 @@ public class XsltExecutable {
      * @param destination the destination for the XML document containing the diagnostic representation
      *                    of the compiled stylesheet. The stream will be closed when writing has finished.
      * @param target the target environment. The only value currently recognized is "JS",
-     *               which exports the package for running under Saxon-JS 2.0.
+     *               which exports the package for running under SaxonJS 2.
+     * @throws SaxonApiException if an error is detected, including the case where
+     *         the stylesheet was compiled with just-in-time compilation enabled.
      * @since 9.7
      */
 
@@ -156,7 +164,7 @@ public class XsltExecutable {
                         "Cannot export a stylesheet compiled with just-in-time compilation enabled");
             }
             ExpressionPresenter presenter = config.newExpressionExporter(target, destination, topLevelPackage);
-            presenter.setRelocatable(topLevelPackage.isRelocatable());
+            presenter.getOptions().relocatable = topLevelPackage.isRelocatable();
             topLevelPackage.export(presenter);
         } catch (XPathException e) {
             throw new SaxonApiException(e);
@@ -180,7 +188,7 @@ public class XsltExecutable {
     public WhitespaceStrippingPolicy getWhitespaceStrippingPolicy() {
         StylesheetPackage top = preparedStylesheet.getTopLevelPackage();
         if (top.isStripsWhitespace()) {
-            return new WhitespaceStrippingPolicy(preparedStylesheet.getTopLevelPackage());
+            return new WhitespaceStrippingPolicy(top);
         } else {
             return WhitespaceStrippingPolicy.UNSPECIFIED;
         }
@@ -201,7 +209,7 @@ public class XsltExecutable {
         Map<StructuredQName, GlobalParam> globals = preparedStylesheet.getGlobalParameters();
         HashMap<QName, ParameterDetails> params = new HashMap<>();
         for (GlobalParam v : globals.values()) {
-            ParameterDetails details = new ParameterDetails(v.getRequiredType(), v.isRequiredParam());
+            ParameterDetails details = new ParameterDetails(processor, v.getRequiredType(), v.isRequiredParam());
             params.put(new QName(v.getVariableQName()), details);
         }
         return params;
@@ -213,14 +221,16 @@ public class XsltExecutable {
      * @since 9.3
      */
 
-    public class ParameterDetails {
+    public static class ParameterDetails {
 
-        private SequenceType type;
-        private boolean isRequired;
+        private final Processor processor;
+        private final SequenceType type;
+        private final boolean required;
 
-        protected ParameterDetails(SequenceType type, boolean isRequired) {
+        protected ParameterDetails(Processor processor, SequenceType type, boolean isRequired) {
+            this.processor = processor;
             this.type = type;
-            this.isRequired = isRequired;
+            this.required = isRequired;
         }
 
         /**
@@ -231,7 +241,7 @@ public class XsltExecutable {
          */
 
         public ItemType getDeclaredItemType() {
-            return new ConstructedItemType(type.getPrimaryType(), processor);
+            return new ConstructedItemType(type.getPrimaryType(), processor.getUnderlyingConfiguration());
         }
 
         /**
@@ -246,7 +256,9 @@ public class XsltExecutable {
         }
 
         /**
+         * Get the underlying SequenceType object representing the declared type of the parameter
          *
+         * @return the type
          */
 
         public SequenceType getUnderlyingDeclaredType() {
@@ -261,7 +273,7 @@ public class XsltExecutable {
          */
 
         public boolean isRequired() {
-            return this.isRequired;
+            return this.required;
         }
     }
 

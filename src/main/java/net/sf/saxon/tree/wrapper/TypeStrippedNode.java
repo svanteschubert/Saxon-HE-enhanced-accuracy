@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,15 +8,17 @@
 package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.event.Receiver;
+import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.om.CopyOptions;
+import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.Untyped;
-import net.sf.saxon.value.UntypedAtomicValue;
+import net.sf.saxon.value.StringValue;
 
 
 /**
@@ -89,7 +91,7 @@ public class TypeStrippedNode extends AbstractVirtualNode implements WrappingFun
     /*@NotNull*/
     @Override
     public AtomicSequence atomize() throws XPathException {
-        return new UntypedAtomicValue(getStringValueCS());
+        return StringValue.makeUntypedAtomic(getUnicodeStringValue());
     }
 
     /**
@@ -120,6 +122,15 @@ public class TypeStrippedNode extends AbstractVirtualNode implements WrappingFun
         } else {
             return node.equals(other);
         }
+    }
+
+    /**
+     * The hashCode() method obeys the contract for hashCode(): that is, if two objects are equal
+     * (represent the same node) then they must have the same hashCode()
+     */
+    @Override
+    public int hashCode() {
+        return node.hashCode();
     }
 
     /**

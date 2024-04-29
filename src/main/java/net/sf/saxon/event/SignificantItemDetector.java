@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,8 @@ package net.sf.saxon.event;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
@@ -20,12 +22,17 @@ import net.sf.saxon.value.AtomicValue;
  * This receiver is inserted into the output pipeline whenever on-empty or on-non-empty is used (XSLT 3.0).
  * It passes all events to the underlying receiver unchanged, but invokes a callback action when the
  * first item is written.
+ *
+ * <p>A "Significant Item" as detected by this class is an item that is not "vacuous" according to
+ * section 8.4.2 of the XSLT 3.0 specification. Note that this is not the same as being "deemed empty"
+ * as defined in section 8.4.1: notably, empty elements and empty maps are "deemed empty" but are
+ * not "vacuous".</p>
  */
 public class SignificantItemDetector extends ProxyOutputter {
 
     private int level = 0;
     private boolean empty = true;
-    private Action trigger;
+    private final Action trigger;
 
     public SignificantItemDetector(Outputter next, Action trigger) {
         super(next);
@@ -71,7 +78,7 @@ public class SignificantItemDetector extends ProxyOutputter {
      * Notify a namespace binding.
      */
     @Override
-    public void namespace(String prefix, String namespaceUri, int properties) throws XPathException {
+    public void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException {
         start();
         getNextOutputter().namespace(prefix, namespaceUri, properties);
     }
@@ -80,7 +87,7 @@ public class SignificantItemDetector extends ProxyOutputter {
      * Notify an attribute.
      */
     @Override
-    public void attribute(NodeName attName, SimpleType typeCode, CharSequence value, Location location, int properties) throws XPathException {
+    public void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties) throws XPathException {
         start();
         getNextOutputter().attribute(attName, typeCode, value, location, properties);
     }
@@ -94,21 +101,21 @@ public class SignificantItemDetector extends ProxyOutputter {
     }
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (chars.length() > 0) {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (!chars.isEmpty()) {
             start();
         }
         getNextOutputter().characters(chars, locationId, properties);
     }
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         start();
         getNextOutputter().processingInstruction(target, data, locationId, properties);
     }
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         start();
         getNextOutputter().comment(chars, locationId, properties);
     }
@@ -116,10 +123,10 @@ public class SignificantItemDetector extends ProxyOutputter {
     public static boolean isSignificant(Item item) {
         if (item instanceof NodeInfo) {
             NodeInfo node = (NodeInfo) item;
-            return (node.getNodeKind() != Type.TEXT || !node.getStringValue().isEmpty())
+            return (node.getNodeKind() != Type.TEXT || !node.getUnicodeStringValue().isEmpty())
                     && (node.getNodeKind() != Type.DOCUMENT || node.hasChildNodes());
         } else if (item instanceof AtomicValue) {
-            return !item.getStringValue().isEmpty();
+            return !item.getUnicodeStringValue().isEmpty();
         } else if (item instanceof ArrayItem) {
             if (((ArrayItem) item).isEmpty()) {
                 return true;
@@ -133,7 +140,7 @@ public class SignificantItemDetector extends ProxyOutputter {
                                 return true;
                             }
                         }
-                    } catch (XPathException e) {
+                    } catch (UncheckedXPathException e) {
                         return true;
                     }
                 }
@@ -149,6 +156,14 @@ public class SignificantItemDetector extends ProxyOutputter {
             start();
         }
         super.append(item, locationId, copyNamespaces);
+    }
+
+    @Override
+    public void append(Item item) throws XPathException {
+        if (isSignificant(item)) {
+            start();
+        }
+        super.append(item);
     }
 
     /**

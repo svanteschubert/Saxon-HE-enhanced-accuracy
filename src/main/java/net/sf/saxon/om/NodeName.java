@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -37,12 +37,24 @@ public interface NodeName extends IdentityComparable {
     String getPrefix();
 
     /**
-     * Get the namespace URI of the QName.
+     * Get the namespace URI of the node name.
      *
-     * @return the URI. Returns the empty string to represent the no-namespace
+     * @return the URI. Returns {@link NamespaceUri#NULL} for nodes that are not in any namespace
      */
 
-    String getURI();
+    NamespaceUri getNamespaceUri();
+
+    /**
+     * Get the namespace URI of the QName, as a string.
+     *
+     * <p>This method is retained for backwards compatibility, but {@link #getNamespaceUri()} is preferred.</p>
+     *
+     * @return the namespace URI. Returns the zero-length string for nodes that are not in any namespace
+     */
+
+    default String getURI() {
+        return getNamespaceUri().toString();
+    }
 
     /**
      * Get the local part of the QName
@@ -75,7 +87,7 @@ public interface NodeName extends IdentityComparable {
      * @return true if the name is in the specified namespace
      */
 
-    boolean hasURI(String ns);
+    boolean hasURI(NamespaceUri ns);
 
     /**
      * Get a {@link NamespaceBinding} whose (prefix, uri) pair are the prefix and URI of this

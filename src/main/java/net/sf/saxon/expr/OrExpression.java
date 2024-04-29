@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,12 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.SystemFunction;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.BooleanValue;
 
@@ -88,7 +92,7 @@ public class OrExpression extends BooleanExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings  variables that need to be re-bound
      */
 
     /*@NotNull*/
@@ -137,6 +141,56 @@ public class OrExpression extends BooleanExpression {
         return getLhsExpression().effectiveBooleanValue(c) || getRhsExpression().effectiveBooleanValue(c);
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new OrElaborator();
+    }
+
+    /**
+     * Elaborator for an "or" expression ({@code A or B})
+     */
+
+    public static class OrElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+
+            OrExpression expr = (OrExpression) getExpression();
+            BooleanEvaluator eval0 = expr.getLhsExpression().makeElaborator().elaborateForBoolean();
+            BooleanEvaluator eval1 = expr.getRhsExpression().makeElaborator().elaborateForBoolean();
+
+            // Don't throw an error if either branch returns true.
+            // See bug 5721. Conforms with the 4.0 rules for guarded expressions, even if the
+            // operands are reordered
+            return context -> {
+                XPathException saved = null;
+                try {
+                    boolean b0 = eval0.eval(context);
+                    if (b0) {
+                        return true;
+                    }
+                } catch (UncheckedXPathException err) {
+                    saved = err.getXPathException();
+                } catch (XPathException err) {
+                    saved = err;
+                }
+                boolean b1 = eval1.eval(context);
+                if (b1) {
+                    return true;
+                }
+                if (saved != null) {
+                    throw saved;
+                }
+                return false;
+            };
+        }
+
+
+    }
 }
 

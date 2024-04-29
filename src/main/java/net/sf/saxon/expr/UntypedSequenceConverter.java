@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,24 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.Configuration;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.lib.ConversionRules;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInnerClass;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.UntypedAtomicValue;
+import net.sf.saxon.value.Cardinality;
 
 /**
  * An UntypedSequenceConverter is an expression that performs a cast on each member of
@@ -100,7 +110,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
         /*@NotNull*/
         @Override
         public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
-            if (input instanceof UntypedAtomicValue) {
+            if (input.isUntypedAtomic()) {
                 return untypedConverter.convert(input);
             } else {
                 return input;
@@ -108,12 +118,14 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
         }
     }
 
+    @CSharpInnerClass(outer=false, extra={"Saxon.Hej.type.PlainType requiredItemType", "Saxon.Hej.expr.Expression operand"})
     public static UntypedSequenceConverter makeUntypedSequenceRejector(Configuration config, final Expression operand, final PlainType requiredItemType) {
         UntypedSequenceConverter atomicSeqConverter = new UntypedSequenceConverter(operand, requiredItemType);
         final ConversionRules rules = config.getConversionRules();
         final Converter untypedConverter = new Converter() {
             // called when an untyped atomic value is encountered
             @Override
+            @CSharpModifiers(code={"public","override"})
             public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
                 ValidationFailure vf = new ValidationFailure(
                         "Implicit conversion of untypedAtomic value to " + requiredItemType.toString() + " is not allowed");
@@ -152,7 +164,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NO_NODES_NEWLY_CREATED | StaticProperty.NOT_UNTYPED_ATOMIC;
     }
@@ -161,7 +173,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that need to be re-bound
      */
 
     /*@NotNull*/
@@ -170,7 +182,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
         UntypedSequenceConverter atomicConverter = new UntypedSequenceConverter(getBaseExpression().copy(rebindings), getRequiredItemType());
         ExpressionTool.copyLocationInfo(this, atomicConverter);
         atomicConverter.setConverter(converter);
-        atomicConverter.setRoleDiagnostic(getRoleDiagnostic());
+        atomicConverter.setRoleDiagnostic(getRoleSupplier());
         return atomicConverter;
     }
 
@@ -198,7 +210,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality();
     }
 
@@ -216,7 +228,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode();
     }
 
@@ -251,12 +263,73 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("cvUntyped", this);
         destination.emitAttribute("to", AlphaCode.fromItemType(getRequiredItemType()));
-        if (getRoleDiagnostic() != null) {
-            destination.emitAttribute("diag", getRoleDiagnostic().save());
+        if (getRoleSupplier() != null) {
+            destination.emitAttribute("diag", getRoleSupplier().get().save());
         }
         getBaseExpression().export(destination);
         destination.endElement();
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new UntypedSequenceConverterElaborator();
+    }
+
+    /**
+     * Elaborator for an UntypedSequenceConverter
+     */
+
+    public static class UntypedSequenceConverterElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final UntypedSequenceConverter expr = (UntypedSequenceConverter) getExpression();
+            final UntypedConverter converter =
+                    (UntypedConverter)expr.getConverter();
+            assert converter != null;
+            final AtomicSequenceMappingFunction mapper =
+                    new AtomicSequenceMappingFunction();
+            mapper.setConverter(converter);
+            if (expr.getRoleSupplier() != null) {
+                String errorCode = expr.getRoleSupplier().get().getErrorCode();
+                mapper.setErrorCode("XPTY0004".equals(errorCode) ? "FORG0001" : errorCode);
+            }
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                SequenceIterator base = baseEval.iterate(context);
+                return new ItemMappingIterator(base, mapper, true);
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            final AtomicSequenceConverter expr = (AtomicSequenceConverter) getExpression();
+            final ItemEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForItem();
+            final Converter converter = expr.getConverter();
+            assert converter != null;
+            final boolean nullable = Cardinality.allowsZero(expr.getBaseExpression().getCardinality());
+            return context -> {
+                AtomicValue baseValue = (AtomicValue)baseEval.eval(context);
+                if (nullable && baseValue == null) {
+                    return null;
+                }
+                ConversionResult result = converter.convert(baseValue);
+                if (result instanceof ValidationFailure) {
+                    if (expr.getRoleSupplier() != null) {
+                        String errorCode = expr.getRoleSupplier().get().getErrorCode();
+                        throw new XPathException(((ValidationFailure) result).getMessage(), errorCode);
+                    } else {
+                        throw ((ValidationFailure)result).makeException();
+                    }
+                }
+                return result.asAtomic();
+            };
+        }
+    }
 }
 

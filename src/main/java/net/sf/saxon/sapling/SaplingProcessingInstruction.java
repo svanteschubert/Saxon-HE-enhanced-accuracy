@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,8 @@ package net.sf.saxon.sapling;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
+import net.sf.saxon.lib.ParseOptions;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Type;
 
@@ -21,8 +23,8 @@ import java.util.Objects;
 
 public class SaplingProcessingInstruction extends SaplingNode {
 
-    private String name;
-    private String value;
+    private final String name;
+    private final String value;
 
     /**
      * Construct a sapling processing-instruction node with a given name and string value
@@ -65,8 +67,8 @@ public class SaplingProcessingInstruction extends SaplingNode {
     }
 
     @Override
-    protected void sendTo(Receiver receiver) throws XPathException {
-        receiver.processingInstruction(name, value, Loc.NONE, ReceiverOption.NONE);
+    public void deliver(Receiver receiver, ParseOptions options) throws XPathException {
+        receiver.processingInstruction(name, StringView.of(value), Loc.NONE, ReceiverOption.NONE);
     }
 }
 

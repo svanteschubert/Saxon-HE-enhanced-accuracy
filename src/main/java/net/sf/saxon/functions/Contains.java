@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,13 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.sort.CodepointCollator;
 import net.sf.saxon.lib.SubstringMatcher;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.StringValue;
@@ -24,55 +23,19 @@ import net.sf.saxon.value.StringValue;
  */
 public class Contains extends CollatingFunctionFixed {
 
-    /**
-     * Allow the function to create an optimized call based on the values of the actual arguments
-     *
-     * @param visitor     the expression visitor
-     * @param contextInfo information about the context item
-     * @param arguments   the supplied arguments to the function call. Note: modifying the contents
-     *                    of this array should not be attempted, it is likely to have no effect.
-     * @return either a function call on this function, or an expression that delivers
-     * the same result, or null indicating that no optimization has taken place
-     * @throws XPathException if an error is detected
-     */
-    @Override
-    public Expression makeOptimizedFunctionCall(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo, final Expression... arguments) throws XPathException {
-        if (getStringCollator() == CodepointCollator.getInstance()) {
-            // Performance fast path: bug 3209
-            return new SystemFunctionCall.Optimized(this, arguments) {
-                @Override
-                public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
-                    String s0 = getArg(0).evaluateAsString(context).toString();
-                    CharSequence s1 = getArg(1).evaluateAsString(context);
-                    return s0.contains(s1);
-                }
-
-                @Override
-                public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) {
-                    return this;
-                }
-            };
-        } else {
-            return super.makeOptimizedFunctionCall(visitor, contextInfo, arguments);
-        }
-    }
-
-
     @Override
     public boolean isSubstringMatchingFunction() {
         return true;
     }
 
     private static boolean contains(StringValue arg0, StringValue arg1, SubstringMatcher collator) {
-        if (arg1 == null || arg1.isZeroLength() || collator.comparesEqual(arg1.getPrimitiveStringValue(), "")) {
+        if (arg1 == null || arg1.isEmpty() || collator.isEqualToEmpty(arg1.getUnicodeStringValue())) {
             return true;
         }
-        if (arg0 == null || arg0.isZeroLength()) {
+        if (arg0 == null || arg0.isEmpty()) {
             return false;
         }
-        String s0 = arg0.getStringValue();
-        String s1 = arg1.getStringValue();
-        return collator.contains(s0, s1);
+        return collator.contains(arg0.getUnicodeStringValue(), arg1.getUnicodeStringValue());
     }
 
     @Override
@@ -82,11 +45,71 @@ public class Contains extends CollatingFunctionFixed {
         return BooleanValue.get(contains(s0, s1, (SubstringMatcher)getStringCollator()));
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
     @Override
-    public String getCompilerName() {
-        return "ContainsCompiler";
+    public Elaborator getElaborator() {
+        return new ContainsFnElaborator();
     }
 
+    /**
+     * Expression elaborator for a call to contains(), starts-with(), or ends-with()
+     */
 
+    public static class ContainsFnElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            final SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            final CollatingFunctionFixed fn = (CollatingFunctionFixed)fnc.getTargetFunction();
+            final SubstringMatcher collation = (SubstringMatcher)fn.getStringCollator();
+            assert collation != null;
+            final String name = fnc.getFunctionName().getLocalPart();
+            if (collation == CodepointCollator.getInstance()) {
+                final StringEvaluator arg0Eval = fnc.getArg(0).makeElaborator().elaborateForString(true);
+                final StringEvaluator arg1Eval = fnc.getArg(1).makeElaborator().elaborateForString(true);
+                switch (name) {
+                    case "contains":
+                        return context -> arg0Eval.eval(context).contains(arg1Eval.eval(context));
+                    case "starts-with":
+                        return context -> arg0Eval.eval(context).startsWith(arg1Eval.eval(context));
+                    case "ends-with":
+                        return context -> arg0Eval.eval(context).endsWith(arg1Eval.eval(context));
+                    default:
+                        throw new UnsupportedOperationException();
+                }
+            } else {
+                final UnicodeStringEvaluator arg0Eval = fnc.getArg(0).makeElaborator().elaborateForUnicodeString(true);
+                final UnicodeStringEvaluator arg1Eval = fnc.getArg(1).makeElaborator().elaborateForUnicodeString(true);
+                switch (name) {
+                    case "contains":
+                        return context -> {
+                            UnicodeString s0 = arg0Eval.eval(context);
+                            UnicodeString s1 = arg1Eval.eval(context);
+                            return collation.contains(s0, s1);
+                        };
+                    case "starts-with":
+                        return context -> {
+                            UnicodeString s0 = arg0Eval.eval(context);
+                            UnicodeString s1 = arg1Eval.eval(context);
+                            return collation.startsWith(s0, s1);
+                        };
+                    case "ends-with":
+                        return context -> {
+                            UnicodeString s0 = arg0Eval.eval(context);
+                            UnicodeString s1 = arg1Eval.eval(context);
+                            return collation.endsWith(s0, s1);
+                        };
+                    default:
+                        throw new UnsupportedOperationException();
+                }
+            }
+
+        }
+
+    }
 }
 

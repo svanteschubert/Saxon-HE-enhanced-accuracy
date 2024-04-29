@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,14 +8,14 @@
 package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.SchemaType;
-
-import java.util.function.Predicate;
 
 
 /**
@@ -250,20 +250,10 @@ public abstract class AbstractVirtualNode implements VirtualNode {
      */
 
     @Override
-    public final String getStringValue() {
-        return getStringValueCS().toString();
+    public UnicodeString getUnicodeStringValue() {
+        return node.getUnicodeStringValue();
     }
 
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        // default implementation returns the string value of the base node
-        return node.getStringValueCS();
-    }
 
     /**
      * Get the local part of the name of this node. This is the name after the ":" if any.
@@ -286,8 +276,8 @@ public abstract class AbstractVirtualNode implements VirtualNode {
      */
 
     @Override
-    public String getURI() {
-        return node.getURI();
+    public NamespaceUri getNamespaceUri() {
+        return node.getNamespaceUri();
     }
 
     /**
@@ -325,7 +315,7 @@ public abstract class AbstractVirtualNode implements VirtualNode {
 
     /*@NotNull*/
     @Override
-    public AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest) {
+    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
         return new Navigator.AxisFilter(iterateAxis(axisNumber), nodeTest);
     }
 
@@ -340,7 +330,7 @@ public abstract class AbstractVirtualNode implements VirtualNode {
      * @since 9.4
      */
     @Override
-    public String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local) {
+    public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
         return node.getAttributeValue(uri, local);
     }
 
@@ -384,7 +374,7 @@ public abstract class AbstractVirtualNode implements VirtualNode {
      */
 
     @Override
-    public void generateId(FastStringBuffer buffer) {
+    public void generateId(StringBuilder buffer) {
         // Note: giving the node the same ID as its underlying node is slightly questionable; depends on usage
         node.generateId(buffer);
     }

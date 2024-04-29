@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,17 +11,17 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.Genre;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * An instance of this class represents a specific array item type, for example
@@ -34,7 +34,7 @@ public class ArrayItemType extends AnyFunctionType {
     public final static SequenceType SINGLE_ARRAY =
             SequenceType.makeSequenceType(ArrayItemType.ANY_ARRAY_TYPE, StaticProperty.EXACTLY_ONE);
 
-    private SequenceType memberType;
+    private final SequenceType memberType;
 
     public ArrayItemType(SequenceType memberType) {
         this.memberType = memberType;
@@ -46,6 +46,7 @@ public class ArrayItemType extends AnyFunctionType {
      * @return the Genre to which this type belongs, specifically {@link Genre#ARRAY}
      */
     @Override
+    @CSharpModifiers(code = {"public", "override"})
     public Genre getGenre() {
         return Genre.ARRAY;
     }
@@ -157,14 +158,14 @@ public class ArrayItemType extends AnyFunctionType {
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) throws XPathException{
+    public boolean matches(Item item, TypeHierarchy th) {
         if (!(item instanceof ArrayItem)) {
             return false;
         }
         if (this == ANY_ARRAY_TYPE) {
             return true;
         } else {
-            for (Sequence s : ((ArrayItem) item).members()){
+            for (GroundedValue s : ((ArrayItem) item).members()){
                 if (!memberType.matches(s, th)){
                     return false;
                 }
@@ -198,11 +199,9 @@ public class ArrayItemType extends AnyFunctionType {
         if (this.equals(ANY_ARRAY_TYPE)) {
             return "array(*)";
         } else {
-            FastStringBuffer sb = new FastStringBuffer(100);
-            sb.append("array(");
-            sb.append(show.apply(memberType));
-            sb.append(")");
-            return sb.toString();
+            return "array("
+                    + show.apply(memberType)
+                    + ")";
         }
     }
 
@@ -216,6 +215,7 @@ public class ArrayItemType extends AnyFunctionType {
      * @return the string representation as an instance of the XPath SequenceType construct
      */
     @Override
+    @CSharpModifiers(code={"public", "override"})
     public String toExportString() {
         return makeString(SequenceType::toExportString);
     }
@@ -275,10 +275,10 @@ public class ArrayItemType extends AnyFunctionType {
     }
 
     @Override
-    public Expression makeFunctionSequenceCoercer(Expression exp, RoleDiagnostic role)
+    public Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40)
             throws XPathException {
         return new SpecificFunctionType(
-                getArgumentTypes(), getResultType()).makeFunctionSequenceCoercer(exp, role);
+                getArgumentTypes(), getResultType()).makeFunctionSequenceCoercer(exp, role, false);
     }
 
     /**
@@ -291,25 +291,22 @@ public class ArrayItemType extends AnyFunctionType {
      * @return optionally, a message explaining why the item does not match the type
      */
     @Override
+    @CSharpModifiers(code = {"public", "override"})
     public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
         if (item instanceof ArrayItem) {
             for (int i=0; i<((ArrayItem)item).arrayLength(); i++) {
-                try {
-                    GroundedValue member = ((ArrayItem) item).get(i);
-                    if (!memberType.matches(member, th)) {
-                        String s = "The " + RoleDiagnostic.ordinal(i+1) +
-                                " member of the supplied array {" +
-                                Err.depictSequence(member) +
-                                "} does not match the required member type " +
-                                memberType;
-                        Optional<String> more = memberType.explainMismatch(member, th);
-                        if (more.isPresent()) {
-                            s = s + ". " + more.get();
-                        }
-                        return Optional.of(s);
+                GroundedValue member = ((ArrayItem) item).get(i);
+                if (!memberType.matches(member, th)) {
+                    String s = "The " + RoleDiagnostic.ordinal(i+1) +
+                            " member of the supplied array {" +
+                            Err.depictSequence(member) +
+                            "} does not match the required member type " +
+                            memberType;
+                    Optional<String> more = memberType.explainMismatch(member, th);
+                    if (more.isPresent()) {
+                        s = s + ". " + more.get();
                     }
-                } catch (XPathException e) {
-                    return Optional.empty();
+                    return Optional.of(s);
                 }
             }
         }
@@ -318,4 +315,4 @@ public class ArrayItemType extends AnyFunctionType {
 
 }
 
-// Copyright (c) 2015-2020 Saxonica Limited
+// Copyright (c) 2015-2023 Saxonica Limited

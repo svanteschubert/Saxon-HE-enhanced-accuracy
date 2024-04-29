@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,10 @@ package net.sf.saxon.pattern;
 
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
@@ -212,10 +215,39 @@ public final class AncestorQualifiedPattern extends Pattern {
 
     @Override
     public boolean matchesBeneathAnchor(NodeInfo node, NodeInfo anchor, XPathContext context) throws XPathException {
+        // Whichever pattern we attempt to match first, don't pass on any error if the other pattern doesn't match.
+        // This suppresses warnings in cases where the user didn't expect a predicate to be evaluated.
+        // To clarify: if one pattern throws an error, then if the other pattern matches we throw the error;
+        // if the other pattern doesn't match, then we suppress the error and return false. This corresponds
+        // to the (new) behaviour when using multiple predicates or "and" in XPath.
+        // In addition, if we get an error by evaluating the predicate first, we change the strategy on the fly.
+        // See Saxon bugs 6040 and 5867.
         if (testUpperPatternFirst) {
-            return matchesUpperPattern(node, anchor, context) && basePattern.matches(node, context);
+            boolean ok;
+            try {
+                ok = matchesUpperPattern(node, anchor, context);
+            } catch (XPathException e) {
+                if (basePattern.matches(node, context)) {
+                    throw e;
+                } else {
+                    return false;
+                }
+            }
+            return ok && basePattern.matches(node, context);
         } else {
-            return basePattern.matchesBeneathAnchor(node, anchor, context) && matchesUpperPattern(node, anchor, context);
+            boolean ok;
+            try {
+                ok = basePattern.matchesBeneathAnchor(node, anchor, context);
+            } catch (XPathException e) {
+                // change the strategy for next time to avoid exceptions
+                testUpperPatternFirst = true;
+                if (upperPattern.matches(node, context)) {
+                    throw e;
+                } else {
+                    return false;
+                }
+            }
+            return ok && matchesUpperPattern(node, anchor, context);
         }
     }
 
@@ -345,7 +377,7 @@ public final class AncestorQualifiedPattern extends Pattern {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return 88267 ^ basePattern.hashCode() ^ upperPattern.hashCode() ^ (upwardsAxis << 22);
     }
 
@@ -373,6 +405,8 @@ public final class AncestorQualifiedPattern extends Pattern {
                                                                   upperPattern.copy(rebindings), upwardsAxis);
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
+        n.testUpperPatternFirst = testUpperPatternFirst;
+
         return n;
     }
 

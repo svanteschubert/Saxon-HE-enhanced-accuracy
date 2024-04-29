@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,14 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.NodeKindTest;
@@ -34,20 +36,21 @@ import java.util.List;
  */
 public class UseAttributeSet extends Instruction implements ComponentInvocation, ContextOriginator {
 
-    private StructuredQName targetName;
+    private final StructuredQName targetName;
     private AttributeSet target;
-    private boolean isDeclaredStreamable;
+    private final boolean declaredStreamable;
     private int bindingSlot = -1;
 
     /**
      * Create a use-attribute-set expression
      *
      * @param name the name of the target attribute set
+     * @param streamable true if the attribute set is streamable
      */
 
     public UseAttributeSet(StructuredQName name, boolean streamable) {
         this.targetName = name;
-        this.isDeclaredStreamable = streamable;
+        this.declaredStreamable = streamable;
     }
 
     @Override
@@ -71,7 +74,7 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
     }
 
     /**
-     * Make an list of expressions whose combined effect is to expand the attribute sets named in an
+     * Make a list of expressions whose combined effect is to expand the attribute sets named in an
      * [xsl]use-attribute-sets attribute, for example on a literal result element
      *
      * @param targets     the QNames contained in the use-attribute-sets attribute
@@ -104,7 +107,7 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
         } else if (targets.size() == 1) {
             return targets.get(0);
         } else {
-            return new Block(targets.toArray(new Expression[0]));
+            return new Block(targets.toArray(new UseAttributeSet[0]));
         }
     }
 
@@ -119,7 +122,7 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
 
     private static UseAttributeSet makeUseAttributeSet(StructuredQName name, StyleElement instruction) throws XPathException {
         AttributeSet target;
-        if (name.hasURI(NamespaceConstant.XSLT) && name.getLocalPart().equals("original")) {
+        if (name.hasURI(NamespaceUri.XSLT) && name.getLocalPart().equals("original")) {
             target = (AttributeSet) instruction.getXslOriginal(StandardNames.XSL_ATTRIBUTE_SET);
         } else {
             Component invokee = instruction.getContainingPackage().getComponent(new SymbolicName(StandardNames.XSL_ATTRIBUTE_SET, name));
@@ -138,7 +141,7 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
     }
 
     public boolean isDeclaredStreamable() {
-        return isDeclaredStreamable;
+        return declaredStreamable;
     }
 
     /**
@@ -247,7 +250,7 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        UseAttributeSet ua = new UseAttributeSet(targetName, isDeclaredStreamable);
+        UseAttributeSet ua = new UseAttributeSet(targetName, declaredStreamable);
         ua.setTarget(target);
         ua.setBindingSlot(bindingSlot);
         return ua;
@@ -318,53 +321,6 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
     }
 
     /**
-     * ProcessLeavingTail: called to do the real work of this instruction. This method
-     * must be implemented in each subclass. The results of the instruction are written
-     * to the current Receiver, which can be obtained via the Controller.
-     *
-     *
-     * @param output the destination for the result
-     * @param context The dynamic context of the transformation, giving access to the current node,
-     *                the current variables, etc.
-     * @return null if the instruction has completed execution; or a TailCall indicating
-     * a function call or template call that is delegated to the caller, to be made after the stack has
-     * been unwound so as to save stack space.
-     */
-
-    /*@Nullable*/
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        Component target;
-
-        if (bindingSlot < 0) {
-            target = getFixedTarget();
-        } else {
-            target = context.getTargetComponent(bindingSlot);
-            if (target.isHiddenAbstractComponent()) {
-                XPathException err = new XPathException("Cannot expand an abstract attribute set ("
-                                                                + targetName.getDisplayName()
-                                                                + ") with no implementation", "XTDE3052");
-                err.setLocation(getLocation());
-                throw err;
-            }
-        }
-        if (target == null) {
-            throw new AssertionError("Failed to locate attribute set " + getTargetAttributeSetName().getEQName());
-        }
-        AttributeSet as = (AttributeSet) target.getActor();
-        XPathContextMajor c2 = context.newContext();
-        c2.setCurrentComponent(target);
-        c2.setOrigin(this);
-        SlotManager sm = as.getStackFrameMap();
-        if (sm == null) {
-            sm = SlotManager.EMPTY;
-        }
-        c2.openStackFrame(sm);
-        as.expand(output, c2);
-        return null;
-    }
-
-    /**
      * Get a name identifying the kind of expression, in terms meaningful to a user.
      *
      * @return a name identifying the kind of expression, in terms meaningful to a user.
@@ -410,8 +366,8 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
      */
 
     @Override
-    public int computeHashCode() {
-        return 0x86423719 ^ targetName.hashCode();
+    protected int computeHashCode() {
+        return 0x56423719 ^ targetName.hashCode();
     }
 
 
@@ -424,6 +380,45 @@ public class UseAttributeSet extends Instruction implements ComponentInvocation,
     @Override
     public String getStreamerName() {
         return "UseAttributeSet";
+    }
+
+    public Elaborator getElaborator() {
+        return new UseAttributeSetElaborator();
+    }
+
+    public static class UseAttributeSetElaborator extends PushElaborator {
+        @Override
+        public PushEvaluator elaborateForPush() {
+            UseAttributeSet expr = (UseAttributeSet) getExpression();
+            return (output, context) -> {
+                Component target;
+                if (expr.bindingSlot < 0) {
+                    target = expr.getFixedTarget();
+                } else {
+                    target = context.getTargetComponent(expr.bindingSlot);
+                    if (target.isHiddenAbstractComponent()) {
+                        throw new XPathException("Cannot expand an abstract attribute set ("
+                                                                        + expr.targetName.getDisplayName()
+                                                                        + ") with no implementation", "XTDE3052")
+                                .withLocation(expr.getLocation());
+                    }
+                }
+                if (target == null) {
+                    throw new AssertionError("Failed to locate attribute set " + expr.getTargetAttributeSetName().getEQName());
+                }
+                AttributeSet as = (AttributeSet) target.getActor();
+                XPathContextMajor c2 = context.newContext();
+                c2.setCurrentComponent(target);
+                c2.setOrigin(expr);
+                SlotManager sm = as.getStackFrameMap();
+                if (sm == null) {
+                    sm = SlotManager.EMPTY;
+                }
+                c2.openStackFrame(sm);
+                as.expand(output, c2);
+                return null;
+            };
+        }
     }
 }
 

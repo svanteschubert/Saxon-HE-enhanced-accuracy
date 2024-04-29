@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,22 +23,20 @@ import java.util.List;
  */
 public class WindowClausePull extends TuplePull {
 
-    private WindowClause windowClause;
-    private TuplePull source;
+    private final WindowClause windowClause;
+    private final TuplePull source;
     private SequenceIterator baseIterator;
     private boolean finished = false;
-    private XPathContext context;
     private Item previous = null;
     private Item current = null;
     private Item next = null;
     private int position = -1;
-    private List<WindowClause.Window> currentWindows = new ArrayList<>();
+    private final List<WindowClause.Window> currentWindows = new ArrayList<>();
 
 
     WindowClausePull(TuplePull source, WindowClause windowClause, XPathContext context) {
         this.windowClause = windowClause;
         this.source = source;
-        this.context = context;
     }
 
     /**
@@ -80,7 +78,7 @@ public class WindowClausePull extends TuplePull {
 
             // advance the input sequence
 
-            boolean autoclose = windowClause.isTumblingWindow() && windowClause.getEndCondition() == null;
+            boolean autoClose = windowClause.isTumblingWindow() && windowClause.getEndCondition() == null;
 
             Item oldPrevious = previous;
             previous = current;
@@ -93,10 +91,10 @@ public class WindowClausePull extends TuplePull {
             position++;
             if (position > 0) {
                 // See if we need to start a new window
-                if ((windowClause.isSlidingWindow() || currentWindows.isEmpty() || autoclose) &&
+                if ((windowClause.isSlidingWindow() || currentWindows.isEmpty() || autoClose) &&
                         windowClause.matchesStart(previous, current, next, position, context)) {
                     // See if we need to end the previous window
-                    if (autoclose && !currentWindows.isEmpty()) {
+                    if (autoClose && !currentWindows.isEmpty()) {
                         // automatically end the previous window
                         WindowClause.Window w = currentWindows.get(0);
                         w.endItem = previous;
@@ -153,6 +151,16 @@ public class WindowClausePull extends TuplePull {
                 }
             }
         }
+        // At the end of the input sequence, there may be a window that hasn't been despatched because
+        // earlier windows were still unclosed: see SlidingWindowExpr564
+        for (WindowClause.Window w : currentWindows) {
+            if (w.isFinished() && !w.isDespatched()) {
+                processWindow(w, context);
+                currentWindows.remove(w);
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -179,7 +187,7 @@ public class WindowClausePull extends TuplePull {
      * Identity the earliest window (that is the one whose start position comes earlier in the input sequence
      * than any other window) that is available to be despatched to the output tuple stream
      *
-     * @return true if an earliest window was found; false if there are no windows ready to be despatched
+     * @return the earliest window if found; null if there are no windows ready to be despatched
      * @throws XPathException if anything goes wrong
      */
 
@@ -199,7 +207,7 @@ public class WindowClausePull extends TuplePull {
             return null;
         } else {
             // otherwise we can process it now
-            earliestWindow.isDespatched = true;
+            earliestWindow.despatched = true;
             return earliestWindow;
         }
     }
@@ -252,7 +260,7 @@ public class WindowClausePull extends TuplePull {
         if (binding != null) {
             context.setLocalVariable(binding.getLocalSlotNumber(), WindowClause.makeValue(w.endPreviousItem));
         }
-        w.isDespatched = true;
+        w.despatched = true;
     }
 
     /**
@@ -266,4 +274,4 @@ public class WindowClausePull extends TuplePull {
 
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

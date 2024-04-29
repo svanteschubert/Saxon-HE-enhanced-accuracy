@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,8 +10,11 @@ package net.sf.saxon.value;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.AtomicSortComparer;
 import net.sf.saxon.expr.sort.DoubleSortComparer;
+import net.sf.saxon.expr.sort.XPathComparable;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Converter;
@@ -30,7 +33,7 @@ public final class FloatValue extends NumericValue {
     public static final FloatValue ONE = new FloatValue((float) 1.0);
     public static final FloatValue NaN = new FloatValue(Float.NaN);
 
-    private float value;
+    private final float value;
 
     /**
      * Constructor supplying a float
@@ -39,8 +42,8 @@ public final class FloatValue extends NumericValue {
      */
 
     public FloatValue(float value) {
+        super(BuiltInAtomicType.FLOAT);
         this.value = value;
-        typeLabel = BuiltInAtomicType.FLOAT;
     }
 
     /**
@@ -61,13 +64,13 @@ public final class FloatValue extends NumericValue {
      * to the supplied type.
      *
      * @param value the value of the NumericValue
-     * @param type  the type of the value. This must be a subtype of xs:float, and the
+     * @param typeLabel  the type of the value. This must be a subtype of xs:float, and the
      *              value must conform to this type. The method does not check these conditions.
      */
 
-    public FloatValue(float value, AtomicType type) {
+    public FloatValue(float value, AtomicType typeLabel) {
+        super(typeLabel);
         this.value = value;
-        typeLabel = type;
     }
 
     /**
@@ -79,9 +82,7 @@ public final class FloatValue extends NumericValue {
 
     @Override
     public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        FloatValue v = new FloatValue(value);
-        v.typeLabel = typeLabel;
-        return v;
+        return new FloatValue(value, typeLabel);
     }
 
     /**
@@ -107,7 +108,7 @@ public final class FloatValue extends NumericValue {
 
     @Override
     public double getDoubleValue() {
-        return (double) value;
+        return value;
     }
 
     /**
@@ -118,8 +119,13 @@ public final class FloatValue extends NumericValue {
      *          if the value cannot be converted, for example if it is NaN or infinite
      */
     @Override
+    //@CSharpReplaceBody(code="return Singulink.Numerics.BigDecimal.Parse(value.ToString(System.Globalization.CultureInfo.InvariantCulture));")
     public BigDecimal getDecimalValue() throws ValidationException {
-        return new BigDecimal((double) value);
+        try {
+            return BigDecimal.valueOf(value);
+        } catch (NumberFormatException e) {
+            throw new ValidationException(e);
+        }
     }
 
     /**
@@ -141,6 +147,7 @@ public final class FloatValue extends NumericValue {
      * @see NumericValue#hashCode
      */
 
+    @Override
     public int hashCode() {
         if (value > Integer.MIN_VALUE && value < Integer.MAX_VALUE) {
             return (int) value;
@@ -186,7 +193,7 @@ public final class FloatValue extends NumericValue {
 
     /*@NotNull*/
     @Override
-    public CharSequence getPrimitiveStringValue() {
+    public UnicodeString getPrimitiveStringValue() {
         return floatToString(value);
     }
 
@@ -194,11 +201,12 @@ public final class FloatValue extends NumericValue {
      * Get the canonical lexical representation as defined in XML Schema. This is not always the same
      * as the result of casting to a string according to the XPath rules. For xs:float, the canonical
      * representation always uses exponential notation.
+     * @return the value, represented as a string in exponential notation
      */
 
     @Override
-    public CharSequence getCanonicalLexicalRepresentation() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C16);
+    public UnicodeString getCanonicalLexicalRepresentation() {
+        UnicodeBuilder fsb = new UnicodeBuilder(32);
         return FloatingPointConverter.appendFloat(fsb, value, true);
     }
 
@@ -209,8 +217,8 @@ public final class FloatValue extends NumericValue {
      * @return the value converted to a string, according to the XPath casting rules.
      */
 
-    public static CharSequence floatToString(float value) {
-        return FloatingPointConverter.appendFloat(new FastStringBuffer(FastStringBuffer.C16), value, false);
+    public static UnicodeString floatToString(float value) {
+        return FloatingPointConverter.appendFloat(new UnicodeBuilder(), value, false);
     }
 
     /**
@@ -245,6 +253,7 @@ public final class FloatValue extends NumericValue {
      */
 
     @Override
+    @CSharpReplaceBody(code = "return new Saxon.Hej.value.FloatValue(Saxon.Impl.Helpers.Utils.roundFloat(value, scale));")
     public NumericValue round(int scale) {
         if (Float.isNaN(value)) {
             return this;
@@ -298,6 +307,7 @@ public final class FloatValue extends NumericValue {
      * @return true if this value is float or double negative zero
      */
     @Override
+    @CSharpReplaceBody(code="return value == 0.0f && float.IsNegativeInfinity(1.0f / value);")  // Better solutions exist but have dependencies
     public boolean isNegativeZero() {
         return value == 0.0 && (Float.floatToIntBits(value) & FloatingPointConverter.FLOAT_SIGN_MASK) != 0;
     }
@@ -345,22 +355,26 @@ public final class FloatValue extends NumericValue {
     }
 
     @Override
-    public int compareTo(NumericValue other) {
-        if (other instanceof FloatValue) {
-            float otherFloat = ((FloatValue) other).value;
-            // Do not rewrite as Float.compare() - see IntelliJ bug IDEA-196419
-            if (value == otherFloat) {
-                return 0;
-            } else if (value < otherFloat) {
-                return -1;
-            } else {
-                return +1;
+    public int compareTo(XPathComparable other) {
+        if (other instanceof NumericValue) {
+            if (other instanceof FloatValue) {
+                float otherFloat = ((FloatValue) other).value;
+                // Do not rewrite as Float.compare() - see IntelliJ bug IDEA-196419
+                if (value == otherFloat) {
+                    return 0;
+                } else if (value < otherFloat) {
+                    return -1;
+                } else {
+                    return +1;
+                }
             }
+            if (other instanceof DoubleValue) {
+                return super.compareTo(other);
+            }
+            return compareTo(Converter.NumericToFloat.INSTANCE.convert((NumericValue)other));
+        } else {
+            throw new ClassCastException("Cannot compare xs:float to " + other);
         }
-        if (other instanceof DoubleValue) {
-            return super.compareTo(other);
-        }
-        return compareTo(Converter.NumericToFloat.INSTANCE.convert(other));
     }
 
     /**
@@ -377,18 +391,6 @@ public final class FloatValue extends NumericValue {
             return 0;
         }
         return value < otherFloat ? -1 : +1;
-    }
-
-    /**
-     * Get an object that implements XML Schema comparison semantics
-     */
-
-    @Override
-    public Comparable getSchemaComparable() {
-        // Convert negative to positive zero because Float.compareTo() does the wrong thing
-        // Note that for NaN, we return NaN, and rely on the user of the Comparable to use it in a way
-        // that ensures NaN != NaN.
-        return value == 0.0f ? 0.0f : value;
     }
 
     /**
@@ -429,11 +431,11 @@ public final class FloatValue extends NumericValue {
 
     @Override
     public boolean isIdentical(/*@NotNull*/ AtomicValue v) {
-        return v instanceof FloatValue && DoubleSortComparer.getInstance().comparesEqual(this, (FloatValue) v);
+        return v instanceof FloatValue && DoubleSortComparer.getInstance().comparesEqual(this, v);
     }
 
     @Override
-    public FloatValue asAtomic() {
+    public AtomicValue asAtomic() {
         return this;
     }
 }

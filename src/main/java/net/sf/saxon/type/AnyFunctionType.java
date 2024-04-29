@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,11 +10,13 @@ package net.sf.saxon.type;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.ItemChecker;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * An ItemType representing the type function(*). Subtypes represent function items with more specific
@@ -143,12 +145,12 @@ public class AnyFunctionType implements FunctionItemType {
      *
      *
      * @param item    The item to be tested
-     * @param th
+     * @param th   The type hierarchy cache
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) throws XPathException {
-        return item instanceof Function;
+    public boolean matches(Item item, TypeHierarchy th) {
+        return item instanceof FunctionItem;
     }
 
     /**
@@ -204,7 +206,8 @@ public class AnyFunctionType implements FunctionItemType {
     /*@NotNull*/
     @Override
     public PlainType getAtomizedItemType() {
-        return null;
+        // Bug 6253. Some instances of function(*) can be atomized, so returning null is wrong.
+        return BuiltInAtomicType.ANY_ATOMIC;
     }
 
     /**
@@ -240,12 +243,13 @@ public class AnyFunctionType implements FunctionItemType {
      *
      * @param exp     the expression that delivers the supplied sequence of function items (the ones in need of coercion)
      * @param role    information for use in diagnostics
+     * @param allow40
      * @return the sequence of coerced functions, each on a function that calls the corresponding original function
      * after checking the parameters
      */
 
     @Override
-    public Expression makeFunctionSequenceCoercer(Expression exp, RoleDiagnostic role)
+    public Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40)
             throws XPathException {
         return new ItemChecker(exp, this, role);
     }

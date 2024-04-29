@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,7 +23,6 @@ import java.util.Arrays;
  * The system IDs of nodes are assumed to be immutable; they can only be set sequentially,
  * as the nodes are being created. </p>
  *
- * @author Michael H. Kay
  */
 
 public class SystemIdMap {
@@ -43,6 +42,7 @@ public class SystemIdMap {
      * @param sequence the sequence number (position in document order) of the
      *                 node whose system ID is to be set. This must be one greater
      *                 that the previous system ID.
+     * @param uri the system ID to be assigned at this sequence number
      */
 
     public void setSystemId(int sequence, String uri) {
@@ -66,6 +66,8 @@ public class SystemIdMap {
 
     /**
      * Get the system ID corresponding to a given sequence number
+     * @param sequence the sequence number
+     * @return the system ID
      */
 
     /*@Nullable*/

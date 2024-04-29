@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,8 +12,10 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.OptionsParameter;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.BooleanValue;
@@ -64,7 +66,7 @@ public class JsonToXMLFn extends SystemFunction {
             options = (MapItem) arguments[1].head();
         }
         Item result = eval(input, options, context);
-        return result == null ? EmptySequence.getInstance() : result;
+        return SequenceTool.itemOrEmpty(result);
     }
 
 
@@ -80,10 +82,10 @@ public class JsonToXMLFn extends SystemFunction {
     protected Item eval(String input, MapItem options, XPathContext context) throws XPathException {
         JsonParser parser = new JsonParser();
         int flags = 0;
-        Map<String, Sequence> checkedOptions = null;
+        Map<String, GroundedValue> checkedOptions = null;
         if (options != null) {
             checkedOptions = getDetails().optionDetails.processSuppliedOptions(options, context);
-            flags = JsonParser.getFlags(checkedOptions, context, true);
+            flags = JsonParser.getFlags(checkedOptions, true, context.getController().getExecutable().isSchemaAware());
             if ((flags & JsonParser.DUPLICATES_LAST) != 0) {
                 throw new XPathException("json-to-xml: duplicates=use-last is not allowed", "FOJS0005");
             }
@@ -109,4 +111,4 @@ public class JsonToXMLFn extends SystemFunction {
 
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

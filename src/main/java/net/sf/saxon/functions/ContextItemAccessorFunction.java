@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,15 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.type.SpecificFunctionType;
-import net.sf.saxon.expr.Callable;
-import net.sf.saxon.expr.ContextItemExpression;
-import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.*;
+import net.sf.saxon.functions.registry.BuiltInFunctionSet;
 import net.sf.saxon.om.*;
+import net.sf.saxon.trans.SymbolicName;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.FunctionItemType;
+import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
@@ -39,15 +40,15 @@ public class ContextItemAccessorFunction extends ContextAccessorFunction {
      */
 
     @Override
-    public Function bindContext(XPathContext context) throws XPathException {
+    public FunctionItem bindContext(XPathContext context) throws XPathException {
         final Item ci = context.getContextItem();
         if (ci == null) {
-            Callable callable = (context1, arguments) -> {
+            Callable callable = new CallableDelegate((context1, arguments) -> {
                 throw new XPathException("Context item for " +
                     getFunctionName().getDisplayName() + " is absent", "XPDY0002");
-            };
+            });
             FunctionItemType fit = new SpecificFunctionType(new SequenceType[]{}, SequenceType.ANY_SEQUENCE);
-            return new CallableFunction(0, callable, fit);
+            return new CallableFunction(new SymbolicName.F(getFunctionName(), 0), callable, fit);
         }
         ConstantFunction fn = new ConstantFunction(evaluate(ci, context));
         fn.setDetails(getDetails());
@@ -81,7 +82,11 @@ public class ContextItemAccessorFunction extends ContextAccessorFunction {
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         // Shouldn't be called; but we handle it if it is
-        return evaluate(context.getContextItem(), context);
+        final Item contextItem = context.getContextItem();
+        if (contextItem == null) {
+            throw new XPathException("Dynamic call to context-dependent function with no bound context", "XPDY0002");
+        }
+        return evaluate(contextItem, context);
     }
 
     /**
@@ -93,9 +98,19 @@ public class ContextItemAccessorFunction extends ContextAccessorFunction {
      */
 
     @Override
+    @CSharpModifiers(code={"public", "override"})
     public Expression makeFunctionCall(Expression[] arguments) {
         Expression arg = new ContextItemExpression();
-        return SystemFunction.makeCall(getFunctionName().getLocalPart(), getRetainedStaticContext(), arg);
+        if (getFunctionName().hasURI(NamespaceUri.SAXON)) {
+            BuiltInFunctionSet.Entry entry = getDetails();
+            try {
+                return entry.functionSet.makeFunction(entry.name.getLocalPart(), 1).makeFunctionCall(arg);
+            } catch (XPathException e) {
+                throw new UncheckedXPathException(e); // Should not happen
+            }
+        } else {
+            return SystemFunction.makeCall(getFunctionName().getLocalPart(), getRetainedStaticContext(), arg);
+        }
     }
 
     /**
@@ -126,7 +141,7 @@ public class ContextItemAccessorFunction extends ContextAccessorFunction {
         @Override
         public GroundedValue evaluate(Item item, XPathContext context) throws XPathException {
             SystemFunction f = SystemFunction.makeFunction(getDetails().name.getLocalPart(), getRetainedStaticContext(), 1);
-            StringValue val = new StringValue(item.getStringValueCS());
+            StringValue val = new StringValue(item.getUnicodeStringValue());
             return f.call(context, new Sequence[]{val}).materialize();
         }
 

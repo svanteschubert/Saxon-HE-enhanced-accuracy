@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,7 +21,7 @@ import net.sf.saxon.value.AtomicValue;
 
 public class CollatingAtomicComparer implements AtomicComparer {
 
-    private StringCollator collator;
+    private final StringCollator collator;
 
     /**
      * Create an GenericAtomicComparer
@@ -86,7 +86,7 @@ public class CollatingAtomicComparer implements AtomicComparer {
             return +1;
         }
 
-        return collator.compareStrings(a.getStringValue(), b.getStringValue());
+        return collator.compareStrings(a.getUnicodeStringValue(), b.getUnicodeStringValue());
     }
 
     /**

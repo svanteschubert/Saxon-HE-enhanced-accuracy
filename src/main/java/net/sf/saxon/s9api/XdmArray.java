@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,11 @@
 
 package net.sf.saxon.s9api;
 
-import net.sf.saxon.ma.arrays.ArrayFunctionSet;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.SimpleArrayItem;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -26,6 +25,7 @@ import java.util.List;
  * @since 9.8
  */
 
+@CSharpModifiers(code = {"internal"})
 public class XdmArray extends XdmFunctionItem {
 
     /**
@@ -33,7 +33,7 @@ public class XdmArray extends XdmFunctionItem {
      */
 
     public XdmArray() {
-        setValue(SimpleArrayItem.EMPTY_ARRAY);
+        this(SimpleArrayItem.EMPTY_ARRAY);
     }
 
     /**
@@ -42,7 +42,7 @@ public class XdmArray extends XdmFunctionItem {
      */
 
     public XdmArray(ArrayItem array) {
-        setValue(array);
+        super(array);
     }
 
     /**
@@ -53,11 +53,15 @@ public class XdmArray extends XdmFunctionItem {
      */
 
     public XdmArray(XdmValue[] members) {
+        this(fromMemberArray(members));
+    }
+
+    private static SimpleArrayItem fromMemberArray(XdmValue[] members) {
         List<GroundedValue> values = new ArrayList<>();
         for (XdmValue member : members) {
             values.add(member.getUnderlyingValue());
         }
-        setValue(new SimpleArrayItem(values));
+        return new SimpleArrayItem(values);
     }
 
     /**
@@ -70,11 +74,15 @@ public class XdmArray extends XdmFunctionItem {
      */
 
     public XdmArray(Iterable<? extends XdmValue> members) {
+        this(fromMemberIterable(members));
+    }
+
+    private static SimpleArrayItem fromMemberIterable(Iterable<? extends XdmValue> members) {
         List<GroundedValue> values = new ArrayList<>();
         for (XdmValue member : members) {
             values.add(member.getUnderlyingValue());
         }
-        setValue(new SimpleArrayItem(values));
+        return new SimpleArrayItem(values);
     }
 
     /**
@@ -123,18 +131,13 @@ public class XdmArray extends XdmFunctionItem {
      * Append a new member to an array
      * @param value the new member
      * @return a new array, one item longer than the original
-     * @throws SaxonApiUncheckedException if the value is lazily evaluated, and evaluation fails
      * @since 9.9. (See bug 3968: on first release of 9.9, the method was mistakenly named <code>append</code>).
      */
 
     public XdmArray addMember(XdmValue value) {
-        try {
-            GroundedValue member = value.getUnderlyingValue();
-            ArrayItem newArray = ArrayFunctionSet.ArrayAppend.append(getUnderlyingValue(), member);
-            return (XdmArray) XdmValue.wrap(newArray);
-        } catch (XPathException e) {
-            throw new SaxonApiUncheckedException(e);
-        }
+        GroundedValue member = value.getUnderlyingValue();
+        ArrayItem newArray = getUnderlyingValue().append(member);
+        return (XdmArray) XdmValue.wrap(newArray);
     }
 
     /**
@@ -159,7 +162,7 @@ public class XdmArray extends XdmFunctionItem {
      */
     public List<XdmValue> asList() {
         Iterator<GroundedValue> members = getUnderlyingValue().members().iterator();
-        List<XdmValue> result = new ArrayList<XdmValue>(getUnderlyingValue().getLength());
+        List<XdmValue> result = new ArrayList<>(getUnderlyingValue().getLength());
         while (members.hasNext()) {
             result.add(XdmValue.wrap(members.next()));
         }
@@ -183,6 +186,7 @@ public class XdmArray extends XdmFunctionItem {
      * is converted to a single member in the result array using the method
      * {@link XdmValue#makeValue(Object)}
      *
+     * @param input the Java array
      * @return the result of the conversion if successful
      * @throws IllegalArgumentException if conversion is not possible
      */

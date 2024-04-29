@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,10 @@ package net.sf.saxon.tree.iter;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
-
-import java.util.EnumSet;
 
 /**
  * AtomizingIterator returns the atomization of an underlying sequence supplied
@@ -41,12 +41,16 @@ public class UntypedAtomizingIterator implements SequenceIterator,
 
     /*@Nullable*/
     @Override
-    public AtomicValue next() throws XPathException {
-        Item nextSource = base.next();
-        if (nextSource == null) {
-            return null;
-        } else {
-            return (AtomicValue) nextSource.atomize();
+    public AtomicValue next() {
+        try {
+            Item nextSource = base.next();
+            if (nextSource == null) {
+                return null;
+            } else {
+                return (AtomicValue) nextSource.atomize();
+            }
+        } catch (XPathException e) {
+            throw new UncheckedXPathException(e);
         }
     }
 
@@ -56,25 +60,27 @@ public class UntypedAtomizingIterator implements SequenceIterator,
     }
 
     /**
-     * Get properties of this iterator, as a bit-significant integer.
+     * Ask whether this iterator supports use of the {@link #getLength()} method. This
+     * method should always be called before calling {@link #getLength()}, because an iterator
+     * that implements this interface may support use of {@link #getLength()} in some situations
+     * and not in others
      *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
+     * @return true if the {@link #getLength()} method can be called to determine the length
+     * of the underlying sequence.
      */
-
     @Override
-    public EnumSet<Property> getProperties() {
-        EnumSet<Property> p = EnumSet.copyOf(base.getProperties());
-        p.retainAll(EnumSet.of(Property.LAST_POSITION_FINDER, Property.LOOKAHEAD));
-        return p;
+    public boolean supportsGetLength() {
+        return SequenceTool.supportsGetLength(base);
     }
 
     @Override
-    public int getLength() throws XPathException {
-        return ((LastPositionFinder) base).getLength();
+    public int getLength() {
+        return SequenceTool.getLength(base);
+    }
+
+    @Override
+    public boolean supportsHasNext() {
+        return base instanceof LookaheadIterator && ((LookaheadIterator) base).supportsHasNext();
     }
 
     @Override

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,7 +23,7 @@ import net.sf.saxon.value.SequenceType;
 public abstract class CastingExpression extends UnaryExpression {
 
     private AtomicType targetType;
-    private AtomicType targetPrimitiveType;
+    private final AtomicType targetPrimitiveType;
     private boolean allowEmpty = false;
     protected Converter converter;
     private boolean operandIsStringLiteral = false;
@@ -41,7 +41,8 @@ public abstract class CastingExpression extends UnaryExpression {
         super(source);
         this.allowEmpty = allowEmpty;
         targetType = target;
-        targetPrimitiveType = target.getPrimitiveItemType();
+        // Cast needed for C#
+        targetPrimitiveType = (AtomicType)target.getPrimitiveItemType();
     }
 
     /**
@@ -181,7 +182,7 @@ public abstract class CastingExpression extends UnaryExpression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NO_NODES_NEWLY_CREATED;
     }

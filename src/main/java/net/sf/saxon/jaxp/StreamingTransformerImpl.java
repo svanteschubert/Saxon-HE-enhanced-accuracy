@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,8 +32,8 @@ import java.util.Map;
  */
 public class StreamingTransformerImpl extends AbstractTransformerImpl {
 
-    private Xslt30Transformer xsltTransformer;
-    private Map<QName, XdmValue> convertedParameters = new HashMap<>();
+    private final Xslt30Transformer xsltTransformer;
+    private final Map<QName, XdmValue> convertedParameters = new HashMap<>();
 
     protected StreamingTransformerImpl(XsltExecutable e, Xslt30Transformer t) {
         super(e);
@@ -136,7 +136,11 @@ public class StreamingTransformerImpl extends AbstractTransformerImpl {
      */
 
     public void setInitialMode(String name) throws IllegalArgumentException {
-        xsltTransformer.setInitialMode(QName.fromClarkName(name));
+        try {
+            xsltTransformer.setInitialMode(QName.fromClarkName(name));
+        } catch (SaxonApiException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     /**
@@ -181,7 +185,7 @@ public class StreamingTransformerImpl extends AbstractTransformerImpl {
 
     public class StreamingTransformerHandler extends ReceivingContentHandler implements TransformerHandler {
 
-        private XsltController controller;
+        private final XsltController controller;
         private String systemId;
         //private ProxyReceiver proxy;
 

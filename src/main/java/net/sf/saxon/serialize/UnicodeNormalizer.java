@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,13 +10,19 @@ package net.sf.saxon.serialize;
 import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.AttributeMap;
+import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NodeName;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.om.*;
-import net.sf.saxon.serialize.codenorm.Normalizer;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.WhitespaceString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.Whitespace;
+
+import java.text.Normalizer;
 
 /**
  * UnicodeNormalizer: This ProxyReceiver performs unicode normalization on the contents
@@ -26,30 +32,26 @@ import net.sf.saxon.value.Whitespace;
 
 public class UnicodeNormalizer extends ProxyReceiver {
 
-    private Normalizer normalizer;
+    private final Normalizer.Form normForm;
 
     public UnicodeNormalizer(String form, Receiver next) throws XPathException {
         super(next);
-        byte fb;
         switch (form) {
             case "NFC":
-                fb = Normalizer.C;
+                normForm = Normalizer.Form.NFC;
                 break;
             case "NFD":
-                fb = Normalizer.D;
+                normForm = Normalizer.Form.NFD;
                 break;
             case "NFKC":
-                fb = Normalizer.KC;
+                normForm = Normalizer.Form.NFKC;
                 break;
             case "NFKD":
-                fb = Normalizer.KD;
+                normForm = Normalizer.Form.NFKD;
                 break;
             default:
-                XPathException err = new XPathException("Unknown normalization form " + form);
-                err.setErrorCode("SESU0011");
-                throw err;
+                throw new XPathException("Unknown normalization form " + form, "SESU0011");
         }
-        normalizer = Normalizer.make(fb, getConfiguration());
     }
 
     /**
@@ -57,8 +59,8 @@ public class UnicodeNormalizer extends ProxyReceiver {
      * @return the underlying Normalizer
      */
 
-    public Normalizer getNormalizer() {
-        return normalizer;
+    public Normalizer.Form getNormalizationForm() {
+        return normForm;
     }
 
     /**
@@ -77,7 +79,7 @@ public class UnicodeNormalizer extends ProxyReceiver {
     @Override
     public void startElement(NodeName elemName, SchemaType type, AttributeMap attributes, NamespaceMap namespaces, Location location, int properties) throws XPathException {
         AttributeMap am2 = attributes.apply(attInfo -> {
-            String newValue = normalize(attInfo.getValue(),
+            String newValue = normalize(StringView.of(attInfo.getValue()),
                                         ReceiverOption.contains(attInfo.getProperties(), ReceiverOption.USE_NULL_MARKERS)).toString();
 
             return new AttributeInfo(
@@ -95,8 +97,8 @@ public class UnicodeNormalizer extends ProxyReceiver {
      */
 
     @Override
-    public void characters(/*@NotNull*/ CharSequence chars, Location locationId, int properties) throws XPathException {
-        if (Whitespace.isWhite(chars)) {
+    public void characters(/*@NotNull*/ UnicodeString chars, Location locationId, int properties) throws XPathException {
+        if (Whitespace.isAllWhite(chars)) {
             nextReceiver.characters(chars, locationId, properties);
         } else {
             nextReceiver.characters(normalize(chars, ReceiverOption.contains(properties, ReceiverOption.USE_NULL_MARKERS)),
@@ -104,26 +106,30 @@ public class UnicodeNormalizer extends ProxyReceiver {
         }
     }
 
-    public CharSequence normalize(CharSequence in, boolean containsNullMarkers) {
+    public UnicodeString normalize(UnicodeString in, boolean containsNullMarkers) {
+        if (in instanceof WhitespaceString) {
+            return in;
+        }
+        UnicodeString t = in.tidy();
         if (containsNullMarkers) {
-            FastStringBuffer out = new FastStringBuffer(in.length());
+            StringBuilder out = new StringBuilder(t.length32());
             String s = in.toString();
             int start = 0;
             int nextNull = s.indexOf((char)0);
             while (nextNull >= 0) {
-                out.cat(normalizer.normalize(s.substring(start, nextNull)));
-                out.cat((char) 0);
+                out.append(Normalizer.normalize(s.substring(start, nextNull), normForm));
+                out.append((char) 0);
                 start = nextNull + 1;
                 nextNull = s.indexOf((char) 0, start);
                 out.append(s.substring(start, nextNull));
-                out.cat((char) 0);
+                out.append((char) 0);
                 start = nextNull + 1;
                 nextNull = s.indexOf((char) 0, start);
             }
-            out.cat(normalizer.normalize(s.substring(start)));
-            return out.condense();
+            out.append(Normalizer.normalize(s.substring(start), normForm));
+            return StringView.tidy(out.toString());
         } else {
-            return normalizer.normalize(in);
+            return StringView.tidy(Normalizer.normalize(in.toString(), normForm));
         }
     }
 

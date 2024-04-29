@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,7 +23,7 @@ import net.sf.saxon.type.Type;
  */
 public class DeepSkipRuleSet implements BuiltInRuleSet {
 
-    private static DeepSkipRuleSet THE_INSTANCE = new DeepSkipRuleSet();
+    private static final DeepSkipRuleSet THE_INSTANCE = new DeepSkipRuleSet();
 
     /**
      * Get the singleton instance of this class
@@ -84,11 +84,11 @@ public class DeepSkipRuleSet implements BuiltInRuleSet {
      * @return the default action for unmatched element nodes: one of DEEP_COPY, APPLY_TEMPLATES, DEEP_SKIP, FAIL
      */
     @Override
-    public int[] getActionForParentNodes(int nodeKind) {
+    public BuiltInRules[] getActionForParentNodes(int nodeKind) {
         if (nodeKind == Type.DOCUMENT) {
-            return new int[]{APPLY_TEMPLATES_TO_CHILDREN};
+            return new BuiltInRules[]{BuiltInRules.APPLY_TEMPLATES_TO_CHILDREN};
         } else {
-            return new int[]{DEEP_SKIP};
+            return new BuiltInRules[]{BuiltInRules.DEEP_SKIP};
         }
     }
 }

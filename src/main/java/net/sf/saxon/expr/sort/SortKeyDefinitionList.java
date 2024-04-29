@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2020 Saxonica Limited
+// Copyright (c) 2013-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,7 +26,7 @@ import java.util.List;
  */
 public class SortKeyDefinitionList extends PseudoExpression implements Iterable<SortKeyDefinition> {
 
-    private SortKeyDefinition[] sortKeyDefinitions;
+    private final SortKeyDefinition[] sortKeyDefinitions;
 
     /**
      * Create a list of sort key definitions
@@ -55,7 +55,8 @@ public class SortKeyDefinitionList extends PseudoExpression implements Iterable<
     /**
      * Ask whether the expression can be lifted out of a loop, assuming it has no dependencies
      * on the controlling variable/focus of the loop
-     * @param forStreaming
+     * @param forStreaming true if we're optimising for streamed execution
+     * @return for a {@code SortKeyDefinitionList}, always false
      */
 
     @Override
@@ -96,7 +97,7 @@ public class SortKeyDefinitionList extends PseudoExpression implements Iterable<
     /**
      * Copy this pseudo-expression
      * @return a deep copy
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     @Override

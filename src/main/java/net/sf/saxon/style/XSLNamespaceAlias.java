@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NamespaceBinding;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.Whitespace;
@@ -21,7 +22,7 @@ import net.sf.saxon.value.Whitespace;
 
 public class XSLNamespaceAlias extends StyleElement {
 
-    private String stylesheetURI;
+    private NamespaceUri stylesheetURI;
     private NamespaceBinding resultNamespaceBinding;
 
     /**
@@ -37,7 +38,7 @@ public class XSLNamespaceAlias extends StyleElement {
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String stylesheetPrefix = null;
         String resultPrefix = null;
@@ -72,16 +73,16 @@ public class XSLNamespaceAlias extends StyleElement {
         if (stylesheetURI == null) {
             compileError("stylesheet-prefix " + stylesheetPrefix + " has not been declared", "XTSE0812");
             // recovery action
-            stylesheetURI = "";
+            stylesheetURI = NamespaceUri.NULL;
             resultNamespaceBinding = NamespaceBinding.DEFAULT_UNDECLARATION;
             return;
         }
-        String resultURI = getURIForPrefix(resultPrefix, true);
+        NamespaceUri resultURI = getURIForPrefix(resultPrefix, true);
         if (resultURI == null) {
             compileError("result-prefix " + resultPrefix + " has not been declared", "XTSE0812");
             // recovery action
-            stylesheetURI = "";
-            resultURI = "";
+            stylesheetURI = NamespaceUri.NULL;
+            resultURI = NamespaceUri.NULL;
         }
         resultNamespaceBinding = new NamespaceBinding(resultPrefix, resultURI);
     }
@@ -102,7 +103,7 @@ public class XSLNamespaceAlias extends StyleElement {
         top.addNamespaceAlias(decl);
     }
 
-    public String getStylesheetURI() {
+    public NamespaceUri getStylesheetURI() {
         return stylesheetURI;
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,10 +16,12 @@ import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.instruct.TemplateRule;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.style.StylesheetModule;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.rules.*;
+import net.sf.saxon.tree.tiny.TinyElementImpl;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
@@ -31,6 +33,7 @@ import net.sf.saxon.z.IntHashMap;
 import net.sf.saxon.z.IntIterator;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * A Mode is a collection of rules; the selection of a rule to apply to a given element
@@ -64,8 +67,8 @@ public class SimpleMode extends Mode {
     private int highestRank;
 
 
-    private Map<String, Integer> explicitPropertyPrecedences = new HashMap<>();
-    private Map<String, String> explicitPropertyValues = new HashMap<>();
+    private final Map<String, Integer> explicitPropertyPrecedences = new HashMap<>();
+    private final Map<String, String> explicitPropertyValues = new HashMap<>();
 
 
 
@@ -114,12 +117,13 @@ public class SimpleMode extends Mode {
     }
 
     /**
-     * Check that the mode does not contain conflicting property values
-     * @param manager the containing RuleManager
+     * Check that the mode does not contain conflicting property values, and select property
+     * values if there were multiple xsl:mode declarations, possible at different import precedence
+     *
      * @throws XPathException if there are conflicts
      */
 
-    public void checkForConflictingProperties(RuleManager manager) throws XPathException {
+    public void resolveProperties(RuleManager manager) throws XPathException {
         boolean failOnMultipleMatch = false;
         boolean warningOnMultipleMatch = true;
         for (Map.Entry<String, String> entry : getActivePart().explicitPropertyValues.entrySet()) {
@@ -137,10 +141,10 @@ public class SimpleMode extends Mode {
                 case "streamable":
                     boolean streamable = "yes".equals(value);
                     setStreamable(streamable);
-                    if (streamable) {
-                        Mode omniMode = manager.obtainMode(Mode.OMNI_MODE, true);
-                        omniMode.setStreamable(true);
-                    }
+//                    if (streamable) {
+//                        Mode omniMode = manager.obtainMode(Mode.OMNI_MODE, true);
+//                        omniMode.setStreamable(true);
+//                    }
                     break;
                 case "typed":
                     mustBeTyped = "yes".equals(value) || "strict".equals(value) || "lax".equals(value);
@@ -167,6 +171,9 @@ public class SimpleMode extends Mode {
                         case "fail":
                             base = FailRuleSet.getInstance();
                             break;
+                        case "shallow-copy-all":
+                            base = ShallowCopyAllRuleSet.getInstance();
+                            break;
                         default:
                             // already validated
                             break;
@@ -182,7 +189,7 @@ public class SimpleMode extends Mode {
                     }
                     break;
                 case "warning-on-multiple-match":
-                    warningOnMultipleMatch = "yes".equals(value);
+                    warningOnMultipleMatch = value.equals("yes");
                     break;
                 case "use-accumulators":
                     AccumulatorRegistry registry = manager.getStylesheetPackage().getAccumulatorRegistry();
@@ -219,33 +226,12 @@ public class SimpleMode extends Mode {
     }
 
     /**
-     * Construct a new Mode, copying the contents of an existing Mode
-     *
-     * @param from the existing mode.
-     * @param to   the name of the new mode to be created
-     */
-
-    public static void copyRules(final SimpleMode from, final SimpleMode to) {
-        try {
-            from.processRules(r -> {
-                Rule r2 = r.copy(false);
-                to.addRule(r2.getPattern(), r2);
-            });
-        } catch (XPathException e) {
-            throw new AssertionError(e);
-        }
-
-        to.mostRecentRule = from.mostRecentRule;
-        to.mostRecentModuleHash = from.mostRecentModuleHash;
-    }
-
-    /**
      * Generate a search state for processing a given node
      *
      * @return a new object capable of holding the state of a search for a rule
      */
     protected RuleSearchState makeRuleSearchState(RuleChain chain, XPathContext context) {
-        return new RuleSearchState();
+        return RuleSearchState.getInstance();
     }
 
     /**
@@ -269,8 +255,8 @@ public class SimpleMode extends Mode {
      */
 
     public void setExplicitProperty(String name, String value, int precedence) {
-        Integer p = explicitPropertyPrecedences.get(name);
-        if (p != null) {
+        int p = explicitPropertyPrecedences.getOrDefault(name, Integer.MIN_VALUE);
+        if (p != Integer.MIN_VALUE) {
             if (p < precedence) {
                 explicitPropertyPrecedences.put(name, precedence);
                 explicitPropertyValues.put(name, value);
@@ -316,8 +302,8 @@ public class SimpleMode extends Mode {
      */
 
     @Override
-    public Set<String> getExplicitNamespaces(NamePool pool) {
-        Set<String> namespaces = new HashSet<>();
+    public Set<NamespaceUri> getExplicitNamespaces(NamePool pool) {
+        Set<NamespaceUri> namespaces = new HashSet<>();
         IntIterator ii = namedElementRuleChains.keyIterator();
         while (ii.hasNext()) {
             int fp = ii.next();
@@ -533,76 +519,18 @@ public class SimpleMode extends Mode {
         }
 
         // search the specific list for this node type / node name
-
-        RuleChain unnamedNodeChain;
         Rule bestRule = null;
 
         if (item instanceof NodeInfo) {
             NodeInfo node = (NodeInfo) item;
-            switch (node.getNodeKind()) {
-                case Type.DOCUMENT:
-                    unnamedNodeChain = documentRuleChain;
-                    break;
-
-                case Type.ELEMENT: {
-                    unnamedNodeChain = unnamedElementRuleChain;
-                    RuleChain namedNodeChain;
-                    if (node.hasFingerprint()) {
-                        namedNodeChain = namedElementRuleChains.get(node.getFingerprint());
-                    } else {
-                        namedNodeChain = getNamedRuleChain(context, Type.ELEMENT, node.getURI(), node.getLocalPart());
-                    }
-                    if (namedNodeChain != null) {
-                        bestRule = searchRuleChain(node, context, null, namedNodeChain);
-                    }
-                    break;
-                }
-                case Type.ATTRIBUTE: {
-                    unnamedNodeChain = unnamedAttributeRuleChain;
-                    RuleChain namedNodeChain;
-                    if (node.hasFingerprint()) {
-                        namedNodeChain = namedAttributeRuleChains.get(node.getFingerprint());
-                    } else {
-                        namedNodeChain = getNamedRuleChain(context, Type.ATTRIBUTE, node.getURI(), node.getLocalPart());
-                    }
-                    if (namedNodeChain != null) {
-                        bestRule = searchRuleChain(node, context, null, namedNodeChain);
-                    }
-                    break;
-                }
-                case Type.TEXT:
-                    unnamedNodeChain = textRuleChain;
-                    break;
-                case Type.COMMENT:
-                    unnamedNodeChain = commentRuleChain;
-                    break;
-                case Type.PROCESSING_INSTRUCTION:
-                    unnamedNodeChain = processingInstructionRuleChain;
-                    break;
-                case Type.NAMESPACE:
-                    unnamedNodeChain = namespaceRuleChain;
-                    break;
-                default:
-                    throw new AssertionError("Unknown node kind");
-            }
-
-            // search the list for unnamed nodes of a particular kind
-
-            if (unnamedNodeChain != null) {
-                bestRule = searchRuleChain(node, context, bestRule, unnamedNodeChain);
-            }
-
-            // Search the list for rules for nodes of unknown node kind
-
-            bestRule = searchRuleChain(node, context, bestRule, genericRuleChain);
-
+            bestRule = findBestRuleForNodeInfo(node, context);
         } else if (item instanceof AtomicValue) {
             if (atomicValueRuleChain != null) {
                 bestRule = searchRuleChain(item, context, bestRule, atomicValueRuleChain);
             }
             bestRule = searchRuleChain(item, context, bestRule, genericRuleChain);
 
-        } else if (item instanceof Function) {
+        } else if (item instanceof FunctionItem) {
             if (functionItemRuleChain != null) {
                 bestRule = searchRuleChain(item, context, bestRule, functionItemRuleChain);
             }
@@ -610,6 +538,79 @@ public class SimpleMode extends Mode {
         }
 
         return bestRule;
+    }
+
+    private Rule findBestRuleForNodeInfo(NodeInfo node, XPathContext context) throws XPathException
+    {
+        RuleChain unnamedNodeChain;
+        Rule bestRule = null;
+
+        //ExitCounter.count(node.getClass().getSimpleName());
+
+        int nodeKind;
+
+        if (node instanceof TinyElementImpl) {
+            nodeKind = Type.ELEMENT;
+        } else {
+            nodeKind = node.getNodeKind();
+        }
+
+        switch (nodeKind) {
+        case Type.DOCUMENT:
+            unnamedNodeChain = documentRuleChain;
+            break;
+
+        case Type.ELEMENT: {
+            unnamedNodeChain = unnamedElementRuleChain;
+            RuleChain namedNodeChain;
+            if (node.hasFingerprint()) {
+                namedNodeChain = namedElementRuleChains.get(node.getFingerprint());
+            } else {
+                namedNodeChain = getNamedRuleChain(context, Type.ELEMENT, node.getNamespaceUri(), node.getLocalPart());
+            }
+            if (namedNodeChain != null) {
+                bestRule = searchRuleChain(node, context, null, namedNodeChain);
+            }
+            break;
+        }
+        case Type.ATTRIBUTE: {
+            unnamedNodeChain = unnamedAttributeRuleChain;
+            RuleChain namedNodeChain;
+            if (node.hasFingerprint()) {
+                namedNodeChain = namedAttributeRuleChains.get(node.getFingerprint());
+            } else {
+                namedNodeChain = getNamedRuleChain(context, Type.ATTRIBUTE, node.getNamespaceUri(), node.getLocalPart());
+            }
+            if (namedNodeChain != null) {
+                bestRule = searchRuleChain(node, context, null, namedNodeChain);
+            }
+            break;
+        }
+        case Type.TEXT:
+            unnamedNodeChain = textRuleChain;
+            break;
+        case Type.COMMENT:
+            unnamedNodeChain = commentRuleChain;
+            break;
+        case Type.PROCESSING_INSTRUCTION:
+            unnamedNodeChain = processingInstructionRuleChain;
+            break;
+        case Type.NAMESPACE:
+            unnamedNodeChain = namespaceRuleChain;
+            break;
+        default:
+            throw new AssertionError("Unknown node kind");
+        }
+
+        // search the list for unnamed nodes of a particular kind
+
+        if (unnamedNodeChain != null) {
+            bestRule = searchRuleChain(node, context, bestRule, unnamedNodeChain);
+        }
+
+        // Search the list for rules for nodes of unknown node kind
+
+        return searchRuleChain(node, context, bestRule, genericRuleChain);
     }
 
 
@@ -623,7 +624,7 @@ public class SimpleMode extends Mode {
      * to consider
      */
 
-    protected RuleChain getNamedRuleChain(XPathContext c, int kind, String uri, String local) {
+    protected RuleChain getNamedRuleChain(XPathContext c, int kind, NamespaceUri uri, String local) {
         // If this is the first attempt to match a non-fingerprinted node, build indexes
         // to the rule chains based on StructuredQName rather than fingerprint
         synchronized(this) {
@@ -662,9 +663,7 @@ public class SimpleMode extends Mode {
 
     protected Rule searchRuleChain(Item item, XPathContext context, /*@Nullable*/ Rule bestRule, RuleChain chain) throws XPathException {
 
-        while (!(context instanceof XPathContextMajor)) {
-            context = context.getCaller();
-        }
+        context = context.getMajorContext();
 
         // Get the rule search state object - this could be reusable within a rule chain.
         RuleSearchState ruleSearchState = makeRuleSearchState(chain, context);
@@ -745,7 +744,7 @@ public class SimpleMode extends Mode {
 
     /*@Nullable*/
     @Override
-    public Rule getRule(Item item, XPathContext context, RuleFilter filter) throws XPathException {
+    public Rule getRule(Item item, XPathContext context, Predicate<Rule> filter) throws XPathException {
 
         // If there are match patterns in the stylesheet that use local variables, we need to allocate
         // a new stack frame for evaluating the match patterns. We base this on the match pattern with
@@ -780,7 +779,7 @@ public class SimpleMode extends Mode {
                     if (node.hasFingerprint()) {
                         namedNodeChain = namedElementRuleChains.get(node.getFingerprint());
                     } else {
-                        namedNodeChain = getNamedRuleChain(context, Type.ELEMENT, node.getURI(), node.getLocalPart());
+                        namedNodeChain = getNamedRuleChain(context, Type.ELEMENT, node.getNamespaceUri(), node.getLocalPart());
                     }
                     if (namedNodeChain != null) {
                         ruleSearchState = makeRuleSearchState(namedNodeChain, context);
@@ -794,7 +793,7 @@ public class SimpleMode extends Mode {
                     if (node.hasFingerprint()) {
                         namedNodeChain = namedAttributeRuleChains.get(node.getFingerprint());
                     } else {
-                        namedNodeChain = getNamedRuleChain(context, Type.ATTRIBUTE, node.getURI(), node.getLocalPart());
+                        namedNodeChain = getNamedRuleChain(context, Type.ATTRIBUTE, node.getNamespaceUri(), node.getLocalPart());
                     }
                     if (namedNodeChain != null) {
                         ruleSearchState = makeRuleSearchState(namedNodeChain, context);
@@ -835,7 +834,7 @@ public class SimpleMode extends Mode {
             bestRule = searchRuleChain(item, context, bestRule, genericRuleChain, ruleSearchState, filter);
             return bestRule;
 
-        } else if (item instanceof Function) {
+        } else if (item instanceof FunctionItem) {
             if (functionItemRuleChain != null) {
                 ruleSearchState = makeRuleSearchState(functionItemRuleChain, context);
                 bestRule = searchRuleChain(item, context, bestRule, functionItemRuleChain, ruleSearchState, filter);
@@ -864,13 +863,14 @@ public class SimpleMode extends Mode {
      */
 
     protected Rule searchRuleChain(Item item, XPathContext context,
-                                   Rule/*@Nullable*/ bestRule, RuleChain chain, RuleSearchState ruleSearchState, RuleFilter filter) throws XPathException {
+                                   Rule/*@Nullable*/ bestRule, RuleChain chain,
+                                   RuleSearchState ruleSearchState, Predicate<Rule> filter) throws XPathException {
         Rule head = chain == null ? null : chain.head();
         while (!(context instanceof XPathContextMajor)) {
             context = context.getCaller();
         }
         while (head != null) {
-            if (filter == null || filter.testRule(head)) {
+            if (filter == null || filter.test(head)) {
                 if (bestRule != null) {
                     int rank = head.compareRank(bestRule);
                     if (rank < 0) {
@@ -969,7 +969,7 @@ public class SimpleMode extends Mode {
 
     private static String showPattern(Pattern p) {
         // Complex patterns can be laid out with lots of whitespace, which looks messy in the error message
-        return Whitespace.collapseWhitespace(p.toShortString()).toString();
+        return Whitespace.collapseWhitespace(StringView.of(p.toShortString()).tidy()).toString();
     }
 
     /**
@@ -1051,37 +1051,42 @@ public class SimpleMode extends Mode {
     @Override
     public void explainTemplateRules(final ExpressionPresenter out) throws XPathException {
         RuleAction action = r -> r.export(out, isDeclaredStreamable());
-        RuleGroupAction group = new RuleGroupAction() {
-            String type;
-
-            @Override
-            public void start() {
-                out.startElement("ruleSet");
-                out.emitAttribute("type", type);
-            }
-
-            @Override
-            public void setString(String type) {
-                this.type = type;
-            }
-
-            @Override
-            public void start(int i) {
-                out.startElement("ruleChain");
-                out.emitAttribute("key", out.getNamePool().getClarkName(i));
-            }
-
-            @Override
-            public void end() {
-                out.endElement();
-            }
-        };
         try {
-            processRules(action, group);
+            processRules(action, new RuleGroupExplainAction(out));
         } catch (XPathException err) {
             // can't happen, and doesn't matter if it does
         }
 
+    }
+
+    private static class RuleGroupExplainAction implements RuleGroupAction {
+        private String type;
+        private final ExpressionPresenter presenter;
+
+        public RuleGroupExplainAction(ExpressionPresenter presenter) {
+            this.presenter = presenter;
+        }
+        @Override
+        public void start() {
+            presenter.startElement("ruleSet");
+            presenter.emitAttribute("type", type);
+        }
+
+        @Override
+        public void setLabel(String type) {
+            this.type = type;
+        }
+
+        @Override
+        public void start(int i) {
+            presenter.startElement("ruleChain");
+            presenter.emitAttribute("key", presenter.getNamePool().getClarkName(i));
+        }
+
+        @Override
+        public void end() {
+            presenter.endElement();
+        }
     }
 
     /**
@@ -1094,16 +1099,9 @@ public class SimpleMode extends Mode {
 
     @Override
     public void exportTemplateRules(final ExpressionPresenter out) throws XPathException {
-        //final Set<RuleTarget> processedRules = new HashSet<RuleTarget>();
         // TODO: if two rules share the same template, avoid duplicate output. This can happen with union patterns, and also
         // when a template is present in more than one mode.
-        RuleAction action = r -> {
-            // if (processedRules.add(r.getAction())) {
-            r.export(out, isDeclaredStreamable());
-            // }
-        };
-
-        processRules(action);
+        processRules(r -> r.export(out, isDeclaredStreamable()));
 
     }
 
@@ -1149,7 +1147,7 @@ public class SimpleMode extends Mode {
      */
     protected RuleGroupAction setGroup(RuleGroupAction group, String type) {
         if (group != null) {
-            group.setString(type);
+            group.setLabel(type);
         }
         return group;
     }
@@ -1220,22 +1218,16 @@ public class SimpleMode extends Mode {
     @Override
     public int getMaxPrecedence() {
         try {
-            MaxPrecedenceAction action = new MaxPrecedenceAction();
-            processRules(action);
-            return action.max;
+            List<Integer> capturedPrecedence = new ArrayList<>(1);
+            capturedPrecedence.add(0);
+            processRules(r -> {
+                if (r.getPrecedence() > capturedPrecedence.get(0)) {
+                    capturedPrecedence.set(0, r.getPrecedence());
+                }
+            });
+            return capturedPrecedence.get(0);
         } catch (XPathException e) {
             throw new AssertionError(e);
-        }
-    }
-
-    private static class MaxPrecedenceAction implements RuleAction {
-        public int max = 0;
-
-        @Override
-        public void processRule(Rule r) {
-            if (r.getPrecedence() > max) {
-                max = r.getPrecedence();
-            }
         }
     }
 
@@ -1272,7 +1264,7 @@ public class SimpleMode extends Mode {
 
     private static class RuleSorter {
         public ArrayList<Rule> rules = new ArrayList<>(100);
-        private int start;
+        private final int start;
 
         public RuleSorter(int start) {
             this.start = start;
@@ -1293,8 +1285,8 @@ public class SimpleMode extends Mode {
 //        }
 
         public void allocateRanks() {
-            rules.sort(Rule::compareComputedRank);
-            //GenericSorter.quickSort(0, rules.size(), this);
+            //noinspection Convert2MethodRef
+            rules.sort((x, y) -> x.compareComputedRank(y));
             int rank = start;
             for (int i = 0; i < rules.size(); i++) {
                 if (i > 0 && rules.get(i - 1).compareComputedRank(rules.get(i)) != 0) {
@@ -1320,7 +1312,7 @@ public class SimpleMode extends Mode {
          *
          * @param s a string value to be used for the group
          */
-        void setString(String s);
+        void setLabel(String s);
 
         /**
          * Start of a generic group
@@ -1349,13 +1341,12 @@ public class SimpleMode extends Mode {
         final List<Integer> count = new ArrayList<>(1);  // used to allow inner class to have side-effects
         count.add(0);
         final SlotManager slotManager = new SlotManager(); // TODO: allocate this via the Configuration
-        final RuleAction slotAllocator = r -> {
-            int slots = r.getPattern().allocateSlots(slotManager, 0);
-            int max = Math.max(count.get(0), slots);
-            count.set(0, max);
-        };
         try {
-            processRules(slotAllocator);
+            processRules(r -> {
+                int slots = r.getPattern().allocateSlots(slotManager, 0);
+                int max = Math.max(count.get(0), slots);
+                count.set(0, max);
+            });
         } catch (XPathException e) {
             throw new AssertionError(e);
         }

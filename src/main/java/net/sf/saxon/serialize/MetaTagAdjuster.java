@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,7 +11,6 @@ import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
@@ -77,6 +76,8 @@ public class MetaTagAdjuster extends ProxyReceiver {
 
     /**
      * Indicate whether we're handling HTML or XHTML
+     *
+     * @param xhtml true if handling XHTML
      */
 
     public void setIsXHTML(boolean xhtml) {
@@ -101,9 +102,9 @@ public class MetaTagAdjuster extends ProxyReceiver {
                 return false;
             }
             if (htmlVersion == 5) {
-                return name.hasURI("") || name.hasURI(NamespaceConstant.XHTML);
+                return name.hasURI(NamespaceUri.NULL) || name.hasURI(NamespaceUri.XHTML);
             } else {
-                return name.hasURI(NamespaceConstant.XHTML);
+                return name.hasURI(NamespaceUri.XHTML);
             }
         } else {
             return name.getLocalPart().equalsIgnoreCase(local);
@@ -132,6 +133,10 @@ public class MetaTagAdjuster extends ProxyReceiver {
                             found = true;
                             break;
                         }
+                    } else if (comparesEqual(name, "charset")) {
+                        // See QT4 issue 318, Saxon bug 5852
+                        found = true;
+                        break;
                     }
                 }
                 inMetaTag = found;
@@ -144,7 +149,7 @@ public class MetaTagAdjuster extends ProxyReceiver {
         nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
         if (seekingHead && matchesName(elemName, "head")) {
             String headPrefix = elemName.getPrefix();
-            String headURI = elemName.getURI();
+            NamespaceUri headURI = elemName.getNamespaceUri();
             FingerprintedQName metaCode = new FingerprintedQName(headPrefix, headURI, "meta");
             AttributeMap atts = EmptyAttributeMap.getInstance();
             atts = atts.put(new AttributeInfo(new NoNamespaceName("http-equiv"),

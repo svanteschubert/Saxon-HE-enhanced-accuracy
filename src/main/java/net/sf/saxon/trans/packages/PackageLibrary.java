@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.style.*;
 import net.sf.saxon.trans.CompilerInfo;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 
 import javax.xml.transform.Source;
 import java.io.File;
@@ -72,8 +72,7 @@ public class PackageLibrary {
      */
 
     public PackageLibrary(PackageLibrary library) {
-        packageVersions =
-                new HashMap<>(library.packageVersions);
+        packageVersions = new HashMap<String, List<PackageVersion>>(library.packageVersions);
         packages = new HashMap<>(library.packages);
         compilerInfo = library.compilerInfo;
         config = library.config;
@@ -97,9 +96,15 @@ public class PackageLibrary {
         compilerInfo = info;
         config = info.getConfiguration();
         for (File file : files) {
-            PackageDetails details = PackageInspector.getPackageDetails(file, config);
+            PackageInspector inspector = new PackageInspector(config.makePipelineConfiguration());
+            PackageDetails details = inspector.getPackageDetails(file, config);
             if (details == null) {
-                throw new XPathException("Unable to get package name and version for file " + file.getName());
+                String message = "Unable to get package name and version for file " + file.getName();
+                String diagnostics = inspector.getDiagnostics();
+                if (diagnostics != null) {
+                    message += " (" + diagnostics + ")";
+                }
+                throw new XPathException(message);
             }
             addPackage(details);
         }
@@ -137,7 +142,12 @@ public class PackageLibrary {
         VersionedPackageName vp = details.nameAndVersion;
         String name = vp.packageName;
         PackageVersion version = vp.packageVersion;
-        List<PackageVersion> versions = packageVersions.computeIfAbsent(name, k -> new ArrayList<>());
+        List<PackageVersion> versions = packageVersions.get(name);
+        //noinspection Java8MapApi
+        if (versions == null) {
+            versions = new ArrayList<>();
+            packageVersions.put(name, versions);
+        }
         versions.add(version);
         packages.put(vp, details);
     }
@@ -150,9 +160,15 @@ public class PackageLibrary {
      */
 
     public void addPackage(File file) throws XPathException {
-        PackageDetails details = PackageInspector.getPackageDetails(file, config);
+        PackageInspector inspector = new PackageInspector(config.makePipelineConfiguration());
+        PackageDetails details = inspector.getPackageDetails(file, config);
         if (details == null) {
-            throw new XPathException("Unable to get package name and version for file " + file.getName());
+            String message = "Unable to get package name and version for file " + file.getName();
+            String diagnostics = inspector.getDiagnostics();
+            if (diagnostics != null) {
+                message += " (" + diagnostics + ")";
+            }
+            throw new XPathException(message);
         }
         addPackage(details);
     }
@@ -184,8 +200,8 @@ public class PackageLibrary {
             PackageDetails details = packages.get(new VersionedPackageName(name, pv));
             if (ranges.contains(pv)) {
                 candidates.add(details);
-                Integer priority = details.priority;
-                if (priority != null && priority > maxPriority) {
+                int priority = details.priority;
+                if (priority > maxPriority) {
                     maxPriority = priority;
                 }
             }
@@ -193,7 +209,13 @@ public class PackageLibrary {
         if (candidates.isEmpty()) {
             return null;
         } else if (candidates.size() == 1) {
-            return candidates.iterator().next();
+            Iterator<PackageDetails> iter = candidates.iterator();
+            if (iter.hasNext()) {
+                // written this way for C# conversion
+                return iter.next();
+            } else {
+                return null;
+            }
         } else {
             // more than one candidate
             Set<PackageVersion> shortList = new HashSet<>();
@@ -206,9 +228,10 @@ public class PackageLibrary {
                 }
             } else {
                 for (PackageDetails details : candidates) {
-                    Integer priority = details.priority;
+                    int priority = details.priority;
                     PackageVersion pv = details.nameAndVersion.packageVersion;
-                    if (priority != null && priority == maxPriority && (highest == null || pv.compareTo(highest.nameAndVersion.packageVersion) > 0)) {
+                    if (priority != Integer.MIN_VALUE && priority == maxPriority
+                            && (highest == null || pv.compareTo(highest.nameAndVersion.packageVersion) > 0)) {
                         highest = details;
                     }
                 }
@@ -300,7 +323,7 @@ public class PackageLibrary {
     private void testForCycles(PackageDetails details, List<VersionedPackageName> disallowed) throws XPathException {
         if (details.beingProcessed == Thread.currentThread()) {
             // Report a cycle of package dependencies
-            FastStringBuffer buffer = new FastStringBuffer(1024);
+            StringBuilder buffer = new StringBuilder(1024);
             for (VersionedPackageName n : disallowed) {
                 buffer.append(n.packageName);
                 buffer.append(", ");

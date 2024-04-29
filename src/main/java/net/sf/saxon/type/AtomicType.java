@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,10 @@ package net.sf.saxon.type;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.value.AtomicValue;
 
 import java.util.Optional;
@@ -46,7 +49,7 @@ public interface AtomicType extends SimpleType, PlainType, CastingTarget {
      * @throws UnsupportedOperationException in the case of an external object type
      */
 
-    ValidationFailure validate(AtomicValue primValue, CharSequence lexicalValue, ConversionRules rules);
+    ValidationFailure validate(AtomicValue primValue, UnicodeString lexicalValue, ConversionRules rules);
 
     /**
      * Determine whether the atomic type is ordered, that is, whether less-than and greater-than comparisons
@@ -71,12 +74,22 @@ public interface AtomicType extends SimpleType, PlainType, CastingTarget {
     /**
      * Determine whether the atomic type is a primitive type.  The primitive types are
      * the 19 primitive types of XML Schema, plus xs:integer, xs:dayTimeDuration and xs:yearMonthDuration;
-     * xs:untypedAtomic; and all supertypes of these (xs:anyAtomicType, xs:numeric, ...)
+     * xs:untypedAtomic; and all supertypes of these (xs:anyAtomicType,  ...)
      *
      * @return true if the type is considered primitive under the above rules
      */
 
     boolean isPrimitiveType();
+
+    /**
+     * Get the primitive base type.  The primitive types are
+     * the 19 primitive types of XML Schema, plus xs:integer, xs:dayTimeDuration and xs:yearMonthDuration;
+     * xs:untypedAtomic; and all supertypes of these (xs:anyAtomicType, ...)
+     */
+
+    default BuiltInAtomicType getPrimitiveAtomicType() {
+        return (BuiltInAtomicType)getPrimitiveItemType();
+    }
 
     /**
      * Ask whether this type is an ID type. This is defined to be any simple type
@@ -111,7 +124,8 @@ public interface AtomicType extends SimpleType, PlainType, CastingTarget {
      * Get the name of this type as a StructuredQName, unless the type is anonymous, in which case
      * return null
      *
-     * @return the name of the atomic type, or null if the type is anonymous.
+     * @return the name of the atomic type. For an anonymous type, return a constructed name in the
+     * namespace {@link NamespaceUri#ANONYMOUS}.
      */
 
     @Override
@@ -141,7 +155,7 @@ public interface AtomicType extends SimpleType, PlainType, CastingTarget {
         if (item instanceof AtomicValue) {
             return Optional.of("The supplied value is of type " + ((AtomicValue) item).getItemType());
         } else {
-            return Optional.of("The supplied value is " + item.getGenre().getDescription());
+            return Optional.of("The supplied value is " + Err.describeGenre(item.getGenre()));
         }
     }
 
@@ -154,7 +168,7 @@ public interface AtomicType extends SimpleType, PlainType, CastingTarget {
      */
     @Override
     default double getDefaultPriority() {
-        if (this == BuiltInAtomicType.ANY_ATOMIC) {
+        if (getBasicAlphaCode().equals("A")) {
             return 0;
         }
         double factor = 1;

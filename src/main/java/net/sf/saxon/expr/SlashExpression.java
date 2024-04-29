@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,16 +8,25 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.instruct.CopyOf;
+import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.DocumentSorter;
 import net.sf.saxon.functions.Doc;
 import net.sf.saxon.functions.DocumentFn;
 import net.sf.saxon.functions.KeyFn;
+import net.sf.saxon.ma.arrays.SquareArrayConstructor;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.IntegerValue;
@@ -26,6 +35,7 @@ import net.sf.saxon.value.SequenceType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
+import java.util.function.Supplier;
 
 
 /**
@@ -39,7 +49,8 @@ import java.util.Stack;
 public class SlashExpression extends BinaryExpression
         implements ContextSwitchingExpression {
 
-    boolean contextFree;
+    private boolean contextFree;
+    private boolean indexingDisabled;
 
     /**
      * Constructor
@@ -121,6 +132,10 @@ public class SlashExpression extends BinaryExpression
         return getStep();
     }
 
+    public void disableIndexing() {
+        indexingDisabled = true;
+    }
+
     /**
      * Determine the data type of the items returned by this exprssion
      *
@@ -139,7 +154,6 @@ public class SlashExpression extends BinaryExpression
      * inference rules defined in the XSLT 3.0 specification.
      *
      * @return the static item type of the expression according to the XSLT 3.0 defined rules
-     * @param contextItemType
      */
     @Override
     public UType getStaticUType(UType contextItemType) {
@@ -186,9 +200,9 @@ public class SlashExpression extends BinaryExpression
 
         Configuration config = visitor.getConfiguration();
         TypeChecker tc = config.getTypeChecker(false);
-        RoleDiagnostic role0 = new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, "/", 0);
-        role0.setErrorCode("XPTY0019");
-        setStart(tc.staticTypeCheck(getStart(), SequenceType.NODE_SEQUENCE, role0, visitor));
+        Supplier<RoleDiagnostic> roleSupplier =
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, "/", 0, "XPTY0019");
+        setStart(tc.staticTypeCheck(getStart(), SequenceType.NODE_SEQUENCE, roleSupplier, visitor));
 
         // Now check the second operand
 
@@ -201,6 +215,15 @@ public class SlashExpression extends BinaryExpression
         ContextItemStaticInfo cit = config.makeContextItemStaticInfo(startType, false);
         cit.setContextSettingExpression(getStart());
         getRhs().typeCheck(visitor, cit);
+
+        // Give a warning if people write a/[x = 3]
+        if (getRhsExpression() instanceof SquareArrayConstructor)  {
+            SquareArrayConstructor sq = (SquareArrayConstructor)getRhsExpression();
+            if (sq.getOperanda().getNumberOfOperands() == 1) {
+                visitor.getStaticContext().issueWarning("An array constructor appears immediately after '/' or '//'. Perhaps " +
+                                "'/*[predicate]' was intended? If not, consider using '!' rather than '/' to remove this warning.", SaxonErrorCode.SXWN9028, getLocation());
+            }
+        }
 
         // If the expression has the form (a//descendant-or-self::node())/b, try to simplify it to
         // use the descendant axis
@@ -302,9 +325,9 @@ public class SlashExpression extends BinaryExpression
             // (XPath section 2.3.4 explicitly allows us to change it.)
             // However, in the interests of predictable execution, hand-optimization, and
             // diagnosable error behaviour, we retain the original order.
-            Stack<Expression> filters = new Stack<Expression>();
+            Stack<Expression> filters = new Stack<>();
             while (underlyingStep instanceof FilterExpression) {
-                filters.add(((FilterExpression) underlyingStep).getFilter());
+                filters.push(((FilterExpression) underlyingStep).getFilter());
                 underlyingStep = ((FilterExpression) underlyingStep).getSelectExpression();
             }
             while (!filters.isEmpty()) {
@@ -312,16 +335,12 @@ public class SlashExpression extends BinaryExpression
                 ExpressionTool.copyLocationInfo(getStep(), newStep);
             }
 
-            //System.err.println("Simplified this:");
-            //    display(10);
-            //System.err.println("as this:");
-            //    new PathExpression(startPath.start, newStep).display(10);
-
             Expression newPath = ExpressionTool.makePathExpression(startPath.getStart(), newStep);
             if (!(newPath instanceof SlashExpression)) {
                 return null;
             }
             ExpressionTool.copyLocationInfo(this, newPath);
+            ((SlashExpression) newPath).indexingDisabled = indexingDisabled;
             return (SlashExpression) newPath;
         }
 
@@ -378,23 +397,25 @@ public class SlashExpression extends BinaryExpression
 
         // Rewrite a/b[filter] as (a/b)[filter] to improve the chance of indexing
 
-        Expression firstStep = getFirstStep();
-        if (!(firstStep.isCallOn(Doc.class) || firstStep.isCallOn(DocumentFn.class))) {
-            // Avoid the rewrite if the path starts with doc() for streaming reasons
-            Expression lastStep = getLastStep();
-            if (lastStep instanceof FilterExpression && !((FilterExpression) lastStep).isPositional(th)) {
-                Expression leading = getLeadingSteps();
-                Expression p2 = ExpressionTool.makePathExpression(leading, ((FilterExpression) lastStep).getSelectExpression());
-                Expression f2 = new FilterExpression(p2, ((FilterExpression) lastStep).getFilter());
-                ExpressionTool.copyLocationInfo(this, f2);
-                return f2.optimize(visitor, contextItemType);
+        if (!indexingDisabled) {
+            Expression firstStep = getFirstStep();
+            if (!(firstStep.isCallOn(Doc.class) || firstStep.isCallOn(DocumentFn.class))) {
+                // Avoid the rewrite if the path starts with doc() for streaming reasons
+                Expression lastStep = getLastStep();
+                if (lastStep instanceof FilterExpression && !((FilterExpression) lastStep).isPositional(th)) {
+                    Expression leading = getLeadingSteps();
+                    Expression p2 = ExpressionTool.makePathExpression(leading, ((FilterExpression) lastStep).getSelectExpression());
+                    Expression f2 = new FilterExpression(p2, ((FilterExpression) lastStep).getFilter());
+                    ExpressionTool.copyLocationInfo(this, f2);
+                    return f2.optimize(visitor, contextItemType);
+                }
             }
-        }
 
-        if (!visitor.isOptimizeForStreaming()) {
-            Expression k = opt.convertPathExpressionToKey(this, visitor);
-            if (k != null) {
-                return k.typeCheck(visitor, contextItemType).optimize(visitor, contextItemType);
+            if (!visitor.isOptimizeForStreaming()) {
+                Expression k = opt.convertPathExpressionToKey(this, visitor);
+                if (k != null) {
+                    return k.typeCheck(visitor, contextItemType).optimize(visitor, contextItemType);
+                }
             }
         }
 
@@ -429,11 +450,6 @@ public class SlashExpression extends BinaryExpression
                 ExpressionTool.resetStaticProperties(keyCall);
                 return keyCall;
             }
-        }
-
-        Expression k = promoteFocusIndependentSubexpressions(visitor, contextItemType);
-        if (k != this) {
-            return k;
         }
 
         if (visitor.isOptimizeForStreaming()) {
@@ -514,7 +530,7 @@ public class SlashExpression extends BinaryExpression
         return Math.max(product, MAX_COST);
     }
 
-    public Expression tryToMakeSorted(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
+    public Expression tryToMakeSorted(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) {
         // Replace //x/y by descendant::y[parent::x] to eliminate the need for sorting
         // into document order, and to make the expression streamable
 
@@ -554,38 +570,6 @@ public class SlashExpression extends BinaryExpression
 
 
     /**
-     * If any subexpressions within the step are not dependent on the focus,
-     * and if they are not "creative" expressions (expressions that can create new nodes), then
-     * promote them: this causes them to be evaluated once, outside the path expression
-     *
-     * @param visitor         the expression visitor
-     * @param contextItemType the type of the context item for evaluating the start expression
-     * @return the rewritten expression, or the original expression if no rewrite was possible
-     * @throws net.sf.saxon.trans.XPathException
-     *          if a static error is detected
-     */
-
-    protected Expression promoteFocusIndependentSubexpressions(
-            ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
-
-//        Optimizer opt = getConfiguration().obtainOptimizer();
-//
-//        PromotionOffer offer = new PromotionOffer(opt);
-//        offer.action = PromotionOffer.FOCUS_INDEPENDENT;
-//        offer.promoteDocumentDependent = (getStart().getSpecialProperties() & StaticProperty.CONTEXT_DOCUMENT_NODESET) != 0;
-//        offer.containingExpression = this;
-//
-//        setStep(doPromotion(getStep(), offer));
-//        ExpressionTool.resetStaticProperties(this);
-//        if (offer.containingExpression != this) {
-//            offer.containingExpression =
-//                    offer.containingExpression.typeCheck(visitor, contextItemType).optimize(visitor, contextItemType);
-//            return offer.containingExpression;
-//        }
-        return this;
-    }
-
-    /**
      * Replace this expression by a simpler expression that delivers the results without regard
      * to order.
      *
@@ -595,7 +579,9 @@ public class SlashExpression extends BinaryExpression
      */
     @Override
     public Expression unordered(boolean retainAllNodes, boolean forStreaming) throws XPathException {
-        setStart(getStart().unordered(retainAllNodes, forStreaming));
+        if ((getStep().getDependencies() & (StaticProperty.DEPENDS_ON_POSITION | StaticProperty.DEPENDS_ON_LAST)) == 0) {
+            setStart(getStart().unordered(retainAllNodes, forStreaming));
+        }
         setStep(getStep().unordered(retainAllNodes, forStreaming));
         return this;
     }
@@ -605,8 +591,6 @@ public class SlashExpression extends BinaryExpression
      * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
      * by an expression in a source tree.
      *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet
      * @return the pathMapNode representing the focus established by this expression, in the case where this
      *         expression is the first operand of a path expression or filter expression
      */
@@ -631,26 +615,10 @@ public class SlashExpression extends BinaryExpression
     }
 
     /**
-     * Determine which aspects of the context the expression depends on. The result is
-     * a bitwise-or'ed value composed from constants such as XPathContext.VARIABLES and
-     * XPathContext.CURRENT_NODE
-     */
-
-//    public int computeDependencies() {
-//        return getStart().getDependencies() |
-//                // not all dependencies in the step matter, because the context node, etc,
-//                // are not those of the outer expression
-//                (getStep().getDependencies() &
-//                        (StaticProperty.DEPENDS_ON_XSLT_CONTEXT |
-//                                StaticProperty.DEPENDS_ON_LOCAL_VARIABLES |
-//                                StaticProperty.DEPENDS_ON_USER_FUNCTIONS));
-//    }
-
-    /**
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that need to be re-bound
      */
 
     /*@NotNull*/
@@ -658,6 +626,9 @@ public class SlashExpression extends BinaryExpression
     public Expression copy(RebindingMap rebindings) {
         Expression exp = ExpressionTool.makePathExpression(getStart().copy(rebindings), getStep().copy(rebindings));
         ExpressionTool.copyLocationInfo(this, exp);
+        if (exp instanceof SlashExpression) {
+            ((SlashExpression)exp).indexingDisabled = indexingDisabled;
+        }
         return exp;
     }
 
@@ -668,7 +639,7 @@ public class SlashExpression extends BinaryExpression
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
 
         int startProperties = getStart().getSpecialProperties();
         int stepProperties = getStep().getSpecialProperties();
@@ -820,7 +791,7 @@ public class SlashExpression extends BinaryExpression
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         int c1 = getStart().getCardinality();
         int c2 = getStep().getCardinality();
         return Cardinality.multiply(c1, c2);
@@ -839,10 +810,23 @@ public class SlashExpression extends BinaryExpression
         Expression head = getLeadingSteps();
         Expression tail = getLastStep();
         if (head instanceof ItemChecker) {
-            // No need to typecheck the context item
+            // No need to type check the context item
             ItemChecker checker = (ItemChecker) head;
             if (checker.getBaseExpression() instanceof ContextItemExpression) {
                 return tail.toPattern(config);
+            }
+        } else if (tail instanceof VennExpression) {
+            // Bug 4645. Rewrite a/(b|c) as (a/b union a/c). Note this rewrite isn't safe for
+            // the "intersect" and "except" operators, except in special cases
+            VennExpression ve = (VennExpression)tail;
+            if (ve.operator == Token.UNION) {
+                Expression lhExpansion = new SlashExpression(
+                        head.copy(new RebindingMap()), ve.getLhsExpression());
+                Expression rhExpansion = new SlashExpression(
+                        head.copy(new RebindingMap()), ve.getRhsExpression());
+                VennExpression topExpansion = new VennExpression(
+                        lhExpansion, ve.operator, rhExpansion);
+                return topExpansion.toPattern(config);
             }
         }
 
@@ -869,18 +853,8 @@ public class SlashExpression extends BinaryExpression
             }
         }
         if (headPattern == null) {
-            if (tail instanceof VennExpression) {
-                Expression lhExpansion = new SlashExpression(
-                        head.copy(new RebindingMap()), ((VennExpression)tail).getLhsExpression());
-                Expression rhExpansion = new SlashExpression(
-                        head.copy(new RebindingMap()), ((VennExpression) tail).getRhsExpression());
-                VennExpression topExpansion = new VennExpression(
-                        lhExpansion, ((VennExpression)tail).operator, rhExpansion);
-                return topExpansion.toPattern(config);
-            } else {
-                axis = PatternMaker.getAxisForPathStep(tail);
-                headPattern = head.toPattern(config);
-            }
+            axis = PatternMaker.getAxisForPathStep(tail);
+            headPattern = head.toPattern(config);
         }
         return new AncestorQualifiedPattern(tailPattern, headPattern, axis);
     }
@@ -924,7 +898,7 @@ public class SlashExpression extends BinaryExpression
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return "SlashExpression".hashCode() + getStart().hashCode() + getStep().hashCode();
     }
 
@@ -944,25 +918,16 @@ public class SlashExpression extends BinaryExpression
 
         Expression step = getStep();
         if (contextFree && step instanceof AxisExpression) {
-            // see bug 4730, the step might have been rewritten since the flag was set
-            return new MappingIterator(
+            // See bug 4730: the step might have been changed to something else
+            return MappingIterator.map(
                     getStart().iterate(context),
                     item -> ((AxisExpression) step).iterate((NodeInfo)item));
         }
 
         XPathContext context2 = context.newMinorContext();
         context2.trackFocus(getStart().iterate(context));
-        return new ContextMappingIterator(step::iterate, context2);
+        return new ContextMappingIterator(c1 -> getStep().iterate(c1), context2);
     }
-
-//    /**
-//     * Mapping function, from a node returned by the start iteration, to a sequence
-//     * returned by the child.
-//     */
-//
-//    public SequenceIterator map(XPathContext context) throws XPathException {
-//        return getStep().iterate(context);
-//    }
 
     /**
      * Diagnostic print of expression structure. The abstract expression tree
@@ -1026,7 +991,7 @@ public class SlashExpression extends BinaryExpression
 
     public Expression getRemainingSteps() {
         if (getStart() instanceof SlashExpression) {
-            List<Expression> list = new ArrayList<Expression>(8);
+            List<Expression> list = new ArrayList<>(4);
             gatherSteps(list);
             Expression rem = rebuildSteps(list.subList(1, list.size()));
             ExpressionTool.copyLocationInfo(this, rem);
@@ -1091,7 +1056,7 @@ public class SlashExpression extends BinaryExpression
 
     public Expression getLeadingSteps() {
         if (getStep() instanceof SlashExpression) {
-            List<Expression> list = new ArrayList<Expression>(8);
+            List<Expression> list = new ArrayList<>(4);
             gatherSteps(list);
             Expression rem = rebuildSteps(list.subList(0, list.size()-1));
             ExpressionTool.copyLocationInfo(this, rem);
@@ -1122,6 +1087,77 @@ public class SlashExpression extends BinaryExpression
     @Override
     public String getStreamerName() {
         return "ForEach"; // sic
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new SlashExprElaborator();
+    }
+
+    /**
+     * Elaborator for a slash expression. (This actually corresponds to the "!" operator, not to "/")
+     */
+
+    public static class SlashExprElaborator extends PullElaborator {
+
+        // TODO: combine ForEach and SlashExpression
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            SlashExpression expr = (SlashExpression) getExpression();
+            PullEvaluator select = expr.getSelectExpression().makeElaborator().elaborateForPull();
+            PullEvaluator action = expr.getActionExpression().makeElaborator().elaborateForPull();
+            if (expr.contextFree && expr.getStep() instanceof AxisExpression) {
+                AxisExpression step = (AxisExpression)expr.getStep();
+                return context -> MappingIterator.map(select.iterate(context), item -> step.iterate((NodeInfo)item));
+            } else {
+                @SuppressWarnings("Convert2MethodRef")
+                ContextMappingFunction mapper = cxt -> action.iterate(cxt);
+                return context -> {
+                    XPathContextMinor c2 = context.newMinorContext();
+                    c2.trackFocus(select.iterate(context));
+                    return new ContextMappingIterator(mapper, c2);
+                };
+            }
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            SlashExpression expr = (SlashExpression)getExpression();
+            PullEvaluator select = expr.getSelectExpression().makeElaborator().elaborateForPull();
+            PushEvaluator action = expr.getActionExpression().makeElaborator().elaborateForPush();
+            if (expr.contextFree && expr.getStep() instanceof AxisExpression) {
+                AxisExpression step = (AxisExpression) expr.getStep();
+                return (out, context) -> {
+                    SequenceIterator outer = select.iterate(context);
+                    for (Item a; (a = outer.next()) != null; ) {
+                        AxisIterator inner = step.iterate((NodeInfo)a);
+                        for (NodeInfo b; (b = inner.next()) != null;) {
+                           out.append(b, expr.getLocation(), ReceiverOption.ALL_NAMESPACES);
+                        }
+                    }
+                    return null;
+                };
+            } else {
+                return (out, context) -> {
+                    XPathContextMinor c2 = context.newMinorContext();
+                    FocusIterator iter = c2.trackFocus(select.iterate(context));
+                    TailCall tc = null;
+                    while (iter.next() != null) {
+                        dispatchTailCall(tc);
+                        tc = action.processLeavingTail(out, c2);
+                    }
+                    return tc;
+                };
+            }
+
+        }
     }
 }
 

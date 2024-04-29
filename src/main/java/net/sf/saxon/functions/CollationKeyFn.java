@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,11 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Base64BinaryValue;
+import net.sf.saxon.value.StringValue;
 
 /**
  * Implements the collation-key function defined in the XSLT 3.0 and XPath 3.1 specifications
@@ -20,10 +22,12 @@ import net.sf.saxon.value.Base64BinaryValue;
 public class CollationKeyFn extends CollatingFunctionFixed {
 
 
-    public static Base64BinaryValue getCollationKey(String s, StringCollator collator) {
+    public static Base64BinaryValue getCollationKey(UnicodeString s, StringCollator collator) {
         AtomicValue val = collator.getCollationKey(s).asAtomic();
         if (val instanceof Base64BinaryValue) {
             return (Base64BinaryValue) val;
+        } else if (val instanceof StringValue) {
+            return ((StringValue) val).getCodepointCollationKey();
         } else {
             throw new IllegalStateException("Collation key must be Base64Binary");
         }
@@ -52,9 +56,9 @@ public class CollationKeyFn extends CollatingFunctionFixed {
      */
     @Override
     public Base64BinaryValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-        String in = arguments[0].head().getStringValue();
+        StringValue in = (StringValue)arguments[0].head();
         StringCollator collator = getStringCollator();
-        return getCollationKey(in, collator);
+        return getCollationKey(in.getUnicodeStringValue(), collator);
     }
 }
 

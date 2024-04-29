@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,9 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -19,8 +22,10 @@ import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.SequenceType;
@@ -41,10 +46,11 @@ public class Copy extends ElementCreator {
 
     /**
      * Create a shallow copy instruction
-     *
+     * <p>
      * param select            selects the node (or other item) to be copied. Never null.
      * param selectSpecified   true if the select attribute of xsl:copy was specified explicitly (in which
-     *                          case the context for evaluating the body will change)
+     * case the context for evaluating the body will change)
+     *
      * @param copyNamespaces    true if namespace nodes are to be copied when copying an element
      * @param inheritNamespaces true if child elements are to inherit the namespace nodes of their parent
      * @param schemaType        the Schema type against which the content is to be validated
@@ -63,6 +69,7 @@ public class Copy extends ElementCreator {
 
     /**
      * Say whether namespace nodes are to be copied (in the case of an element)
+     *
      * @param copy set to true if namespace nodes are to be copied
      */
 
@@ -84,10 +91,7 @@ public class Copy extends ElementCreator {
      * Simplify an expression. This performs any static optimization (by rewriting the expression
      * as a different expression). The default implementation does nothing.
      *
-     *
-     *
-     * @throws net.sf.saxon.trans.XPathException
-     *          if an error is discovered during expression rewriting
+     * @throws net.sf.saxon.trans.XPathException if an error is discovered during expression rewriting
      */
 
     /*@NotNull*/
@@ -106,12 +110,9 @@ public class Copy extends ElementCreator {
 
         selectItemType = contextInfo.getItemType();
 
-        ItemType selectItemType = contextInfo.getItemType();  //select.getItemType();
         if (selectItemType == ErrorType.getInstance()) {
-            XPathException err = new XPathException("No context item supplied for xsl:copy", "XTTE0945");
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("No context item supplied for xsl:copy", "XTTE0945")
+                    .asTypeError().withLocation(getLocation());
         }
 
         if (selectItemType instanceof NodeTest) {
@@ -135,6 +136,7 @@ public class Copy extends ElementCreator {
                     return c.typeCheck(visitor, contextInfo);
                 default:
                     this.resultItemType = selectItemType;
+                    break;
             }
         } else {
             this.resultItemType = selectItemType;
@@ -147,8 +149,8 @@ public class Copy extends ElementCreator {
     /**
      * Copy this expression (don't be confused by the method name). This makes a deep copy.
      *
-     * @return the copy of the original expression
      * @param rebindings variables that need to be re-bound
+     * @return the copy of the original expression
      */
 
     /*@NotNull*/
@@ -164,6 +166,8 @@ public class Copy extends ElementCreator {
 
     /**
      * Set the item type of the input
+     *
+     * @param type the item type
      */
 
     public void setSelectItemType(ItemType type) {
@@ -180,7 +184,7 @@ public class Copy extends ElementCreator {
      * expression.
      *
      * @return a set of bit-significant flags identifying the dependencies of
-     *         the expression
+     * the expression
      */
 
     @Override
@@ -338,7 +342,7 @@ public class Copy extends ElementCreator {
                 if (!type.intersection(MultipleNodeKindTest.LEAF.getUType()).equals(UType.VOID)) {
                     // Bug 4346: only do this optimization once
                     Expression p = getParentExpression();
-                    if (p instanceof Choose && ((Choose)p).size() == 2 && ((Choose)p).getAction(1) == this &&
+                    if (p instanceof Choose && ((Choose) p).size() == 2 && ((Choose) p).getAction(1) == this &&
                             ((Choose) p).getAction(0) instanceof CopyOf) {
                         return exp;
                     }
@@ -360,135 +364,57 @@ public class Copy extends ElementCreator {
         return exp;
     }
 
-    /**
-     * Callback from ElementCreator when constructing an element
-     *
-     * @param context    XPath dynamic evaluation context
-     * @param copiedNode the node being copied
-     * @return the name of the element to be constructed
-     */
+//    /**
+//     * Callback from ElementCreator when constructing an element
+//     *
+//     * @param context    XPath dynamic evaluation context
+//     * @param copiedNode the node being copied
+//     * @return the name of the element to be constructed
+//     */
+//
+//    @Override
+//    public NodeName getElementName(XPathContext context, NodeInfo copiedNode) {
+//        return NameOfNode.makeName(copiedNode);
+//    }
 
-    @Override
-    public NodeName getElementName(XPathContext context, NodeInfo copiedNode) {
-        return NameOfNode.makeName(copiedNode);
-    }
-
-    /**
-     * Get the base URI of a copied element node (the base URI is retained in the new copy)
-     *
-     * @param context    XPath dynamic evaluation context
-     * @param copiedNode the node being copied (for xsl:copy), otherwise null
-     * @return the base URI
-     */
-
-    @Override
-    public String getNewBaseURI(XPathContext context, NodeInfo copiedNode) {
-        return copiedNode.getBaseURI();
-    }
+//    /**
+//     * Get the base URI of a copied element node (the base URI is retained in the new copy)
+//     *
+//     * @param context    XPath dynamic evaluation context
+//     * @param copiedNode the node being copied (for xsl:copy), otherwise null
+//     * @return the base URI
+//     */
+//
+//    @Override
+//    public String getNewBaseURI(XPathContext context, NodeInfo copiedNode) {
+//        return copiedNode.getBaseURI();
+//    }
 
     /**
      * Callback to output namespace nodes for the new element.
      *
-     * @param receiver   the Receiver where the namespace nodes are to be written
-     * @param nodeName    the element name
-     * @param copiedNode  the node being copied (for xsl:copy), otherwise null
+     * @param receiver the Receiver where the namespace nodes are to be written
+     * @param nodeName the element name
+     * @param details  the node being copied (for xsl:copy), otherwise null
      * @throws XPathException if any error occurs
      */
 
     @Override
-    public void outputNamespaceNodes(Outputter receiver, NodeName nodeName, NodeInfo copiedNode)
+    public void outputNamespaceNodes(Outputter receiver, NodeName nodeName, ElementCreationDetails details)
             throws XPathException {
         if (copyNamespaces) {
-            receiver.namespaces(copiedNode.getAllNamespaces(), ReceiverOption.NAMESPACE_OK);
+            receiver.namespaces(((CopyElementDetails) details).getCopiedNode().getAllNamespaces(),
+                                ReceiverOption.NAMESPACE_OK);
         } else {
             // Always output the namespace of the element name itself
             NamespaceBinding ns = nodeName.getNamespaceBinding();
             if (!ns.isDefaultUndeclaration()) {
-                receiver.namespace(ns.getPrefix(), ns.getURI(), ReceiverOption.NONE);
+                receiver.namespace(ns.getPrefix(), ns.getNamespaceUri(), ReceiverOption.NONE);
             }
         }
     }
 
-    @Override
-    public TailCall processLeavingTail(Outputter out, XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        Item item = context.getContextItem();
-        if (item == null) {
-            XPathException err = new XPathException("There is no context item for xsl:copy", "XTTE0945");
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            err.setXPathContext(context);
-            throw err;
-        }
-
-        if (!(item instanceof NodeInfo)) {
-            out.append(item, getLocation(), ReceiverOption.ALL_NAMESPACES);
-            return null;
-        }
-        NodeInfo source = (NodeInfo) item;
-        switch (source.getNodeKind()) {
-
-            case Type.ELEMENT:
-                // use the generic code for creating new elements
-                return super.processLeavingTail(out, context, (NodeInfo) item);
-
-            case Type.ATTRIBUTE:
-                if (getSchemaType() instanceof ComplexType) {
-                    dynamicError("Cannot copy an attribute when the type requested for validation is a complex type", "XTTE1535", context);
-                }
-                try {
-                    CopyOf.copyAttribute(source, (SimpleType) getSchemaType(), getValidationAction(), this, out, context, false);
-                } catch (NoOpenStartTagException err) {
-                    err.setXPathContext(context);
-                    throw dynamicError(getLocation(), err, context);
-                }
-                break;
-
-            case Type.TEXT:
-                CharSequence tval = source.getStringValueCS();
-                out.characters(tval, getLocation(), ReceiverOption.NONE);
-                break;
-
-            case Type.PROCESSING_INSTRUCTION:
-                CharSequence pval = source.getStringValueCS();
-                out.processingInstruction(source.getDisplayName(), pval, getLocation(), ReceiverOption.NONE);
-                break;
-
-            case Type.COMMENT:
-                CharSequence cval = source.getStringValueCS();
-                out.comment(cval, getLocation(), ReceiverOption.NONE);
-                break;
-
-            case Type.NAMESPACE:
-                out.namespace(
-                        ((NodeInfo) item).getLocalPart(), item.getStringValue(), ReceiverOption.NONE);
-                break;
-
-            case Type.DOCUMENT:
-                if (!preservingTypes) {
-                    ParseOptions options = new ParseOptions(getValidationOptions());
-                    options.setSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
-                    controller.getConfiguration().prepareValidationReporting(context, options);
-                    Receiver val = controller.getConfiguration().
-                        getDocumentValidator(out, source.getBaseURI(), options, getLocation());
-                    out = new ComplexContentOutputter(val);
-                }
-                if (out.getSystemId() == null) {
-                    out.setSystemId(source.getBaseURI());
-                }
-                out.startDocument(ReceiverOption.NONE);
-                copyUnparsedEntities(source, out);
-                getContentExpression().process(out, context);
-                out.endDocument();
-                break;
-
-            default:
-                throw new IllegalArgumentException("Unknown node kind " + source.getNodeKind());
-
-        }
-        return null;
-    }
-
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public static void copyUnparsedEntities(NodeInfo source, Outputter out) throws XPathException {
         Iterator<String> unparsedEntities = source.getTreeInfo().getUnparsedEntityNames();
         while (unparsedEntities.hasNext()) {
@@ -504,14 +430,7 @@ public class Copy extends ElementCreator {
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        SequenceCollector seq = controller.allocateSequenceOutputter(1);
-        seq.getPipelineConfiguration().setHostLanguage(getPackageData().getHostLanguage());
-        process(new ComplexContentOutputter(seq), context);
-        seq.close();
-        Item item = seq.getFirstItem();
-        seq.reset();
-        return item;
+        return makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -549,12 +468,192 @@ public class Copy extends ElementCreator {
         }
         out.emitAttribute("flags", flags);
         String sType = SequenceType.makeSequenceType(selectItemType, getCardinality()).toAlphaCode();
-        if (sType != null) {
-            out.emitAttribute("sit", sType);
-        }
+        out.emitAttribute("sit", sType);
         out.setChildRole("content");
         getContentExpression().export(out);
         out.endElement();
+    }
+
+    @Override
+    public Elaborator getElaborator() {
+        return new CopyElaborator();
+    }
+
+
+    public static class CopyElementDetails extends ElementCreationDetails {
+
+        private final PushEvaluator contentEvaluator;
+        private final NodeInfo copiedNode;
+
+        public CopyElementDetails(PushEvaluator contentEvaluator, NodeInfo copiedNode) {
+            this.contentEvaluator = contentEvaluator;
+            this.copiedNode = copiedNode;
+        }
+
+        public NodeInfo getCopiedNode() {
+            return copiedNode;
+        }
+
+        @Override
+        public NodeName getNodeName(XPathContext context) throws XPathException {
+            return NameOfNode.makeName(copiedNode);
+        }
+
+        @Override
+        public String getSystemId(XPathContext context) throws XPathException {
+            return copiedNode.getBaseURI();
+        }
+
+        @Override
+        public void processContent(Outputter out, XPathContext context) throws XPathException {
+            Expression.dispatchTailCall(contentEvaluator.processLeavingTail(out, context));
+        }
+    }
+
+    public static class CopyElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            Copy expr = (Copy)getExpression();
+            PushEvaluator contentPush = expr.getContentExpression().makeElaborator().elaborateForPush();
+
+            SchemaType typeCode = expr.getValidationAction() == Validation.PRESERVE
+                    ? AnyType.getInstance()
+                    : Untyped.getInstance();
+
+            int properties = ReceiverOption.NONE;
+            if (!expr.bequeathNamespacesToChildren) {
+                properties |= ReceiverOption.DISINHERIT_NAMESPACES;
+            }
+            if (!expr.inheritNamespacesFromParent) {
+                properties |= ReceiverOption.REFUSE_NAMESPACES;
+            }
+            properties |= ReceiverOption.ALL_NAMESPACES;
+            final int finalProperties = properties;
+
+            return (output, context) -> {
+                Controller controller = context.getController();
+                Item item = context.getContextItem();
+                if (item == null) {
+                    throw new XPathException("There is no context item for xsl:copy", "XTTE0945")
+                            .asTypeError()
+                            .withLocation(expr.getLocation())
+                            .withXPathContext(context);
+                }
+
+                if (!(item instanceof NodeInfo)) {
+                    output.append(item, expr.getLocation(), ReceiverOption.ALL_NAMESPACES);
+                    return null;
+                }
+                NodeInfo source = (NodeInfo) item;
+                switch (source.getNodeKind()) {
+
+                    case Type.ELEMENT:
+                        try {
+
+                            NodeName elemName = NameOfNode.makeName(source);
+
+                            Receiver elemOut = output;
+                            if (!expr.preservingTypes) {
+                                ParseOptions options = expr.getValidationOptions()
+                                        .withTopLevelElement(elemName.getStructuredQName());
+                                context.getConfiguration().prepareValidationReporting(context, options);
+                                Receiver validator = context.getConfiguration().getElementValidator(
+                                        elemOut, options, expr.getLocation());
+
+                                if (validator != elemOut) {
+                                    output = new ComplexContentOutputter(validator);
+                                }
+                                //elemOut = validator;
+                            }
+
+                            if (output.getSystemId() == null) {
+                                output.setSystemId(source.getBaseURI());
+                            }
+
+                            output.startElement(elemName, typeCode, expr.getLocation(), finalProperties);
+
+                            // output the required namespace nodes via a callback
+
+                            if (expr.copyNamespaces) {
+                                output.namespaces(source.getAllNamespaces(), ReceiverOption.NAMESPACE_OK);
+                            } else {
+                                // Always output the namespace of the element name itself
+                                NamespaceBinding ns = elemName.getNamespaceBinding();
+                                if (!ns.isDefaultUndeclaration()) {
+                                    output.namespace(ns.getPrefix(), ns.getNamespaceUri(), ReceiverOption.NONE);
+                                }
+                            }
+
+                            // process subordinate instructions to generate attributes and content
+                            Expression.dispatchTailCall(contentPush.processLeavingTail(output, context));
+
+                            // output the element end tag (which will fail if validation fails)
+                            output.endElement();
+
+                        } catch (XPathException e) {
+                            throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                        }
+                        return null;
+
+                    case Type.ATTRIBUTE:
+                        if (expr.getSchemaType() instanceof ComplexType) {
+                            expr.dynamicError("Cannot copy an attribute when the type requested for validation is a complex type", "XTTE1535", context);
+                        }
+                        try {
+                            CopyOf.copyAttribute(source, (SimpleType) expr.getSchemaType(),
+                                                 expr.getValidationAction(), expr, output, context, false);
+                        } catch (NoOpenStartTagException err) {
+                            throw dynamicError(expr.getLocation(), err.withXPathContext(context), context);
+                        }
+                        break;
+
+                    case Type.TEXT:
+                        UnicodeString tval = source.getUnicodeStringValue();
+                        output.characters(tval, expr.getLocation(), ReceiverOption.NONE);
+                        break;
+
+                    case Type.PROCESSING_INSTRUCTION:
+                        UnicodeString pval = source.getUnicodeStringValue();
+                        output.processingInstruction(source.getDisplayName(), pval, expr.getLocation(), ReceiverOption.NONE);
+                        break;
+
+                    case Type.COMMENT:
+                        UnicodeString cval = source.getUnicodeStringValue();
+                        output.comment(cval, expr.getLocation(), ReceiverOption.NONE);
+                        break;
+
+                    case Type.NAMESPACE:
+                        output.namespace(
+                                ((NodeInfo) item).getLocalPart(), NamespaceUri.of(item.getStringValue()), ReceiverOption.NONE);
+                        break;
+
+                    case Type.DOCUMENT:
+                        if (!expr.preservingTypes) {
+                            ParseOptions options = expr.getValidationOptions()
+                                    .withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                            controller.getConfiguration().prepareValidationReporting(context, options);
+                            Receiver val = controller.getConfiguration().
+                                    getDocumentValidator(output, source.getBaseURI(), options, expr.getLocation());
+                            output = new ComplexContentOutputter(val);
+                        }
+                        if (output.getSystemId() == null) {
+                            output.setSystemId(source.getBaseURI());
+                        }
+                        output.startDocument(ReceiverOption.NONE);
+                        copyUnparsedEntities(source, output);
+                        Expression.dispatchTailCall(contentPush.processLeavingTail(output, context));
+                        output.endDocument();
+                        break;
+
+                    default:
+                        throw new IllegalArgumentException("Unknown node kind " + source.getNodeKind());
+
+                }
+                return null;
+
+            };
+        }
     }
 
 

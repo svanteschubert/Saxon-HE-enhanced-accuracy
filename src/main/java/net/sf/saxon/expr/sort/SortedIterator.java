@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,17 +10,15 @@ package net.sf.saxon.expr.sort;
 import net.sf.saxon.expr.ErrorIterator;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.om.FocusTrackingIterator;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 
 import java.util.Arrays;
-import java.util.EnumSet;
+import java.util.Comparator;
 
 /**
  * Class to do a sorted iteration
@@ -101,13 +99,17 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
         hostLanguage = language;
     }
 
+    @Override
+    public boolean supportsHasNext() {
+        return true;
+    }
+
     /**
      * Determine whether there are more items to come. Note that this operation
      * is stateless and it is not necessary (or usual) to call it before calling
      * next(). It is used only when there is an explicit need to tell if we
      * are at the last element.
-     * <p>This method must not be called unless the result of getProperties() on the iterator
-     * includes the bit setting {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}</p>
+     * <p>This method must not be called unless the method {@link #supportsHasNext()} returns true.</p>
      *
      * @return true if there are more items in the sequence
      */
@@ -119,7 +121,7 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
         }
         if (count < 0) {
             // haven't started sorting yet
-            if (base instanceof LookaheadIterator) {
+            if (base instanceof LookaheadIterator && ((LookaheadIterator)base).supportsHasNext()) {
                 return ((LookaheadIterator) base).hasNext();
             } else {
                 try {
@@ -130,7 +132,7 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
                     // (a) it wouldn't have failed unless there was something to sort, and
                     // (b) it's going to fail again when next() is called
                     count = -1;
-                    base = new FocusTrackingIterator(new ErrorIterator(err));
+                    base = SequenceTool.focusTracker(new ErrorIterator(err));
                     return true;
                 }
             }
@@ -145,12 +147,16 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
 
     /*@Nullable*/
     @Override
-    public Item next() throws XPathException {
+    public Item next() {
         if (position < 0) {
             return null;
         }
         if (count < 0) {
-            doSort();
+            try {
+                doSort();
+            } catch (XPathException e) {
+                throw new UncheckedXPathException(e);
+            }
         }
         if (position < count) {
             return (Item) values[position++].value;
@@ -160,27 +166,30 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
         }
     }
 
+    /**
+     * Ask whether this iterator supports use of the {@link #getLength()} method. This
+     * method should always be called before calling {@link #getLength()}, because an iterator
+     * that implements this interface may support use of {@link #getLength()} in some situations
+     * and not in others
+     *
+     * @return true if the {@link #getLength()} method can be called to determine the length
+     * of the underlying sequence.
+     */
     @Override
-    public int getLength() throws XPathException {
-        if (count < 0) {
-            doSort();
-        }
-        return count;
+    public boolean supportsGetLength() {
+        return true;
     }
 
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
     @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LAST_POSITION_FINDER);
+    public int getLength() {
+        if (count < 0) {
+            try {
+                doSort();
+            } catch (XPathException e) {
+                throw new UncheckedXPathException(e);
+            }
+        }
+        return count;
     }
 
     /**
@@ -190,13 +199,7 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
      */
 
     protected void buildArray() throws XPathException {
-        int allocated;
-        if (base.getProperties().contains(Property.LAST_POSITION_FINDER)) {
-            allocated = ((LastPositionFinder) base).getLength();
-        } else {
-            allocated = 100;
-        }
-
+        int allocated = SequenceTool.supportsGetLength(base) ? SequenceTool.getLength(base) : 100;
         values = new ItemToBeSorted[allocated];
         count = 0;
 
@@ -231,6 +234,36 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
         }
     }
 
+
+    private static class SortComparer implements Comparator<ObjectToBeSorted> {
+
+        private AtomicComparer[] comparators;
+
+        public SortComparer(AtomicComparer[] comparators) {
+            this.comparators = comparators;
+        }
+        @Override
+        public int compare(ObjectToBeSorted a, ObjectToBeSorted b) {
+            try {
+                for (int i = 0; i < comparators.length; i++) {
+                    int comp = comparators[i].compareAtomicValues(
+                            a.sortKeyValues[i], b.sortKeyValues[i]);
+                    if (comp != 0) {
+                        // we have found a difference, so we can return
+                        return comp;
+                    }
+                }
+            } catch (NoDynamicContextException e) {
+                throw new AssertionError("Sorting without dynamic context: " + e.getMessage());
+            }
+            // all sort keys equal: return the items in their original order
+            // TODO: unnecessary, we are now using a stable sort routine
+            return a.originalPosition - b.originalPosition;
+        }
+
+
+    }
+
     private void doSort() throws XPathException {
         buildArray();
         if (count < 2) {
@@ -240,33 +273,10 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
         // sort the array
 
         try {
-            Arrays.sort(values, 0, count, (a, b) -> {
-                try {
-                    for (int i = 0; i < comparators.length; i++) {
-                        int comp = comparators[i].compareAtomicValues(
-                                a.sortKeyValues[i], b.sortKeyValues[i]);
-                        if (comp != 0) {
-                            // we have found a difference, so we can return
-                            return comp;
-                        }
-                    }
-                } catch (NoDynamicContextException e) {
-                    throw new AssertionError("Sorting without dynamic context: " + e.getMessage());
-                }
-
-                // all sort keys equal: return the items in their original order
-                // TODO: unnecessary, we are now using a stable sort routine
-                return a.originalPosition - b.originalPosition;
-            });
-            //GenericSorter.quickSort(0, count, this);
+            Arrays.sort(values, 0, count, new SortComparer(comparators));
         } catch (ClassCastException e) {
-            XPathException err = new XPathException("Non-comparable types found while sorting: " + e.getMessage());
-            if (hostLanguage == HostLanguage.XSLT) {
-                err.setErrorCode("XTDE1030");
-            } else {
-                err.setErrorCode("XPTY0004");
-            }
-            throw err;
+            throw new XPathException("Non-comparable types found while sorting: " + e.getMessage())
+                    .withErrorCode(hostLanguage == HostLanguage.XSLT ? "XTDE1030" : "XPTY0004");
         }
     }
 

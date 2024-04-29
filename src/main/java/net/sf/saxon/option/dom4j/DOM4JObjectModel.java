@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -34,7 +34,7 @@ import javax.xml.transform.Source;
 
 public class DOM4JObjectModel extends TreeModel implements ExternalObjectModel {
 
-    private final static DOM4JObjectModel THE_INSTANCE = new DOM4JObjectModel();
+    private static final DOM4JObjectModel THE_INSTANCE = new DOM4JObjectModel();
 
     /**
      * Get a singular instance of this class
@@ -88,7 +88,7 @@ public class DOM4JObjectModel extends TreeModel implements ExternalObjectModel {
         if (isRecognizedNodeClass(targetClass)) {
             return new PJConverter() {
                 @Override
-                public Object convert(Sequence value, Class<?> targetClass, XPathContext context) {
+                public Object convert(Sequence value, Class<?> targetClass, XPathContext context) throws XPathException {
                     return convertXPathValueToObject(value, targetClass);
                 }
             };
@@ -102,7 +102,7 @@ public class DOM4JObjectModel extends TreeModel implements ExternalObjectModel {
         if (isRecognizedNodeClass(sourceClass)) {
             return new JPConverter() {
                 @Override
-                public Sequence convert(Object object, XPathContext context) throws XPathException {
+                public GroundedValue convert(Object object, XPathContext context) throws XPathException {
                     return convertObjectToXPathValue((Node) object, context.getConfiguration());
                 }
 
@@ -172,22 +172,12 @@ public class DOM4JObjectModel extends TreeModel implements ExternalObjectModel {
      * Test whether this object model recognizes a particular kind of JAXP Result object,
      * and if it does, return a Receiver that builds an instance of this data model from
      * a sequence of events. If the Result is not recognised, return null.
-     * @return always null
+     * @return a Receiver that can be used to build a DOM4J Document
      */
 
     @Override
     public Receiver getDocumentBuilder(Result result) {
         return null;
-    }
-
-    /**
-     * Test whether this object model recognizes a particular kind of JAXP Source object.
-     * @return always false
-     */
-
-    @Override
-    public boolean sendSource(Source source, Receiver receiver)  {
-        return false;
     }
 
     /**
@@ -209,9 +199,12 @@ public class DOM4JObjectModel extends TreeModel implements ExternalObjectModel {
      * @param object the node to be converted
      * @param config the Saxon configuration
      * @return the resulting XPath value, or null
+     * @throws net.sf.saxon.trans.XPathException
+     *          if the object is recognized as a DOM4J node but cannot be
+     *          wrapped
      */
 
-    private Sequence convertObjectToXPathValue(Node object, Configuration config) {
+    private GroundedValue convertObjectToXPathValue(Node object, Configuration config) throws XPathException {
         if (isRecognizedNode(object)) {
             if (object instanceof Document) {
                 return wrapDocument(object, "", config).getRootNode();

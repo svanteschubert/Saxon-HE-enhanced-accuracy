@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.lib;
 
 import net.sf.saxon.expr.number.NumericGroupFormatter;
-import net.sf.saxon.regex.UnicodeString;
+import net.sf.saxon.str.UnicodeString;
 
 import java.util.Locale;
 
@@ -16,8 +16,6 @@ import java.util.Locale;
  * Interface Numberer supports number formatting. There is a separate
  * implementation for each language, e.g. Numberer_en for English.
  * This supports the xsl:number element
- *
- * @author Michael H. Kay
  */
 
 public interface Numberer {
@@ -60,19 +58,27 @@ public interface Numberer {
      * @param groupSeparator string to appear between groups of digits
      * @param letterValue    The letter-value specified to xsl:number: "alphabetic" or
      *                       "traditional". Can also be an empty string or null.
-     * @param ordinal        The value of the ordinal attribute specified to xsl:number
-     *                       The value "yes" indicates that ordinal numbers should be used; "" or null indicates
-     *                       that cardinal numbers
+     * @param cardinal       When called from xsl:number, the value is set to an empty string.
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "c", for example "c(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".
+     * @param ordinal        When called from xsl:number, the value of the ordinal attribute ("true"
+     *                       and "1" are normalized to "yes").
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "o", for example "o(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".
      * @return the formatted number. Note that no errors are reported; if the request
-     *         is invalid, the number is formatted as if the string() function were used.
+     * is invalid, the number is formatted as if the string() function were used.
+     * @since 12.0 - the "cardinal" argument was added in 12.0
      */
 
     String format(long number,
-                         UnicodeString picture,
-                         int groupSize,
-                         String groupSeparator,
-                         String letterValue,
-                         String ordinal);
+                  UnicodeString picture,
+                  int groupSize,
+                  String groupSeparator,
+                  String letterValue,
+                  String cardinal,
+                  String ordinal);
 
     /**
      * Format a number into a string
@@ -82,19 +88,28 @@ public interface Numberer {
      *                        of xsl:number, e.g. "1", "01", "i", or "a"
      * @param numGrpFormatter an object that handles insertion of grouping separators into the formatted number
      * @param letterValue     The letter-value specified to xsl:number: "alphabetic" or
-     *                        "traditional". Can also be an empty string or null.
-     * @param ordinal         The value of the ordinal attribute specified to xsl:number
-     *                        The value "yes" indicates that ordinal numbers should be used; "" or null indicates
-     *                        that cardinal numbers
+     *                        "traditional". The value "Xnn" or "xnn" signifies use of a radix other than 10,
+     *                        in the range 2 to 36. Can also be an empty string or null.
+     * @param cardinal       When called from xsl:number, the value is set to an empty string.
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "c", for example "c(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".
+     * @param ordinal        When called from xsl:number, the value of the ordinal attribute ("true"
+     *                       and "1" are normalized to "yes").
+     *                       When called from format-integer, the value is the value within
+     *                       parentheses after "o", for example "o(%spellout-masculine)"  supplies
+     *                       the value "%spellout-masculine".
      * @return the formatted number. Note that no errors are reported; if the request
-     *         is invalid, the number is formatted as if the string() function were used.
+     * is invalid, the number is formatted as if the string() function were used.
+     * @since 12.0 - the "cardinal" argument was added in 12.0
      */
 
     String format(long number,
-                         UnicodeString picture,
-                         NumericGroupFormatter numGrpFormatter,
-                         String letterValue,
-                         String ordinal);
+                  UnicodeString picture,
+                  NumericGroupFormatter numGrpFormatter,
+                  String letterValue,
+                  String cardinal,
+                  String ordinal);
 
     /**
      * Get a month name or abbreviation

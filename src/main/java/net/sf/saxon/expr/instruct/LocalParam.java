@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,8 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StandardNames;
@@ -19,6 +19,8 @@ import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * The compiled form of an xsl:param element within a template in an XSLT stylesheet.
@@ -35,20 +37,19 @@ import net.sf.saxon.value.SequenceType;
 public final class LocalParam extends Instruction implements LocalBinding {
 
     private Operand conversionOp = null;
-    private Evaluator conversionEvaluator = null;
 
     private static final int REQUIRED = 4;
     private static final int TUNNEL = 8;
     private static final int IMPLICITLY_REQUIRED = 16;  // a parameter that is required because the fallback
     // value is not a valid instance of the type.
 
-    private byte properties = 0;
+    private int properties = 0;
     private Operand selectOp = null;
-    protected StructuredQName variableQName;
+    private StructuredQName variableQName;
     private SequenceType requiredType;
-    protected int slotNumber = -999;
-    protected int referenceCount = 10;
-    protected Evaluator evaluator = null;
+    private int slotNumber = -999;
+    private int referenceCount = 10;
+
 
 
 
@@ -68,7 +69,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
         } else {
             selectOp = null;
         }
-        evaluator = null;
+        //evaluator = null;
     }
 
     /**
@@ -210,7 +211,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
      * @return true if this is a required parameter
      */
 
-    public final boolean isRequiredParam() {
+    public boolean isRequiredParam() {
         return (properties & REQUIRED) != 0;
     }
 
@@ -221,7 +222,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
      * @return true if this variable is an implicitly required parameter
      */
 
-    public final boolean isImplicitlyRequiredParam() {
+    public boolean isImplicitlyRequiredParam() {
         return (properties & IMPLICITLY_REQUIRED) != 0;
     }
 
@@ -231,7 +232,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
      * @return true if this is a tunnel parameter
      */
 
-    public final boolean isTunnelParam() {
+    public boolean isTunnelParam() {
         return (properties & TUNNEL) != 0;
     }
 
@@ -246,26 +247,17 @@ public final class LocalParam extends Instruction implements LocalBinding {
         return this;
     }
 
-    @Override
-    public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
-        Expression e2 = super.optimize(visitor, contextItemType);
-        if (e2 != this) {
-            return e2;
-        }
-//        if (selectOp != null) {
-//            computeEvaluationMode();
-//        }
-        return this;
-    }
 
     public void computeEvaluationMode() {
-        if (getSelectExpression() != null) {
-            if (referenceCount == FilterExpression.FILTERED) {
-                evaluator = Evaluator.MAKE_INDEXED_VARIABLE;
-            } else {
-                evaluator = ExpressionTool.lazyEvaluator(getSelectExpression(), referenceCount > 1);
-            }
-        }
+//        if (getSelectExpression() != null) {
+//            if (referenceCount == FilterExpression.FILTERED) {
+//                final Optimizer optimizer = getConfiguration().obtainOptimizer();
+//                PullEvaluator pullEval = Elaborator.makeElaborator(getSelectExpression()).elaborateForPull();
+//                evaluator =  context -> optimizer.makeIndexedValue(pullEval.iterate(context));
+//            } else {
+//                evaluator = Elaborator.makeElaborator(getSelectExpression()).lazily(referenceCount > 1);
+//            }
+//        }
     }
 
 
@@ -284,7 +276,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
             assert getConversion() != null;
             p2.setConversion(getConversion().copy(rebindings));
         }
-        p2.conversionEvaluator = conversionEvaluator;
+//        p2.conversionEvaluator = conversionEvaluator;
         p2.properties = properties;
         if (selectOp != null) {
             assert getSelectExpression() != null;
@@ -294,7 +286,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
         p2.requiredType = requiredType;
         p2.slotNumber = slotNumber;
         p2.referenceCount = referenceCount;
-        p2.evaluator = evaluator;
+//        p2.evaluator = evaluator;
         return p2;
     }
 
@@ -313,8 +305,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
     public void checkAgainstRequiredType(ExpressionVisitor visitor)
             throws XPathException {
         // Note, in some cases we are doing this twice.
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, variableQName.getDisplayName(), 0);
-        //role.setSourceLocator(this);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, variableQName.getDisplayName(), 0);
         SequenceType r = requiredType;
         Expression select = getSelectExpression();
         if (r != null && select != null) {
@@ -322,39 +313,41 @@ public final class LocalParam extends Instruction implements LocalBinding {
             select = visitor.getConfiguration().getTypeChecker(false).staticTypeCheck(select, requiredType, role, visitor);
         }
     }
+//
+//    /**
+//     * Evaluate the variable. That is,
+//     * get the value of the select expression if present or the content
+//     * of the element otherwise, either as a tree or as a sequence
+//     *
+//     * @param context the XPath dynamic context
+//     * @return the result of evaluating the variable
+//     * @throws net.sf.saxon.trans.XPathException
+//     *          if evaluation of the select expression fails
+//     *          with a dynamic error
+//     */
 
-    /**
-     * Evaluate the variable. That is,
-     * get the value of the select expression if present or the content
-     * of the element otherwise, either as a tree or as a sequence
-     *
-     * @param context the XPath dynamic context
-     * @return the result of evaluating the variable
-     * @throws net.sf.saxon.trans.XPathException
-     *          if evaluation of the select expression fails
-     *          with a dynamic error
-     */
-
-    public Sequence getSelectValue(XPathContext context) throws XPathException {
-        Expression select = getSelectExpression();
-        if (select == null) {
-            throw new AssertionError("Internal error: No select expression");
-            // The value of the variable is a sequence of nodes and/or atomic values
-        } else if (select instanceof Literal) {
-            // fast path for common case
-            return ((Literal)select).getValue();
-        } else {
-            // There is a select attribute: do a lazy evaluation of the expression,
-            // which will already contain any code to force conversion to the required type.
-            int savedOutputState = context.getTemporaryOutputState();
-            context.setTemporaryOutputState(StandardNames.XSL_WITH_PARAM);
-            Sequence result;
-            Evaluator eval = evaluator == null ? Evaluator.EAGER_SEQUENCE : evaluator;
-            result = eval.evaluate(select, context);
-            context.setTemporaryOutputState(savedOutputState);
-            return result;
-        }
-    }
+//    public Sequence getSelectValue(XPathContext context) throws XPathException {
+//        Expression select = getSelectExpression();
+//        if (select == null) {
+//            throw new AssertionError("Internal error: No select expression");
+//            // The value of the variable is a sequence of nodes and/or atomic values
+//        } else if (select instanceof Literal) {
+//            // fast path for common case
+//            return ((Literal)select).getGroundedValue();
+//        } else {
+//            // There is a select attribute: do a lazy evaluation of the expression,
+//            // which will already contain any code to force conversion to the required type.
+//            int savedOutputState = context.getTemporaryOutputState();
+//            context.setTemporaryOutputState(StandardNames.XSL_WITH_PARAM);
+//            Sequence result;
+//            if (evaluator == null) {
+//                evaluator = Elaborator.makeElaborator(select).lazily(true);
+//            }
+//            result = evaluator.evaluate(context);
+//            context.setTemporaryOutputState(savedOutputState);
+//            return result;
+//        }
+//    }
 
     /**
      * Get the slot number allocated to this variable
@@ -412,7 +405,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
             if (conversionOp == null) {
                 conversionOp = new Operand(this, convertor, OperandRole.SINGLE_ATOMIC);
             }
-            conversionEvaluator = ExpressionTool.eagerEvaluator(convertor);
+            //conversionEvaluator = Elaborator.makeElaborator(convertor).eagerly();
         } else {
             conversionOp = null;
         }
@@ -430,9 +423,9 @@ public final class LocalParam extends Instruction implements LocalBinding {
         return conversionOp == null ? null : conversionOp.getChildExpression();
     }
 
-    public EvaluationMode getConversionEvaluationMode() {
-        return conversionEvaluator.getEvaluationMode();
-    }
+    //public SequenceEvaluator getConversionEvaluator() {
+    //    return conversionEvaluator;
+    //}
 
     /**
      * Get the name of this instruction for diagnostic and tracing purposes
@@ -455,66 +448,6 @@ public final class LocalParam extends Instruction implements LocalBinding {
     @Override
     public Iterable<Operand> operands() {
         return operandSparseList(selectOp, conversionOp);
-    }
-
-    /**
-     * Process the local parameter declaration
-     *
-     *
-     * @param output the destination for the result
-     * @param context the dynamic context
-     * @return either null if processing is complete, or a tailcall if one is left outstanding
-     * @throws net.sf.saxon.trans.XPathException
-     *          if a dynamic error occurs in the evaluation
-     */
-
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        int wasSupplied = context.useLocalParameter(variableQName, slotNumber, isTunnelParam());
-        switch (wasSupplied) {
-            case ParameterSet.SUPPLIED_AND_CHECKED:
-                // No action needed
-                break;
-
-            case ParameterSet.SUPPLIED:
-                // if a parameter was supplied by the caller, with no type-checking by the caller,
-                // then we may need to convert it to the type required
-                if (conversionOp != null) {
-                    context.setLocalVariable(slotNumber,
-                            conversionEvaluator.evaluate(getConversion(), context));
-                    // We do an eager evaluation here for safety, because the result of the
-                    // type conversion overwrites the slot where the actual supplied parameter
-                    // is contained.
-                }
-                break;
-
-            // don't evaluate the default if a value has been supplied or if it has already been
-            // evaluated by virtue of a forwards reference
-
-            case ParameterSet.NOT_SUPPLIED:
-                if (isRequiredParam() || isImplicitlyRequiredParam()) {
-                    String name = "$" + getVariableQName().getDisplayName();
-                    int suppliedAsTunnel = context.useLocalParameter(variableQName, slotNumber, !isTunnelParam());
-                    String message = "No value supplied for required parameter " + name;
-                    if (isImplicitlyRequiredParam()) {
-                        message += ". A value is required because " +
-                                "the default value is not a valid instance of the required type";
-                    }
-                    if (suppliedAsTunnel != ParameterSet.NOT_SUPPLIED) {
-                        if (isTunnelParam()) {
-                            message += ". A non-tunnel parameter with this name was supplied, but a tunnel parameter is required";
-                        } else {
-                            message += ". A tunnel parameter with this name was supplied, but a non-tunnel parameter is required";
-                        }
-                    }
-                    XPathException e = new XPathException(message);
-                    e.setXPathContext(context);
-                    e.setErrorCode("XTDE0700");
-                    throw e;
-                }
-                context.setLocalVariable(slotNumber, getSelectValue(context));
-        }
-        return null;
     }
 
     /**
@@ -589,7 +522,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
      * @return the static cardinality
      */
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
@@ -601,7 +534,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
      * @return a set of flags indicating static properties of this expression
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return StaticProperty.HAS_SIDE_EFFECTS;
     }
 
@@ -652,7 +585,6 @@ public final class LocalParam extends Instruction implements LocalBinding {
         if (!flags.isEmpty()) {
             out.emitAttribute("flags", flags);
         }
-        ExpressionPresenter.ExportOptions options = (ExpressionPresenter.ExportOptions) out.getOptions();
         if (getRequiredType() != SequenceType.ANY_SEQUENCE) {
             out.emitAttribute("as", getRequiredType().toAlphaCode());
         }
@@ -697,5 +629,97 @@ public final class LocalParam extends Instruction implements LocalBinding {
     public boolean isIndexedVariable() {
         return false;
     }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+
+    public Elaborator getElaborator() {
+        return new LocalParamElaborator();
+    }
+
+    /**
+     * The Elaborator for this kind of expression
+     */
+    public static class LocalParamElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            LocalParam expr = (LocalParam) getExpression();
+            SequenceEvaluator selectEvaluator;
+            if (expr.getSelectExpression() == null) {
+                selectEvaluator = null;
+            } else if (expr.referenceCount == FilterExpression.FILTERED) {
+                PullEvaluator pullEval = expr.getSelectExpression().makeElaborator().elaborateForPull();
+                selectEvaluator = new IndexedVariableEvaluator(pullEval);
+            } else {
+                Expression select = expr.getSelectExpression();
+                selectEvaluator = new LearningEvaluator(
+                        select, select.makeElaborator().lazily(true, false));
+                //selectEvaluator = select.makeElaborator().lazily(true);
+            }
+            SequenceEvaluator conversionEval = (expr.getConversion() == null) ? null :
+                    expr.getConversion().makeElaborator().eagerly();
+            return (out, context) -> {
+                int wasSupplied = context.useLocalParameter(expr.variableQName, expr.slotNumber, expr.isTunnelParam());
+                switch (wasSupplied) {
+                    case ParameterSet.SUPPLIED_AND_CHECKED:
+                        // No action needed
+                        break;
+
+                    case ParameterSet.SUPPLIED:
+                        // if a parameter was supplied by the caller, with no type-checking by the caller,
+                        // then we may need to convert it to the type required
+                        if (conversionEval != null) {
+                            context.setLocalVariable(expr.slotNumber, conversionEval.evaluate(context));
+                            // We do an eager evaluation here for safety, because the result of the
+                            // type conversion overwrites the slot where the actual supplied parameter
+                            // is contained.
+                        }
+                        break;
+
+                    // don't evaluate the default if a value has been supplied or if it has already been
+                    // evaluated by virtue of a forwards reference
+
+                    case ParameterSet.NOT_SUPPLIED:
+                        if (expr.isRequiredParam() || expr.isImplicitlyRequiredParam()) {
+                            String name = "$" + expr.getVariableQName().getDisplayName();
+                            int suppliedAsTunnel = context.useLocalParameter(expr.variableQName, expr.slotNumber, !expr.isTunnelParam());
+                            String message = "No value supplied for required parameter " + name;
+                            if (expr.isImplicitlyRequiredParam()) {
+                                message += ". A value is required because " +
+                                        "the default value is not a valid instance of the required type";
+                            }
+                            if (suppliedAsTunnel != ParameterSet.NOT_SUPPLIED) {
+                                if (expr.isTunnelParam()) {
+                                    message += ". A non-tunnel parameter with this name was supplied, but a tunnel parameter is required";
+                                } else {
+                                    message += ". A tunnel parameter with this name was supplied, but a non-tunnel parameter is required";
+                                }
+                            }
+                            throw new XPathException(message)
+                                    .withXPathContext(context)
+                                    .withErrorCode("XTDE0700");
+                        }
+                        if (selectEvaluator == null) {
+                            throw new AssertionError("Internal error: No select expression");
+                        } else {
+                            // There is a select attribute: do a lazy evaluation of the expression,
+                            // which will already contain any code to force conversion to the required type.
+                            int savedOutputState = context.getTemporaryOutputState();
+                            context.setTemporaryOutputState(StandardNames.XSL_WITH_PARAM);
+                            Sequence result = selectEvaluator.evaluate(context);
+                            context.setLocalVariable(expr.slotNumber, result);
+                            context.setTemporaryOutputState(savedOutputState);
+                            return null;
+                        }
+                }
+                return null;
+            };
+        }
+    }
+
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,14 +22,15 @@ public class XSLOtherwise extends StyleElement {
     private Expression select;
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String f = attName.getDisplayName();
             if (f.equals("select")) {
-                // Saxon extension
-                requireSyntaxExtensions("select");
-                select = makeExpression(att.getValue(), att);
+                // XSLT 4.0 proposed extension
+                if (requireXslt40Attribute("select")) {
+                    select = makeExpression(att.getValue(), att);
+                }
             } else {
                 checkUnknownAttribute(attName);
             }
@@ -38,8 +39,8 @@ public class XSLOtherwise extends StyleElement {
 
     @Override
     public void validate(ComponentDeclaration decl) throws XPathException {
-        if (!(getParent() instanceof XSLChoose)) {
-            compileError("xsl:otherwise must be immediately within xsl:choose", "XTSE0010");
+        if (!(getParent() instanceof XSLChooseOrSwitch)) {
+            compileError("xsl:otherwise must be immediately within xsl:choose or xsl:switch", "XTSE0010");
         }
         if (select != null && hasChildNodes()) {
             compileError("xsl:otherwise element must be empty if @select is present", "XTSE0010");
@@ -51,7 +52,7 @@ public class XSLOtherwise extends StyleElement {
      */
 
     @Override
-    public boolean markTailCalls() {
+    protected boolean markTailCalls() {
         StyleElement last = getLastChildInstruction();
         return last != null && last.markTailCalls();
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,9 @@ package net.sf.saxon.resource;
 import net.sf.saxon.functions.URIQueryParameters;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Resource;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.Base64BinaryValue;
 
 import java.net.URI;
@@ -45,7 +47,7 @@ public class DataURIScheme {
         String contentType = header.substring(0, isBase64 ? comma - 7 : comma);
         if (isBase64) {
             try {
-                byte[] octets = Base64BinaryValue.decode(content);
+                byte[] octets = Base64BinaryValue.decode(StringView.tidy(content));
                 BinaryResource resource =
                         new BinaryResource(uri.toString(), contentType, octets);
                 resource.setData(octets);
@@ -58,7 +60,7 @@ public class DataURIScheme {
             if (encoding == null) {
                 encoding = "US-ASCII";
             }
-            byte[] utf8content = content.getBytes(StandardCharsets.UTF_8);
+            byte[] utf8content = stringToUTF8(content);
             AbstractResourceCollection.InputDetails details = new AbstractResourceCollection.InputDetails();
             details.resourceUri = uri.toString();
             details.contentType = getMediaType(contentType);
@@ -66,7 +68,10 @@ public class DataURIScheme {
             details.binaryContent = utf8content;
             details.onError = URIQueryParameters.ON_ERROR_FAIL;
             details.parseOptions = new ParseOptions();
-            return new UnparsedTextResource(details);
+
+            // Passing null for the context is harmless here. The context is used to resolve
+            // classpath: URIs and we know this is a data: URI.
+            return UnparsedTextResource.FACTORY.makeResource(null, details);
         }
     }
 
@@ -87,6 +92,11 @@ public class DataURIScheme {
             }
         }
         return null;
+    }
+
+    @CSharpReplaceBody(code="return System.Text.UTF8Encoding.UTF8.GetBytes(input);")
+    private static byte[] stringToUTF8(String input) {
+        return input.getBytes(StandardCharsets.UTF_8);
     }
 }
 

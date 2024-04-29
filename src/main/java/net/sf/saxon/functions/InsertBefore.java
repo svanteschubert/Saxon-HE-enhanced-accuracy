@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -60,11 +60,11 @@ public class InsertBefore extends SystemFunction {
 
     public static class InsertIterator implements SequenceIterator {
 
-        private SequenceIterator base;
-        private SequenceIterator insert;
-        private int insertPosition;
+        private final SequenceIterator base;
+        private final SequenceIterator insert;
+        private final int insertPosition;
         private int position = 0;
-        private boolean inserting = false;
+        private boolean inserting;
 
         public InsertIterator(SequenceIterator base, SequenceIterator insert, int insertPosition) {
             this.base = base;
@@ -75,7 +75,7 @@ public class InsertBefore extends SystemFunction {
 
 
         @Override
-        public Item next() throws XPathException {
+        public Item next() {
             Item nextItem;
             if (inserting) {
                 nextItem = insert.next();

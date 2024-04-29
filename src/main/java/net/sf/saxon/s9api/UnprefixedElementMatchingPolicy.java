@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,11 +7,14 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.transpile.CSharpSimpleEnum;
+
 /**
  * An enumeration defining possible strategies for resolving unprefixed element names appearing
  * as name tests in the steps of a path expression or XSLT match pattern
  */
 
+@CSharpSimpleEnum
 public enum UnprefixedElementMatchingPolicy {
 
     /**
@@ -44,5 +47,6 @@ public enum UnprefixedElementMatchingPolicy {
      * of DOM, this policy allows use of unprefixed names both when matching elements in the XHTML
      * namespace and when matching no-namespace elements</p>
      */
-    DEFAULT_NAMESPACE_OR_NONE}
+    DEFAULT_NAMESPACE_OR_NONE
+}
 

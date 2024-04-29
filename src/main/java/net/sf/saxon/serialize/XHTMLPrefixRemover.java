@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,9 +9,8 @@ package net.sf.saxon.serialize;
 
 import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
-import net.sf.saxon.s9api.Location;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -32,10 +31,10 @@ public class XHTMLPrefixRemover extends ProxyReceiver {
      * @param uri URI of the namespace
      * @return  true if requires special treatment
      */
-    private boolean isSpecial(String uri) {
-        return uri.equals(NamespaceConstant.XHTML) ||
-                uri.equals(NamespaceConstant.SVG) ||
-                uri.equals(NamespaceConstant.MATHML);
+    private boolean isSpecial(NamespaceUri uri) {
+        return uri.equals(NamespaceUri.XHTML) ||
+                uri.equals(NamespaceUri.SVG) ||
+                uri.equals(NamespaceUri.MATHML);
     }
     /**
      * Notify the start of an element
@@ -46,13 +45,13 @@ public class XHTMLPrefixRemover extends ProxyReceiver {
                              Location location, int properties) throws XPathException {
 
         for (NamespaceBinding ns : namespaces) {
-            if (isSpecial(ns.getURI())) {
+            if (isSpecial(ns.getNamespaceUri())) {
                 namespaces = namespaces.remove(ns.getPrefix());
             }
         }
 
-        if (isSpecial(elemName.getURI())) {
-            String uri = elemName.getURI();
+        if (isSpecial(elemName.getNamespaceUri())) {
+            NamespaceUri uri = elemName.getNamespaceUri();
             if (!elemName.getPrefix().isEmpty()) {
                 elemName = new FingerprintedQName("", uri, elemName.getLocalPart());
             }
@@ -60,8 +59,8 @@ public class XHTMLPrefixRemover extends ProxyReceiver {
         }
 
         for (AttributeInfo att : attributes) {
-            if (isSpecial(att.getNodeName().getURI())) {
-                namespaces = namespaces.put(att.getNodeName().getPrefix(), att.getNodeName().getURI());
+            if (isSpecial(att.getNodeName().getNamespaceUri())) {
+                namespaces = namespaces.put(att.getNodeName().getPrefix(), att.getNodeName().getNamespaceUri());
             }
         }
 

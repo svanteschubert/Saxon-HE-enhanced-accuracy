@@ -1,12 +1,11 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.om;
-
 
 import java.util.Collections;
 import java.util.Iterator;
@@ -17,7 +16,7 @@ import java.util.Iterator;
 
 public class EmptyAttributeMap implements AttributeMap {
 
-    private static EmptyAttributeMap THE_INSTANCE = new EmptyAttributeMap();
+    private static final EmptyAttributeMap THE_INSTANCE = new EmptyAttributeMap();
 
     private EmptyAttributeMap(){}
 
@@ -42,7 +41,7 @@ public class EmptyAttributeMap implements AttributeMap {
     }
 
     @Override
-    public AttributeInfo get(String uri, String local) {
+    public AttributeInfo get(NamespaceUri uri, String local) {
         return null;
     }
 
@@ -69,6 +68,11 @@ public class EmptyAttributeMap implements AttributeMap {
     @Override
     public AttributeMap apply(java.util.function.Function<AttributeInfo, AttributeInfo> mapper) {
         return this;
+    }
+
+    @Override
+    public AttributeInfo itemAt(int index) {
+        throw new IndexOutOfBoundsException();
     }
 }
 

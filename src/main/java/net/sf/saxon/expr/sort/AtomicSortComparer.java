@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,8 @@ package net.sf.saxon.expr.sort;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
@@ -16,7 +18,6 @@ import net.sf.saxon.type.Type;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.QNameValue;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.value.UntypedAtomicValue;
 
 /**
  * An AtomicComparer used for comparing atomic values of arbitrary item types. It encapsulates
@@ -31,8 +32,8 @@ import net.sf.saxon.value.UntypedAtomicValue;
 public class AtomicSortComparer implements AtomicComparer {
 
     private StringCollator collator;
-    private transient XPathContext context;
-    private int itemType;
+    private final transient XPathContext context;
+    private final int itemType;
 
     /**
      * Factory method to get an atomic comparer suitable for sorting or for grouping (operations in which
@@ -164,15 +165,11 @@ public class AtomicSortComparer implements AtomicComparer {
         } else if (b.isNaN()) {
             return +1;
         } else if (a instanceof StringValue && b instanceof StringValue) {
-            if (collator instanceof CodepointCollator) {
-                return CodepointCollator.compareCS(a.getStringValueCS(), b.getStringValueCS());
-            } else {
-                return collator.compareStrings(a.getStringValue(), b.getStringValue());
-            }
+            return collator.compareStrings(a.getUnicodeStringValue(), b.getUnicodeStringValue());
         } else {
             int implicitTimezone = context.getImplicitTimezone();
-            Comparable ac = (Comparable) a.getXPathComparable(true, collator, implicitTimezone);
-            Comparable bc = (Comparable) b.getXPathComparable(true, collator, implicitTimezone);
+            XPathComparable ac = a.getXPathComparable(collator, implicitTimezone);
+            XPathComparable bc = b.getXPathComparable(collator, implicitTimezone);
             if (ac == null || bc == null) {
                 return compareNonComparables(a, b);
             } else {
@@ -183,7 +180,7 @@ public class AtomicSortComparer implements AtomicComparer {
                             " with " + b.getPrimitiveType().getDisplayName();
                     // Direct users to bug 3450 which explains a 2017 bug fix that may cause previously
                     // working applications to fail
-                    if (a instanceof UntypedAtomicValue || b instanceof UntypedAtomicValue) {
+                    if (a.isUntypedAtomic() || b.isUntypedAtomic()) {
                         message += ". Further information: see http://saxonica.plan.io/issues/3450";
                     }
                     throw new ClassCastException(message);
@@ -227,16 +224,22 @@ public class AtomicSortComparer implements AtomicComparer {
         return compareAtomicValues(a, b) == 0;
     }
 
-    public static AtomicMatchKey COLLATION_KEY_NaN = new AtomicMatchKey() {
+    private static class MatchKeyForNaN implements AtomicMatchKey {
         @Override
         public AtomicValue asAtomic() {
-        // The logic here is to choose a value that compares equal to itself but not equal to any other
-        // number. We use StructuredQName because it has a simple equals() method.
+            // The logic here is to choose a value that compares equal to itself but not equal to any other
+            // value. We use StructuredQName because it has a simple equals() method.
 
-        return new QNameValue("saxon", "http://saxon.sf.net/collation-key", "NaN");
+            return new QNameValue("saxon", NamespaceUri.of("http://saxon.sf.net/collation-key"), "NaN");
+        }
+
+        //@Override
+        public int compareTo(AtomicMatchKey o) {
+            return SequenceTool.INDETERMINATE_ORDERING;
         }
     };
 
+    public static AtomicMatchKey COLLATION_KEY_NaN = new MatchKeyForNaN();
     /**
      * Create a string representation of this AtomicComparer that can be saved in a compiled
      * package and used to reconstitute the AtomicComparer when the package is reloaded

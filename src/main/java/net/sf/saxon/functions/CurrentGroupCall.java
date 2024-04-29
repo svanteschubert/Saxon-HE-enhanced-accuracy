@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,9 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.instruct.ForEachGroup;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.sort.GroupIterator;
@@ -24,7 +27,7 @@ import net.sf.saxon.value.AtomicValue;
 
 public class CurrentGroupCall extends Expression implements Callable {
 
-    private boolean isInHigherOrderOperand = false;
+    private boolean inHigherOrderOperand = false;
     private ItemType itemType = AnyItemType.getInstance();
     private ForEachGroup controllingInstruction = null; // may be unknown, when current group has dynamic scope
 
@@ -58,7 +61,7 @@ public class CurrentGroupCall extends Expression implements Callable {
     public void setControllingInstruction(ForEachGroup instruction, ItemType itemType, boolean isHigherOrder) {
         resetLocalStaticProperties();
         this.controllingInstruction = instruction;
-        this.isInHigherOrderOperand = isHigherOrder;
+        this.inHigherOrderOperand = isHigherOrder;
         this.itemType = itemType;
     }
 
@@ -104,7 +107,7 @@ public class CurrentGroupCall extends Expression implements Callable {
      */
 
     public boolean isInHigherOrderOperand() {
-        return isInHigherOrderOperand;
+        return inHigherOrderOperand;
     }
 
     /**
@@ -172,7 +175,7 @@ public class CurrentGroupCall extends Expression implements Callable {
      * @return {@link net.sf.saxon.expr.StaticProperty#NO_NODES_NEWLY_CREATED} (unless the variable is assignable using saxon:assign)
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         if (getControllingInstruction() == null) {
             return 0;
         } else {
@@ -183,7 +186,7 @@ public class CurrentGroupCall extends Expression implements Callable {
     @Override
     public Expression copy(RebindingMap rebindings) {
         CurrentGroupCall cg = new CurrentGroupCall();
-        cg.isInHigherOrderOperand = isInHigherOrderOperand;
+        cg.inHigherOrderOperand = inHigherOrderOperand;
         cg.itemType = itemType;
         cg.controllingInstruction = controllingInstruction;
         return cg;
@@ -195,14 +198,8 @@ public class CurrentGroupCall extends Expression implements Callable {
 
     /*@NotNull*/
     @Override
-    public SequenceIterator iterate(XPathContext c) throws XPathException {
-        GroupIterator gi = c.getCurrentGroupIterator();
-        if (gi == null) {
-            XPathException err = new XPathException("There is no current group", "XTDE1061");
-            err.setLocation(getLocation());
-            throw err;
-        }
-        return gi.iterateCurrentGroup();
+    public SequenceIterator iterate(XPathContext context) throws XPathException {
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
@@ -227,7 +224,12 @@ public class CurrentGroupCall extends Expression implements Callable {
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        return SequenceTool.toLazySequence(iterate(context));
+        GroupIterator gi = context.getCurrentGroupIterator();
+        if (gi == null) {
+            throw new XPathException("There is no current group", "XTDE1061")
+                    .withLocation(getLocation());
+        }
+        return gi.currentGroup();
     }
 
     /**
@@ -269,5 +271,30 @@ public class CurrentGroupCall extends Expression implements Callable {
         return "CurrentGroup";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new CurrentGroupCallElaborator();
+    }
+
+    private static class CurrentGroupCallElaborator extends PullElaborator {
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            CurrentGroupCall expr = (CurrentGroupCall) getExpression();
+            return context -> {
+                GroupIterator gi = context.getCurrentGroupIterator();
+                if (gi == null) {
+                    throw new XPathException("There is no current group", "XTDE1061")
+                            .withLocation(expr.getLocation());
+                }
+                return gi.currentGroup().iterate();
+            };
+        }
+    }
 }
 

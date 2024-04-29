@@ -8,12 +8,16 @@
 package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.SequenceEvaluator;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
-import net.sf.saxon.type.AnyFunctionType;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.SequenceType;
@@ -21,6 +25,7 @@ import net.sf.saxon.value.SequenceType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * This expression class implements the operation of currying (or performing partial application) of a function.
@@ -29,8 +34,8 @@ import java.util.List;
 
 public class PartialApply extends Expression {
 
-    private Operand baseOp;
-    private Operand[] boundArgumentsOp; // contains null where the question marks appear
+    private final Operand baseOp;
+    private final Operand[] boundArgumentsOp; // contains null where the question marks appear
 
     /**
      * Create a partial function application expression
@@ -89,11 +94,13 @@ public class PartialApply extends Expression {
             if (op != null) {
                 Expression arg = op.getChildExpression();
                 if (baseType instanceof SpecificFunctionType && i < ((SpecificFunctionType) baseType).getArity()) {
-                    RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION, "saxon:call", i);
+                    final int pos = i;
+                    Supplier<RoleDiagnostic> argRole =
+                            () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, "saxon:call", pos);
                     SequenceType requiredArgType = ((SpecificFunctionType) baseType).getArgumentTypes()[i];
                     argTypes[i] = requiredArgType;
                     Expression a3 = tc.staticTypeCheck(
-                            arg, requiredArgType, role, visitor);
+                            arg, requiredArgType, argRole, visitor);
                     if (a3 != arg) {
                         op.setChildExpression(a3);
                     }
@@ -102,13 +109,21 @@ public class PartialApply extends Expression {
         }
 
 
-        requiredFunctionType = SequenceType.makeSequenceType(
-                new SpecificFunctionType(argTypes,
-                        (baseType instanceof AnyFunctionType) ? ((AnyFunctionType) baseType).getResultType() : SequenceType.ANY_SEQUENCE),
-                        StaticProperty.EXACTLY_ONE);
+//        requiredFunctionType = SequenceType.makeSequenceType(
+//                new SpecificFunctionType(argTypes,
+//                        (baseType instanceof AnyFunctionType) ? ((AnyFunctionType) baseType).getResultType() : SequenceType.ANY_SEQUENCE),
+//                        StaticProperty.EXACTLY_ONE);
+//
+//        Supplier<RoleDiagnostic> role =
+//                () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, "saxon:call", 0);
+//        setBaseExpression(tc.staticTypeCheck(getBaseExpression(), requiredFunctionType, role, visitor));
 
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION, "saxon:call", 0);
-        setBaseExpression(tc.staticTypeCheck(getBaseExpression(), requiredFunctionType, role, visitor));
+        Supplier<RoleDiagnostic> role = () ->
+                new RoleDiagnostic(RoleDiagnostic.DYNAMIC_FUNCTION, getBaseExpression().toShortString(), 0);
+
+        setBaseExpression(tc.staticTypeCheck(
+                getBaseExpression(), SequenceType.SINGLE_FUNCTION, role, visitor));
+
         return this;
     }
 
@@ -134,9 +149,22 @@ public class PartialApply extends Expression {
         return new SpecificFunctionType(argTypes, resultType);
     }
 
+    /**
+     * Compute the special properties of this expression. These properties are denoted by a bit-significant
+     * integer, possible values are in class {@link StaticProperty}. The "special" properties are properties
+     * other than cardinality and dependencies, and most of them relate to properties of node sequences, for
+     * example whether the nodes are in document order.
+     *
+     * @return the special properties, as a bit-significant integer
+     */
+    @Override
+    protected int computeSpecialProperties() {
+        return StaticProperty.COMPUTED_FUNCTION;
+    }
+
     @Override
     public Iterable<Operand> operands() {
-        List<Operand> operanda = new ArrayList<Operand>(boundArgumentsOp.length + 1);
+        List<Operand> operanda = new ArrayList<>(boundArgumentsOp.length + 1);
         operanda.add(baseOp);
         for (Operand o : boundArgumentsOp) {
             if (o != null) {
@@ -195,8 +223,8 @@ public class PartialApply extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
-        int h = 0x836b92a0;
+    protected int computeHashCode() {
+        int h = 0x236b92a0;
         int i = 0;
         for (Operand o : operands()) {
             h ^= o == null ? i++ : o.getChildExpression().hashCode();
@@ -254,8 +282,9 @@ public class PartialApply extends Expression {
      * @return a representation of the expression as a string
      */
     @Override
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public String toString() {
-        FastStringBuffer buff = new FastStringBuffer(FastStringBuffer.C64);
+        StringBuilder buff = new StringBuilder(64);
         boolean par = getBaseExpression().operands().iterator().hasNext();
         if (par) {
             buff.append("(" + getBaseExpression().toString() + ")");
@@ -287,18 +316,8 @@ public class PartialApply extends Expression {
      */
 
     @Override
-    public Function evaluateItem(XPathContext context) throws XPathException {
-        Function f = (Function) getBaseExpression().evaluateItem(context);
-        assert f != null;
-        Sequence[] values = new Sequence[boundArgumentsOp.length];
-        for (int i = 0; i < boundArgumentsOp.length; i++) {
-            if (boundArgumentsOp[i] == null) {
-                values[i] = null;
-            } else {
-                values[i] = boundArgumentsOp[i].getChildExpression().iterate(context).materialize();
-            }
-        }
-        return new CurriedFunction(f, values);
+    public FunctionItem evaluateItem(XPathContext context) throws XPathException {
+        return (FunctionItem)makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -313,7 +332,50 @@ public class PartialApply extends Expression {
         return "partialApply";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new PartialApplyElaborator();
+    }
 
+    private static class PartialApplyElaborator extends ItemElaborator {
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            PartialApply expr = (PartialApply)getExpression();
+            ItemEvaluator functionEval = expr.getBaseExpression().makeElaborator().elaborateForItem();
+            final int len = expr.boundArgumentsOp.length;
+            SequenceEvaluator[] boundArgumentsEvaluators = new SequenceEvaluator[len];
+            for (int i = 0; i < len; i++) {
+                if (expr.boundArgumentsOp[i] == null) {
+                    boundArgumentsEvaluators[i] = null;
+                } else {
+                    boundArgumentsEvaluators[i] = expr.boundArgumentsOp[i].getChildExpression().makeElaborator().eagerly();
+                }
+            }
+
+            return context -> {
+                FunctionItem f = (FunctionItem) functionEval.eval(context);
+                assert f != null;
+                if (f.getArity() != len) {
+                    throw new XPathException(
+                            "The number of arguments supplied in the partial function application is " + len +
+                            ", but the arity of the function item is " + f.getArity(), "XPTY0004");
+                }
+                Sequence[] values = new Sequence[len];
+                for (int i = 0; i < boundArgumentsEvaluators.length; i++) {
+                    if (boundArgumentsEvaluators[i] != null) {
+                        values[i] = boundArgumentsEvaluators[i].evaluate(context);
+                    }
+                }
+                return new CurriedFunction(f, values);
+            };
+        }
+    }
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

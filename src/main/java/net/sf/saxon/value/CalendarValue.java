@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,14 @@ package net.sf.saxon.value;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
-import net.sf.saxon.expr.sort.CodepointCollator;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.type.ValidationFailure;
 
@@ -31,7 +33,7 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
 
     // This is a reimplementation that makes no use of the Java Calendar/Date types except for computations.
 
-    private int tzMinutes = NO_TIMEZONE;  // timezone offset in minutes: or the special value NO_TIMEZONE
+    private final int tzMinutes;  // timezone offset in minutes: or the special value NO_TIMEZONE
 
     /**
      * The value NO_TIMEZONE is used in a value that has no timezone, and it can be passed as an argument
@@ -53,11 +55,11 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      *
      * @param s     a string in the lexical space of one of the date/time types (date, time, dateTime,
      *              gYearMonth, gYear, gMonth, gMonthDay, or gDay
-     * @param rules
+     * @param rules conversion rules to apply (affects handling of year 0)
      * @return either a value of the appropriate type, or a ValidationFailure if the format is invalid
      */
 
-    public static ConversionResult makeCalendarValue(CharSequence s, ConversionRules rules) {
+    public static ConversionResult makeCalendarValue(UnicodeString s, ConversionRules rules) {
         ConversionResult cr = DateTimeValue.makeDateTimeValue(s, rules);
         ConversionResult firstError = cr;
         if (cr instanceof ValidationFailure) {
@@ -87,6 +89,16 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
         return cr;
     }
 
+    public CalendarValue(AtomicType typeLabel) {
+        super(typeLabel);
+        this.tzMinutes = NO_TIMEZONE;
+    }
+
+    public CalendarValue(AtomicType typeLabel, int tzMinutes) {
+        super(typeLabel);
+        this.tzMinutes = tzMinutes;
+    }
+
     /**
      * Determine whether this value includes a timezone
      *
@@ -95,19 +107,6 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
 
     public final boolean hasTimezone() {
         return tzMinutes != NO_TIMEZONE;
-    }
-
-    /**
-     * Modify the timezone value held in this object. This must be done only while the value is being
-     * constructed.
-     *
-     * @param minutes The timezone offset from GMT in minutes, positive or negative; or the special
-     *                value NO_TIMEZONE indicating that the value is not in a timezone (this is the default if this
-     *                method is not called)
-     */
-
-    public final void setTimezoneInMinutes(int minutes) {
-        tzMinutes = minutes;
     }
 
     /**
@@ -160,7 +159,7 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      * @param duration the duration to be added (which might be negative)
      * @return a new date/time value representing the result of adding the duration. The original
      *         object is not modified.
-     * @throws XPathException
+     * @throws XPathException if an error is detected
      */
 
     public abstract CalendarValue add(DurationValue duration) throws XPathException;
@@ -202,16 +201,15 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
 
     /*@NotNull*/
     public final CalendarValue removeTimezone() {
-        CalendarValue c = (CalendarValue) copyAsSubType(typeLabel);
-        c.tzMinutes = NO_TIMEZONE;
-        return c;
+        return adjustTimezone(NO_TIMEZONE);
     }
 
     /**
      * Return a new date, time, or dateTime with the same normalized value, but
      * in a different timezone
      *
-     * @param tz the new timezone offset from UTC, in minutes
+     * @param tz the new timezone offset from UTC, in minutes; the value {@link #NO_TIMEZONE} indicates
+     *           that any existing timezone should be removed
      * @return the date/time in the new timezone
      */
 
@@ -223,20 +221,17 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      *
      * @param tz the new timezone, in minutes
      * @return the date/time in the new timezone
+     * @throws XPathException if an error is detected
      */
 
     public final CalendarValue adjustTimezone(/*@NotNull*/ DayTimeDurationValue tz) throws XPathException {
         long microseconds = tz.getLengthInMicroseconds();
         if (microseconds % 60000000 != 0) {
-            XPathException err = new XPathException("Timezone is not an integral number of minutes");
-            err.setErrorCode("FODT0003");
-            throw err;
+            throw new XPathException("Timezone is not an integral number of minutes", "FODT0003");
         }
         int tzminutes = (int) (microseconds / 60000000);
         if (Math.abs(tzminutes) > 14 * 60) {
-            XPathException err = new XPathException("Timezone out of range (-14:00 to +14:00)");
-            err.setErrorCode("FODT0003");
-            throw err;
+            throw new XPathException("Timezone out of range (-14:00 to +14:00)", "FODT0003");
         }
         return adjustTimezone(tzminutes);
     }
@@ -251,20 +246,14 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      * using the getXPathComparable() method. A context argument is supplied for use in cases where the comparison
      * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
      * collation.
-     *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
-     * @param collator collation used for strings
+     *  @param collator collation used for strings
      * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
      */
 
     /*@Nullable*/
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone)
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone)
     throws NoDynamicContextException {
-        if (ordered && !(this instanceof Comparable)) {
-            return null;
-        }
         if (hasTimezone()) {
             return this;
         }
@@ -275,17 +264,6 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
     }
 
     /**
-     * Method retained only because it is used in a test case
-     */
-    public AtomicMatchKey getComparisonKey(XPathContext context) {
-        try {
-            return getXPathComparable(false, CodepointCollator.getInstance(), context.getImplicitTimezone());
-        } catch (NoDynamicContextException e) {
-            return null;
-        }
-    }
-
-    /**
      * Get a value whose equals() method follows the "same key" rules for comparing the keys of a map.
      *
      * @return a value with the property that the equals() and hashCode() methods follow the rules for comparing
@@ -293,7 +271,12 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      */
     @Override
     public AtomicMatchKey asMapKey() {
-        return new CalendarValueMapKey();
+        return new CalendarValueMapKey(this);
+    }
+
+    @Override
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return null;
     }
 
     /**
@@ -332,7 +315,7 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      *           representation
      */
 
-    public final void appendTimezone(/*@NotNull*/ FastStringBuffer sb) {
+    public final void appendTimezone(UnicodeBuilder sb) {
         if (hasTimezone()) {
             appendTimezone(getTimezoneInMinutes(), sb);
         }
@@ -345,14 +328,14 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      * @param sb the buffer
      */
 
-    public static void appendTimezone(int tz, /*@NotNull*/ FastStringBuffer sb) {
+    public static void appendTimezone(int tz, UnicodeBuilder sb) {
         if (tz == 0) {
-            sb.append("Z");
+            sb.append('Z');
         } else {
             sb.append(tz > 0 ? "+" : "-");
             tz = Math.abs(tz);
             appendTwoDigits(sb, tz / 60);
-            sb.cat(':');
+            sb.append(':');
             appendTwoDigits(sb, tz % 60);
         }
     }
@@ -365,7 +348,7 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      * @param size  the number of digits required (max 9)
      */
 
-    static void appendString(/*@NotNull*/ FastStringBuffer sb, int value, int size) {
+    protected static void appendString(UnicodeBuilder sb, int value, int size) {
         String s = "000000000" + value;
         sb.append(s.substring(s.length() - size));
     }
@@ -377,27 +360,32 @@ public abstract class CalendarValue extends AtomicValue implements AtomicMatchKe
      * @param value the integer to be formatted (must be in the range 0..99
      */
 
-    static void appendTwoDigits(/*@NotNull*/ FastStringBuffer sb, int value) {
-        sb.cat((char) (value / 10 + '0'));
-        sb.cat((char) (value % 10 + '0'));
+    protected static void appendTwoDigits(UnicodeBuilder sb, int value) {
+        sb.append((char) (value / 10 + '0'));
+        sb.append((char) (value % 10 + '0'));
     }
 
-    private class CalendarValueMapKey implements AtomicMatchKey {
+    private static class CalendarValueMapKey implements AtomicMatchKey {
+
+        private final CalendarValue value;
+        public CalendarValueMapKey(CalendarValue value) {
+            this.value = value;
+        }
         /**
          * Get an atomic value that encapsulates this match key. Needed to support the collation-key() function.
          *
          * @return an atomic value that encapsulates this match key
          */
         @Override
-        public CalendarValue asAtomic() {
-            return CalendarValue.this;
+        public AtomicValue asAtomic() {
+            return value;
         }
 
         @Override
         public boolean equals(Object obj) {
             if (obj instanceof CalendarValueMapKey) {
-                CalendarValue a = CalendarValue.this;
-                CalendarValue b = ((CalendarValueMapKey)obj).asAtomic();
+                CalendarValue a = value;
+                CalendarValue b = ((CalendarValueMapKey)obj).value;
                 if (a.hasTimezone() == b.hasTimezone()) {
                     if (a.hasTimezone()) {
                         return a.adjustTimezone(b.tzMinutes).isIdentical(b);

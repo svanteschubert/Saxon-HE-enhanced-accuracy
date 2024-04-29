@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -71,7 +75,7 @@ public class SingletonIntersectExpression extends VennExpression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that need to be re-bound
      */
 
     /*@NotNull*/
@@ -163,6 +167,42 @@ public class SingletonIntersectExpression extends VennExpression {
     @Override
     protected String tag() {
         return "among";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new SingletonIntersectElaborator();
+    }
+
+    /**
+     * Elaborator for a Venn expression: that is {@code A union B}, {@code A intersect B},
+     * or {@code A except B}
+     */
+
+    public static class SingletonIntersectElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+
+            final SingletonIntersectExpression exp = (SingletonIntersectExpression) getExpression();
+            final ItemEvaluator lhs = exp.getLhsExpression().makeElaborator().elaborateForItem();
+            final PullEvaluator rhs = exp.getRhsExpression().makeElaborator().elaborateForPull();
+
+            return context -> {
+                NodeInfo node = (NodeInfo) lhs.eval(context);
+                if (node == null) {
+                    return null;
+                }
+                SequenceIterator nodeSet = rhs.iterate(context);
+                return containsNode(nodeSet, node) ? node : null;
+            };
+
+        }
     }
 }
 

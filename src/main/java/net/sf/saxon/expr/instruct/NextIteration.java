@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,10 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -43,7 +45,8 @@ public class NextIteration extends Instruction implements TailCallLoop.TailCallI
     /**
      * Ask whether the expression can be lifted out of a loop, assuming it has no dependencies
      * on the controlling variable/focus of the loop
-     * @param forStreaming
+     * @param forStreaming true if we're optimising for streamed execution
+     * @return for a next-iteration instruction, always false
      */
 
     @Override
@@ -110,29 +113,6 @@ public class NextIteration extends Instruction implements TailCallLoop.TailCallI
         return "NextIteration";
     }
 
-    /*@Nullable*/
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        XPathContext c = context;
-        while (!(c instanceof XPathContextMajor)) {
-            c = c.getCaller();
-        }
-        XPathContextMajor cm = (XPathContextMajor)c;
-        if (actualParams.length == 1) {
-            cm.setLocalVariable(actualParams[0].getSlotNumber(), actualParams[0].getSelectValue(context));
-        } else {
-            // we can't overwrite any of the parameters until we've evaluated all of them: test iterate012
-            Sequence[] oldVars = cm.getAllVariableValues();
-            Sequence[] newVars = Arrays.copyOf(oldVars, oldVars.length);
-            for (WithParam wp : actualParams) {
-                newVars[wp.getSlotNumber()] = wp.getSelectValue(context);
-            }
-            cm.resetAllVariableValues(newVars);
-        }
-        cm.requestTailCall(this, null);
-        return null;
-    }
-
 
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
@@ -143,6 +123,33 @@ public class NextIteration extends Instruction implements TailCallLoop.TailCallI
         out.endElement();
     }
 
+    public Elaborator getElaborator() {
+        return new NextIterationElaborator();
+    }
+
+    public static class NextIterationElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            NextIteration expr = (NextIteration)getExpression();
+            return (output, context) -> {
+                XPathContextMajor cm = context.getMajorContext();
+                if (expr.actualParams.length == 1) {
+                    cm.setLocalVariable(expr.actualParams[0].getSlotNumber(), expr.actualParams[0].getSelectValue(context));
+                } else {
+                    // we can't overwrite any of the parameters until we've evaluated all of them: test iterate012
+                    Sequence[] oldVars = cm.getAllVariableValues();
+                    Sequence[] newVars = Arrays.copyOf(oldVars, oldVars.length);
+                    for (WithParam wp : expr.actualParams) {
+                        newVars[wp.getSlotNumber()] = wp.getSelectValue(context);
+                    }
+                    cm.resetAllVariableValues(newVars);
+                }
+                cm.requestTailCall(expr, null);
+                return null;
+            };
+        }
+    }
 
 }
 

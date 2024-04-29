@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -49,11 +49,11 @@ public class Average extends FoldingFunction {
     }
 
     private class AverageFold implements Fold {
-        private XPathContext context;
+        private final XPathContext context;
         private AtomicValue data;
         private boolean atStart = true;
-        private ConversionRules rules;
-        private StringConverter toDouble;
+        private final ConversionRules rules;
+        private final StringConverter toDouble;
         private int count = 0;
 
         public AverageFold(XPathContext context) {
@@ -71,8 +71,8 @@ public class Average extends FoldingFunction {
         @Override
         public void processItem(Item item) throws XPathException {
             AtomicValue next = (AtomicValue)item;
-            if (next instanceof UntypedAtomicValue) {
-                next = toDouble.convert((UntypedAtomicValue)next).asAtomic();
+            if (next.isUntypedAtomic()) {
+                next = toDouble.convert(next).asAtomic();
             }
             count++;
             if (atStart) {
@@ -103,10 +103,7 @@ public class Average extends FoldingFunction {
                     try {
                         data = ((DurationValue) data).add((DurationValue) next);
                     } catch (XPathException e) {
-                        if ("XPTY0004".equals(e.getErrorCodeLocalPart())){
-                            e.setErrorCode("FORG0006");
-                        }
-                        throw e;
+                        throw e.replacingErrorCode("XPTY0004", "FORG0006");
                     }
                 } else {
                     throw new XPathException(

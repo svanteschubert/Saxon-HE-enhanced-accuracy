@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.BooleanFn;
 import net.sf.saxon.functions.SystemFunction;
@@ -20,6 +24,8 @@ import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * A QuantifiedExpression tests whether some/all items in a sequence satisfy
@@ -68,7 +74,7 @@ public class QuantifiedExpression extends Assignation {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -96,15 +102,13 @@ public class QuantifiedExpression extends Assignation {
 
         SequenceType decl = getRequiredType();
         if (decl.getCardinality() == StaticProperty.ALLOWS_ZERO) {
-            XPathException err = new XPathException("Range variable will never satisfy the type empty-sequence()", "XPTY0004");
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("Range variable will never satisfy the type empty-sequence()", "XPTY0004")
+                    .asTypeError().withLocation(getLocation());
         }
         SequenceType sequenceType = SequenceType.makeSequenceType(decl.getPrimaryType(),
                 StaticProperty.ALLOWS_ZERO_OR_MORE);
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
-        //role.setSourceLocator(this);
+        Supplier<RoleDiagnostic> role =
+                () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
         setSequence(TypeChecker.strictTypeCheck(
                 getSequence(), sequenceType, role, visitor.getStaticContext()));
         ItemType actualItemType = getSequence().getItemType();
@@ -118,8 +122,7 @@ public class QuantifiedExpression extends Assignation {
         getActionOp().typeCheck(visitor, contextInfo);
         XPathException err = TypeChecker.ebvError(getAction(), visitor.getConfiguration().getTypeHierarchy());
         if (err != null) {
-            err.setLocation(getLocation());
-            throw err;
+            throw err.withLocation(getLocation());
         }
         return this;
     }
@@ -172,7 +175,7 @@ public class QuantifiedExpression extends Assignation {
             }
         }
         if (getSequence() instanceof Literal) {
-            GroundedValue seq = ((Literal)getSequence()).getValue();
+            GroundedValue seq = ((Literal)getSequence()).getGroundedValue();
             int len = seq.getLength();
             if (len == 0) {
                 Expression e2 = new Literal(BooleanValue.get(getOperator() == Token.EVERY));
@@ -269,7 +272,7 @@ public class QuantifiedExpression extends Assignation {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NO_NODES_NEWLY_CREATED;
     }
@@ -370,7 +373,44 @@ public class QuantifiedExpression extends Assignation {
         out.endElement();
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
 
+    @Override
+    public Elaborator getElaborator() {
+        return new QuantifiedExprElaborator();
+    }
 
+    /**
+     * Elaborator for a quantified expression ({@code some|every X in Y satisfies Z})
+     */
+
+    public static class QuantifiedExprElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+
+            final QuantifiedExpression expr = (QuantifiedExpression) getExpression();
+            final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
+            final BooleanEvaluator satisfiesEval = expr.getAction().makeElaborator().elaborateForBoolean();
+            final boolean some = expr.getOperator() == Token.SOME;
+            final int slot = expr.getLocalSlotNumber();
+
+            return context -> {
+                SequenceIterator base = selectEval.iterate(context);
+                for (Item it; (it = base.next()) != null;) {
+                    context.setLocalVariable(slot, it);
+                    if (some == satisfiesEval.eval(context)) {
+                        base.close();
+                        return some;
+                    }
+                }
+                return !some;
+            };
+        }
+
+    }
 }
 

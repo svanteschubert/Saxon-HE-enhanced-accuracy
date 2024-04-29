@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,19 +10,18 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.FunctionAnnotationHandler;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.query.Annotation;
 import net.sf.saxon.query.AnnotationList;
-import net.sf.saxon.trans.XPathException;
 
 /**
  * The item type function(*) when it is preceded by one or more annotation assertions
  */
 public class AnyFunctionTypeWithAssertions extends AnyFunctionType {
 
-    private AnnotationList assertions;
-    private Configuration config;
+    private final AnnotationList assertions;
+    private final Configuration config;
 
     /**
      * Construct an item type representing the item type function(*) with a list of annotation assertions
@@ -53,14 +52,14 @@ public class AnyFunctionTypeWithAssertions extends AnyFunctionType {
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) throws XPathException {
-        return item instanceof Function && checkAnnotationAssertions(assertions, (Function) item, th.getConfiguration());
+    public boolean matches(Item item, TypeHierarchy th)  {
+        return item instanceof FunctionItem && checkAnnotationAssertions(assertions, (FunctionItem) item, th.getConfiguration());
     }
 
-    private static boolean checkAnnotationAssertions(AnnotationList assertions, Function item, Configuration config) {
+    private static boolean checkAnnotationAssertions(AnnotationList assertions, FunctionItem item, Configuration config) {
         AnnotationList annotations = item.getAnnotations();
         for (Annotation ann : assertions) {
-            FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(ann.getAnnotationQName().getURI());
+            FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(ann.getAnnotationQName().getNamespaceUri());
             if (handler != null) {
                 boolean ok = handler.satisfiesAssertion(ann, annotations);
                 if (!ok) {

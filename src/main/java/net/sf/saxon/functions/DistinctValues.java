@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,11 +10,12 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.ZeroOrMore;
+import net.sf.saxon.om.*;
+import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.QNameValue;
 
 import java.util.HashSet;
 
@@ -25,9 +26,21 @@ import java.util.HashSet;
 public class DistinctValues extends CollatingFunctionFixed {
 
 
+    /**
+     * A match key for use in situations where NaN = NaN
+     */
+
+    public static final AtomicMatchKey NaN_MATCH_KEY = new QNameValue("", NamespaceUri.SAXON, "+NaN+");
+
     @Override
     public String getStreamerName() {
         return "DistinctValues";
+    }
+
+    @Override
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+        StringCollator collator = getStringCollator();
+        return new LazySequence(new DistinctIterator(arguments[0].iterate(), collator, context));
     }
 
 
@@ -37,10 +50,11 @@ public class DistinctValues extends CollatingFunctionFixed {
 
     public static class DistinctIterator implements SequenceIterator {
 
-        private SequenceIterator base;
-        private StringCollator collator;
-        private XPathContext context;
-        private HashSet<AtomicMatchKey> lookup = new HashSet<>(40);
+        private final SequenceIterator base;
+        private final StringCollator collator;
+        private final XPathContext context;
+        private final HashSet<AtomicMatchKey> lookup = new HashSet<>(40);
+        private Action onDuplicates = null;
 
         /**
          * Create an iterator over the distinct values in a sequence
@@ -61,12 +75,10 @@ public class DistinctValues extends CollatingFunctionFixed {
          * Get the next item in the sequence. <BR>
          *
          * @return the next item, or null if there are no more items.
-         * @throws net.sf.saxon.trans.XPathException
-         *          if an error occurs retrieving the next item
          */
 
         @Override
-        public AtomicValue next() throws XPathException {
+        public AtomicValue next() {
             int implicitTimezone = context.getImplicitTimezone();
             while (true) {
                 AtomicValue nextBase = (AtomicValue)base.next();
@@ -75,13 +87,24 @@ public class DistinctValues extends CollatingFunctionFixed {
                 }
                 AtomicMatchKey key;
                 if (nextBase.isNaN()) {
-                    key = AtomicMatchKey.NaN_MATCH_KEY;
+                    key = NaN_MATCH_KEY;
                 } else {
-                    key = nextBase.getXPathComparable(false, collator, implicitTimezone);
+                    try {
+                        key = nextBase.getXPathMatchKey(collator, implicitTimezone);
+                    } catch (NoDynamicContextException e) {
+                        throw new UncheckedXPathException(e);
+                    }
                 }
                 if (lookup.add(key)) {
                     // returns true if newly added (if not, keep looking)
                     return nextBase;
+                } else if (onDuplicates != null) {
+                    try {
+                        onDuplicates.doAction();
+                    } catch (XPathException e) {
+                        // should not happen
+                        throw new UncheckedXPathException(e);
+                    }
                 }
             }
         }
@@ -91,13 +114,13 @@ public class DistinctValues extends CollatingFunctionFixed {
             base.close();
         }
 
+        public void notifyDuplicates(Action onDuplicates) {
+            this.onDuplicates = onDuplicates;
+        }
+
     }
 
-    @Override
-    public ZeroOrMore<AtomicValue> call(XPathContext context, Sequence[] arguments) throws XPathException {
-        StringCollator collator = getStringCollator();
-        return new ZeroOrMore<>(new DistinctIterator(arguments[0].iterate(), collator, context));
-    }
+
 
 }
 

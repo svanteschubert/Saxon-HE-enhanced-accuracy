@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 
 
@@ -46,12 +47,15 @@ public abstract class FoldingFunction extends SystemFunction {
         System.arraycopy(arguments, 1, additionalArgs, 0, additionalArgs.length);
         Fold fold = getFold(context, additionalArgs);
         SequenceIterator iter = arguments[0].iterate();
-        Item item;
-        while ((item = iter.next()) != null) {
-            fold.processItem(item);
-            if (fold.isFinished()) {
-                break;
+        try {
+            for (Item item; (item = iter.next()) != null; ) {
+                fold.processItem(item);
+                if (fold.isFinished()) {
+                    break;
+                }
             }
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
         return fold.result();
     }

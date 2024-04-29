@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,13 @@
 
 package net.sf.saxon.expr.sort;
 
-import net.sf.saxon.expr.LastPositionFinder;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.ListIterator;
+import net.sf.saxon.tree.iter.NodeListIterator;
 
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Comparator;
 
 /**
  * DocumentOrderIterator takes as input an iteration of nodes in any order, and
@@ -26,27 +24,21 @@ import java.util.List;
 
 public final class DocumentOrderIterator implements SequenceIterator {
 
-    private SequenceIterator iterator;
-    private List<NodeInfo> sequence;
-    private ItemOrderComparer comparer;
+    private final SequenceIterator iterator;
+    private final ArrayList<NodeInfo> sequence; // explicit type ArrayList used so C# List.Sort() is available
     private NodeInfo current = null;
 
     /**
      * Iterate over a sequence in document order.
      * @param base the input sequence to be sorted
      * @param comparer the comparer used for comparing node positions
-     * @throws XPathException if the input sequence cannot be evaluated, or if it contains an item
-     * that is not a node
      */
 
-    public DocumentOrderIterator(SequenceIterator base, ItemOrderComparer comparer) throws XPathException {
+    public DocumentOrderIterator(SequenceIterator base, Comparator<? super NodeInfo> comparer) {
 
-        this.comparer = comparer;
-
-        int len = base.getProperties().contains(Property.LAST_POSITION_FINDER)
-                ? ((LastPositionFinder) base).getLength() : 50;
+        int len = SequenceTool.supportsGetLength(base) ? SequenceTool.getLength(base) : 50;
         sequence = new ArrayList<>(len);
-        base.forEachOrFail(item -> {
+        SequenceTool.supply(base, (ItemConsumer<? super Item>) item -> {
             if (item instanceof NodeInfo) {
                 sequence.add((NodeInfo) item);
             } else {
@@ -58,14 +50,14 @@ public final class DocumentOrderIterator implements SequenceIterator {
         if (sequence.size() > 1) {
             sequence.sort(comparer);
         }
-        iterator = new ListIterator<>(sequence);
+        iterator = new NodeListIterator(sequence);
     }
 
     // Implement the SequenceIterator as a wrapper around the underlying iterator
     // over the sequenceExtent, but looking ahead to remove duplicates.
 
     @Override
-    public NodeInfo next() throws XPathException {
+    public NodeInfo next() {
         while (true) {
             NodeInfo next = (NodeInfo)iterator.next();
             if (next == null) {
@@ -78,6 +70,7 @@ public final class DocumentOrderIterator implements SequenceIterator {
             }
         }
     }
+
 
 }
 

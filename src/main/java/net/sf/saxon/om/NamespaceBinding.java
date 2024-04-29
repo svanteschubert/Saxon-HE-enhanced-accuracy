@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,6 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.tree.jiter.MonoIterator;
-import net.sf.saxon.lib.NamespaceConstant;
 
 import java.util.Iterator;
 
@@ -20,11 +19,11 @@ import java.util.Iterator;
  */
 public final class NamespaceBinding implements NamespaceBindingSet {
 
-    private String prefix;
-    private String uri;
+    private final String prefix;
+    private final NamespaceUri uri;
 
-    public final static NamespaceBinding XML = new NamespaceBinding("xml", NamespaceConstant.XML);
-    public final static NamespaceBinding DEFAULT_UNDECLARATION = new NamespaceBinding("", "");
+    public final static NamespaceBinding XML = new NamespaceBinding("xml", NamespaceUri.XML);
+    public final static NamespaceBinding DEFAULT_UNDECLARATION = new NamespaceBinding("", NamespaceUri.NULL);
 
     public final static NamespaceBinding[] EMPTY_ARRAY = new NamespaceBinding[0];
 
@@ -37,7 +36,7 @@ public final class NamespaceBinding implements NamespaceBindingSet {
      *               not be null.
      */
 
-    public NamespaceBinding(String prefix, String uri) {
+    public NamespaceBinding(String prefix, NamespaceUri uri) {
         this.prefix = prefix;
         this.uri = uri;
         if (prefix == null || uri == null) {
@@ -46,29 +45,8 @@ public final class NamespaceBinding implements NamespaceBindingSet {
     }
 
     @Override
-    public String getURI(String prefix) {
+    public NamespaceUri getNamespaceUri(String prefix) {
         return prefix.equals(this.prefix) ? uri : null;
-    }
-
-    /**
-     * Create a binding of a prefix to a URI. Static factory method for the convenience of compiled bytecode;
-     * reuses standard NamespaceBinding objects where possible
-     *
-     * @param prefix the prefix: either an NCName, or a zero-length string to bind the default namespace.
-     *               Must not be null.
-     * @param uri    the namespace URI: either a URI, or a zero-length string to unbind the prefix. Must
-     *               not be null.
-     * @return the namespace binding object
-     */
-
-    public static NamespaceBinding makeNamespaceBinding(CharSequence prefix, CharSequence uri) {
-        if (prefix.length()==0 && uri.length()==0) {
-            return DEFAULT_UNDECLARATION;
-        } else if (prefix.equals("xml") && uri.equals(NamespaceConstant.XML)) {
-            return XML;
-        } else {
-            return new NamespaceBinding(prefix.toString(), uri.toString());
-        }
     }
 
     /**
@@ -89,7 +67,7 @@ public final class NamespaceBinding implements NamespaceBindingSet {
      *         prefixes, it indicates that the prefix is not bound to any namespace and therefore cannot be used.
      */
 
-    public String getURI() {
+    public NamespaceUri getNamespaceUri() {
         return uri;
     }
 
@@ -111,7 +89,7 @@ public final class NamespaceBinding implements NamespaceBindingSet {
      */
 
     public boolean isDefaultUndeclaration() {
-        return prefix.isEmpty() && uri.isEmpty();
+        return prefix.isEmpty() && uri == NamespaceUri.NULL;
     }
 
     /**
@@ -121,7 +99,7 @@ public final class NamespaceBinding implements NamespaceBindingSet {
      */
     @Override
     public Iterator<NamespaceBinding> iterator() {
-        return new MonoIterator<NamespaceBinding>(this);
+        return new MonoIterator<>(this);
     }
 
     /**
@@ -134,7 +112,7 @@ public final class NamespaceBinding implements NamespaceBindingSet {
     public boolean equals(Object obj) {
         return obj instanceof NamespaceBinding &&
                 prefix.equals(((NamespaceBinding) obj).getPrefix()) &&
-                uri.equals(((NamespaceBinding) obj).getURI());
+                uri.equals(((NamespaceBinding) obj).getNamespaceUri());
     }
 
     @Override

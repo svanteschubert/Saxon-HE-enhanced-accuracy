@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -43,7 +43,7 @@ public interface BuiltInRuleSet extends ContextOriginator {
 
     /**
      * Identify this built-in rule set
-     * @return the XSLT keyword used to identify this rule-set, for example "deep-copy
+     * @return the XSLT keyword used to identify this rule-set, for example "deep-copy"
      */
 
     String getName();
@@ -55,14 +55,7 @@ public interface BuiltInRuleSet extends ContextOriginator {
      * @return the sequence of actions to be taken
      */
 
-    int[] getActionForParentNodes(int nodeKind);
-
-    int DEEP_COPY = 1;
-    int DEEP_SKIP = 3;
-    int FAIL = 4;
-    int SHALLOW_COPY = 5;
-    int APPLY_TEMPLATES_TO_ATTRIBUTES = 6;
-    int APPLY_TEMPLATES_TO_CHILDREN = 7;
+    BuiltInRules[] getActionForParentNodes(int nodeKind);
 
 }
 

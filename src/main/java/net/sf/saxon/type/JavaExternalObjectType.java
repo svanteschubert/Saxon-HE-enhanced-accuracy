@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,36 +7,50 @@
 
 package net.sf.saxon.type;
 
-import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.ObjectValue;
+
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This class represents the type of an external Java object returned by
  * an extension function, or supplied as an external variable/parameter.
  */
 
+@CSharpInjectMembers(code={"private static readonly System.Collections.Concurrent.ConcurrentDictionary<System.Type, Saxon.Hej.type.JavaExternalObjectType> cache = new (16, 20);"})
 public class JavaExternalObjectType extends ExternalObjectType {
 
-    protected Configuration config;
     protected Class<?> javaClass;
 
+    private static final ConcurrentHashMap<Class<?>, JavaExternalObjectType> cache = new ConcurrentHashMap<>(20);
+
     /**
-     * Create an external object type.
+     * Create an external object type. Private constructor; to create an instance,
+     * use {@link JavaExternalObjectType#of}.
      *
      * @param javaClass the Java class to which this type corresponds
      */
 
-    public JavaExternalObjectType(Configuration config, Class<?> javaClass) {
-        this.config = config;
+    private JavaExternalObjectType(Class<?> javaClass) {
         this.javaClass = javaClass;
     }
 
-    public Configuration getConfiguration() {
-        return config;
+    /**
+     * Allocate an external object type. for a given Java class. Reuses a known
+     * {@code JavaExternalObjectType} if found in a static cache
+     * @param javaClass the Java class to which this type corresponds
+     * @return the corresponding {@code JavaExternalObjectType}
+     */
+
+    @CSharpReplaceBody(code="return Saxon.Impl.Helpers.MapUtils.ComputeIfAbsent(cache, javaClass, jc => new Saxon.Hej.type.JavaExternalObjectType(jc));")
+    public static JavaExternalObjectType of(Class<?> javaClass) {
+        return cache.computeIfAbsent(javaClass, JavaExternalObjectType::new);
     }
 
     /**
@@ -48,7 +62,7 @@ public class JavaExternalObjectType extends ExternalObjectType {
     /*@Nullable*/
     @Override
     public String getName() {
-        return javaClass.getName();
+        return classNameToQName(javaClass.getName()).getLocalPart();
     }
 
     /**
@@ -86,7 +100,7 @@ public class JavaExternalObjectType extends ExternalObjectType {
     /*@NotNull*/
     @Override
     public ItemType getPrimitiveItemType() {
-        return config.getJavaExternalObjectType(Object.class);
+        return new JavaExternalObjectType(Object.class);
     }
 
     /**
@@ -130,8 +144,8 @@ public class JavaExternalObjectType extends ExternalObjectType {
      */
     @Override
     public boolean matches(/*@NotNull*/ Item item, /*@NotNull*/TypeHierarchy th) {
-        if (item instanceof ObjectValue) {
-            Object obj = ((ObjectValue) item).getObject();
+        if (item.getGenre() == Genre.EXTERNAL) {
+            Object obj = ((ObjectValue<?>) item).getObject();
             return javaClass.isAssignableFrom(obj.getClass());
         }
         return false;
@@ -181,20 +195,20 @@ public class JavaExternalObjectType extends ExternalObjectType {
      */
 
     public static String localNameToClassName(String className) {
-        FastStringBuffer fsb = new FastStringBuffer(className.length());
+        StringBuilder fsb = new StringBuilder(className.length());
         boolean atStart = true;
         for (int i=0; i<className.length(); i++) {
             char c = className.charAt(i);
             if (atStart) {
                 if (c == '_' && i+1 < className.length()  && className.charAt(i+1) == '-') {
-                    fsb.cat('[');
+                    fsb.append('[');
                     i++;
                 } else {
                     atStart = false;
-                    fsb.cat(c == '-' ? '$' : c);
+                    fsb.append(c == '-' ? '$' : c);
                 }
             } else {
-                fsb.cat(c == '-' ? '$' : c);
+                fsb.append(c == '-' ? '$' : c);
             }
         }
         return fsb.toString();
@@ -205,7 +219,7 @@ public class JavaExternalObjectType extends ExternalObjectType {
      */
 
     public static StructuredQName classNameToQName(String className) {
-        return new StructuredQName("jt", NamespaceConstant.JAVA_TYPE, classNameToLocalName(className));
+        return new StructuredQName("jt", NamespaceUri.JAVA_TYPE, classNameToLocalName(className));
     }
 
 }

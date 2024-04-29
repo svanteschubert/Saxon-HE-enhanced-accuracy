@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.pattern;
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -24,7 +25,7 @@ import net.sf.saxon.type.UType;
 
 public class ItemTypePattern extends Pattern {
 
-    private ItemType itemType;
+    private final ItemType itemType;
 
 
     /**
@@ -76,7 +77,6 @@ public class ItemTypePattern extends Pattern {
     /**
      * Display the pattern for diagnostics
      */
-
     @Override
     public String reconstruct() {
         return itemType.toString();
@@ -98,7 +98,7 @@ public class ItemTypePattern extends Pattern {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return 0x7a83d1a8 ^ itemType.hashCode();
     }
 
@@ -119,8 +119,10 @@ public class ItemTypePattern extends Pattern {
     /*@NotNull*/
     @Override
     public Pattern copy(RebindingMap rebindings) {
-        // (is this necessary? I think the class is immutable...)
-        return new ItemTypePattern(itemType);
+        Pattern n = new ItemTypePattern(itemType);
+        ExpressionTool.copyLocationInfo(this,n);
+        n.setOriginalText(getOriginalText());
+        return n;
     }
 
 

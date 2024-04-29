@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,14 @@ package net.sf.saxon.functions;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
+import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 
 import java.net.URI;
@@ -38,7 +40,7 @@ public class CollatingFunctionFree extends SystemFunction {
      * @return the position of the argument containing the collation URI
      */
 
-    private int getCollationArgument() {
+    protected int getCollationArgument() {
         // the collation argument is generally the last, but we keep it flexible
         return getArity() - 1;
     }
@@ -55,9 +57,9 @@ public class CollatingFunctionFree extends SystemFunction {
      */
     @Override
     public Expression makeOptimizedFunctionCall(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo, Expression... arguments) throws XPathException {
-        Expression c = arguments[arguments.length - 1];
-        if (c instanceof Literal) {
-            String coll = ((Literal) c).getValue().getStringValue();
+        Expression c = arguments[getCollationArgument()];
+        if (c instanceof StringLiteral) {
+            String coll = ((StringLiteral) c).stringify();
             try {
                 URI collUri = new URI(coll);
                 if (!collUri.isAbsolute()) {
@@ -66,8 +68,15 @@ public class CollatingFunctionFree extends SystemFunction {
                 }
             } catch (URISyntaxException e) {
                 visitor.getStaticContext().issueWarning(
-                        "Cannot resolve relative collation URI " + coll, c.getLocation());
+                        "Cannot resolve relative collation URI " + coll, SaxonErrorCode.SXWN9034, c.getLocation());
             }
+            CollatingFunctionFixed fn = bindCollation(coll);
+            Expression[] newArgs = new Expression[arguments.length - 1];
+            System.arraycopy(arguments, 0, newArgs, 0, newArgs.length);
+            return fn.makeFunctionCall(newArgs);
+        } else if (Literal.isEmptySequence(c)) {
+            // allowed in 4.0
+            String coll = visitor.getStaticContext().getDefaultCollationName();
             CollatingFunctionFixed fn = bindCollation(coll);
             Expression[] newArgs = new Expression[arguments.length - 1];
             System.arraycopy(arguments, 0, newArgs, 0, newArgs.length);
@@ -86,8 +95,9 @@ public class CollatingFunctionFree extends SystemFunction {
 
     public CollatingFunctionFixed bindCollation(String collationName) throws XPathException {
         Configuration config = getRetainedStaticContext().getConfiguration();
-        CollatingFunctionFixed fixed = (CollatingFunctionFixed)config.makeSystemFunction(
-                getFunctionName().getLocalPart(), getArity()-1);
+        int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+        CollatingFunctionFixed fixed =
+                (CollatingFunctionFixed) config.makeSystemFunction(getFunctionName().getLocalPart(), getArity() - 1, version);
         fixed.setRetainedStaticContext(getRetainedStaticContext());
         fixed.setCollationName(collationName);
         return fixed;
@@ -132,7 +142,14 @@ public class CollatingFunctionFree extends SystemFunction {
     @Override
     public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
         int c = getCollationArgument();
-        String collation = args[c].head().getStringValue();
+        Item collArg = args[c].head();
+        String collation;
+        if (collArg == null) {
+            // allowed in 4.0
+            collation = getRetainedStaticContext().getDefaultCollationName();
+        } else {
+            collation = collArg.getStringValue();
+        }
         collation = expandCollationURI(collation, getRetainedStaticContext().getStaticBaseUri());
         CollatingFunctionFixed fixed = bindCollation(collation);
         Sequence[] retainedArgs = new Sequence[args.length - 1];

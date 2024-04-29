@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,8 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.GenericAtomicComparer;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -24,10 +24,10 @@ import java.util.List;
  */
 public class GroupByClausePull extends TuplePull {
 
-    private TuplePull base;
-    private GroupByClause groupByClause;
+    private final TuplePull base;
+    private final GroupByClause groupByClause;
     /*@Nullable*/ Iterator<List<GroupByClause.ObjectToBeGrouped>> groupIterator;
-    private GenericAtomicComparer[] comparers;
+    private final GenericAtomicComparer[] comparers;
 
 
     public GroupByClausePull(TuplePull base, GroupByClause groupBy, XPathContext context) {
@@ -49,6 +49,7 @@ public class GroupByClausePull extends TuplePull {
      *         are undefined.
      */
     @Override
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public boolean nextTuple(XPathContext context) throws XPathException {
         if (groupIterator == null) {
 
@@ -97,6 +98,6 @@ public class GroupByClausePull extends TuplePull {
 
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited
 
 

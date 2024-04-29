@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,15 +10,15 @@ package net.sf.saxon.expr.sort;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.functions.DistinctValues;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.SequenceExtent;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 
@@ -59,9 +59,6 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
     // This parallel structure identifies the grouping key for each group. The list
     // corresponds one-to-one with the list of groups.
     protected List<AtomicSequence> groupKeys = new ArrayList<>(40);
-
-    // An AtomicComparer is used to do the comparisons of individual atomic values
-    //protected AtomicComparer comparer;
 
     protected boolean composite;
 
@@ -118,9 +115,9 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
                 }
                 AtomicMatchKey comparisonKey;
                 if (key.isNaN()) {
-                    comparisonKey = AtomicMatchKey.NaN_MATCH_KEY;
+                    comparisonKey = DistinctValues.NaN_MATCH_KEY;
                 } else {
-                    comparisonKey = key.getXPathComparable(false, collator, implicitTimezone);
+                    comparisonKey = key.getXPathMatchKey(collator, implicitTimezone);
                 }
                 List<Item> g = index.get(comparisonKey);
                 if (g == null) {
@@ -156,7 +153,7 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
      */
 
     private void buildIndexedGroupsComposite() throws XPathException {
-        HashMap<List<AtomicMatchKey>, List<Item>> index = new HashMap<>(40);
+        HashMap<CompositeAtomicKey, List<Item>> index = new HashMap<>(40);
         XPathContext c2 = keyContext.newMinorContext();
         FocusIterator focus = c2.trackFocus(population);
         int implicitTimezone = c2.getImplicitTimezone();
@@ -173,20 +170,21 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
                 compositeKey.add(key);
                 AtomicMatchKey comparisonKey;
                 if (key.isNaN()) {
-                    comparisonKey = AtomicMatchKey.NaN_MATCH_KEY;
+                    comparisonKey = DistinctValues.NaN_MATCH_KEY;
                 } else {
-                    comparisonKey = key.getXPathComparable(false, collator, implicitTimezone);
+                    comparisonKey = key.getXPathMatchKey(collator, implicitTimezone);
                 }
                 ckList.add(comparisonKey);
             }
 
-            List<Item> g = index.get(ckList);
+            CompositeAtomicKey cak = new CompositeAtomicKey(ckList);
+            List<Item> g = index.get(cak);
             if (g == null) {
                 List<Item> newGroup = new ArrayList<>(20);
                 newGroup.add(item);
                 groups.add(newGroup);
                 groupKeys.add(new AtomicArray(compositeKey));
-                index.put(ckList, newGroup);
+                index.put(cak, newGroup);
             } else {
                 g.add(item);
             }
@@ -210,15 +208,9 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
         }
     }
 
-    /**
-     * Get an iterator over the items in the current group
-     *
-     * @return the iterator
-     */
-
     @Override
-    public SequenceIterator iterateCurrentGroup() {
-        return new ListIterator<>(groups.get(position - 1));
+    public GroundedValue currentGroup() throws XPathException {
+        return SequenceExtent.makeSequenceExtent(groups.get(position - 1));
     }
 
     /**
@@ -227,9 +219,15 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
      * @return the contents of the current group
      */
 
-    public List getCurrentGroup() {
+    public List<Item> getCurrentGroup() {
         return groups.get(position - 1);
     }
+
+    @Override
+    public boolean supportsHasNext() {
+        return true;
+    }
+
 
     @Override
     public boolean hasNext() {
@@ -238,7 +236,7 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
 
     /*@Nullable*/
     @Override
-    public Item next() throws XPathException {
+    public Item next() {
         if (position >= 0 && position < groups.size()) {
             position++;
             return current();
@@ -256,19 +254,9 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
         return groups.get(position - 1).get(0);
     }
 
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
     @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LOOKAHEAD, Property.LAST_POSITION_FINDER);
+    public boolean supportsGetLength() {
+        return true;
     }
 
     /**
@@ -276,7 +264,7 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
      */
 
     @Override
-    public int getLength() throws XPathException {
+    public int getLength() {
         return groups.size();
     }
 

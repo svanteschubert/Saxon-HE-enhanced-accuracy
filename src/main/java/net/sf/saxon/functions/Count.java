@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,18 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.LastPositionFinder;
+import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.IntegerValue;
@@ -53,8 +59,8 @@ public class Count extends SystemFunction {
      */
 
     public static int count(/*@NotNull*/ SequenceIterator iter) throws XPathException {
-        if (iter.getProperties().contains(SequenceIterator.Property.LAST_POSITION_FINDER)) {
-            return ((LastPositionFinder) iter).getLength();
+        if (SequenceTool.supportsGetLength(iter)) {
+            return SequenceTool.getLength(iter);
         } else {
             int n = 0;
             while (iter.next() != null) {
@@ -71,10 +77,10 @@ public class Count extends SystemFunction {
      *             before the first item (there must have been no call on next()). It will
      *             always be consumed
      * @return the number of items in the underlying sequence
-     * @throws net.sf.saxon.trans.XPathException if a failure occurs reading the input sequence
+     * @throws UncheckedXPathException if a failure occurs reading the input sequence
      */
 
-    public static int steppingCount(SequenceIterator iter) throws XPathException {
+    public static int steppingCount(SequenceIterator iter) {
         int n = 0;
         while (iter.next() != null) {
             n++;
@@ -99,17 +105,32 @@ public class Count extends SystemFunction {
     }
 
     @Override
-    public String getCompilerName() {
-        return "CountCompiler";
-    }
-
-    @Override
     public String getStreamerName() {
         return "Count";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new CountFnElaborator();
+    }
 
 
+    public static class CountFnElaborator extends ItemElaborator {
 
+        public ItemEvaluator elaborateForItem() {
+            SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            Expression arg = fnc.getArg(0);
+            PullEvaluator puller = arg.makeElaborator().elaborateForPull();
+            return context -> Int64Value.makeIntegerValue(count(puller.iterate(context)));
+        }
+
+
+    }
 }
 

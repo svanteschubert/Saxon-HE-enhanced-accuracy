@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.z;
 
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 
 import java.util.Arrays;
 
@@ -18,7 +18,7 @@ import java.util.Arrays;
  * is an UnsupportedOperationException
  */
 
-public class MonotonicIntSet implements IntSet {
+public class MonotonicIntSet extends IntSet {
 
     /**
      * The array of integers, which will always be sorted
@@ -174,7 +174,7 @@ public class MonotonicIntSet implements IntSet {
                 }
             }
         } else {
-            return IntSet.super.union(other);
+            return super.union(other);
         }
     }
 
@@ -197,12 +197,12 @@ public class MonotonicIntSet implements IntSet {
     }
 
     public String toString() {
-        FastStringBuffer sb = new FastStringBuffer(used * 4);
+        StringBuilder sb = new StringBuilder(used * 4);
         for (int i = 0; i < used; i++) {
             if (i == used - 1) {
-                sb.append(contents[i] + "");
+                sb.append(contents[i]);
             } else if (contents[i] + 1 != contents[i + 1]) {
-                sb.append(contents[i] + ",");
+                sb.append(contents[i]).append(",");
             } else {
                 int j = i + 1;
                 while (contents[j] == contents[j - 1] + 1) {
@@ -211,7 +211,7 @@ public class MonotonicIntSet implements IntSet {
                         break;
                     }
                 }
-                sb.append(contents[i] + "-" + contents[j - 1] + ",");
+                sb.append(contents[i]).append("-").append(contents[j - 1]).append(",");
                 i = j;
             }
         }

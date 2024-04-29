@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,22 +9,22 @@ package net.sf.saxon.trans;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Builder;
-import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.s9api.*;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpDelegate;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.SchemaException;
-import net.sf.saxon.value.DayTimeDurationValue;
-import net.sf.saxon.value.NumericValue;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
+import org.xmlresolver.ResolverFeature;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.sax.SAXSource;
 import javax.xml.transform.stream.StreamSource;
 import java.io.File;
-import java.math.BigDecimal;
+import java.net.URI;
 import java.text.Collator;
 import java.util.*;
 
@@ -32,6 +32,7 @@ import java.util.*;
  * This is a helper class for classes such as net.sf.saxon.Transform and net.sf.saxon.Query that process
  * command line options
  */
+@CSharpModifiers(code = {"internal"})
 public class CommandLineOptions {
 
     public static final int TYPE_BOOLEAN = 1;
@@ -48,17 +49,22 @@ public class CommandLineOptions {
     public static final int VALUE_REQUIRED = 1 << 8;
     public static final int VALUE_PROHIBITED = 2 << 8;
 
-    private HashMap<String, Integer> recognizedOptions = new HashMap<>();
-    private HashMap<String, String> optionHelp = new HashMap<>();
-    private Properties namedOptions = new Properties();
-    private Properties configOptions = new Properties();
-    private Map<String, Set<String>> permittedValues = new HashMap<>();
-    private Map<String, String> defaultValues = new HashMap<>();
-    private List<String> positionalOptions = new ArrayList<>();
-    private Properties paramValues = new Properties();
-    private Properties paramExpressions = new Properties();
-    private Properties paramFiles = new Properties();
-    private Properties serializationParams = new Properties();
+    private final HashMap<String, Integer> recognizedOptions = new HashMap<>();
+    private final HashMap<String, String> optionHelp = new HashMap<>();
+    private final Properties namedOptions = new Properties();
+    private final Properties configOptions = new Properties();
+    private final Map<String, Set<String>> permittedValues = new HashMap<>();
+    private final Map<String, String> defaultValues = new HashMap<>();
+    private final List<String> positionalOptions = new ArrayList<>();
+    private final Properties paramValues = new Properties();
+    private final Properties paramExpressions = new Properties();
+    private final Properties paramFiles = new Properties();
+    private final Properties serializationParams = new Properties();
+
+    @CSharpReplaceBody(code="return Saxon.Ejava.io.File.CurrentDirectoryUri();")
+    public static URI getCurrentWorkingDirectory() {
+        return new File(System.getProperty("user.dir")).toURI();
+    }
 
     /**
      * Set the permitted options.
@@ -101,14 +107,14 @@ public class CommandLineOptions {
      */
 
     private static String displayPermittedValues(/*@NotNull*/ Set<String> permittedValues) {
-        FastStringBuffer sb = new FastStringBuffer(20);
+        StringBuilder sb = new StringBuilder(20);
         for (String val : permittedValues) {
             if ("".equals(val)) {
                 sb.append("\"\"");
             } else {
                 sb.append(val);
             }
-            sb.cat('|');
+            sb.append('|');
         }
         sb.setLength(sb.length() - 1);
         return sb.toString();
@@ -123,14 +129,16 @@ public class CommandLineOptions {
 
     public void setActualOptions(/*@NotNull*/ String[] args) throws XPathException {
         for (String arg : args) {
-            if ("-".equals(arg)) {
+            if ("".equals(arg)) {
+                throw new XPathException("An empty string is not a valid command line option");
+            } else if ("-".equals(arg)) {
                 positionalOptions.add(arg);
-            } else if (arg.equals("--?")) {
-                System.err.println("Configuration features:" + featureKeys());
+//            } else if (arg.equals("--?")) {
+//                System.err.println("Configuration features:" + featureKeys());
             } else if (arg.charAt(0) == '-') {
                 String option;
                 String value = "";
-                if (arg.length() > 5 && arg.charAt(1) == '-') {
+                if (arg.length() > 2 && arg.charAt(1) == '-') {
                     // --featureKey:value format
                     int colon = arg.indexOf(':');
                     if (colon > 0 && colon < arg.length() - 1) {
@@ -152,7 +160,7 @@ public class CommandLineOptions {
                     } else {
                         option = arg.substring(1);
                     }
-                    if (recognizedOptions.get(option) == null) {
+                    if (recognizedOptions.getOrDefault(option, -1) == -1) {
                         throw new XPathException("Command line option -" + option +
                                 " is not recognized. Options available: " + displayPermittedOptions());
                     }
@@ -256,23 +264,31 @@ public class CommandLineOptions {
 
         Configuration config = processor.getUnderlyingConfiguration();
 
-        for (Enumeration e = configOptions.propertyNames(); e.hasMoreElements(); ) {
-            String name = (String) e.nextElement();
+        if (configOptions.getProperty("?") != null) {
+            System.err.println(featureKeys(processor.getSaxonEdition()));
+            return;
+        }
+
+        for (String name : configOptions.stringPropertyNames()) {
             String value = configOptions.getProperty(name);
             String fullName = "http://saxon.sf.net/feature/" + name;
             if (!name.startsWith("parserFeature?") && !name.startsWith("parserProperty?")) {
-                Feature<?> f = Feature.byName(fullName);
-                if (f == null) {
-                    throw new XPathException("Unknown configuration feature " + name);
-                }
+                if (FeatureIndex.exists(fullName)) {
+                    FeatureData f = FeatureIndex.getData(fullName);
+                    if (f == null) {
+                        throw new XPathException("Unknown configuration feature " + name);
+                    }
 
-                if (f.type == Boolean.class) {
-                    Configuration.requireBoolean(name, value);
-                } else if (f.type == Integer.class) {
-                    //noinspection ResultOfMethodCallIgnored
-                    Integer.valueOf(value);
-                } else if (f.type != String.class) {
-                    throw new XPathException("Property --" + name + " cannot be supplied as a string");
+                    if (f.type == Boolean.class) {
+                        Configuration.requireBoolean(name, value);
+                    } else if (f.type == Integer.class) {
+                        //noinspection ResultOfMethodCallIgnored
+                        Integer.valueOf(value);
+                    } else if (f.type != String.class) {
+                        throw new XPathException("Property --" + name + " cannot be supplied as a string");
+                    }
+                } else {
+                    throw new XPathException("Unknown configuration property --" + name);
                 }
             }
             try {
@@ -282,145 +298,132 @@ public class CommandLineOptions {
             }
         }
 
-        String value = getOptionValue("catalog");
-        if (value != null) {
-            if (getOptionValue("r") != null) {
-                throw new XPathException("Cannot use -catalog and -r together");
-            }
-            if (getOptionValue("x") != null) {
-                throw new XPathException("Cannot use -catalog and -x together");
-            }
-            if (getOptionValue("y") != null) {
-                throw new XPathException("Cannot use -catalog and -y together");
-            }
-            StringBuilder sb = new StringBuilder();
-            if ((getOptionValue("u") != null) || isImplicitURI(value)) {
-                for (String s : value.split(";")) {
-                    Source sourceInput = null;
+        String optionValue = getOptionValue("catalog");
+        if (optionValue != null) {
+            ArrayList<String> catalogs = new ArrayList<>();
+            if ((getOptionValue("u") != null) || isImplicitURI(optionValue)) {
+                ResourceRequest request = new ResourceRequest();
+                request.nature = "urn:oasis:names:tc:entity:xmlns:xml:catalog";
+                request.purpose = ResourceRequest.ANY_PURPOSE;
+                for (String s : optionValue.split(";")) {
+                    Source sourceInput;
                     try {
-                        sourceInput = config.getURIResolver().resolve(s, null);
-                    } catch (TransformerException e) {
-                        // no action - try the standard URI resolver instead
+                        request.uri = s;
+                        sourceInput = new DirectResourceResolver(config).resolve(request);
+                    } catch (XPathException e) {
+                        throw new XPathException("Catalog file not found: " + s, e);
                     }
-                    if (sourceInput == null) {
-                        sourceInput = config.getSystemURIResolver().resolve(s, null);
-                    }
-                    sb.append(sourceInput.getSystemId()).append(';');
+                    catalogs.add(sourceInput.getSystemId());
                 }
-
             } else {
-                for (String s : value.split(";")) {
+                for (String s : optionValue.split(";")) {
                     File catalogFile = new File(s);
                     if (!catalogFile.exists()) {
                         throw new XPathException("Catalog file not found: " + s);
                     }
-                    sb.append(catalogFile.toURI().toASCIIString()).append(';');
+                    catalogs.add(catalogFile.toURI().toASCIIString());
                 }
             }
-            value = sb.toString();
 
-            try {
-                config.getClass("org.apache.xml.resolver.CatalogManager", false, null);
-                XmlCatalogResolver.setCatalog(value, config, getOptionValue("t") != null);
-            } catch (XPathException err) {
-                throw new XPathException("Failed to load Apache catalog resolver library", err);
-            }
+            setCatalogFiles(config, catalogs);
         }
 
-        value = getOptionValue("dtd");
-        if (value != null) {
-            switch (value) {
+        optionValue = getOptionValue("dtd");
+        if (optionValue != null) {
+            int mode = Validation.DEFAULT;
+            switch (optionValue) {
                 case "on":
                     config.setBooleanProperty(Feature.DTD_VALIDATION, true);
-                    config.getParseOptions().setDTDValidationMode(Validation.STRICT);
+                    mode = Validation.STRICT;
                     break;
                 case "off":
                     config.setBooleanProperty(Feature.DTD_VALIDATION, false);
-                    config.getParseOptions().setDTDValidationMode(Validation.SKIP);
+                    mode = Validation.SKIP;
                     break;
                 case "recover":
                     config.setBooleanProperty(Feature.DTD_VALIDATION, true);
                     config.setBooleanProperty(Feature.DTD_VALIDATION_RECOVERABLE, true);
-                    config.getParseOptions().setDTDValidationMode(Validation.LAX);
+                    mode = Validation.LAX;
                     break;
             }
+            config.setParseOptions(config.getParseOptions().withDTDValidationMode(mode));
         }
 
-        value = getOptionValue("ea");
-        if (value != null) {
-            boolean on = Configuration.requireBoolean("ea", value);
+        optionValue = getOptionValue("ea");
+        if (optionValue != null) {
+            boolean on = Configuration.requireBoolean("ea", optionValue);
             config.getDefaultXsltCompilerInfo().setAssertionsEnabled(on);
         }
 
-        value = getOptionValue("expand");
-        if (value != null) {
-            boolean on = Configuration.requireBoolean("expand", value);
-            config.getParseOptions().setExpandAttributeDefaults(on);
+        optionValue = getOptionValue("expand");
+        if (optionValue != null) {
+            boolean on = Configuration.requireBoolean("expand", optionValue);
+            config.setParseOptions(config.getParseOptions().withExpandAttributeDefaults(on));
         }
 
-        value = getOptionValue("ext");
-        if (value != null) {
-            boolean on = Configuration.requireBoolean("ext", value);
+        optionValue = getOptionValue("ext");
+        if (optionValue != null) {
+            boolean on = Configuration.requireBoolean("ext", optionValue);
             config.setBooleanProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS, on);
         }
 
-        value = getOptionValue("l");
-        if (value != null) {
-            boolean on = Configuration.requireBoolean("l", value);
+        optionValue = getOptionValue("l");
+        if (optionValue != null) {
+            boolean on = Configuration.requireBoolean("l", optionValue);
             config.setBooleanProperty(Feature.LINE_NUMBERING, on);
         }
 
-        value = getOptionValue("m");
-        if (value != null) {
-            config.setConfigurationProperty(Feature.MESSAGE_EMITTER_CLASS, value);
+        optionValue = getOptionValue("m");
+        if (optionValue != null) {
+            config.setConfigurationProperty(Feature.MESSAGE_EMITTER_CLASS, optionValue);
         }
 
-        value = getOptionValue("opt");
-        if (value != null) {
-            config.setConfigurationProperty(Feature.OPTIMIZATION_LEVEL, value);
+        optionValue = getOptionValue("opt");
+        if (optionValue != null) {
+            config.setConfigurationProperty(Feature.OPTIMIZATION_LEVEL, optionValue);
         }
 
-        value = getOptionValue("or");
-        if (value != null) {
-            Object resolver = config.getInstance(value, null);
+        optionValue = getOptionValue("or");
+        if (optionValue != null) {
+            Object resolver = config.getInstance(optionValue);
             if (resolver instanceof OutputURIResolver) {
                 config.setConfigurationProperty(Feature.OUTPUT_URI_RESOLVER, (OutputURIResolver) resolver);
             } else {
-                throw new XPathException("Class " + value + " is not an OutputURIResolver");
+                throw new XPathException("Class " + optionValue + " is not an OutputURIResolver");
             }
         }
 
-        value = getOptionValue("outval");
-        if (value != null) {
-            Boolean isRecover = "recover".equals(value);
+        optionValue = getOptionValue("outval");
+        if (optionValue != null) {
+            Boolean isRecover = "recover".equals(optionValue);
             config.setConfigurationProperty(Feature.VALIDATION_WARNINGS, isRecover);
             config.setConfigurationProperty(Feature.VALIDATION_COMMENTS, isRecover);
         }
 
-        value = getOptionValue("r");
-        if (value != null) {
-            config.setURIResolver(config.makeURIResolver(value));
+        optionValue = getOptionValue("r");
+        if (optionValue != null) {
+            config.setResourceResolver(config.makeResourceResolver(optionValue));
         }
 
-        value = getOptionValue("strip");
-        if (value != null) {
-            config.setConfigurationProperty(Feature.STRIP_WHITESPACE, value);
+        optionValue = getOptionValue("strip");
+        if (optionValue != null) {
+            config.setConfigurationProperty(Feature.STRIP_WHITESPACE, optionValue);
         }
 
-        value = getOptionValue("T");
-        if (value != null) {
+        optionValue = getOptionValue("T");
+        if (optionValue != null) {
             config.setCompileWithTracing(true);
         }
 
-        value = getOptionValue("TJ");
-        if (value != null) {
-            boolean on = Configuration.requireBoolean("TJ", value);
+        optionValue = getOptionValue("TJ");
+        if (optionValue != null) {
+            boolean on = Configuration.requireBoolean("TJ", optionValue);
             config.setBooleanProperty(Feature.TRACE_EXTERNAL_FUNCTIONS, on);
         }
 
-        value = getOptionValue("tree");
-        if (value != null) {
-            switch (value) {
+        optionValue = getOptionValue("tree");
+        if (optionValue != null) {
+            switch (optionValue) {
                 case "linked":
                     config.setTreeModel(Builder.LINKED_TREE);
                     break;
@@ -433,55 +436,74 @@ public class CommandLineOptions {
             }
         }
 
-        value = getOptionValue("val");
-        if (value != null) {
-            if ("strict".equals(value)) {
+        optionValue = getOptionValue("val");
+        if (optionValue != null) {
+            if ("strict".equals(optionValue)) {
                 processor.setConfigurationProperty(Feature.SCHEMA_VALIDATION, Validation.STRICT);
-            } else if ("lax".equals(value)) {
+            } else if ("lax".equals(optionValue)) {
                 processor.setConfigurationProperty(Feature.SCHEMA_VALIDATION, Validation.LAX);
             }
         }
 
-        value = getOptionValue("x");
-        if (value != null) {
-            processor.setConfigurationProperty(Feature.SOURCE_PARSER_CLASS, value);
+        optionValue = getOptionValue("x");
+        if (optionValue != null) {
+            processor.setConfigurationProperty(Feature.SOURCE_PARSER_CLASS, optionValue);
         }
 
-        value = getOptionValue("xi");
-        if (value != null) {
-            boolean on = Configuration.requireBoolean("xi", value);
+        optionValue = getOptionValue("xi");
+        if (optionValue != null) {
+            boolean on = Configuration.requireBoolean("xi", optionValue);
             processor.setConfigurationProperty(Feature.XINCLUDE, on);
         }
 
-        value = getOptionValue("xmlversion");
-        if (value != null) {
-            processor.setConfigurationProperty(Feature.XML_VERSION, value);
+        optionValue = getOptionValue("xmlversion");
+        if (optionValue != null) {
+            processor.setConfigurationProperty(Feature.XML_VERSION, optionValue);
         }
 
-        value = getOptionValue("xsdversion");
-        if (value != null) {
-            processor.setConfigurationProperty(Feature.XSD_VERSION, value);
+        optionValue = getOptionValue("xsdversion");
+        if (optionValue != null) {
+            processor.setConfigurationProperty(Feature.XSD_VERSION, optionValue);
         }
 
-        value = getOptionValue("xsiloc");
-        if (value != null) {
-            boolean on = Configuration.requireBoolean("xsiloc", value);
+        optionValue = getOptionValue("xsiloc");
+        if (optionValue != null) {
+            boolean on = Configuration.requireBoolean("xsiloc", optionValue);
             processor.setConfigurationProperty(Feature.USE_XSI_SCHEMA_LOCATION, on);
         }
 
-        value = getOptionValue("y");
-        if (value != null) {
-            processor.setConfigurationProperty(Feature.STYLE_PARSER_CLASS, value);
+        optionValue = getOptionValue("y");
+        if (optionValue != null) {
+            processor.setConfigurationProperty(Feature.STYLE_PARSER_CLASS, optionValue);
         }
 
         // The init option must be done last
 
-        value = getOptionValue("init");
-        if (value != null) {
-            Initializer initializer = (Initializer) config.getInstance(value, null);
-            initializer.initialize(config);
+        optionValue = getOptionValue("init");
+        if (optionValue != null) {
+            invokeInitializer(processor, optionValue);
         }
+    }
 
+    @CSharpReplaceBody(code="Saxon.Api.Support.InitializationHandler.doInitialization(new Saxon.Api.Processor(processor), initializationClass);")
+    private void invokeInitializer(Processor processor, String initializationClass) throws TransformerException {
+        Configuration config = processor.getUnderlyingConfiguration();
+        Initializer initializer = (Initializer) config.getInstance(initializationClass);
+        initializer.initialize(config);
+    }
+
+    private void setCatalogFiles(Configuration config, List<String> catalogs) {
+        ResourceResolver rr = config.getResourceResolver();
+        if (rr instanceof ConfigurableResourceResolver) {
+            setCatalogFiles(((ConfigurableResourceResolver) rr), catalogs);
+        } else {
+            throw new IllegalStateException("The resolver in the Configuration is not a ConfigurableResourceResolver");
+        }
+    }
+
+    @CSharpReplaceBody(code="crr.setFeature(Org.XmlResolver.Features.ResolverFeature.CATALOG_FILES, catalogs);")
+    public static void setCatalogFiles(ConfigurableResourceResolver crr, List<String> catalogs) {
+        crr.setFeature(ResolverFeature.CATALOG_FILES, catalogs);
     }
 
     /**
@@ -492,9 +514,10 @@ public class CommandLineOptions {
 
     public String displayPermittedOptions() {
         String[] options = new String[recognizedOptions.size()];
-        options = new ArrayList<>(recognizedOptions.keySet()).toArray(options);
+        ArrayList<String> keys = new ArrayList<>(recognizedOptions.keySet());
+        options = keys.toArray(options);
         Arrays.sort(options, Collator.getInstance());
-        FastStringBuffer sb = new FastStringBuffer(100);
+        StringBuilder sb = new StringBuilder(100);
         for (String opt : options) {
             sb.append(" -");
             sb.append(opt);
@@ -575,27 +598,28 @@ public class CommandLineOptions {
 
     public void setParams(Processor processor, ParamSetter paramSetter)
             throws SaxonApiException {
-        for (Enumeration e = paramValues.propertyNames(); e.hasMoreElements(); ) {
-            String name = (String) e.nextElement();
+        for (String name : paramValues.stringPropertyNames()) {
             String value = paramValues.getProperty(name);
             paramSetter.setParam(QName.fromClarkName(name), new XdmAtomicValue(value, ItemType.UNTYPED_ATOMIC));
         }
         applyFileParameters(processor, paramSetter);
-        for (Enumeration e = paramExpressions.propertyNames(); e.hasMoreElements(); ) {
-            String name = (String) e.nextElement();
+        for (String name : paramExpressions.stringPropertyNames()) {
             String value = paramExpressions.getProperty(name);
             // parameters starting with "?" are taken as XPath expressions
-            XPathCompiler xpc = processor.newXPathCompiler();
-            XPathExecutable xpe = xpc.compile(value);
-            XdmValue val = xpe.load().evaluate();
-            paramSetter.setParam(QName.fromClarkName(name), val);
+            try {
+                XPathCompiler xpc = processor.newXPathCompiler();
+                XPathExecutable xpe = xpc.compile(value);
+                XdmValue val = xpe.load().evaluate();
+                paramSetter.setParam(QName.fromClarkName(name), val);
+            } catch (SaxonApiException e) {
+                throw new SaxonApiException("Failure evaluating XPath expression {" + value + "} on command line", e.getCause());
+            }
         }
     }
 
     private void applyFileParameters(Processor processor, ParamSetter paramSetter) throws SaxonApiException {
         boolean useURLs = "on".equals(getOptionValue("u"));
-        for (Enumeration e = paramFiles.propertyNames(); e.hasMoreElements(); ) {
-            String name = (String) e.nextElement();
+        for (String name : paramFiles.stringPropertyNames()) {
             String value = paramFiles.getProperty(name);
             List<Source> sourceList = new ArrayList<>();
             loadDocuments(value, useURLs, processor, true, sourceList);
@@ -621,18 +645,20 @@ public class CommandLineOptions {
      */
 
     public void setSerializationProperties(Serializer serializer) {
-        for (Enumeration e = serializationParams.propertyNames(); e.hasMoreElements(); ) {
-            String name = (String) e.nextElement();
-            String value = serializationParams.getProperty(name);
+        for (String name : serializationParams.stringPropertyNames()) {
+            String key = name;
+            String value = serializationParams.getProperty(key);
             // parameters starting with "!" are taken as output properties
             // Allow the prefix "!saxon:" instead of "!{http://saxon.sf.net}"
-            if (name.startsWith("saxon:")) {
-                name = "{" + NamespaceConstant.SAXON + "}" + name.substring(6);
+            if (key.startsWith("saxon:")) {
+                key = "{" + NamespaceConstant.SAXON + "}" + key.substring(6);
             }
-            serializer.setOutputProperty(QName.fromClarkName(name), value);
+            serializer.setOutputProperty(QName.fromClarkName(key), value);
         }
     }
 
+    @FunctionalInterface
+    @CSharpDelegate(true)
     public interface ParamSetter {
         void setParam(QName qName, XdmValue value);
     }
@@ -649,19 +675,21 @@ public class CommandLineOptions {
     public void applyStaticParams(XsltCompiler compiler)
             throws SaxonApiException {
         Processor processor = compiler.getProcessor();
-        for (Enumeration e = paramValues.propertyNames(); e.hasMoreElements(); ) {
-            String name = (String) e.nextElement();
+        for (String name : paramValues.stringPropertyNames()) {
             String value = paramValues.getProperty(name);
             compiler.setParameter(QName.fromClarkName(name), new XdmAtomicValue(value, ItemType.UNTYPED_ATOMIC));
         }
-        for (Enumeration e = paramExpressions.propertyNames(); e.hasMoreElements(); ) {
-            String name = (String) e.nextElement();
+        for (String name : paramExpressions.stringPropertyNames()) {
             String value = paramExpressions.getProperty(name);
             // parameters starting with "?" are taken as XPath expressions
-            XPathCompiler xpc = processor.newXPathCompiler();
-            XPathExecutable xpe = xpc.compile(value);
-            XdmValue val = xpe.load().evaluate();
-            compiler.setParameter(QName.fromClarkName(name), val);
+            try {
+                XPathCompiler xpc = processor.newXPathCompiler();
+                XPathExecutable xpe = xpc.compile(value);
+                XdmValue val = xpe.load().evaluate();
+                compiler.setParameter(QName.fromClarkName(name), val);
+            } catch (SaxonApiException e) {
+                throw new SaxonApiException("Failure evaluating XPath expression {" + value + "} on command line", e.getCause());
+            }
         }
 
     }
@@ -680,7 +708,8 @@ public class CommandLineOptions {
     public void applyFileParams(Processor processor, Xslt30Transformer transformer) throws SaxonApiException {
         if (!paramFiles.isEmpty()) {
             Map<QName, XdmValue> params = new HashMap<>();
-            applyFileParameters(processor, params::put);
+            //noinspection Convert2MethodRef
+            applyFileParameters(processor, (name, value) -> params.put(name, value));
             transformer.setStylesheetParameters(params);
         }
     }
@@ -707,15 +736,16 @@ public class CommandLineOptions {
             throws SaxonApiException {
 
         Source sourceInput;
-        XMLReader parser;
+
         Configuration config = processor.getUnderlyingConfiguration();
         if (useURLs || isImplicitURI(sourceFileName)) {
             try {
-                sourceInput = config.getURIResolver().resolve(sourceFileName, null);
-                if (sourceInput == null) {
-                    sourceInput = config.getSystemURIResolver().resolve(sourceFileName, null);
-                }
-            } catch (TransformerException e) {
+                ResourceRequest request = new ResourceRequest();
+                request.uri = sourceFileName;
+                request.nature = ResourceRequest.XML_NATURE;
+                request.purpose = ResourceRequest.ANY_PURPOSE;
+                sourceInput = request.resolve(config.getResourceResolver(), new DirectResourceResolver(config));
+            } catch (XPathException e) {
                 throw new SaxonApiException(e);
             }
             sources.add(sourceInput);
@@ -723,8 +753,7 @@ public class CommandLineOptions {
         } else if (sourceFileName.equals("-")) {
             // take input from stdin
             if (useSAXSource) {
-                parser = config.getSourceParser();
-                sourceInput = new SAXSource(parser, new InputSource(System.in));
+                sourceInput = new SAXSource(new InputSource(System.in));
             } else {
                 sourceInput = new StreamSource(System.in);
             }
@@ -736,7 +765,7 @@ public class CommandLineOptions {
                 throw new SaxonApiException("Source file " + sourceFile + " does not exist");
             }
             if (sourceFile.isDirectory()) {
-                parser = config.getSourceParser();
+                XMLReader parser = config.getSourceParser();
                 String[] files = sourceFile.list();
                 if (files != null) {
                     for (String file1 : files) {
@@ -758,7 +787,7 @@ public class CommandLineOptions {
             } else {
                 if (useSAXSource) {
                     InputSource eis = new InputSource(sourceFile.toURI().toString());
-                    sourceInput = new SAXSource(config.getSourceParser(), eis);
+                    sourceInput = new SAXSource(eis);
                 } else {
                     sourceInput = new StreamSource(sourceFile.toURI().toString());
                 }
@@ -772,7 +801,32 @@ public class CommandLineOptions {
         return name.startsWith("http:") ||
             name.startsWith("https:") ||
             name.startsWith("file:") ||
-            name.startsWith("classpath:");
+            name.startsWith("classpath:") ||
+            name.startsWith("jar:");
+    }
+
+    /*
+     * Coerce an output filename that's been specified with a file: URI into a filename.
+     *
+     * file:path => path
+     * file://///path => /path
+     * file:///c:/path => c:/path (on Windows)
+     *
+     */
+    public static String coerceImplicitOutputURI(String outputName) {
+        if (outputName == null) {
+            return null;
+        }
+        if (outputName.startsWith("file:")) {
+            outputName = outputName.substring(5);
+            if (outputName.startsWith("/")) {
+                outputName = outputName.replaceFirst("^/+", "/");
+            }
+            if (System.getProperty("os.name").startsWith("Windows") && outputName.matches("^/[A-Za-z]:.*$")) {
+                outputName = outputName.substring(1);
+            }
+        }
+        return outputName;
     }
 
     public static void loadAdditionalSchemas(/*@NotNull*/ Configuration config, String additionalSchemas)
@@ -788,46 +842,18 @@ public class CommandLineOptions {
         }
     }
 
-    public static String featureKeys() {
+    public static String featureKeys(String edition) {
         final int index = "http://saxon.sf.net/feature/".length();
         StringBuilder sb = new StringBuilder();
-        Feature.getNames().forEachRemaining(s -> sb.append("\n  ").append(s.substring(index)));
+        for (String name : FeatureIndex.getNames()) {
+            if (FeatureIndex.getData(name).editions.contains(edition)) {
+                sb.append("\n  ").append(name.substring(index));
+            }
+        }
         return sb.toString();
     }
 
-    private static DayTimeDurationValue milliSecond = new DayTimeDurationValue(1, 0, 0, 0, 0, 1000);
-
-    public static String showExecutionTimeNano(long nanosecs) {
-        if (nanosecs < 1e9) {
-            // time less than one second
-            return (nanosecs/1e6) + "ms";
-        } else {
-            try {
-                double millisecs = nanosecs/1e6;
-                DayTimeDurationValue d = milliSecond.multiply(millisecs);
-                long days = ((NumericValue) d.getComponent(AccessorFn.Component.DAY)).longValue();
-                long hours = ((NumericValue) d.getComponent(AccessorFn.Component.HOURS)).longValue();
-                long minutes = ((NumericValue) d.getComponent(AccessorFn.Component.MINUTES)).longValue();
-                BigDecimal seconds = ((NumericValue) d.getComponent(AccessorFn.Component.SECONDS)).getDecimalValue();
-                FastStringBuffer fsb = new FastStringBuffer(256);
-                if (days > 0) {
-                    fsb.append(days + "days ");
-                }
-                if (hours > 0) {
-                    fsb.append(hours + "h ");
-                }
-                if (minutes > 0) {
-                    fsb.append(minutes + "m ");
-                }
-                fsb.append(seconds + "s");
-                return fsb + " (" + nanosecs / 1e6 + "ms)";
-            } catch (XPathException e) {
-                return nanosecs / 1e6 + "ms";
-            }
-
-        }
-    }
-
+    @CSharpReplaceBody(code="return \"dotnet saxoncs \" + command.GetType().Name.ToLower();")
     public static String getCommandName(Object command) {
         String s = command.getClass().getName();
         if (s.startsWith("cli.Saxon.Cmd.DotNet")) {
@@ -836,9 +862,5 @@ public class CommandLineOptions {
         return s;
     }
 
-    public static void showMemoryUsed() {
-        long value = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
-        System.err.println("Memory used: " + (value / 1_000_000) + "Mb");
-    }
 }
 

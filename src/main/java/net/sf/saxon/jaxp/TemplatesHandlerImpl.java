@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,9 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.CommentStripper;
 import net.sf.saxon.event.ReceivingContentHandler;
 import net.sf.saxon.event.Stripper;
+import net.sf.saxon.om.Durability;
+import net.sf.saxon.om.NamePool;
+import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StylesheetSpaceStrippingRule;
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.SaxonApiException;
@@ -27,6 +30,7 @@ import net.sf.saxon.value.NestedIntegerValue;
 import org.xml.sax.Locator;
 
 import javax.xml.transform.Templates;
+import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.sax.TemplatesHandler;
 
 
@@ -35,15 +39,14 @@ import javax.xml.transform.sax.TemplatesHandler;
  * interface. It acts as a ContentHandler which receives a stream of
  * SAX events representing a stylesheet, and returns a Templates object that
  * represents the compiled form of this stylesheet.
- *
- * @author Michael H. Kay
  */
 
 public class TemplatesHandlerImpl extends ReceivingContentHandler implements TemplatesHandler {
 
-    private Processor processor;
-    private LinkedTreeBuilder builder;
-    private StyleNodeFactory nodeFactory;
+    private final TransformerFactory factory;
+    private final Processor processor;
+    private final LinkedTreeBuilder builder;
+    private final StyleNodeFactory nodeFactory;
     private Templates templates;
     private String systemId;
 
@@ -52,11 +55,12 @@ public class TemplatesHandlerImpl extends ReceivingContentHandler implements Tem
      * the Filter should be created using newTemplatesHandler() in the SAXTransformerFactory
      * class
      *
+     * @param factory the JAXP TransformerFactory
      * @param processor the Saxon s9api processor
      */
 
-    protected TemplatesHandlerImpl(Processor processor) {
-
+    protected TemplatesHandlerImpl(TransformerFactory factory, Processor processor) {
+        this.factory = factory;
         this.processor = processor;
         Configuration config = processor.getUnderlyingConfiguration();
         setPipelineConfiguration(config.makePipelineConfiguration());
@@ -66,7 +70,7 @@ public class TemplatesHandlerImpl extends ReceivingContentHandler implements Tem
         compilation.setMinimalPackageData();
         nodeFactory = compilation.getStyleNodeFactory(true);
 
-        builder = new LinkedTreeBuilder(getPipelineConfiguration());
+        builder = new LinkedTreeBuilder(getPipelineConfiguration(), Durability.LASTING);
         builder.setNodeFactory(nodeFactory);
         builder.setLineNumbering(true);
 
@@ -74,6 +78,10 @@ public class TemplatesHandlerImpl extends ReceivingContentHandler implements Tem
         StylesheetSpaceStrippingRule rule = new StylesheetSpaceStrippingRule(config.getNamePool());
         Stripper styleStripper = new Stripper(rule, useWhenFilter);
         CommentStripper commentStripper = new CommentStripper(styleStripper);
+        if (info.getXsltVersion() == 40) {
+            final NamePool pool = config.getNamePool();
+            commentStripper.setSkippedElementTest(name -> name.obtainFingerprint(pool) == StandardNames.XSL_NOTE);
+        }
         setReceiver(commentStripper);
 
     }
@@ -98,7 +106,7 @@ public class TemplatesHandlerImpl extends ReceivingContentHandler implements Tem
 
             try {
                 XsltCompiler compiler = processor.newXsltCompiler();
-                templates = new TemplatesImpl(compiler.compile(doc));
+                templates = new TemplatesImpl(factory, compiler.compile(doc.asActiveSource()));
             } catch (SaxonApiException tce) {
                 // don't know why we aren't allowed to just throw it!
                 throw new IllegalStateException(tce.getMessage());

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,10 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.Whitespace;
 
@@ -33,12 +33,11 @@ public class Tokenize_1 extends SystemFunction {
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        AtomicValue sv = (AtomicValue) arguments[0].head();
-        if (sv == null) {
+        Item item = arguments[0].head();
+        if (item == null) {
             return EmptySequence.getInstance();
         }
-        CharSequence input = sv.getStringValueCS();
-        return SequenceTool.toLazySequence(new Whitespace.Tokenizer(input));
+        return SequenceTool.toLazySequence(new Whitespace.Tokenizer(item.getUnicodeStringValue()));
     }
 }
 

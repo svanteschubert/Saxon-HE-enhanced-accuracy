@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.functions.FunctionLibraryList;
@@ -45,7 +46,7 @@ public class Executable {
     private PackageData topLevelPackage;
 
     // the set of packages making up this Executable
-    private List<PackageData> packages = new ArrayList<>();
+    private final List<PackageData> packages = new ArrayList<>();
 
     // default output properties (for the unnamed output format)
     private Properties defaultOutputProperties;
@@ -53,8 +54,8 @@ public class Executable {
     // table of character maps indexed by StructuredQName
     private CharacterMapIndex characterMapIndex;
 
-    // hash table of query library modules
-    private HashMap<String, List<QueryModule>> queryLibraryModules;
+    // hash table of query library modules indexed by module namespace
+    private HashMap<NamespaceUri, List<QueryModule>> queryLibraryModules;
 
     // hash set of query module location hints that have been processed
     private HashSet<String> queryLocationHintsProcessed;
@@ -66,7 +67,7 @@ public class Executable {
     private HostLanguage hostLanguage = HostLanguage.XSLT;
 
     // a list of required parameters, identified by the structured QName of their names
-    private Map<StructuredQName, GlobalParam> globalParams = new HashMap<>();
+    private final Map<StructuredQName, GlobalParam> globalParams = new HashMap<>();
 
     // Hash table of named (and unnamed) output declarations. This is assembled only
     // if there is a need for it: that is, if there is a call on xsl:result-document
@@ -75,7 +76,7 @@ public class Executable {
     /*@Nullable*/ private HashMap<StructuredQName, Properties> outputDeclarations = null;
 
     // a boolean, true if the executable represents a stylesheet that uses xsl:result-document
-    private boolean createsSecondaryResult = false;
+    private boolean _createsSecondaryResult = false;
 
     // a boolean, indicates that the executable is schema-aware. This will true by default only
     // if it statically imports a schema. If the executable is not schema-aware, then
@@ -138,7 +139,7 @@ public class Executable {
      * @return a list of packages
      */
 
-    public Collection<PackageData> getPackages() {
+    public Iterable<PackageData> getPackages() {
         return packages;
     }
 
@@ -304,7 +305,7 @@ public class Executable {
         if (queryLibraryModules == null) {
             queryLibraryModules = new HashMap<>(5);
         }
-        String uri = module.getModuleNamespace();
+        NamespaceUri uri = module.getModuleNamespace();
         List<QueryModule> existing = queryLibraryModules.get(uri);
         if (existing == null) {
             existing = new ArrayList<>(5);
@@ -324,7 +325,7 @@ public class Executable {
      */
 
     /*@Nullable*/
-    public List<QueryModule> getQueryLibraryModules(String namespace) {
+    public List<QueryModule> getQueryLibraryModules(NamespaceUri namespace) {
         if (queryLibraryModules == null) {
             return null;
         }
@@ -345,9 +346,7 @@ public class Executable {
         if (systemId.equals(topModule.getSystemId())) {
             return topModule;
         }
-        Iterator miter = getQueryLibraryModules();
-        while (miter.hasNext()) {
-            QueryModule sqc = (QueryModule) miter.next();
+        for (QueryModule sqc : getQueryLibraryModules()) {
             String uri = sqc.getSystemId();
             if (uri != null && uri.equals(systemId)) {
                 return sqc;
@@ -362,15 +361,15 @@ public class Executable {
      * @return an iterator whose returned items are instances of {@link QueryModule}
      */
 
-    public Iterator getQueryLibraryModules() {
+    public List<QueryModule> getQueryLibraryModules() {
         if (queryLibraryModules == null) {
-            return Collections.EMPTY_LIST.iterator();
+            return Collections.emptyList();
         } else {
-            List<QueryModule> modules = new ArrayList<>();
+            ArrayList<QueryModule> modules = new ArrayList<>();
             for (List<QueryModule> queryModules : queryLibraryModules.values()) {
                 modules.addAll(queryModules);
             }
-            return modules.iterator();
+            return modules;
         }
     }
 
@@ -528,7 +527,7 @@ public class Executable {
      */
 
     public void setCreatesSecondaryResult(boolean flag) {
-        createsSecondaryResult = flag;
+        _createsSecondaryResult = flag;
     }
 
     /**
@@ -539,7 +538,7 @@ public class Executable {
      */
 
     public boolean createsSecondaryResult() {
-        return createsSecondaryResult;
+        return _createsSecondaryResult;
     }
 
     /**
@@ -590,7 +589,7 @@ public class Executable {
                 } catch (XPathException e) {
                     // XPDY0002 here means there is no context item, which means the default value
                     // of the context item depends on the context item: a circularity.
-                    if ("XPDY0002".equals(e.getErrorCodeLocalPart())) {
+                    if (e.hasErrorCode("XPDY0002")) {
                         if (e.getMessage().contains("last()") || e.getMessage().contains("position()")) {
                             // no action
                         } else {

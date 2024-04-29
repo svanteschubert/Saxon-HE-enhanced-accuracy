@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,12 +17,13 @@ import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.JavaExternalObjectType;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A tuple expression is an expression that returns a tuple. Specifically,
+ * A tuple expression is an expression that returns a FLWOR tuple. Specifically,
  * it is a list local variables references; it returns a Tuple item
  * containing the current value of these variables.
  */
@@ -54,7 +55,7 @@ public class TupleExpression extends Expression {
 
      @Override
      public Iterable<Operand> operands() {
-         return operanda.operands();
+         return operanda;
      }
 
 
@@ -90,7 +91,7 @@ public class TupleExpression extends Expression {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return getConfiguration().getJavaExternalObjectType(Object.class);
+        return JavaExternalObjectType.of(Tuple.class);
     }
 
     /*@NotNull*/
@@ -146,7 +147,7 @@ public class TupleExpression extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         int h = 77;
         for (Operand o : operands()) {
             h ^= o.getChildExpression().hashCode();
@@ -158,7 +159,7 @@ public class TupleExpression extends Expression {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings the rebinding map
      */
 
     /*@NotNull*/
@@ -218,6 +219,7 @@ public class TupleExpression extends Expression {
      *
      * @param context identifies the stack frame to be modified
      * @param tuple   the tuple containing the current values
+     * @throws XPathException if any error occurs
      */
 
     public void setCurrentTuple(XPathContext context, Tuple tuple) throws XPathException {
@@ -236,7 +238,7 @@ public class TupleExpression extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 

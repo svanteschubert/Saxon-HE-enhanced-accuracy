@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,10 @@
 
 package net.sf.saxon.value;
 
+import net.sf.saxon.expr.sort.SimpleTypeComparison;
 import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
 
 import javax.xml.datatype.DatatypeConstants;
 import javax.xml.datatype.Duration;
@@ -482,8 +484,8 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
      */
     @Override
     public int compare(/*@NotNull*/ XMLGregorianCalendar xmlGregorianCalendar) {
-        return toCalendarValue().getSchemaComparable().compareTo(
-                ((SaxonXMLGregorianCalendar) xmlGregorianCalendar).toCalendarValue().getSchemaComparable());
+        return SimpleTypeComparison.getInstance().compareItems(
+                toCalendarValue(), ((SaxonXMLGregorianCalendar) xmlGregorianCalendar).toCalendarValue());
     }
 
     /**
@@ -751,7 +753,8 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
             }
             return new DateValue(year.intValue(), (byte) month, (byte) day, tzOffset, true);
         } else if (year == null) {
-            return new TimeValue((byte) hour, (byte) minute, (byte) second, getMicrosecond()*1000, tzOffset, "");
+            return new TimeValue((byte) hour, (byte) minute, (byte) second, getMicrosecond()*1000,
+                                 tzOffset, BuiltInAtomicType.TIME);
         } else {
             return new DateTimeValue(year.intValue(), (byte) month, (byte) day,
                     (byte) hour, (byte) minute, (byte) second, getMicrosecond(), tzOffset, true);

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,10 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.AxisInfo;
@@ -16,6 +20,7 @@ import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.pattern.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.value.Cardinality;
 
 
 /**
@@ -51,10 +56,23 @@ public final class FirstItemExpression extends SingleItemFilter {
     }
 
     /**
+     * Get the static cardinality: this implementation is appropriate for [1] and [last()] which will always
+     * return something if the input is non-empty
+     */
+
+    @Override
+    protected int computeCardinality() {
+        return Cardinality.allowsZero(getBaseExpression().getCardinality())
+               ? StaticProperty.ALLOWS_ZERO_OR_ONE
+               : StaticProperty.ALLOWS_ONE;
+    }
+
+
+    /**
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings   variables that must be re-bound
      */
 
     /*@NotNull*/
@@ -138,5 +156,34 @@ public final class FirstItemExpression extends SingleItemFilter {
         return "FirstItemExpression";
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new FirstItemExprElaborator();
+    }
+
+    /**
+     * An elaborator for a "first-item" expression, typically written as {@code X[1]} or as {@code head(X)}.
+     */
+
+    public static class FirstItemExprElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final FirstItemExpression expr = (FirstItemExpression) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                final SequenceIterator iter = baseEval.iterate(context);
+                Item result = iter.next();
+                iter.close();
+                return result;
+            };
+        }
+
+    }
 }
 

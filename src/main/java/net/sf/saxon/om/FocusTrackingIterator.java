@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,14 +10,12 @@ package net.sf.saxon.om;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.GroundedIterator;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.value.SequenceExtent;
-
-import java.util.EnumSet;
 
 /**
  * An iterator that maintains the values of position() and current(), as a wrapper
@@ -67,14 +65,13 @@ public class FocusTrackingIterator
      *         on next() has returned null, no further calls should be made. The preferred
      *         action for an iterator if subsequent calls on next() are made is to return
      *         null again, and all implementations within Saxon follow this rule.
-     * @throws XPathException
-     *          if an error occurs retrieving the next item
      * @since 8.4
      */
     @Override
-    public Item next() throws XPathException {
+    public Item next() {
         curr = base.next();
         if (curr == null) {
+            last = pos;
             pos = -1;
         } else {
             pos++;
@@ -126,31 +123,50 @@ public class FocusTrackingIterator
      * it creates a new base iterator which means that the result of calling getUnderlyingIterator()
      * may change.
      * @return the position of the last item
-     * @throws XPathException if a failure occurs reading the sequence
+     * @throws UncheckedXPathException if a failure occurs reading the sequence
      */
 
     @Override
-    public int getLength() throws XPathException {
+    public int getLength() {
         if (last == -1) {
-            if (base.getProperties().contains(Property.LAST_POSITION_FINDER)) {
-                last = ((LastPositionFinder)base).getLength();
+            if (SequenceTool.supportsGetLength(base)) {
+                last = SequenceTool.getLength(base);
             }
             if (last == -1) {
                 GroundedValue residue = SequenceExtent.makeResidue(base);
                 last = pos + residue.getLength();
-                base = (SequenceIterator)residue.iterate();
+                base = residue.iterate();
             }
         }
         return last;
     }
 
     /**
+     * Ask whether this iterator supports use of the {@link #getLength()} method. This
+     * method should always be called before calling {@link #getLength()}, because an iterator
+     * that implements this interface may support use of {@link #getLength()} in some situations
+     * and not in others
+     *
+     * @return true if the {@link #getLength()} method can be called to determine the length
+     * of the underlying sequence.
+     */
+    @Override
+    public boolean supportsGetLength() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsHasNext() {
+        return base instanceof LookaheadIterator && ((LookaheadIterator)base).supportsHasNext();
+    }
+
+
+    /**
      * Determine whether there are more items to come. Note that this operation
      * is stateless and it is not necessary (or usual) to call it before calling
      * next(). It is used only when there is an explicit need to tell if we
      * are at the last element.
-     * <p>This method must not be called unless the result of getProperties() on the iterator
-     * includes the bit setting {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}</p>
+     * <p>This method must not be called unless the method {@link #supportsHasNext()} returns true.</p>
      *
      * @return true if there are more items in the sequence
      * @throws ClassCastException if the base iterator does not support lookahead processing
@@ -166,13 +182,12 @@ public class FocusTrackingIterator
      * SequenceIterator. This should be an "in-memory" value, not a Closure.
      *
      * @return the corresponding Value
-     * @throws XPathException in the cases of subclasses (such as the iterator over a MemoClosure)
+     * @throws UncheckedXPathException in the cases of subclasses (such as the iterator over a MemoClosure)
      *                        which cause evaluation of expressions while materializing the value.
-     * @throws ClassCastException if the iterator does not have the {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED} property.
      */
     @Override
-    public GroundedValue materialize() throws XPathException {
-        return base.materialize();
+    public GroundedValue materialize() {
+        return SequenceTool.toGroundedValue(base);
     }
 
     /**
@@ -180,13 +195,12 @@ public class FocusTrackingIterator
      * SequenceIterator, starting at the current position. This should be an "in-memory" value, not a Closure.
      *
      * @return the corresponding Value
-     * @throws XPathException in the cases of subclasses (such as the iterator over a MemoClosure)
+     * @throws UncheckedXPathException in the cases of subclasses (such as the iterator over a MemoClosure)
      *                        which cause evaluation of expressions while materializing the value.
-     * @throws ClassCastException if the iterator does not have the {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED} property.
      */
     @Override
-    public GroundedValue getResidue() throws XPathException {
-        return new SequenceExtent(this);
+    public GroundedValue getResidue()  {
+        return SequenceExtent.from(this);
     }
 
     /**
@@ -206,19 +220,8 @@ public class FocusTrackingIterator
         base.close();
     }
 
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     * @since 8.6
-     */
-    @Override
-    public EnumSet<Property> getProperties() {
-        return base.getProperties();
+    public boolean isActuallyGrounded() {
+        return (base instanceof GroundedIterator && ((GroundedIterator)base).isActuallyGrounded());
     }
 
     /**

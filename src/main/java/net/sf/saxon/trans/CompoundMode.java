@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,14 +12,17 @@ import net.sf.saxon.expr.ComponentBinding;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NamePool;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trans.rules.*;
+import net.sf.saxon.trans.rules.BuiltInRuleSet;
+import net.sf.saxon.trans.rules.Rule;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * A CompoundMode is a mode representing the templates contained within an xsl:override element in a using package
@@ -27,9 +30,9 @@ import java.util.Set;
  */
 public class CompoundMode extends Mode {
 
-    private Mode base;
-    private SimpleMode overrides;
-    private int overridingPrecedence;
+    private final Mode base;
+    private final SimpleMode overrides;
+    private final int overridingPrecedence;
 
     /**
      * Create a compound Mode
@@ -45,7 +48,7 @@ public class CompoundMode extends Mode {
         if (base.getModeName().equals(Mode.UNNAMED_MODE_NAME)) {
             throw new AssertionError("Cannot override an unnamed mode");
         }
-        if (base.getModeName().equals(Mode.OMNI_MODE)) {
+        if (base.getModeName().equals(Mode.OMNI_MODE_NAME)) {
             throw new AssertionError("Cannot override mode='#all'");
         }
         this.base = base;
@@ -140,8 +143,8 @@ public class CompoundMode extends Mode {
      * @return the set of all namespace URIs of names explicitly matched by rules in this mode
      */
     @Override
-    public Set<String> getExplicitNamespaces(NamePool pool) {
-        HashSet<String> r = new HashSet<String>();
+    public Set<NamespaceUri> getExplicitNamespaces(NamePool pool) {
+        HashSet<NamespaceUri> r = new HashSet<>();
         r.addAll(base.getExplicitNamespaces(pool));
         r.addAll(overrides.getExplicitNamespaces(pool));
         return r;
@@ -157,7 +160,7 @@ public class CompoundMode extends Mode {
     public void allocateAllBindingSlots(final StylesheetPackage pack) {
         if (!bindingSlotsAllocated) {
             List<ComponentBinding> baseBindings = base.getDeclaringComponent().getComponentBindings();
-            List<ComponentBinding> newBindings = new ArrayList<ComponentBinding>(baseBindings);
+            List<ComponentBinding> newBindings = new ArrayList<>(baseBindings);
             Component comp = getDeclaringComponent();
             comp.setComponentBindings(newBindings);
             SimpleMode.forceAllocateAllBindingSlots(pack, overrides, newBindings);
@@ -198,7 +201,7 @@ public class CompoundMode extends Mode {
      * @throws XPathException if an error occurs
      */
     @Override
-    public Rule getRule(Item item, XPathContext context, SimpleMode.RuleFilter filter) throws XPathException {
+    public Rule getRule(Item item, XPathContext context, Predicate<Rule> filter) throws XPathException {
         Rule r = overrides.getRule(item, context, filter);
         if (r == null) {
             r = base.getRule(item, context, filter);

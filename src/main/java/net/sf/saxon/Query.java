@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,10 +17,15 @@ import net.sf.saxon.query.UpdateAgent;
 import net.sf.saxon.query.XQueryExpression;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.serialize.SerializationProperties;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trace.*;
 import net.sf.saxon.trans.CommandLineOptions;
 import net.sf.saxon.trans.LicenseException;
+import net.sf.saxon.trans.Timer;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.type.SchemaException;
 import net.sf.saxon.type.Type;
@@ -34,8 +39,11 @@ import javax.xml.transform.sax.SAXSource;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 import java.io.*;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -48,27 +56,29 @@ import java.util.Set;
 
 public class Query {
 
-    protected Processor processor;
+    private Processor processor;
     protected Configuration config;
     protected boolean showTime = false;
     protected int repeat = 1;
-    /*@Nullable*/ protected String sourceFileName = null;
-    /*@Nullable*/ protected String queryFileName = null;
+    protected String sourceXmlFileName = null;
+    protected String sourceJsonFileName = null;
+    protected String queryFileName = null;
     protected boolean useURLs = false;
-    /*@Nullable*/ protected String outputFileName = null;
-    /*@Nullable*/ protected String moduleURIResolverClass = null;
-    /*@Nullable*/ protected final String uriResolverClass = null;
-    protected boolean explain = false;
+    protected String outputFileName = null;
+    protected String moduleURIResolverClass = null;
+    protected boolean explaining = false;
     protected boolean wrap = false;
     protected boolean projection = false;
     protected boolean streaming = false;
     protected boolean updating = false;
     protected boolean writeback = false;
     protected boolean backup = true;
-    /*@Nullable*/ protected String explainOutputFileName = null;
+    protected String explainOutputFileName = null;
     private Logger traceDestination = new StandardLogger();
     private boolean closeTraceDestination = false;
     private boolean allowExit = true;
+    protected String languageVersion = "3.1";
+    protected String nsOption;
 
 
     /**
@@ -104,7 +114,7 @@ public class Query {
      * @param options the CommandLineOptions in which the recognized options are to be registered.
      */
 
-    public void setPermittedOptions(CommandLineOptions options) {
+    void setPermittedOptions(CommandLineOptions options) {
         options.addRecognizedOption("backup", CommandLineOptions.TYPE_BOOLEAN,
                                     "Save updated documents before overwriting");
         options.addRecognizedOption("catalog", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
@@ -123,11 +133,15 @@ public class Query {
         options.addRecognizedOption("ext", CommandLineOptions.TYPE_BOOLEAN,
                                     "Allow calls to Java extension functions and xsl:result-document");
         options.addRecognizedOption("init", CommandLineOptions.TYPE_CLASSNAME,
-                                    "User-supplied net.sf.saxon.lib.Initializer class to initialize the Saxon Configuration");
+                                    "User-supplied code to initialize the Saxon configuration");
+        options.addRecognizedOption("json", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
+                                    "Source file for primary JSON input");
         options.addRecognizedOption("l", CommandLineOptions.TYPE_BOOLEAN,
                                     "Maintain line numbers for source documents");
         options.addRecognizedOption("mr", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use named ModuleURIResolver class");
+        options.addRecognizedOption("ns", CommandLineOptions.TYPE_STRING | CommandLineOptions.VALUE_REQUIRED,
+                                    "Default namespace for element names (URI, or ##any, or ##html5)");
         options.addRecognizedOption("now", CommandLineOptions.TYPE_DATETIME | CommandLineOptions.VALUE_REQUIRED,
                                     "Run with specified current date/time");
         options.addRecognizedOption("o", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
@@ -147,12 +161,15 @@ public class Query {
                                     "Query string (usually in quotes)");
         options.addRecognizedOption("quit", CommandLineOptions.TYPE_BOOLEAN | CommandLineOptions.VALUE_REQUIRED,
                                     "Quit JVM if query fails");
+        options.addRecognizedOption("qversion", CommandLineOptions.TYPE_STRING | CommandLineOptions.VALUE_REQUIRED,
+                                    "XQuery language version: 3.1 or 4.0. Default is 3.1");
+        options.setPermittedValues("qversion", new String[]{"3.1", "4.0"}, "3.1");
         options.addRecognizedOption("r", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use named URIResolver class");
         options.addRecognizedOption("repeat", CommandLineOptions.TYPE_INTEGER | CommandLineOptions.VALUE_REQUIRED,
                                     "Run N times for performance measurement");
         options.addRecognizedOption("s", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
-                                    "Source file for primary input");
+                                    "Source file for primary XML input");
         options.addRecognizedOption("sa", CommandLineOptions.TYPE_BOOLEAN,
                                     "Run in schema-aware mode");
         options.addRecognizedOption("scmin", CommandLineOptions.TYPE_FILENAME,
@@ -166,8 +183,6 @@ public class Query {
                                     "Display version and timing information");
         options.addRecognizedOption("T", CommandLineOptions.TYPE_CLASSNAME,
                                     "Use named TraceListener class, or standard TraceListener");
-        options.addRecognizedOption("TB", CommandLineOptions.TYPE_FILENAME,
-                                    "Trace hotspot bytecode generation to specified XML file");
         options.addRecognizedOption("TJ", CommandLineOptions.TYPE_BOOLEAN,
                                     "Debug binding and execution of extension functions");
         options.setPermittedValues("TJ", new String[]{"on", "off"}, "on");
@@ -180,6 +195,8 @@ public class Query {
                                     "File for trace listener output");
         options.addRecognizedOption("TP", CommandLineOptions.TYPE_FILENAME,
                                     "Use profiling trace listener, with specified output file");
+        options.addRecognizedOption("TPxsl", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
+                                    "Stylesheet for formatting -TP output");
         options.addRecognizedOption("traceout", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "File for output of trace() messages");
         options.setPermittedValues("tree", new String[]{"linked", "tiny", "tinyc"}, null);
@@ -219,11 +236,10 @@ public class Query {
      * that support the same command line interface
      *
      * @param args    the command-line arguments
-     * @param command name of the class, to be used in error messages
      */
 
     @SuppressWarnings("ResultOfMethodCallIgnored")
-    protected void doQuery(String[] args, String command) {
+    public void doQuery(String[] args) {
 
         CommandLineOptions options = new CommandLineOptions();
         setPermittedOptions(options);
@@ -266,24 +282,21 @@ public class Query {
 
             XQueryCompiler compiler = processor.newXQueryCompiler();
             compiler.setSchemaAware(schemaAware);
+            compiler.setLanguageVersion(languageVersion);
 
             if (updating) {
                 compiler.setUpdatingEnabled(true);
             }
-//            if (config.getTraceListener() != null) {
-//                compiler.setCompileWithTracing(true);
-//            }
 
             if (moduleURIResolverClass != null) {
-                Object mr = config.getInstance(moduleURIResolverClass, null);
+                Object mr = config.getInstance(moduleURIResolverClass);
                 if (!(mr instanceof ModuleURIResolver)) {
                     badUsage(moduleURIResolverClass + " is not a ModuleURIResolver");
                 }
+                if (mr instanceof StandardModuleURIResolver) {
+                    ((StandardModuleURIResolver) mr).setConfiguration(config);
+                }
                 compiler.setModuleURIResolver((ModuleURIResolver) mr);
-            }
-
-            if (uriResolverClass != null) {
-                config.setURIResolver(config.makeURIResolver(uriResolverClass));
             }
 
             config.displayLicenseMessage();
@@ -295,7 +308,18 @@ public class Query {
                 }
             }
 
-            if (explain) {
+            if (nsOption != null) {
+                if (nsOption.equals("##any")) {
+                    compiler.setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy.ANY_NAMESPACE);
+                } else if (nsOption.equals("##html5")) {
+                    compiler.declareNamespace("", NamespaceConstant.XHTML);
+                    compiler.setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE_OR_NONE);
+                } else {
+                    compiler.declareNamespace("", nsOption);
+                }
+            }
+
+            if (explaining) {
                 config.setBooleanProperty(Feature.TRACE_OPTIMIZER_DECISIONS, true);
             }
 
@@ -303,13 +327,13 @@ public class Query {
 
             Source sourceInput = null;
 
-            if (sourceFileName != null) {
-                sourceInput = processSourceFile(sourceFileName, useURLs);
+            if (sourceXmlFileName != null) {
+                sourceInput = processSourceFile(sourceXmlFileName, useURLs);
             }
 
             long startTime = System.nanoTime();
             if (showTime) {
-                System.err.println("Analyzing query from " + queryFileName);
+                config.getLogger().info("Analyzing query from " + queryFileName);
             }
 
             // Compile the query
@@ -320,10 +344,9 @@ public class Query {
 
                 if (showTime) {
                     long endTime = System.nanoTime();
-                    System.err.println("Analysis time: " + ((endTime - startTime) / 1e6) + " milliseconds");
+                    config.getLogger().info("Analysis time: " + ((endTime - startTime) / 1e6) + " milliseconds");
                     startTime = endTime;
                 }
-
             } catch (SaxonApiException e) {
                 if (e.getCause() instanceof XPathException) {
                     XPathException err = (XPathException) e.getCause();
@@ -337,24 +360,24 @@ public class Query {
                         quit("Static error(s) in query", 2);
                     } else {
                         if (line == -1) {
-                            System.err.println("Static error in query: " + err.getMessage());
+                            config.getLogger().error("Static error in query: " + err.getMessage());
                         } else {
-                            System.err.println("Static error at line " + line + " of " + module + ':');
-                            System.err.println(err.getMessage());
+                            config.getLogger().error("Static error at line " + line + " of " + module + ':');
+                            config.getLogger().error(err.getMessage());
                         }
                     }
                     exp = null;
                     if (allowExit) {
                         System.exit(2);
                     } else {
-                        throw new RuntimeException(err);
+                        throw new RuntimeException(err.getMessage());
                     }
                 } else {
                     quit(e.getMessage(), 2);
                 }
             }
 
-            if (explain && exp != null) {
+            if (explaining && exp != null) {
                 Serializer out;
                 if (explainOutputFileName == null || explainOutputFileName.equals("")) {
                     out = processor.newSerializer(System.err);
@@ -364,7 +387,7 @@ public class Query {
                 out.setOutputProperty(Serializer.Property.METHOD, "xml");
                 out.setOutputProperty(Serializer.Property.INDENT, "yes");
                 out.setOutputProperty(Serializer.Property.OMIT_XML_DECLARATION, "yes");
-                if (processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION)) {
+                if (processor.equals(processor.getSaxonEdition())) {
                     out.setOutputProperty(Serializer.Property.SAXON_INDENT_SPACES, "2");
                 }
                 exp.explain(out);
@@ -377,21 +400,32 @@ public class Query {
             evaluator.setTraceFunctionDestination(traceDestination);
             if (options.getOptionValue("now") != null) {
                 String now = options.getOptionValue("now");
-                ConversionResult dt = DateTimeValue.makeDateTimeValue(now, config.getConversionRules());
+                ConversionResult dt = DateTimeValue.makeDateTimeValue(StringView.tidy(now), config.getConversionRules());
                 if (dt instanceof DateTimeValue) {
                     evaluator.getUnderlyingQueryContext().setCurrentDateTime((DateTimeValue) dt);
                 } else {
-                    System.err.println("Invalid dateTime: " + now + " (ignored)");
+                    config.getLogger().warning("Invalid dateTime: " + now + " (ignored)");
                 }
             }
-            if (uriResolverClass != null) {
-                evaluator.setURIResolver(config.makeURIResolver(uriResolverClass));
-            }
+
             processSource(sourceInput, exp, evaluator);
+
+            if (sourceJsonFileName != null) {
+                try {
+                    Reader jsonReader = new BufferedReader(
+                                    new InputStreamReader(new FileInputStream(sourceJsonFileName), StandardCharsets.UTF_8));
+                    XdmValue jsonTree = parseJson(processor, jsonReader);
+                    if (!jsonTree.isEmpty()) {
+                        evaluator.setContextItem(jsonTree.itemAt(0));
+                    }
+                } catch (IOException e) {
+                    throw new SaxonApiException("Cannot read JSON input: " + e.getMessage());
+                }
+            }
 
             // Supply query parameters
 
-            options.setParams(processor, evaluator::setExternalVariable);
+            options.setParams(processor, CSharp.methodRef(evaluator::setExternalVariable));
 
             // Run the query (repeatedly, if the -repeat option was set)
 
@@ -400,18 +434,16 @@ public class Query {
             int r;
             for (r = 0; r < repeat; r++) {      // repeat is for internal testing/timing
                 try {
-                    OutputStream out;
+                    Serializer serializer;
                     if (outputFileName != null) {
                         File outputFile = new File(outputFileName);
                         if (outputFile.isDirectory()) {
                             quit("Output is a directory", 2);
                         }
-                        createFileIfNecessary(outputFile);
-                        out = new FileOutputStream(outputFile);
+                        serializer = processor.newSerializer(outputFile);
                     } else {
-                        out = System.out;
+                        serializer = processor.newSerializer(System.out);
                     }
-                    Serializer serializer = processor.newSerializer(out);
                     try {
                         options.setSerializationProperties(serializer);
                     } catch (IllegalArgumentException e) {
@@ -433,30 +465,27 @@ public class Query {
                     }
                 }
 
+                long endTime = System.nanoTime();
+
+                if (r >= 3) {
+                    totalTime += endTime - startTime;
+                }
                 if (showTime) {
-                    long endTime = System.nanoTime();
-                    if (r >= 3) {
-                        totalTime += endTime - startTime;
-                    }
                     if (repeat < 100) {
-                        System.err.println("Execution time: " + CommandLineOptions.showExecutionTimeNano(endTime - startTime));
-                        CommandLineOptions.showMemoryUsed();
+                        config.getLogger().info("Execution time: " + Timer.showExecutionTimeNano(endTime - startTime));
+                        config.getLogger().info(Timer.showMemoryUsed());
                         Instrumentation.report();
                     } else if (totalTime > 1000000000000L) {
                         // quit after 1000 seconds
                         break;
                     }
-                    startTime = endTime;
                 }
+                startTime = endTime;
             }
 
             if (repeat > 3) {
-                System.err.println("Average execution time: " +
-                                           CommandLineOptions.showExecutionTimeNano(totalTime / (r - 3)));
-            }
-            if (options.getOptionValue("TB") != null) {
-                // report on hotspot bytecode generation
-                config.createByteCodeReport(options.getOptionValue("TB"));
+                config.getLogger().info("Average execution time: " +
+                                           Timer.showExecutionTimeNano(totalTime / (r - 3)));
             }
 
         } catch (TerminationException err) {
@@ -473,6 +502,24 @@ public class Query {
             quit("Fatal error during query: " + err2.getClass().getName() + ": " +
                          (err2.getMessage() == null ? " (no message)" : err2.getMessage()), 2);
         }
+    }
+
+    /**
+     * Support method for main program. This support method can also be invoked from subclasses
+     * that support the same command line interface
+     *
+     * @param args the command-line arguments
+     * @param command not used, retained for backwards compatibility
+     */
+
+    public void doQuery(String[] args, String command) {
+        doQuery(args);
+    }
+
+    @CSharpModifiers(code={"internal", "static"})
+    @CSharpReplaceBody(code="return new Saxon.Api.JsonBuilder(processor.getUnderlyingConfiguration()).ParseJson(jsonReader);")
+    static XdmValue parseJson(Processor processor, Reader jsonReader) throws SaxonApiException {
+        return processor.newJsonBuilder().parseJson(jsonReader);
     }
 
     /**
@@ -499,7 +546,7 @@ public class Query {
      * @throws TransformerException if failures occur. Note, the method may also invoke System.exit().
      */
 
-    protected void parseOptions(CommandLineOptions options)
+    void parseOptions(CommandLineOptions options)
             throws TransformerException {
 
         // Apply those options which simply update the Configuration
@@ -511,15 +558,17 @@ public class Query {
         allowExit = !"off".equals(options.getOptionValue("quit"));
 
         backup = "on".equals(options.getOptionValue("backup"));
-        explainOutputFileName = options.getOptionValue("explain");
-        explain = explainOutputFileName != null;
+        explainOutputFileName = CommandLineOptions.coerceImplicitOutputURI(options.getOptionValue("explain"));
+        explaining = explainOutputFileName != null;
         moduleURIResolverClass = options.getOptionValue("mr");
-        outputFileName = options.getOptionValue("o");
+        outputFileName = CommandLineOptions.coerceImplicitOutputURI(options.getOptionValue("o"));
         streaming = "on".equals(options.getOptionValue("stream"));
+
+        nsOption = options.getOptionValue("ns");
 
         String value = options.getOptionValue("p");
         if ("on".equals(value)) {
-            config.setParameterizedURIResolver();
+            config.setBooleanProperty(Feature.RECOGNIZE_URI_QUERY_PARAMETERS, true);
             useURLs = true;
         }
 
@@ -537,21 +586,30 @@ public class Query {
         }
 
         String qv = options.getOptionValue("qversion");
-        if (qv != null && !"3.1".equals(qv)) {
-            System.err.println("-qversion ignored: 3.1 is assumed");
+        if (qv == null && config.getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS)) {
+            languageVersion = "4.0";
+        } else if (qv != null && !"3.1".equals(qv) && !"4.0".equals(qv)) {
+            config.getLogger().warning("-qversion ignored: 3.1 is assumed");
+        } else if ("4.0".equals(qv)) {
+            languageVersion = "4.0";
         }
 
         value = options.getOptionValue("repeat");
         if (value != null) {
-            repeat = Integer.parseInt(value);
+            try {
+                repeat = Integer.parseInt(value);
+            } catch (NumberFormatException err) {
+                badUsage("Bad number after -repeat");
+            }
         }
 
-        sourceFileName = options.getOptionValue("s");
+        sourceXmlFileName = options.getOptionValue("s");
+        sourceJsonFileName = options.getOptionValue("json");
 
         value = options.getOptionValue("t");
         if ("on".equals(value)) {
-            System.err.println(config.getProductTitle());
-            System.err.println(Version.platform.getPlatformVersion());
+            config.getLogger().info(config.getProductTitle());
+            config.getLogger().info(Version.platform.getPlatformVersion());
             config.setTiming(true);
             showTime = true;
         }
@@ -597,24 +655,30 @@ public class Query {
             }
         }
 
-        value = options.getOptionValue("TB");
-        if (value != null) {
-            // Trace hotspot byte code generation and produce a report.
-            config.setBooleanProperty(Feature.MONITOR_HOT_SPOT_BYTE_CODE, true);
-        }
-
         value = options.getOptionValue("TP");
         if (value != null) {
-            TimingTraceListener listener = new TimingTraceListener();
-            config.setTraceListener(listener);
+            TimingTraceListener traceListener = new TimingTraceListener();
+            config.setTraceListener(traceListener);
             config.setLineNumbering(true);
             config.getDefaultStaticQueryContext().setCodeInjector(new TimingCodeInjector());
             if (!value.isEmpty()) {
                 try {
-                    listener.setOutputDestination(
+                    traceListener.setOutputDestination(
                             new StandardLogger(new File(value)));
                 } catch (FileNotFoundException e) {
                     badUsage("Trace output file " + value + " cannot be created");
+                }
+            }
+            String formatter = options.getOptionValue("TPxsl");
+            if (formatter != null) {
+                try {
+                    if (useURLs) {
+                        traceListener.setStylesheet(new URL(formatter));
+                    } else {
+                        traceListener.setStylesheet(new File(formatter).toURI().toURL());
+                    }
+                } catch (MalformedURLException e) {
+                    System.err.println("Invalid URL " + formatter + " - ignored");
                 }
             }
         }
@@ -647,7 +711,11 @@ public class Query {
         }
 
         if (options.getOptionValue("xsiloc") != null && options.getOptionValue("val") == null) {
-            System.err.println("-xsiloc is ignored when -val is absent");
+            config.getLogger().warning("-xsiloc is ignored when -val is absent");
+        }
+
+        if (sourceXmlFileName != null && sourceJsonFileName != null) {
+            badUsage("Cannot supply both -s and -json");
         }
 
         // Apply options defined locally in a subclass
@@ -718,6 +786,7 @@ public class Query {
      */
 
     @SuppressWarnings("EmptyMethod")
+    @CSharpModifiers(code={"internal"})
     protected void applyLocalOptions(CommandLineOptions options, Configuration config) {
         // no action: provided for subclasses to override
     }
@@ -726,10 +795,14 @@ public class Query {
     protected Source processSourceFile(String sourceFileName, boolean useURLs) throws TransformerException {
         Source sourceInput;
         if (useURLs || CommandLineOptions.isImplicitURI(sourceFileName)) {
-            sourceInput = config.getURIResolver().resolve(sourceFileName, null);
-            if (sourceInput == null) {
-                sourceInput = config.getSystemURIResolver().resolve(sourceFileName, null);
-            }
+            ResourceRequest request = new ResourceRequest();
+            request.relativeUri = sourceFileName;
+            URI cwd = CommandLineOptions.getCurrentWorkingDirectory();
+            request.baseUri = cwd.toString();
+            request.uri = cwd.resolve(sourceFileName).toString();
+            request.nature = ResourceRequest.XML_NATURE;
+            request.purpose = ResourceRequest.ANY_PURPOSE;
+            sourceInput = request.resolve(config.getResourceResolver(), new DirectResourceResolver(config));
         } else if (sourceFileName.equals("-")) {
             // take input from stdin
             String sysId = new File(System.getProperty("user.dir")).toURI().toASCIIString();
@@ -763,17 +836,18 @@ public class Query {
      */
 
     /*@Nullable*/
+    @CSharpModifiers(code={"internal"})
     protected XQueryExecutable compileQuery(XQueryCompiler compiler, String queryFileName, boolean useURLs)
             throws SaxonApiException, IOException {
         XQueryExecutable exp;
         if (queryFileName.equals("-")) {
-            Reader queryReader = new InputStreamReader(System.in);
-            compiler.setBaseURI(new File(System.getProperty("user.dir")).toURI());
+            Reader queryReader = standardInputReader();
+            compiler.setBaseURI(CommandLineOptions.getCurrentWorkingDirectory());
             exp = compiler.compile(queryReader);
         } else if (queryFileName.startsWith("{") && queryFileName.endsWith("}")) {
             // query is inline on the command line
             String q = queryFileName.substring(1, queryFileName.length() - 1);
-            compiler.setBaseURI(new File(System.getProperty("user.dir")).toURI());
+            compiler.setBaseURI(CommandLineOptions.getCurrentWorkingDirectory());
             exp = compiler.compile(q);
         } else if (useURLs || CommandLineOptions.isImplicitURI(queryFileName)) {
             ModuleURIResolver resolver = compiler.getModuleURIResolver();
@@ -791,8 +865,7 @@ public class Query {
                     if (e instanceof XPathException) {
                         throw new SaxonApiException(e);
                     } else {
-                        XPathException xe = new XPathException("Exception in ModuleURIResolver: ", e);
-                        xe.setErrorCode("XQST0059");
+                        XPathException xe = new XPathException("Exception in ModuleURIResolver: ", "XQST0059");
                         throw new SaxonApiException(xe);
                     }
                 }
@@ -809,21 +882,30 @@ public class Query {
                         quit("Module URI Resolver must return a single StreamSource", 2);
                     }
                     try {
-                        String queryText = QueryReader.readSourceQuery((StreamSource) sources[0], config.getValidCharacterChecker());
+                        String queryText = QueryReader.readSourceQuery(config, (StreamSource) sources[0], config.getValidCharacterChecker());
+                        compiler.setBaseURI(new URI(sources[0].getSystemId()));
                         exp = compiler.compile(queryText);
-                    } catch (XPathException e) {
+                    } catch (XPathException|URISyntaxException e) {
                         throw new SaxonApiException(e);
                     }
                     break;
                 }
             }
         } else {
+            //noinspection EmptyFinallyBlock
             try (InputStream queryStream = new FileInputStream(queryFileName)) {
                 compiler.setBaseURI(new File(queryFileName).toURI());
                 exp = compiler.compile(queryStream);
+            } finally {
+                // No action (here for C# conversion)
             }
         }
         return exp;
+    }
+
+    @CSharpReplaceBody(code="return System.Console.In;")
+    private Reader standardInputReader() {
+        return new InputStreamReader(System.in);
     }
 
     /**
@@ -835,28 +917,35 @@ public class Query {
      */
 
     protected void explain(XQueryExpression exp) throws FileNotFoundException, XPathException {
-        OutputStream explainOutput;
+        StreamResult explainOutput;
         if (explainOutputFileName == null || "".equals(explainOutputFileName)) {
-            explainOutput = System.err;
+            explainOutput = standardErrorResult();
         } else {
-            explainOutput = new FileOutputStream(new File(explainOutputFileName));
+            explainOutput = fileResult(explainOutputFileName);
         }
         SerializationProperties props = ExpressionPresenter.makeDefaultProperties(config);
-        Receiver diag = config.getSerializerFactory().getReceiver(
-                new StreamResult(explainOutput), props);
+        Receiver diag = config.getSerializerFactory().getReceiver(explainOutput, props);
         ExpressionPresenter expressionPresenter = new ExpressionPresenter(config, diag);
         exp.explain(expressionPresenter);
     }
 
+    private StreamResult standardErrorResult() {
+        return new StreamResult(System.err);
+    }
+
+    private StreamResult fileResult(String fileName) throws FileNotFoundException {
+        return new StreamResult(new FileOutputStream(fileName));
+    }
+
     /**
-     * Process the supplied source file
+     * Process the supplied XML source file
      *
      * @param sourceInput the supplied source
      * @param exp         the compiled XQuery expression
      * @param evaluator   the dynamic query context
      * @throws SaxonApiException if processing fails
      */
-
+    @CSharpModifiers(code = {"internal"})
     protected void processSource(/*@Nullable*/ Source sourceInput, XQueryExecutable exp, XQueryEvaluator evaluator) throws SaxonApiException {
         if (sourceInput != null && !streaming) {
             DocumentBuilder builder = processor.newDocumentBuilder();
@@ -864,15 +953,15 @@ public class Query {
                 builder.setTreeModel(TreeModel.LINKED_TREE);
             }
             if (showTime) {
-                System.err.println("Processing " + sourceInput.getSystemId());
+                config.getLogger().info("Processing " + sourceInput.getSystemId());
             }
             if (!exp.getUnderlyingCompiledQuery().usesContextItem()) {
-                System.err.println("Source document ignored - query can be evaluated without reference to the context item");
+                config.getLogger().warning("Source document ignored - query can be evaluated without reference to the context item");
                 return;
             }
             if (projection) {
                 builder.setDocumentProjectionQuery(exp);
-                if (explain) {
+                if (explaining) {
                     exp.getUnderlyingCompiledQuery().explainPathMap();
                 }
             }
@@ -890,10 +979,11 @@ public class Query {
      *
      * @param exp         the compiled query expression
      * @param evaluator   the dynamic query context
-     * @param input       the supplied source
+     * @param input       the supplied XML source if any
      * @param destination the destination for serialized results
      * @throws SaxonApiException if the query fails
      */
+    @CSharpModifiers(code = {"internal"})
     protected void runQuery(XQueryExecutable exp, XQueryEvaluator evaluator, Source input, Destination destination)
             throws SaxonApiException {
         try {
@@ -928,6 +1018,7 @@ public class Query {
      * @param serializer the destination for serialized results
      * @throws SaxonApiException if the query fails
      */
+    @CSharpModifiers(code = {"internal"})
     protected void runUpdate(XQueryExecutable exp, XQueryEvaluator evaluator, final Serializer serializer)
             throws SaxonApiException {
 
@@ -942,12 +1033,12 @@ public class Query {
                         DocumentPool pool = controller.getDocumentPool();
                         String documentURI = pool.getDocumentURI(node);
                         if (documentURI != null) {
-                            rewriteToDisk(node, serializer, backup, showTime ? System.err : null);
+                            rewriteToDisk(node, serializer, backup, showTime ? config.getLogger() : null);
                         } else if (showTime) {
-                            System.err.println("Updated document discarded because it was not read using doc()");
+                            config.getLogger().warning("Updated document discarded because it was not read using doc()");
                         }
                     } catch (SaxonApiException err) {
-                        System.err.println(err.getMessage());
+                        config.getLogger().warning(err.getMessage());
                         errors.add(err);
                     }
                 };
@@ -993,13 +1084,13 @@ public class Query {
      *                   found in the systemId property of this node.
      * @param serializer serialization properties
      * @param backup     true if the old document at that location is to be copied to a backup file
-     * @param log        destination for progress messages; if null, no progress messages are written
+     * @param logger     destination for progress messages; if null, no progress messages are written
      * @throws SaxonApiException if the document has no known URI, if the URI is not a writable location,
      *                           or if a serialization error occurs.
      */
 
     @SuppressWarnings("ResultOfMethodCallIgnored")
-    private static void rewriteToDisk(NodeInfo doc, Serializer serializer, boolean backup, PrintStream log)
+    private static void rewriteToDisk(NodeInfo doc, Serializer serializer, boolean backup, Logger logger)
             throws SaxonApiException {
         switch (doc.getNodeKind()) {
             case Type.DOCUMENT:
@@ -1028,8 +1119,8 @@ public class Query {
         File dir = existingFile.getParentFile();
         if (backup && existingFile.exists()) {
             File backupFile = new File(dir, existingFile.getName() + ".bak");
-            if (log != null) {
-                log.println("Creating backup file " + backupFile);
+            if (logger != null) {
+                logger.info("Creating backup file " + backupFile);
             }
             boolean success = existingFile.renameTo(backupFile);
             if (!success) {
@@ -1037,8 +1128,8 @@ public class Query {
             }
         }
         if (!existingFile.exists()) {
-            if (log != null) {
-                log.println("Creating file " + existingFile);
+            if (logger != null) {
+                logger.info("Creating file " + existingFile);
             }
             try {
                 existingFile.createNewFile();
@@ -1046,8 +1137,8 @@ public class Query {
                 throw new SaxonApiException("Failed to create new file " + existingFile);
             }
         } else {
-            if (log != null) {
-                log.println("Overwriting file " + existingFile);
+            if (logger != null) {
+                logger.info("Overwriting file " + existingFile);
             }
         }
         serializer.setOutputFile(existingFile);
@@ -1063,7 +1154,11 @@ public class Query {
      */
 
     protected void quit(String message, int code) {
-        System.err.println(message);
+        if (config != null && config.getLogger() != null) {
+            config.getLogger().warning(message);
+        } else {
+            System.err.println(message);
+        }
         if (allowExit) {
             System.exit(code);
         } else {
@@ -1077,23 +1172,24 @@ public class Query {
      * @param message The error message
      */
     protected void badUsage(String message) {
+        Logger logger = config.getLogger();
         if (!"".equals(message)) {
-            System.err.println(message);
+            logger.error(message);
         }
         if (!showTime) {
-            System.err.println(config.getProductTitle());
+            logger.info(config.getProductTitle());
         }
-        System.err.println("Usage: see http://www.saxonica.com/documentation/index.html#!using-xquery/commandline");
-        System.err.println("Format: " + CommandLineOptions.getCommandName(this) + " options params");
+        logger.info("Usage: see http://www.saxonica.com/documentation/index.html#!using-xquery/commandline");
+        logger.info("Format: " + CommandLineOptions.getCommandName(this) + " options params");
         CommandLineOptions options = new CommandLineOptions();
         setPermittedOptions(options);
-        System.err.println("Options available:" + options.displayPermittedOptions());
-        System.err.println("Use -XYZ:? for details of option XYZ or --? to list configuration features");
-        System.err.println("Params: ");
-        System.err.println("  param=value           Set query string parameter");
-        System.err.println("  +param=filename       Set query document parameter");
-        System.err.println("  ?param=expression     Set query parameter using XPath");
-        System.err.println("  !param=value          Set serialization parameter");
+        logger.info("Options available:" + options.displayPermittedOptions());
+        logger.info("Use -XYZ:? for details of option XYZ or --? to list configuration features");
+        logger.info("Params: ");
+        logger.info("  param=value           Set query string parameter");
+        logger.info("  +param=filename       Set query document parameter");
+        logger.info("  ?param=expression     Set query parameter using XPath");
+        logger.info("  !param=value          Set serialization parameter");
         if (allowExit) {
             System.exit("".equals(message) ? 0 : 2);
         } else {

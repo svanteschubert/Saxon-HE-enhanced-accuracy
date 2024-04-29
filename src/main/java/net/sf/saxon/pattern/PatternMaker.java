@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -58,6 +58,10 @@ public class PatternMaker {
             return getAxisForPathStep(((FilterExpression) step).getSelectExpression());
         } else if (step instanceof FirstItemExpression) {
             return getAxisForPathStep(((FirstItemExpression) step).getBaseExpression());
+        } else if (step instanceof LastItemExpression) {
+            return getAxisForPathStep(((LastItemExpression) step).getBaseExpression());
+        } else if (step instanceof TailExpression) {
+            return getAxisForPathStep(((TailExpression) step).getBaseExpression());
         } else if (step instanceof SubscriptExpression) {
             return getAxisForPathStep(((SubscriptExpression) step).getBaseExpression());
         } else if (step instanceof SlashExpression) {

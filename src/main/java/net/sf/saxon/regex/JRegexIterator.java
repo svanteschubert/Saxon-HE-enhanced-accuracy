@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,15 +9,16 @@ package net.sf.saxon.regex;
 
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.functions.Count;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.StringValue;
+import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.z.IntHashMap;
 import net.sf.saxon.z.IntToIntHashMap;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -31,11 +32,11 @@ import java.util.regex.Pattern;
 
 public class JRegexIterator implements RegexIterator, LastPositionFinder {
 
-    private String theString;   // the input string being matched
-    private Pattern pattern;    // the regex against which the string is matched
-    private Matcher matcher;    // the Matcher object that does the matching, and holds the state
+    private final String theString;   // the input string being matched
+    private final Pattern pattern;    // the regex against which the string is matched
+    private final Matcher matcher;    // the Matcher object that does the matching, and holds the state
     /*@Nullable*/ private String current;     // the string most recently returned by the iterator
-    private String next;        // if the last string was a matching string, null; otherwise the next substring
+    private String nextSubstring;        // if the last string was a matching string, null; otherwise the next substring
     //        matched by the regex
     private int prevEnd = 0;    // the position in the input string of the end of the last match or non-match
     private IntToIntHashMap nestingTable = null;
@@ -47,19 +48,24 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
      * to obtain each matching substring. But the iterator also returns non-matching substrings
      * if these appear between the matching substrings.
      *
-     * @param string  the string to be analysed
+     * @param str  the string to be analysed
      * @param pattern the regular expression
      */
 
-    public JRegexIterator(String string, Pattern pattern) {
-        theString = string;
+    public JRegexIterator(String str, Pattern pattern) {
+        theString = str;
         this.pattern = pattern;
-        matcher = pattern.matcher(string);
-        next = null;
+        matcher = pattern.matcher(str);
+        nextSubstring = null;
     }
 
     @Override
-    public int getLength() throws XPathException {
+    public boolean supportsGetLength() {
+        return true;
+    }
+
+    @Override
+    public int getLength() {
         JRegexIterator another = new JRegexIterator(theString, pattern);
         return Count.steppingCount(another);
     }
@@ -73,26 +79,26 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
 
     @Override
     public StringValue next() {
-        if (next == null && prevEnd >= 0) {
+        if (nextSubstring == null && prevEnd >= 0) {
             // we've returned a match (or we're at the start), so find the next match
             if (matcher.find()) {
                 int start = matcher.start();
                 int end = matcher.end();
                 if (prevEnd == start) {
                     // there's no intervening non-matching string to return
-                    next = null;
+                    nextSubstring = null;
                     current = theString.substring(start, end);
                     prevEnd = end;
                 } else {
                     // return the non-matching substring first
                     current = theString.substring(prevEnd, start);
-                    next = theString.substring(start, end);
+                    nextSubstring = theString.substring(start, end);
                 }
             } else {
                 // there are no more regex matches, we must return the final non-matching text if any
                 if (prevEnd < theString.length()) {
                     current = theString.substring(prevEnd);
-                    next = null;
+                    nextSubstring = null;
                 } else {
                     // this really is the end...
                     current = null;
@@ -104,8 +110,8 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
         } else {
             // we've returned a non-match, so now return the match that follows it, if there is one
             if (prevEnd >= 0) {
-                current = next;
-                next = null;
+                current = nextSubstring;
+                nextSubstring = null;
                 prevEnd = matcher.end();
             } else {
                 current = null;
@@ -113,21 +119,6 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
             }
         }
         return StringValue.makeStringValue(current);
-    }
-
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LAST_POSITION_FINDER);
     }
 
     /**
@@ -140,7 +131,7 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
 
     @Override
     public boolean isMatching() {
-        return next == null && prevEnd >= 0;
+        return nextSubstring == null && prevEnd >= 0;
     }
 
     /**
@@ -152,12 +143,18 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
      */
 
     @Override
-    public String getRegexGroup(int number) {
-        if (!isMatching()) return null;
-        if (number > matcher.groupCount() || number < 0) return "";
+    public UnicodeString getRegexGroup(int number) {
+        if (!isMatching()) {
+            return null;
+        }
+        if (number > matcher.groupCount() || number < 0) {
+            return EmptyUnicodeString.getInstance();
+        }
         String s = matcher.group(number);
-        if (s == null) return "";
-        return s;
+        if (s == null) {
+            return EmptyUnicodeString.getInstance();
+        }
+        return StringView.of(s).tidy();
     }
 
     /**
@@ -178,10 +175,10 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
      */
 
     @Override
-    public void processMatchingSubstring(MatchHandler action) throws XPathException {
+    public void processMatchingSubstring(RegexMatchHandler action) throws XPathException {
         int c = matcher.groupCount();
         if (c == 0) {
-            action.characters(current);
+            action.characters(StringView.of(current));
         } else {
             // Create a map from positions in the string to lists of actions.
             // The "actions" in each list are: +N: start group N; -N: end group N.
@@ -238,16 +235,15 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
                 }
 
             }
-            FastStringBuffer buff = new FastStringBuffer(current.length());
+            UnicodeBuilder buff = new UnicodeBuilder();
             for (int i = 0; i < current.length() + 1; i++) {
                 List<Integer> events = actions.get(i);
                 if (events != null) {
                     if (buff.length() > 0) {
-                        action.characters(buff);
-                        buff.setLength(0);
+                        action.characters(buff.toUnicodeString());
+                        buff.clear();
                     }
-                    for (Iterator<Integer> ii = events.iterator(); ii.hasNext(); ) {
-                        int group = ii.next();
+                    for (int group : events) {
                         if (group > 0) {
                             action.onGroupStart(group);
                         } else {
@@ -256,11 +252,11 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
                     }
                 }
                 if (i < current.length()) {
-                    buff.cat(current.charAt(i));
+                    buff.append(current.charAt(i));
                 }
             }
             if (buff.length() > 0) {
-                action.characters(buff);
+                action.characters(buff.toUnicodeString());
             }
         }
 

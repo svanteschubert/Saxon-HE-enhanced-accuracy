@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,9 +9,12 @@ package net.sf.saxon.serialize;
 
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.UnicodeWriterToWriter;
 import net.sf.saxon.trans.XPathException;
 
 import javax.xml.transform.OutputKeys;
+import java.io.Writer;
 import java.util.Properties;
 
 
@@ -29,15 +32,16 @@ public class MessageEmitter extends XMLEmitter {
 
     }
 
+    public void setWriter(Writer writer) {
+        this.writer = new UnicodeWriterToWriter(writer);
+    }
+
     @Override
     public void setPipelineConfiguration(PipelineConfiguration pipelineConfiguration) {
         super.setPipelineConfiguration(pipelineConfiguration);
-        if (writer == null && outputStream == null) {
-            try {
-                setWriter(getConfiguration().getLogger().asWriter());
-            } catch (XPathException e) {
-                throw new AssertionError(e);
-            }
+        if (writer == null) {
+            Writer w = getConfiguration().getLogger().asWriter();
+            writer = new UnicodeWriterToWriter(w);
         }
         try {
             Properties props = new Properties();
@@ -51,7 +55,7 @@ public class MessageEmitter extends XMLEmitter {
     }
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         if (!suppressProcessingInstruction(target, data, locationId, properties)) {
             super.processingInstruction(target, data, locationId, properties);
         }
@@ -69,7 +73,7 @@ public class MessageEmitter extends XMLEmitter {
      * @return true if the processing instruction is to be suppressed from the displayed message.
      */
 
-    protected boolean suppressProcessingInstruction(String target, CharSequence data, Location locationId, int properties) {
+    protected boolean suppressProcessingInstruction(String target, UnicodeString data, Location locationId, int properties) {
         return target.equals("error-code");
     }
 
@@ -77,7 +81,7 @@ public class MessageEmitter extends XMLEmitter {
     public void endDocument() throws XPathException {
         try {
             if (writer != null) {
-                writer.write('\n');
+                writer.writeCodePoint('\n');
                 writer.flush();
             }
         } catch (java.io.IOException err) {

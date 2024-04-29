@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,9 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
@@ -18,7 +20,7 @@ import java.util.Map;
 import java.util.Stack;
 
 /**
- * A <tt>RegularSequenceChecker</tt> is a filter that can be inserted into a Receiver pipeline
+ * A <code>RegularSequenceChecker</code> is a filter that can be inserted into a Receiver pipeline
  * to check that the sequence of events passed in is a <b>regular event sequence</b>. Many
  * (though not all) implementations of {@link Outputter} require the sequence of events to
  * be regular according to this definition.
@@ -40,12 +42,12 @@ import java.util.Stack;
  *         <tr><td>initial</td><td>{@link #open()}</td><td>open</td></tr>
  *         <tr><td>open</td><td>{@link #open()}</td><td>open</td></tr>
  *         <tr><td>open</td><td>{@link Outputter#append(Item, Location, int)}, {@link #append(Item)},
- *         {@link Outputter#characters(CharSequence, Location, int)}, {@link Outputter#comment(CharSequence, Location, int)},
- *         {@link Outputter#processingInstruction(String, CharSequence, Location, int)}</td><td>open</td></tr>
+ *         {@link Receiver#characters(UnicodeString, Location, int)}, {@link Receiver#comment(UnicodeString, Location, int)},
+ *         {@link Receiver#processingInstruction(String, UnicodeString, Location, int)}</td><td>open</td></tr>
  *         <tr><td>open</td><td>{@link Outputter#startDocument(int)}</td><td>content</td></tr>
  *         <tr><td>open</td><td>{@link Outputter#startElement(NodeName, SchemaType, Location, int)}</td><td>content</td></tr>
- *         <tr><td>content</td><td>{@link Outputter#characters(CharSequence, Location, int)}, {@link Outputter#comment(CharSequence, Location, int)},
- *         {@link Outputter#processingInstruction(String, CharSequence, Location, int)}</td><td>content</td></tr>
+ *         <tr><td>content</td><td>{@link Receiver#characters(UnicodeString, Location, int)}, {@link Receiver#comment(UnicodeString, Location, int)},
+ *         {@link Receiver#processingInstruction(String, UnicodeString, Location, int)}</td><td>content</td></tr>
  *         <tr><td>content</td><td>{@link Outputter#startElement(NodeName, SchemaType, Location, int)}</td><td>startTag</td></tr>
  *         <tr><td>content</td><td>{@link #endDocument()}, {@link #endElement()}</td><td>if the stack is empty, then content, otherwise open</td></tr>
  *         <tr><td>(any)</td><td>close</td><td>final</td></tr>
@@ -77,50 +79,53 @@ import java.util.Stack;
  */
 public class RegularSequenceChecker extends ProxyReceiver {
 
-    private Stack<Short> stack = new Stack<>();
+    private final Stack<Short> stack = new Stack<>();
 
-    public enum State {Initial, Open, StartTag, Content, Final, Failed}
+    @CSharpSimpleEnum
+    public enum State {INITIAL, OPEN, START_TAG, CONTENT, FINAL, FAILED}
     // StartTag is used only in an incremental Receiver where attributes and namespaces are notified separately
+
+    @CSharpSimpleEnum
     private enum Transition {
         OPEN, APPEND, TEXT, COMMENT, PI, START_DOCUMENT,
         START_ELEMENT, END_ELEMENT, END_DOCUMENT, CLOSE}
 
     private State state;
     private boolean fullChecking = false;
-    private static Map<State, Map<Transition, State>> machine = new HashMap<>();
+    private static final Map<State, Map<Transition, State>> machine = new HashMap<>();
 
     private static void edge(State from, Transition event, State to) {
-        Map<Transition, State> edges = machine.computeIfAbsent(from, s -> new HashMap<>());
+        @SuppressWarnings("Convert2Diamond") // for C#
+        Map<Transition, State> edges = machine.computeIfAbsent(from, s -> new HashMap<Transition, State>());
         edges.put(event, to);
     }
 
     static {
-        edge(State.Initial, Transition.OPEN, State.Open);
-        edge(State.Open, Transition.APPEND, State.Open);
-        edge(State.Open, Transition.TEXT, State.Open);
-        edge(State.Open, Transition.COMMENT, State.Open);
-        edge(State.Open, Transition.PI, State.Open);
-        edge(State.Open, Transition.START_DOCUMENT, State.Content);
-        edge(State.Open, Transition.START_ELEMENT, State.Content);
-        edge(State.Content, Transition.TEXT, State.Content);
-        edge(State.Content, Transition.COMMENT, State.Content);
-        edge(State.Content, Transition.PI, State.Content);
-        edge(State.Content, Transition.START_ELEMENT, State.Content);
-        edge(State.Content, Transition.END_ELEMENT, State.Content); // or Open if the stack is empty
-        edge(State.Content, Transition.END_DOCUMENT, State.Open);
-        edge(State.Open, Transition.CLOSE, State.Final);
-        edge(State.Failed, Transition.CLOSE, State.Failed);
+        edge(State.INITIAL, Transition.OPEN, State.OPEN);
+        edge(State.OPEN, Transition.APPEND, State.OPEN);
+        edge(State.OPEN, Transition.TEXT, State.OPEN);
+        edge(State.OPEN, Transition.COMMENT, State.OPEN);
+        edge(State.OPEN, Transition.PI, State.OPEN);
+        edge(State.OPEN, Transition.START_DOCUMENT, State.CONTENT);
+        edge(State.OPEN, Transition.START_ELEMENT, State.CONTENT);
+        edge(State.CONTENT, Transition.TEXT, State.CONTENT);
+        edge(State.CONTENT, Transition.COMMENT, State.CONTENT);
+        edge(State.CONTENT, Transition.PI, State.CONTENT);
+        edge(State.CONTENT, Transition.START_ELEMENT, State.CONTENT);
+        edge(State.CONTENT, Transition.END_ELEMENT, State.CONTENT); // or Open if the stack is empty
+        edge(State.CONTENT, Transition.END_DOCUMENT, State.OPEN);
+        edge(State.OPEN, Transition.CLOSE, State.FINAL);
+        edge(State.FAILED, Transition.CLOSE, State.FAILED);
         //edge(State.Final, "close", State.Final);  // This was a concession to poor practice, but apparently no longer needed
     }
 
     private void transition(Transition event) {
         final Map<Transition, State> map = machine.get(state);
-        State newState = map==null ? null : map.get(event);
-        if (newState == null) {
-            //assert false;
-            throw new IllegalStateException("Event " + event + " is not permitted in state " + state);
+        assert map != null;
+        if (map.containsKey(event)) {
+            state = map.get(event);
         } else {
-            state = newState;
+            throw new IllegalStateException("Event " + event + " is not permitted in state " + state);
         }
     }
 
@@ -137,7 +142,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
 
     public RegularSequenceChecker(Receiver nextReceiver, boolean fullChecking) {
         super(nextReceiver);
-        state = State.Initial;
+        state = State.INITIAL;
         this.fullChecking = fullChecking;
     }
 
@@ -156,7 +161,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
             transition(Transition.APPEND);
             nextReceiver.append(item, locationId, copyNamespaces);
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -168,15 +173,15 @@ public class RegularSequenceChecker extends ProxyReceiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         transition(Transition.TEXT);
-        if (chars.length() == 0 && !stack.isEmpty()) {
+        if (chars.isEmpty() && !stack.isEmpty()) {
             throw new IllegalStateException("Zero-length text nodes not allowed within document/element content");
         }
         try {
             nextReceiver.characters(chars, locationId, properties);
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -187,12 +192,12 @@ public class RegularSequenceChecker extends ProxyReceiver {
 
     @Override
     public void close() throws XPathException {
-        if (state != State.Final && state != State.Failed) {
+        if (state != State.FINAL && state != State.FAILED) {
             if (!stack.isEmpty()) {
                 throw new IllegalStateException("Unclosed element or document nodes at end of stream");
             }
             nextReceiver.close();
-            state = State.Final;
+            state = State.FINAL;
         }
     }
 
@@ -201,12 +206,12 @@ public class RegularSequenceChecker extends ProxyReceiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         transition(Transition.COMMENT);
         try {
             nextReceiver.comment(chars, locationId, properties);
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -224,7 +229,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
         try {
             nextReceiver.endDocument();
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -240,12 +245,12 @@ public class RegularSequenceChecker extends ProxyReceiver {
             throw new IllegalStateException("Unmatched endElement() call");
         }
         if (stack.isEmpty()) {
-            state = State.Open;
+            state = State.OPEN;
         }
         try {
             nextReceiver.endElement();
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -260,7 +265,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
         try {
             nextReceiver.open();
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -270,12 +275,12 @@ public class RegularSequenceChecker extends ProxyReceiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         transition(Transition.PI);
         try {
             nextReceiver.processingInstruction(target, data, locationId, properties);
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -292,7 +297,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
         try {
             nextReceiver.startDocument(properties);
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
     }
@@ -323,7 +328,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
      * These constraints are not all enforced by this class.
      * </p>
      *  @param elemName  the name of the element. If the name is in a namespace (non-empty namespace URI)
-     *                  then the {@link Outputter#namespace(String, String, int)} event must include
+     *                  then the {@link Outputter#namespace(String, NamespaceUri, int)} event must include
      *                  a binding for the relevant prefix (or absence of a prefix) to the relevant URI.
      * @param type the type annotation of the element.
      * @param attributes the attributes of the element
@@ -343,29 +348,29 @@ public class RegularSequenceChecker extends ProxyReceiver {
 
             String prefix = elemName.getPrefix();
             if (prefix.isEmpty()) {
-                String declaredDefaultUri = namespaces.getDefaultNamespace();
-                if (!declaredDefaultUri.equals(elemName.getURI())) {
-                    throw new IllegalStateException("URI of element Q{" + elemName.getURI() +
+                NamespaceUri declaredDefaultUri = namespaces.getDefaultNamespace();
+                if (!declaredDefaultUri.equals(elemName.getNamespaceUri())) {
+                    throw new IllegalStateException("URI of element Q{" + elemName.getNamespaceUri() +
                                                             "}" + elemName.getLocalPart() +
                                                             " does not match declared default namespace {"
                                                             + declaredDefaultUri + "}");
                 }
             } else {
-                String declaredUri = namespaces.getURI(prefix);
+                NamespaceUri declaredUri = namespaces.getNamespaceUri(prefix);
                 if (declaredUri == null) {
                     throw new IllegalStateException("Prefix " + prefix + " has not been declared");
-                } else if (!declaredUri.equals(elemName.getURI())) {
+                } else if (!declaredUri.equals(elemName.getNamespaceUri())) {
                     throw new IllegalStateException("Prefix " + prefix + " is bound to the wrong namespace");
                 }
             }
             for (AttributeInfo att : attributes) {
                 NodeName name = att.getNodeName();
-                if (!name.getURI().isEmpty()) {
+                if (!name.getNamespaceUri().isEmpty()) {
                     String attPrefix = name.getPrefix();
-                    String declaredUri = namespaces.getURI(attPrefix);
+                    NamespaceUri declaredUri = namespaces.getNamespaceUri(attPrefix);
                     if (declaredUri == null) {
                         throw new IllegalStateException("Prefix " + attPrefix + " has not been declared for attribute " + att.getNodeName().getDisplayName());
-                    } else if (!declaredUri.equals(name.getURI())) {
+                    } else if (!declaredUri.equals(name.getNamespaceUri())) {
                         throw new IllegalStateException("Prefix " + prefix + " is bound to the wrong namespace {" + declaredUri + "}");
                     }
                 }
@@ -374,7 +379,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
         try {
             nextReceiver.startElement(elemName, type, attributes, namespaces, location, properties);
         } catch (XPathException e) {
-            state = State.Failed;
+            state = State.FAILED;
             throw e;
         }
 

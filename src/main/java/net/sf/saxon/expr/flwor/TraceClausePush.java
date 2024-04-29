@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,8 @@ import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.trans.XPathException;
 
+import java.util.Collections;
+
 /**
  * This class represents the tuple stream delivered as the output of a trace clause in a
  * FLWOR expression. It does not change the values of any variables in the tuple stream,
@@ -19,9 +21,9 @@ import net.sf.saxon.trans.XPathException;
  */
 public class TraceClausePush extends TuplePush {
 
-    private TuplePush destination;
+    private final TuplePush destination;
     TraceClause traceClause;
-    private Clause baseClause;
+    private final Clause baseClause;
 
     public TraceClausePush(Outputter outputter, TuplePush destination, TraceClause traceClause, Clause baseClause) {
         super(outputter);

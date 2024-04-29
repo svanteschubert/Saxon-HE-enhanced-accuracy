@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.sort.GroupIterator;
 import net.sf.saxon.lib.ErrorReporter;
-import net.sf.saxon.lib.StandardURIResolver;
+import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.*;
 import net.sf.saxon.regex.RegexIterator;
 import net.sf.saxon.trans.XPathException;
@@ -22,9 +22,7 @@ import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.trans.rules.RuleManager;
 import net.sf.saxon.tree.iter.SingletonIterator;
-import net.sf.saxon.tree.iter.UnfailingIterator;
 
-import javax.xml.transform.URIResolver;
 import java.util.Arrays;
 
 /**
@@ -39,14 +37,16 @@ public class XPathContextMajor extends XPathContextMinor {
     private ParameterSet tunnelParameters;
     /*@Nullable*/ private TailCallLoop.TailCallInfo tailCallInfo;
     private Component.M currentMode;
-    /*@Nullable*/ private Rule currentTemplate;
+    private Rule currentTemplate;
     private GroupIterator currentGroupIterator;
     private GroupIterator currentMergeGroupIterator;
     private RegexIterator currentRegexIterator;
+
+
     private ContextOriginator origin;
     private ThreadManager threadManager = null;
 
-    private URIResolver uriResolver;
+    private ResourceResolver resourceResolver;
     private ErrorReporter errorReporter;
     private Component currentComponent;
     XPathException currentException;
@@ -87,13 +87,9 @@ public class XPathContextMajor extends XPathContextMinor {
                 new XsltController(exec.getConfiguration(), (PreparedStylesheet)exec) :
                 new Controller(exec.getConfiguration(), exec);
         if (item != null) {
-            UnfailingIterator iter = SingletonIterator.makeIterator(item);
-            currentIterator = new FocusTrackingIterator(iter);
-            try {
-                currentIterator.next();
-            } catch (XPathException e) {
-                // cannot happen
-            }
+            SequenceIterator iter = SingletonIterator.makeIterator(item);
+            currentIterator = SequenceTool.focusTracker(iter);
+            currentIterator.next();
             last = new LastValue(1);
         }
         origin = controller;
@@ -126,7 +122,7 @@ public class XPathContextMajor extends XPathContextMinor {
         c.threadManager = threadManager;
         c.currentComponent = currentComponent;
         c.errorReporter = errorReporter;
-        c.uriResolver = uriResolver;
+        c.resourceResolver = resourceResolver;
         return c;
     }
 
@@ -139,10 +135,7 @@ public class XPathContextMajor extends XPathContextMinor {
 
     public static XPathContextMajor newContext(XPathContextMinor prev) {
         XPathContextMajor c = new XPathContextMajor();
-        XPathContext p = prev;
-        while (!(p instanceof XPathContextMajor)) {
-            p = p.getCaller();
-        }
+        XPathContextMajor p = prev.getMajorContext();
         c.controller = p.getController();
         c.currentIterator = prev.getCurrentIterator();
         c.stackFrame = prev.getStackFrame();
@@ -157,10 +150,11 @@ public class XPathContextMajor extends XPathContextMinor {
         c.currentMergeGroupIterator = p.getCurrentMergeGroupIterator();
         c.caller = prev;
         c.tailCallInfo = null;
-        c.threadManager = ((XPathContextMajor) p).threadManager;
-        c.currentComponent = ((XPathContextMajor) p).currentComponent;
-        c.errorReporter = ((XPathContextMajor) p).errorReporter;
-        c.uriResolver = ((XPathContextMajor) p).uriResolver;
+        c.threadManager = p.threadManager;
+        c.currentComponent = p.currentComponent;
+        c.errorReporter = p.errorReporter;
+        c.currentException = p.currentException;
+        c.resourceResolver = p.resourceResolver;
         c.temporaryOutputState = prev.temporaryOutputState;
         return c;
     }
@@ -275,6 +269,7 @@ public class XPathContextMajor extends XPathContextMinor {
      * object that creates the new context. It's up to the debugger to determine whether this information
      * is useful. The object will either be an {@link Expression}, allowing information
      * about the calling instruction to be obtained, or null.
+     * @param expr the originator of this context object
      */
 
     public void setOrigin(ContextOriginator expr) {
@@ -283,6 +278,7 @@ public class XPathContextMajor extends XPathContextMinor {
 
     /**
      * Get information about the creating expression or other construct.
+     * @return the originator of this context, or null if not known
      */
 
     public ContextOriginator getOrigin() {
@@ -308,7 +304,7 @@ public class XPathContextMajor extends XPathContextMinor {
                         "Attempting to set more local variables (" + variables.length +
                                 ") than the stackframe can accommodate (" + map.getNumberOfVariables() + ")");
             }
-            stackFrame.slots = (Sequence[])new Sequence[map.getNumberOfVariables()];
+            stackFrame.slots = new Sequence[map.getNumberOfVariables()];
             System.arraycopy(variables, 0, stackFrame.slots, 0, variables.length);
         }
     }
@@ -325,7 +321,7 @@ public class XPathContextMajor extends XPathContextMinor {
         stackFrame.map = map;
         if (stackFrame.slots.length != map.getNumberOfVariables()) {
             Sequence[] v2 =
-                    (Sequence[])new Sequence[map.getNumberOfVariables()];
+                    new Sequence[map.getNumberOfVariables()];
             System.arraycopy(stackFrame.slots, 0, v2, 0, numberOfParams);
             stackFrame.slots = v2;
         } else {
@@ -434,7 +430,7 @@ public class XPathContextMajor extends XPathContextMinor {
      */
 
     public void setCurrentMode(Component.M mode) {
-        this.currentMode = mode;
+        currentMode = mode;
     }
 
     /**
@@ -467,7 +463,7 @@ public class XPathContextMajor extends XPathContextMinor {
      */
 
     public void setCurrentTemplateRule(/*@Nullable*/ Rule rule) {
-        this.currentTemplate = rule;
+        currentTemplate = rule;
     }
 
     /**
@@ -489,7 +485,7 @@ public class XPathContextMajor extends XPathContextMinor {
      */
 
     public void setCurrentGroupIterator(GroupIterator iterator) {
-        this.currentGroupIterator = iterator;
+        currentGroupIterator = iterator;
     }
 
     /**
@@ -512,7 +508,7 @@ public class XPathContextMajor extends XPathContextMinor {
      */
 
     public void setCurrentMergeGroupIterator(GroupIterator iterator) {
-        this.currentMergeGroupIterator = iterator;
+        currentMergeGroupIterator = iterator;
     }
 
     /**
@@ -531,11 +527,11 @@ public class XPathContextMajor extends XPathContextMinor {
      * Set the current regex iterator. This supports the functionality of the regex-group()
      * function in XSLT 2.0.
      *
-     * @param currentRegexIterator the current regex iterator
+     * @param iterator the current regex iterator
      */
 
-    public void setCurrentRegexIterator(RegexIterator currentRegexIterator) {
-        this.currentRegexIterator = currentRegexIterator;
+    public void setCurrentRegexIterator(RegexIterator iterator) {
+        currentRegexIterator = iterator;
     }
 
     /**
@@ -579,37 +575,22 @@ public class XPathContextMajor extends XPathContextMinor {
         return checked ? ParameterSet.SUPPLIED_AND_CHECKED : ParameterSet.SUPPLIED;
     }
 
-    /**
-     * Set an object that will be used to resolve URIs used in
-     * document(), etc. This method allows a URIResolver to be set that is local
-     * to this particular XPathContext, which is useful when local behaviour is
-     * needed, e.g. during schema validation. The URIResolver set in the Controller
-     * and in the Configuration are not affected by this call.
-     *
-     * @param resolver An object that implements the URIResolver interface, or
-     *                 null.
-     * @since 9.6
-     */
-
-    public void setURIResolver(URIResolver resolver) {
-        uriResolver = resolver;
-        if (resolver instanceof StandardURIResolver) {
-            ((StandardURIResolver) resolver).setConfiguration(getConfiguration());
-        }
+    public void setResourceResolver(ResourceResolver resolver) {
+        resourceResolver = resolver;
     }
 
     /**
-     * Get the URI resolver. This gets the local URIResolver set in the XPathContext if there
+     * Get the resource resolver. This gets the local URIResolver set in the XPathContext if there
      * is one; if not, it gets the URIResolver from the Controller (which itself defaults to the
      * one set in the Configuration).
      *
      * @return the user-supplied URI resolver if there is one, or null otherwise.
-     * @since 9.6
+     * @since 11.1 (replaces getURIResolver())
      */
 
     @Override
-    public URIResolver getURIResolver() {
-        return uriResolver == null ? controller.getURIResolver() : uriResolver;
+    public ResourceResolver getResourceResolver() {
+        return resourceResolver == null ? controller.getResourceResolver() : resourceResolver;
     }
 
     /**
@@ -621,7 +602,7 @@ public class XPathContextMajor extends XPathContextMinor {
      */
 
     public void setErrorReporter(ErrorReporter reporter) {
-        this.errorReporter = reporter;
+        errorReporter = reporter;
     }
 
     /**
@@ -676,7 +657,7 @@ public class XPathContextMajor extends XPathContextMinor {
      */
 
     public void setCurrentComponent(Component component) {
-        //System.err.println("Set current component := " + (component==null ? "null" : component.getCode()));
+        //System.err.println(this + " Set current component := " + (component==null ? "null" : component.getActor().toString()));
         currentComponent = component;
     }
 
@@ -712,5 +693,8 @@ public class XPathContextMajor extends XPathContextMinor {
             throw e;
         }
     }
+
+
+
 }
 

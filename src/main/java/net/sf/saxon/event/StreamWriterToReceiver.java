@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,16 +12,18 @@ import net.sf.saxon.lib.StandardURIChecker;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pull.NamespaceContextImpl;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Untyped;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import javax.xml.namespace.NamespaceContext;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 import java.util.*;
-import java.util.function.IntPredicate;
 
 /**
  * This class implements the XmlStreamWriter interface, translating the events into Saxon
@@ -51,11 +53,11 @@ import java.util.function.IntPredicate;
  */
 public class StreamWriterToReceiver implements XMLStreamWriter {
 
-    private static boolean DEBUG = false;
+    private static final boolean DEBUG = false;
 
     private static class Triple {
         public String prefix;
-        public String uri;
+        public NamespaceUri uri;
         public String local;
         public String value;
     }
@@ -73,18 +75,19 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
     }
 
     private StartTag pendingTag = null;
+    private final Stack<NamespaceMap> namespaceStack = new Stack<>();
 
     /**
      * The receiver to which events will be passed
      */
 
-    private Receiver receiver;
+    private final Receiver receiver;
 
     /**
      * The Checker used for testing valid characters
      */
 
-    private IntPredicate charChecker;
+    private final IntPredicateProxy charChecker;
 
     /**
      * Flag to indicate whether names etc are to be checked for well-formedness
@@ -117,8 +120,6 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
 
     private final Stack<List<NamespaceBinding>> setPrefixes = new Stack<>();
 
-    private final Stack<NamespaceMap> namespaceStack = new Stack<>();
-
     /**
      * rootNamespaceContext is the namespace context supplied at the start, is the final fallback
      * for allocating a prefix to a URI
@@ -138,11 +139,12 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         // where needed to support prefix-uri mappings used on elements and attributes
         PipelineConfiguration pipe = receiver.getPipelineConfiguration();
         this.inScopeNamespaces = new NamespaceReducer(receiver);
+        this.namespaceStack.push(NamespaceMap.emptyMap());
         this.receiver = inScopeNamespaces;
         this.charChecker = pipe.getConfiguration().getValidCharacterChecker();
         this.setPrefixes.push(new ArrayList<>());
-        this.namespaceStack.push(NamespaceMap.emptyMap());
         this.rootNamespaceContext = new NamespaceContextImpl(NamespaceMap.emptyMap());
+            // See bug 2902; initialise rootNamespaceContext to an empty set of namespaces
     }
 
 
@@ -204,7 +206,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                         t.prefix = "";
                     }
                     if (t.uri == null) {
-                        t.uri = "";
+                        t.uri = NamespaceUri.NULL;
                     }
                     if (!t.uri.isEmpty()) {
                         nsMap = nsMap.put(t.prefix, t.uri);
@@ -265,9 +267,9 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
             t.prefix = "";
         }
         if (t.uri == null) {
-            t.uri = "";
+            t.uri = NamespaceUri.NULL;
         }
-        if (isChecking && !t.uri.isEmpty() && isInvalidURI(t.uri)) {
+        if (isChecking && !t.uri.isEmpty() && isInvalidURI(t.uri.toString())) {
             throw new XMLStreamException("Namespace URI " + Err.wrap(t.local) + " is invalid");
         }
         if (t.prefix.isEmpty() && !t.uri.isEmpty()) {
@@ -275,7 +277,9 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         }
     }
 
-    private String getPrefixForUri(String uri) {
+
+
+    private String getPrefixForUri(NamespaceUri uri) {
         for (Triple t : pendingTag.namespaces) {
             if (uri.equals(t.uri)) {
                 return t.prefix == null ? "" : t.prefix;
@@ -345,7 +349,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         depth++;
         pendingTag = new StartTag();
         pendingTag.elementName.local = localName;
-        pendingTag.elementName.uri = namespaceURI;
+        pendingTag.elementName.uri = NamespaceUri.of(namespaceURI);
 
     }
 
@@ -377,7 +381,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         depth++;
         pendingTag = new StartTag();
         pendingTag.elementName.local = localName;
-        pendingTag.elementName.uri = namespaceURI;
+        pendingTag.elementName.uri = NamespaceUri.of(namespaceURI);
         pendingTag.elementName.prefix = prefix;
     }
 
@@ -422,6 +426,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         try {
             flushStartTag();
             setPrefixes.pop();
+            namespaceStack.pop();
             receiver.endElement();
             depth--;
         } catch (XPathException err) {
@@ -487,7 +492,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         }
         Triple t = new Triple();
         t.prefix = prefix;
-        t.uri = namespaceURI;
+        t.uri = NamespaceUri.of(namespaceURI);
         t.local = localName;
         t.value = value;
         pendingTag.attributes.add(t);
@@ -499,7 +504,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         checkNonNull(localName);
         checkNonNull(value);
         Triple t = new Triple();
-        t.uri = namespaceURI;
+        t.uri = NamespaceUri.of(namespaceURI);
         t.local = localName;
         t.value = value;
         pendingTag.attributes.add(t);
@@ -535,7 +540,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                 throw new IllegalStateException("Cannot write namespace when not in a start tag");
             }
             Triple t = new Triple();
-            t.uri = namespaceURI;
+            t.uri = NamespaceUri.of(namespaceURI);
             t.prefix = prefix;
             pendingTag.namespaces.add(t);
         }
@@ -563,7 +568,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
             throw new IllegalStateException("Cannot write namespace when not in a start tag");
         }
         Triple t = new Triple();
-        t.uri = namespaceURI;
+        t.uri = NamespaceUri.of(namespaceURI);
         pendingTag.namespaces.add(t);
 
     }
@@ -574,14 +579,15 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         if (data == null) {
             data = "";
         }
+        UnicodeString uData = StringView.of(data);
         try {
-            if (!isValidChars(data)) {
+            if (!isValidChars(uData)) {
                 throw new IllegalArgumentException("Invalid XML character in comment: " + data);
             }
             if (isChecking && data.contains("--")) {
                 throw new IllegalArgumentException("Comment contains '--'");
             }
-            receiver.comment(data, Loc.NONE, ReceiverOption.NONE);
+            receiver.comment(uData, Loc.NONE, ReceiverOption.NONE);
         } catch (XPathException err) {
             throw new XMLStreamException(err);
         }
@@ -597,16 +603,17 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         checkNonNull(target);
         checkNonNull(data);
         flushStartTag();
+        final UnicodeString uData = StringView.of(data);
         try {
             if (isChecking) {
                 if (!isValidNCName(target) || "xml".equalsIgnoreCase(target)) {
                     throw new IllegalArgumentException("Invalid PITarget: " + target);
                 }
-                if (!isValidChars(data)) {
+                if (!isValidChars(uData)) {
                     throw new IllegalArgumentException("Invalid character in PI data: " + data);
                 }
             }
-            receiver.processingInstruction(target, data, Loc.NONE, ReceiverOption.NONE);
+            receiver.processingInstruction(target, uData, Loc.NONE, ReceiverOption.NONE);
         } catch (XPathException err) {
             throw new XMLStreamException(err);
         }
@@ -664,11 +671,12 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         throws XMLStreamException {
         checkNonNull(text);
         flushStartTag();
-        if (!isValidChars(text)) {
+        final UnicodeString uData = StringView.of(text);
+        if (!isValidChars(uData)) {
             throw new IllegalArgumentException("illegal XML character: " + text);
         }
         try {
-            receiver.characters(text, Loc.NONE, ReceiverOption.NONE);
+            receiver.characters(uData, Loc.NONE, ReceiverOption.NONE);
         } catch (XPathException err) {
             throw new XMLStreamException(err);
         }
@@ -683,17 +691,21 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
 
     @Override
     public String getPrefix(String uri) {
+        return getPrefix(NamespaceUri.of(uri));
+    }
+
+    private String getPrefix(NamespaceUri uri) {
         for (int i=setPrefixes.size()-1; i>=0; i--) {
             List<NamespaceBinding> bindings = setPrefixes.get(i);
             for (int j=bindings.size()-1; j>=0; j--) {
                 NamespaceBinding binding = bindings.get(j);
-                if (binding.getURI().equals(uri)) {
+                if (binding.getNamespaceUri().equals(uri)) {
                     return binding.getPrefix();
                 }
             }
         }
         if (rootNamespaceContext != null) {
-            return rootNamespaceContext.getPrefix(uri);
+            return rootNamespaceContext.getPrefix(uri.toString());
         }
         return null;
     }
@@ -711,7 +723,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         if (!"".equals(prefix) && !isValidNCName(prefix)) {
             throw new IllegalArgumentException("Invalid namespace prefix: " + prefix);
         }
-        setPrefixes.peek().add(new NamespaceBinding(prefix, uri));
+        setPrefixes.peek().add(new NamespaceBinding(prefix, NamespaceUri.of(uri)));
     }
 
     @Override
@@ -739,57 +751,61 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
      * in-scope at the time, overlaid on the root namespace context that was defined using
      * {@link #setNamespaceContext(NamespaceContext)}. The namespaces bound using {@link #setPrefix(String, String)}
      * are copied, and are therefore unaffected by subsequent changes, but the root namespace context
-     * is not copied, because the NamespaceContext interface provides no way of doing so.</p>
+     * is not copied, because the {@link NamespaceContext} interface provides no way of doing so.</p>
      * @return a copy of the current namespace context.
      */
     @Override
     public javax.xml.namespace.NamespaceContext getNamespaceContext() {
-        return new NamespaceContext() {
-            final NamespaceContext rootNamespaceContext = StreamWriterToReceiver.this.rootNamespaceContext;
-            final Map<String, String> bindings = new HashMap<>();
+        return new StreamWriterNamespaceContext(this);
+    }
 
-            {
-                for (List<NamespaceBinding> list : setPrefixes) {
-                    for (NamespaceBinding binding : list) {
-                        bindings.put(binding.getPrefix(), binding.getURI());
-                    }
+    private static class StreamWriterNamespaceContext implements javax.xml.namespace.NamespaceContext {
+        final NamespaceContext rootNamespaceContext;
+        final Map<String, NamespaceUri> bindings = new HashMap<>();
+
+        public StreamWriterNamespaceContext(StreamWriterToReceiver streamWriter) {
+            rootNamespaceContext = streamWriter.rootNamespaceContext;
+            for (List<NamespaceBinding> list : streamWriter.setPrefixes) {
+                for (NamespaceBinding binding : list) {
+                    bindings.put(binding.getPrefix(), binding.getNamespaceUri());
                 }
             }
+        }
 
-            @Override
-            public String getNamespaceURI(String prefix) {
-                String uri = bindings.get(prefix);
-                if (uri != null) {
-                    return uri;
-                }
-                return rootNamespaceContext.getNamespaceURI(prefix);
+        @Override
+        public String getNamespaceURI(String prefix) {
+            NamespaceUri uri = bindings.get(prefix);
+            if (uri != null) {
+                return uri.toString();
             }
+            return rootNamespaceContext.getNamespaceURI(prefix);
+        }
 
-            @Override
-            public String getPrefix(String namespaceURI) {
-                for (Map.Entry<String, String> entry : bindings.entrySet()) {
-                    if (entry.getValue().equals(namespaceURI)) {
-                        return entry.getKey();
-                    }
+        @Override
+        public String getPrefix(String namespaceURI) {
+            for (Map.Entry<String, NamespaceUri> entry : bindings.entrySet()) {
+                if (entry.getValue().toString().equals(namespaceURI)) {
+                    return entry.getKey();
                 }
-                return rootNamespaceContext.getPrefix(namespaceURI);
             }
+            return rootNamespaceContext.getPrefix(namespaceURI);
+        }
 
-            @Override
-            public Iterator<String> getPrefixes(String namespaceURI) {
-                List<String> prefixes = new ArrayList<>();
-                for (Map.Entry<String, String> entry : bindings.entrySet()) {
-                    if (entry.getValue().equals(namespaceURI)) {
-                        prefixes.add(entry.getKey());
-                    }
+        @Override
+        public Iterator<String> getPrefixes(String namespaceURI) {
+            List<String> prefixes = new ArrayList<>();
+            for (Map.Entry<String, NamespaceUri> entry : bindings.entrySet()) {
+                if (entry.getValue().toString().equals(namespaceURI)) {
+                    prefixes.add(entry.getKey());
                 }
-                Iterator root = rootNamespaceContext.getPrefixes(namespaceURI);
-                while (root.hasNext()) {
-                    prefixes.add((String)root.next());
-                }
-                return prefixes.iterator();
             }
-        };
+            @SuppressWarnings("unchecked")
+            Iterator<String> root = (Iterator<String>)rootNamespaceContext.getPrefixes(namespaceURI);
+            while (root.hasNext()) {
+                prefixes.add(root.next());
+            }
+            return prefixes.iterator();
+        }
     }
 
     @Override
@@ -819,8 +835,8 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
      * @return true if the string is valid or if checking is disabled
      */
 
-    private boolean isValidChars(String text) {
-        return !isChecking || (UTF16CharacterSet.firstInvalidChar(text, charChecker) == -1);
+    private boolean isValidChars(UnicodeString text) {
+        return !isChecking || (UTF16CharacterSet.firstInvalidChar(text.codePoints(), charChecker) == -1);
     }
 
     /**

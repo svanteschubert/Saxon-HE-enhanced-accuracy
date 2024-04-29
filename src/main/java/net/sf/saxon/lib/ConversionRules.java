@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,8 @@
 
 package net.sf.saxon.lib;
 
-import net.sf.saxon.expr.sort.LRUCache;
+import net.sf.saxon.expr.sort.LFUCache;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NotationSet;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.type.*;
@@ -33,9 +34,8 @@ public class ConversionRules {
     private boolean allowYearZero = true;
     private TypeHierarchy typeHierarchy; // may be null
 
-    // These two tables need to be synchronised to make the caching thread-safe
-    private LRUCache<Integer, Converter> converterCache =
-            new LRUCache<>(100, true);
+    private final LFUCache<Integer, Converter> converterCache =
+            new LFUCache<>(100, true);
 
     /**
      * Default conversion rules. Changed in Saxon 9.9 so these are the XSD 1.1 rules (year zero allowed in dates,
@@ -130,7 +130,7 @@ public class ConversionRules {
      */
 
 
-    public boolean isDeclaredNotation(String uri, String local) {
+    public boolean isDeclaredNotation(NamespaceUri uri, String local) {
         //noinspection SimplifiableIfStatement
         if (notationSet == null) {
             return true;    // in the absence of a known configuration, treat all notations as valid
@@ -153,12 +153,12 @@ public class ConversionRules {
      * Ask whether a string is a valid instance of xs:anyURI according to the rules
      * defined by the current URIChecker
      *
-     * @param string the string to be checked against the rules for URIs
+     * @param str the string to be checked against the rules for URIs
      * @return true if the string represents a valid xs:anyURI value
      */
 
-    public boolean isValidURI(CharSequence string) {
-        return uriChecker == null || uriChecker.isValidURI(string);
+    public boolean isValidURI(String str) {
+        return uriChecker == null || uriChecker.isValidURI(str);
     }
 
     /**
@@ -245,7 +245,8 @@ public class ConversionRules {
         }
 
         if (!targetType.isPrimitiveType()) {
-            AtomicType primTarget = targetType.getPrimitiveItemType();
+            @SuppressWarnings("RedundantCast")
+            AtomicType primTarget = (AtomicType)targetType.getPrimitiveItemType();
             if (sourceType == primTarget) {
                 return new Converter.DownCastingConverter(targetType, this);
             } else if (st == StandardNames.XS_STRING || st == StandardNames.XS_UNTYPED_ATOMIC) {
@@ -266,7 +267,8 @@ public class ConversionRules {
             if (typeHierarchy != null && typeHierarchy.isSubType(sourceType, targetType)) {
                 return new Converter.UpCastingConverter(targetType);
             }
-            Converter upcast = new Converter.UpCastingConverter(sourceType.getPrimitiveItemType());
+            @SuppressWarnings("RedundantCast")
+            Converter upcast = new Converter.UpCastingConverter((AtomicType)sourceType.getPrimitiveItemType());
             Converter downcast = new Converter.DownCastingConverter(targetType, this);
             return new Converter.TwoPhaseConverter(upcast, downcast);
         }
@@ -616,7 +618,8 @@ public class ConversionRules {
                 }
             } else {
                 // converter to user-defined types derived from types other than xs:string
-                StringConverter first = targetType.getPrimitiveItemType().getStringConverter(this);
+                @SuppressWarnings("RedundantCast")
+                StringConverter first = ((AtomicType)targetType.getPrimitiveItemType()).getStringConverter(this);
                 Converter.DownCastingConverter second = new Converter.DownCastingConverter(targetType, this);
                 return new StringConverter.StringToNonStringDerivedType(first, second);
             }

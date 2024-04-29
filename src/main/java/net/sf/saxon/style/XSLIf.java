@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -47,12 +47,12 @@ public class XSLIf extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String f = attName.getDisplayName();
@@ -62,13 +62,15 @@ public class XSLIf extends StyleElement {
                     break;
                 case "then":
                     // Saxon extension
-                    requireSyntaxExtensions("then");
-                    thenExp = makeExpression(att.getValue(), att);
+                    if (requireXslt40Attribute("then")) {
+                        thenExp = makeExpression(att.getValue(), att);
+                    }
                     break;
                 case "else":
                     // Saxon extension
-                    requireSyntaxExtensions("else");
-                    elseExp = makeExpression(att.getValue(), att);
+                    if (requireXslt40Attribute("else")) {
+                        elseExp = makeExpression(att.getValue(), att);
+                    }
                     break;
                 default:
                     checkUnknownAttribute(attName);
@@ -122,7 +124,7 @@ public class XSLIf extends StyleElement {
      */
 
     @Override
-    public boolean markTailCalls() {
+    protected boolean markTailCalls() {
         StyleElement last = getLastChildInstruction();
         return last != null && last.markTailCalls();
     }
@@ -130,7 +132,7 @@ public class XSLIf extends StyleElement {
     @Override
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
         if (test instanceof Literal) {
-            GroundedValue testVal = ((Literal) test).getValue();
+            GroundedValue testVal = ((Literal) test).getGroundedValue();
             // condition known statically, so we only need compile the code if true.
             // This can happen with expressions such as test="function-available('abc')".
             try {
@@ -162,6 +164,7 @@ public class XSLIf extends StyleElement {
 
         Choose choose = new Choose(conditions, actions);
         choose.setInstruction(true);
+        choose.setLocation(saveLocation());
         return choose;
     }
 

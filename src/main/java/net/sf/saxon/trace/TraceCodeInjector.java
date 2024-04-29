@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,14 +15,14 @@ import net.sf.saxon.expr.instruct.ComponentTracer;
 import net.sf.saxon.expr.instruct.TraceExpression;
 import net.sf.saxon.expr.parser.CodeInjector;
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.trans.XPathException;
 
 /**
  * A code injector that wraps every expression (other than a literal) in a TraceExpression, which causes
  * a TraceListener to be notified when the expression is evaluated
  */
 public class TraceCodeInjector implements CodeInjector {
-
-    public TraceCodeInjector() {}
 
     @Override
     public Expression inject(Expression exp) {
@@ -59,6 +59,12 @@ public class TraceCodeInjector implements CodeInjector {
 
     @Override
     public Clause injectClause(FLWORExpression expression, Clause clause) {
+        try {
+            clause.processOperands(operand -> operand.setChildExpression(
+                    ExpressionTool.injectCode(operand.getChildExpression(), this)));
+        } catch (XPathException e) {
+            throw new UncheckedXPathException(e);
+        }
         return new TraceClause(expression, clause);
     }
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,12 +18,13 @@ import net.sf.saxon.value.IntegerValue;
 
 /**
  * A ConstantFunction is a zero-argument function that always delivers the same result, supplied
- * at the time the function is instantiated.
+ * at the time the function is instantiated. It is a subclass of system function, which means there must
+ * be a "details" entry giving information about the function name, signature, etc
  */
 
 public class ConstantFunction extends SystemFunction  {
 
-    public GroundedValue value;
+    private final GroundedValue value;
 
     public ConstantFunction(GroundedValue value) {
         this.value = value;

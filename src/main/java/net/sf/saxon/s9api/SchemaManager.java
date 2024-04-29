@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,9 +9,12 @@ package net.sf.saxon.s9api;
 
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.SchemaURIResolver;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import javax.xml.transform.ErrorListener;
 import javax.xml.transform.Source;
+import javax.xml.transform.stream.StreamSource;
+import java.io.File;
 
 /**
  * The SchemaManager is used to load schema documents, and to set options for the way in which they are loaded.
@@ -29,6 +32,8 @@ import javax.xml.transform.Source;
  * include adding to the substitution group of an existing element declaration, adding subtypes
  * to an existing type, or redefining components using &lt;xs:redefine&gt;</p>
  */
+
+@CSharpModifiers(code = {"abstract", "internal"})
 public abstract class SchemaManager {
 
     public SchemaManager() {
@@ -59,6 +64,7 @@ public abstract class SchemaManager {
      * @deprecated since 10.0. Use {@link #setErrorReporter(ErrorReporter)}.
      */
 
+    @Deprecated
     public abstract void setErrorListener(/*@Nullable*/ ErrorListener listener);
 
     /**
@@ -70,6 +76,7 @@ public abstract class SchemaManager {
      */
 
     /*@Nullable*/
+    @Deprecated
     public abstract ErrorListener getErrorListener();
 
     public abstract void setErrorReporter(ErrorReporter reporter);
@@ -111,6 +118,23 @@ public abstract class SchemaManager {
      */
 
     public abstract void load(Source source) throws SaxonApiException;
+
+    /**
+     * Load a schema document from a given File. The schema components derived from this schema
+     * document are added to the cache of schema components maintained by this SchemaManager
+     *
+     * @param file the document containing the schema. The getSystemId() method applied to this Source
+     *               must return a base URI suitable for resolving <code>xs:include</code> and <code>xs:import</code>
+     *               directives. The document may be either a schema document in source XSD format, or a compiled
+     *               schema in Saxon-defined SCM format (as produced using the -export option)
+     * @throws SaxonApiException if the schema document is not valid, or if its contents are inconsistent
+     *                           with the schema components already held by this SchemaManager.
+     * @since 12.0
+     */
+
+    public void load(File file) throws SaxonApiException {
+        load(new StreamSource(file));
+    }
 
     /**
      * Import a precompiled Schema Component Model from a given Source. The schema components derived from this schema

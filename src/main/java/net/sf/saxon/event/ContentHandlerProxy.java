@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import net.sf.saxon.lib.Logger;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.lib.TraceListener;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.AttributeCollectionImpl;
@@ -66,6 +67,28 @@ public class ContentHandlerProxy implements Receiver {
     // far to unwind the stack on an end-element event.
 
     private static final String MARKER = "##";
+
+    /**
+     * Private constructor (bug 6036)
+     */
+
+    public ContentHandlerProxy(ContentHandler handler) {
+        setUnderlyingContentHandler(handler);
+    }
+
+    /**
+     * Public Factory method (bug 6036). This not only creates a ContentHandlerProxy, it also
+     * front-ends it with a NamespaceDifferencer to ensure that the namespace maps received
+     * by the ContentHandlerProxy represent the differences between the namespaces present
+     * on a child element and those present on its parent
+     * @param handler the SAX content handler to which all events will be directed
+     */
+
+    public static Receiver makeInstance(ContentHandler handler, Properties serializationProps) {
+        ContentHandlerProxy chp = new ContentHandlerProxy(handler);
+        chp.setOutputProperties(serializationProps);
+        return new NamespaceDifferencer(chp, serializationProps);
+    }
 
     /**
      * Set the underlying content handler. This call is mandatory before using this Receiver.
@@ -304,7 +327,7 @@ public class ContentHandlerProxy implements Receiver {
 
     /**
      * Notify the start of the document.
-     * @param properties
+     * @param properties not used
      */
 
     @Override
@@ -339,13 +362,13 @@ public class ContentHandlerProxy implements Receiver {
             if (prefix.equals("xml")) {
                 return;
             }
-            String uri = ns.getURI();
+            NamespaceUri uri = ns.getNamespaceUri();
             if (!undeclareNamespaces && uri.isEmpty() && !prefix.isEmpty()) {
                 // This is a namespace undeclaration, but the ContentHandler doesn't want to know about undeclarations
                 return;
             }
             try {
-                handler.startPrefixMapping(prefix, uri);
+                handler.startPrefixMapping(prefix, uri.toString());
                 namespaceStack.push(prefix);
             } catch (SAXException err) {
                 handleSAXException(err);
@@ -369,13 +392,13 @@ public class ContentHandlerProxy implements Receiver {
 
         if (depth > 0 || !requireWellFormed) {
             try {
-                String uri = elemName.getURI();
+                NamespaceUri uri = elemName.getNamespaceUri();
                 String localName = elemName.getLocalPart();
                 String qname = elemName.getDisplayName();
 
-                handler.startElement(uri, localName, qname, atts2);
+                handler.startElement(uri.toString(), localName, qname, atts2);
 
-                elementStack.push(uri);
+                elementStack.push(uri.toString());
                 elementStack.push(localName);
                 elementStack.push(qname);
 
@@ -428,7 +451,7 @@ public class ContentHandlerProxy implements Receiver {
      */
 
     @Override
-    public void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         currentLocation = locationId;
         boolean disable = ReceiverOption.contains(properties, ReceiverOption.DISABLE_ESCAPING);
         if (disable) {
@@ -436,13 +459,14 @@ public class ContentHandlerProxy implements Receiver {
         }
         try {
             if (depth <= 0 && requireWellFormed) {
-                if (Whitespace.isWhite(chars)) {
+                if (Whitespace.isAllWhite(chars)) {
                     // ignore top-level white space
                 } else {
                     notifyNotWellFormed();
                 }
             } else {
-                handler.characters(chars.toString().toCharArray(), 0, chars.length());
+                String content = chars.toString();
+                handler.characters(content.toCharArray(), 0, content.length());
             }
         } catch (SAXException err) {
             handleSAXException(err);
@@ -453,14 +477,14 @@ public class ContentHandlerProxy implements Receiver {
     }
 
     /**
-     * The following function is called when it is found that the output is not a well-formed document.
+     * The following method is called when it is found that the output is not a well-formed document.
      * Unless the ContentHandler accepts "balanced content", this is a fatal error.
+     * @throws XPathException unconditionally
      */
 
     protected void notifyNotWellFormed() throws XPathException {
-        XPathException err = new XPathException("The result tree cannot be supplied to the ContentHandler because it is not well-formed XML");
-        err.setErrorCode(SaxonErrorCode.SXCH0002);
-        throw err;
+        throw new XPathException("The result tree cannot be supplied to the ContentHandler because it is not well-formed XML")
+                .withErrorCode(SaxonErrorCode.SXCH0002);
     }
 
 
@@ -469,7 +493,7 @@ public class ContentHandlerProxy implements Receiver {
      */
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties)
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties)
             throws XPathException {
         currentLocation = locationId;
         try {
@@ -485,12 +509,13 @@ public class ContentHandlerProxy implements Receiver {
      */
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties)
+    public void comment(UnicodeString chars, Location locationId, int properties)
             throws XPathException {
         currentLocation = locationId;
         try {
             if (lexicalHandler != null) {
-                lexicalHandler.comment(chars.toString().toCharArray(), 0, chars.length());
+                final String str = chars.toString();
+                lexicalHandler.comment(str.toCharArray(), 0, str.length());
             }
         } catch (SAXException err) {
             handleSAXException(err);
@@ -542,9 +567,7 @@ public class ContentHandlerProxy implements Receiver {
         } else if (nested instanceof SchemaException) {
             throw new XPathException(nested);
         } else {
-            XPathException de = new XPathException(err);
-            de.setErrorCode(SaxonErrorCode.SXCH0003);
-            throw de;
+            throw new XPathException(err).withErrorCode(SaxonErrorCode.SXCH0003);
         }
     }
 
@@ -570,7 +593,7 @@ public class ContentHandlerProxy implements Receiver {
          */
 
         /*@Nullable*/
-        public Stack getContextItemStack() {
+        public Stack<Item> getContextItemStack() {
             return contextItemStack;
         }
 

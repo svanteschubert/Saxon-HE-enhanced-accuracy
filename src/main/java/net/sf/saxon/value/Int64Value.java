@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,11 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.Calculator;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.str.StringConstants;
+import net.sf.saxon.str.Twine8;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -46,7 +49,7 @@ public final class Int64Value extends IntegerValue {
      * IntegerValue representing the minimum value for a long
      */
     public static final Int64Value MIN_LONG = new Int64Value(Long.MIN_VALUE);
-    private long value;
+    private final long value;
 
     /**
      * Array of small integer values
@@ -82,30 +85,39 @@ public final class Int64Value extends IntegerValue {
      */
 
     public Int64Value(long value) {
+        super(BuiltInAtomicType.INTEGER);
         this.value = value;
-        typeLabel = BuiltInAtomicType.INTEGER;
+    }
+
+    /**
+     * Constructor supplying a long, with a specific type annotation
+     * @param value the value of the IntegerValue
+     * @param typeLabel the type annotation (trusted to be correct)
+     */
+
+    public Int64Value(long value, AtomicType typeLabel) {
+        super(typeLabel);
+        this.value = value;
     }
 
     /**
      * Constructor for a subtype, supplying a long and a type label.
      *
      * @param val   The supplied value, as an integer
-     * @param type  the required item type, a subtype of xs:integer
+     * @param typeLabel  the required item type, a subtype of xs:integer
      * @param check Set to true if the method is required to check that the value is in range;
      *              false if the caller can guarantee that the value has already been checked.
      * @throws XPathException if the supplied value is out of range for the
      *                        target type
      */
 
-    public Int64Value(long val, /*@NotNull*/ BuiltInAtomicType type, boolean check) throws XPathException {
+    public Int64Value(long val, /*@NotNull*/ BuiltInAtomicType typeLabel, boolean check) throws XPathException {
+        super(typeLabel);
         value = val;
-        typeLabel = type;
-        if (check && !checkRange(value, type)) {
-            XPathException err = new XPathException("Integer value " + val +
-                    " is out of range for the requested type " + type.getDescription());
-            err.setErrorCode("XPTY0004");
-            err.setIsTypeError(true);
-            throw err;
+        if (check && !checkRange(value, typeLabel)) {
+            throw new XPathException("Integer value " + val +
+                    " is out of range for the requested type " + typeLabel.getDescription())
+                    .withErrorCode("XPTY0004").asTypeError();
         }
     }
 
@@ -137,9 +149,7 @@ public final class Int64Value extends IntegerValue {
 
     /*@NotNull*/
     public static Int64Value makeDerived(long val, AtomicType type) {
-        Int64Value v = new Int64Value(val);
-        v.typeLabel = type;
-        return v;
+        return new Int64Value(val, type);
     }
 
     /**
@@ -184,36 +194,9 @@ public final class Int64Value extends IntegerValue {
     @Override
     public AtomicValue copyAsSubType(/*@NotNull*/ AtomicType typeLabel) {
         if (typeLabel.getPrimitiveType() == StandardNames.XS_INTEGER) {
-            Int64Value v = new Int64Value(value);
-            v.typeLabel = typeLabel;
-            return v;
+            return new Int64Value(value, typeLabel);
         } else {
-            return new BigDecimalValue(value);
-        }
-    }
-
-    /**
-     * Convert the value to a subtype of xs:integer
-     *
-     * @param subtype  the target subtype
-     * @param validate true if validation is required; false if the caller already knows that the value is valid
-     * @return null if the conversion succeeds; a ValidationFailure describing the failure if it fails. Note
-     *         that the exception is returned, not thrown.
-     */
-
-    /*@Nullable*/
-    @Override
-    public ValidationFailure convertToSubType(/*@NotNull*/ BuiltInAtomicType subtype, boolean validate) {
-        if (!validate) {
-            setSubType(subtype);
-            return null;
-        } else if (checkRange(subtype)) {
-            return null;
-        } else {
-            ValidationFailure err = new ValidationFailure("String " + value +
-                    " cannot be converted to integer subtype " + subtype.getDescription());
-            err.setErrorCode("FORG0001");
-            return err;
+            return new BigDecimalValue(value).copyAsSubType(typeLabel);
         }
     }
 
@@ -237,94 +220,6 @@ public final class Int64Value extends IntegerValue {
             err.setErrorCode("FORG0001");
             return err;
         }
-    }
-
-    /**
-     * This class allows subtypes of xs:integer to be held, as well as xs:integer values.
-     * This method sets the required type label. It is the caller's responsibility to check that
-     * the value is within range.
-     *
-     * @param type the type label to be assigned
-     */
-    public void setSubType(AtomicType type) {
-        typeLabel = type;
-    }
-
-    /**
-     * This class allows subtypes of xs:integer to be held, as well as xs:integer values.
-     * This method checks that the value is within range, and also sets the type label.
-     *
-     * @param type the subtype of integer required
-     * @return true if successful, false if value is out of range for the subtype
-     */
-    public boolean checkRange(BuiltInAtomicType type) {
-        typeLabel = type;
-        return checkRange(value, type);
-    }
-
-    /**
-     * Get an object that implements XML Schema comparison semantics
-     */
-
-    /*@NotNull*/
-    @Override
-    public Comparable getSchemaComparable() {
-        return new Int64Comparable(this);
-    }
-
-    /**
-     * A Comparable that performs comparison of an Int64Value either with another
-     * Int64Value or with some other representation of an XPath numeric value
-     */
-
-    protected static class Int64Comparable implements Comparable {
-
-        protected Int64Value value;
-
-        public Int64Comparable(Int64Value value) {
-            this.value = value;
-        }
-
-        public long asLong() {
-            return value.longValue();
-        }
-
-        @Override
-        public int compareTo(/*@NotNull*/ Object o) {
-            if (o instanceof Int64Comparable) {
-                long long0 = value.longValue();
-                long long1 = ((Int64Comparable) o).value.longValue();
-                if (long0 <= long1) {
-                    if (long0 == long1) {
-                        return 0;
-                    } else {
-                        return -1;
-                    }
-                } else {
-                    return 1;
-                }
-            } else if (o instanceof BigIntegerValue.BigIntegerComparable) {
-                return value.asBigInteger().compareTo(((BigIntegerValue.BigIntegerComparable) o).asBigInteger());
-            } else if (o instanceof BigDecimalValue.DecimalComparable) {
-                return value.getDecimalValue().compareTo(((BigDecimalValue.DecimalComparable) o).asBigDecimal());
-            } else {
-                return SequenceTool.INDETERMINATE_ORDERING;
-            }
-        }
-
-        public boolean equals(/*@NotNull*/ Object o) {
-            if (o instanceof Int64Comparable) {
-                return asLong() == ((Int64Comparable) o).asLong();
-            } else {
-                return compareTo(o) == 0;
-            }
-        }
-
-        public int hashCode() {
-            // Must align with hashCodes for other subtypes of xs:decimal
-            return (int) asLong();
-        }
-
     }
 
     /**
@@ -371,15 +266,19 @@ public final class Int64Value extends IntegerValue {
      */
 
     @Override
-    public int compareTo(NumericValue other) {
-        if (other instanceof Int64Value) {
-            return Long.compare(value, ((Int64Value) other).value);
-        } else if (other instanceof BigIntegerValue) {
-            return BigInteger.valueOf(value).compareTo(((BigIntegerValue) other).asBigInteger());
-        } else if (other instanceof BigDecimalValue) {
-            return new BigDecimal(value).compareTo(((BigDecimalValue)other).getDecimalValue());
+    public int compareTo(XPathComparable other) {
+        if (other instanceof NumericValue) {
+            if (other instanceof Int64Value) {
+                return Long.compare(value, ((Int64Value) other).value);
+            } else if (other instanceof BigIntegerValue) {
+                return BigInteger.valueOf(value).compareTo(((BigIntegerValue) other).asBigInteger());
+            } else if (other instanceof BigDecimalValue) {
+                return BigDecimal.valueOf(value).compareTo(((BigDecimalValue)other).getDecimalValue());
+            } else {
+                return super.compareTo(other);
+            }
         } else {
-            return super.compareTo(other);
+            throw new ClassCastException("Cannot compare xs:integer to " + other);
         }
     }
 
@@ -402,11 +301,113 @@ public final class Int64Value extends IntegerValue {
      */
 
     @Override
-    public String getPrimitiveStringValue() {
-        return Long.toString(value);
+    public UnicodeString getPrimitiveStringValue() {
+        // Copied from Long.toString(), but generating single-byte characters
+        if (value == Long.MIN_VALUE) {
+            return StringConstants.MIN_LONG;
+        }
+        int size = (value < 0) ? stringSize(-value) + 1 : stringSize(value);
+        byte[] buf = new byte[size];
+        getDigits(value, size, buf);
+        return new Twine8(buf);
+        //return BMPString.of(Long.toString(value));
     }
 
-    /**
+    private static void getDigits(long i, int index, byte[] buf) {
+        // Derived from Long.getChars()
+        long q;
+        int r;
+        int charPos = index;
+        byte sign = 0;
+
+        if (i < 0) {
+            sign = (byte)'-';
+            i = -i;
+        }
+
+        // Get 2 digits/iteration using longs until quotient fits into an int
+        while (i > Integer.MAX_VALUE) {
+            q = i / 100;
+            // really: r = i - (q * 100);
+            r = (int) (i - ((q << 6) + (q << 5) + (q << 2)));
+            i = q;
+            buf[--charPos] = DIGIT_ONES[r];
+            buf[--charPos] = DIGIT_TENS[r];
+        }
+
+        // Get 2 digits/iteration using ints
+        int q2;
+        int i2 = (int) i;
+        while (i2 >= 65536) {
+            q2 = i2 / 100;
+            // really: r = i2 - (q * 100);
+            r = i2 - ((q2 << 6) + (q2 << 5) + (q2 << 2));
+            i2 = q2;
+            buf[--charPos] = DIGIT_ONES[r];
+            buf[--charPos] = DIGIT_TENS[r];
+        }
+
+        // Fall thru to fast mode for smaller numbers
+        // assert(i2 <= 65536, i2);
+        do {
+            q2 = (i2 * 52429) >>> (16 + 3);
+            r = i2 - ((q2 << 3) + (q2 << 1));  // r = i2-(q2*10) ...
+            buf[--charPos] = DIGITS[r];
+            i2 = q2;
+        } while (i2 != 0);
+
+        if (sign != 0) {
+            buf[--charPos] = sign;
+        }
+    }
+
+
+    private final static byte[] DIGITS = StringConstants.bytes("0123456789");
+
+    private final static byte[] DIGIT_TENS = StringConstants.bytes
+            (   "0000000000" +
+                "1111111111" +
+                "2222222222" +
+                "3333333333" +
+                "4444444444" +
+                "5555555555" +
+                "6666666666" +
+                "7777777777" +
+                "8888888888" +
+                "9999999999" );
+
+    private final static byte[] DIGIT_ONES = StringConstants.bytes
+            (   "0123456789" +
+                "0123456789" +
+                "0123456789" +
+                "0123456789" +
+                "0123456789" +
+                "0123456789" +
+                "0123456789" +
+                "0123456789" +
+                "0123456789" +
+                "0123456789" );
+
+
+    // Requires positive x
+    private static int stringSize(long x) {
+        for (int w=0; w<18; w++) {
+            if (x < powersOfTen[w]) {
+                return w+1;
+            }
+        }
+        return 19;
+    }
+
+    private static final long[] powersOfTen = new long[] {
+                10L, 100L, 1000L,
+                10000L, 100000L, 1_000_000L,
+                10_000_000L, 100_000_000L, 1_000_000_000L,
+                10_000_000_000L, 100_000_000_000L, 1_000_000_000_000L,
+                10_000_000_000_000L, 100_000_000_000_000L, 1_000_000_000_000_000L,
+                10_000_000_000_000_000L, 100_000_000_000_000_000L, 1_000_000_000_000_000_000L};
+
+/**
      * Get the numeric value as a double
      *
      * @return A double representing this numeric value; NaN if it cannot be
@@ -709,23 +710,16 @@ public final class Int64Value extends IntegerValue {
      */
 
     @Override
-    public IntegerValue idiv(/*@NotNull*/ IntegerValue other) throws XPathException {
+    public IntegerValue idiv(IntegerValue other) throws XPathException {
         // if either of the values is large, we use BigInteger arithmetic to be on the safe side
+        if (other.signum() == 0) {
+            throw new XPathException("Integer division by zero", "FOAR0001");
+        }
         if (other instanceof Int64Value) {
             if (isLong() || ((Int64Value) other).isLong()) {
                 return new BigIntegerValue(value).idiv(new BigIntegerValue(((Int64Value) other).value));
             }
-            try {
-                return makeIntegerValue(value / ((Int64Value) other).value);
-            } catch (ArithmeticException err) {
-                XPathException e;
-                if ("/ by zero".equals(err.getMessage())) {
-                    e = new XPathException("Integer division by zero", "FOAR0001");
-                } else {
-                    e = new XPathException("Integer division failure", err);
-                }
-                throw e;
-            }
+            return makeIntegerValue(value / ((Int64Value) other).value);
         } else {
             return new BigIntegerValue(value).idiv(other);
         }

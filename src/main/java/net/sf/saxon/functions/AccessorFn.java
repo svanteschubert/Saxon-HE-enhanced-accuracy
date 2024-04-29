@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,16 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemElaborator;
+import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.IntegerValue;
 
@@ -20,6 +26,7 @@ import net.sf.saxon.value.IntegerValue;
 
 public abstract class AccessorFn extends ScalarSystemFunction {
 
+    @CSharpSimpleEnum
     public enum Component {
         YEAR, MONTH, DAY, HOURS, MINUTES, SECONDS, TIMEZONE,
         LOCALNAME, NAMESPACE, PREFIX, MICROSECONDS, NANOSECONDS, WHOLE_SECONDS, YEAR_ALLOWING_ZERO
@@ -62,26 +69,12 @@ public abstract class AccessorFn extends ScalarSystemFunction {
     }
 
     /**
-     * Get the required component
-     * @return the integer code identifying of the required component
-     */
-
-    public int getRequiredComponent() {
-        return getComponentId().ordinal();
-    }
-
-    /**
      * Evaluate the expression
      */
 
     @Override
     public AtomicValue evaluate(Item item, XPathContext context) throws XPathException {
         return ((AtomicValue)item).getComponent(getComponentId());
-    }
-
-    @Override
-    public String getCompilerName() {
-        return "AccessorFnCompiler";
     }
 
 
@@ -278,5 +271,39 @@ public abstract class AccessorFn extends ScalarSystemFunction {
         }
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new AccessorFnElaborator();
+    }
+
+    /**
+     * Elaborator for accessor functions such as hours-from-date-Time, minutes-from-duration
+     */
+
+    public static class AccessorFnElaborator extends ItemElaborator {
+
+        public ItemEvaluator elaborateForItem() {
+            final SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
+            final AccessorFn fn = (AccessorFn) fnc.getTargetFunction();
+            final Component component = fn.getComponentId();
+            final ItemEvaluator argEval = fnc.getArg(0).makeElaborator().elaborateForItem();
+            final boolean nullable = Cardinality.allowsZero(fnc.getArg((0)).getCardinality());
+            return context -> {
+                AtomicValue base = ((AtomicValue) argEval.eval(context));
+                if (nullable && base == null) {
+                    return null;
+                }
+                return base.getComponent(component);
+            };
+        }
+
+
+    }
 }
 

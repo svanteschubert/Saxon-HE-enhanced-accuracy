@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,12 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.ComplexContentOutputter;
 import net.sf.saxon.event.NamespaceReducer;
-import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.elab.UnicodeStringEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.IriToUri;
 import net.sf.saxon.functions.ResolveURI;
@@ -26,8 +29,8 @@ import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.style.XSLResultDocument;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
@@ -83,6 +86,7 @@ public class ResultDocument extends Instruction
      * @param validationAction        for example {@link net.sf.saxon.lib.Validation#STRICT}
      * @param schemaType              schema type against which output is to be validated
      * @param serializationAttributes computed local properties
+     * @param characterMapIndex       index of named character maps
      */
 
     public ResultDocument(Properties globalProperties,      // properties defined on static xsl:output
@@ -134,8 +138,9 @@ public class ResultDocument extends Instruction
         if (validationOptions == null) {
             validationOptions = new ParseOptions();
         }
-        validationOptions.setSchemaValidationMode(Validation.BY_TYPE);
-        validationOptions.setTopLevelType(type);
+        validationOptions = validationOptions
+                .withSchemaValidationMode(Validation.BY_TYPE)
+                .withTopLevelType(type);
     }
 
     /**
@@ -179,9 +184,9 @@ public class ResultDocument extends Instruction
         boolean preservingTypes = mode == Validation.PRESERVE && schemaType == null;
         if (!preservingTypes) {
             if (validationOptions == null) {
-                validationOptions = new ParseOptions();
-                validationOptions.setSchemaValidationMode(mode);
-                validationOptions.setTopLevelType(schemaType);
+                validationOptions = new ParseOptions()
+                        .withSchemaValidationMode(mode)
+                        .withTopLevelType(schemaType);
             }
         }
     }
@@ -203,7 +208,7 @@ public class ResultDocument extends Instruction
     }
 
     /**
-     * Set whether the the instruction should resolve the href relative URI against the static
+     * Set whether the instruction should resolve the href relative URI against the static
      * base URI (rather than the dynamic base output URI)
      *
      * @param staticBase set to true by fn:put(), to resolve against the static base URI of the query.
@@ -250,8 +255,7 @@ public class ResultDocument extends Instruction
             try {
                 DocumentInstr.checkContentSequence(visitor.getStaticContext(), contentOp, validationOptions);
             } catch (XPathException err) {
-                err.maybeSetLocation(getLocation());
-                throw err;
+                throw err.maybeWithLocation(getLocation());
             }
         }
         return this;
@@ -374,13 +378,7 @@ public class ResultDocument extends Instruction
     }
 
 
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        process(getContentExpression(), context);
-        return null;
-    }
-
-    public void process(Expression content, XPathContext context) throws XPathException {
+    public void process(PushEvaluator content, XPathContext context) throws XPathException {
         checkNotTemporaryOutputState(context);
         context.getConfiguration().processResultDocument(this, content, context);
     }
@@ -394,7 +392,7 @@ public class ResultDocument extends Instruction
      * @throws XPathException if a dynamic error occurs
      */
 
-    public void processInstruction(Expression content, XPathContext context) throws XPathException {
+    public void processInstruction(PushEvaluator content, XPathContext context) throws XPathException {
         final XsltController controller = (XsltController) context.getController();
         assert controller != null;
 
@@ -402,12 +400,11 @@ public class ResultDocument extends Instruction
         ComplexContentOutputter out = processLeft(context);
         boolean failed = false;
         try {
-            content.process(out, context);
+            TailCall tc = content.processLeavingTail(out, context);
+            dispatchTailCall(tc);
         } catch (XPathException err) {
             failed = true;
-            err.maybeSetContext(context);
-            err.maybeSetLocation(getLocation());
-            throw err;
+            throw err.maybeWithLocation(getLocation()).maybeWithContext(context);
         } finally {
             try {
                 out.close();
@@ -438,7 +435,6 @@ public class ResultDocument extends Instruction
             } catch (URISyntaxException e) {
                 throw XPathException.makeXPathException(e);
             }
-            //computedLocalProps.setProperty(SaxonOutputKeys.PARAMETER_DOCUMENT_BASE_URI, getStaticBaseURIString());
         }
         SerializationProperties serParams = new SerializationProperties(computedLocalProps, characterMapIndex);
 
@@ -450,9 +446,9 @@ public class ResultDocument extends Instruction
                     output -> {
                         // Validation can add redundant namespace declarations so we
                         // need to follow it with a namespace reducer
-                        NamespaceReducer nr = new NamespaceReducer(output);
+                        NamespaceReducer reducer = new NamespaceReducer(output);
                         return config.getDocumentValidator(
-                                nr, output.getSystemId(), validationOptions, getLocation());
+                                reducer, output.getSystemId(), validationOptions, getLocation());
                     }
             );
         }
@@ -461,7 +457,8 @@ public class ResultDocument extends Instruction
         ResultDocumentResolver resolver;
         String hrefValue = "";
         if (getHref() != null) {
-            hrefValue = IriToUri.iriToUri(getHref().evaluateAsString(context)).toString();
+            UnicodeStringEvaluator hrefEval = getHref().makeElaborator().elaborateForUnicodeString(true);
+            hrefValue = IriToUri.iriToUri(hrefEval.eval(context)).toString();
         }
         if (hrefValue.isEmpty() || hrefValue.equals(controller.getBaseOutputURI())) {
             PrincipalOutputGatekeeper gateKeeper = controller.getGatekeeper();
@@ -474,13 +471,14 @@ public class ResultDocument extends Instruction
         if (out == null) {
             try {
                 resolver = controller.getResultDocumentResolver();
+                if (resolver == null) {
+                    resolver = StandardResultDocumentResolver.getInstance();
+                }
                 out = makeReceiver(hrefValue, getStaticBaseURIString(), context,
                                    resolver, serParams, resolveAgainstStaticBase);
                 traceDestination(context, out);
             } catch (XPathException e) {
-                e.maybeSetLocation(getLocation());
-                e.maybeSetContext(context);
-                throw e;
+                throw e.maybeWithLocation(getLocation()).maybeWithContext(context);
             }
         }
         out.getPipelineConfiguration().setController(controller);
@@ -502,11 +500,10 @@ public class ResultDocument extends Instruction
 
     private void checkNotTemporaryOutputState(XPathContext context) throws XPathException {
         if (context.getTemporaryOutputState() != 0) {
-            XPathException err = new XPathException("Cannot execute xsl:result-document while evaluating xsl:" +
-                                                            context.getNamePool().getLocalName(context.getTemporaryOutputState()));
-            err.setErrorCode("XTDE1480");
-            err.setLocation(getLocation());
-            throw err;
+            throw new XPathException("Cannot execute xsl:result-document while evaluating xsl:" +
+                                                            context.getNamePool().getLocalName(context.getTemporaryOutputState()))
+                    .withErrorCode("XTDE1480")
+                    .withLocation(getLocation());
         }
     }
 
@@ -514,7 +511,6 @@ public class ResultDocument extends Instruction
                                         XPathContext context, ResultDocumentResolver resolver,
                                         SerializationProperties params,
                                         boolean resolveAgainstStaticBase) throws XPathException {
-        String resultURI = null;
         Controller controller = context.getController();
         try {
             String base;
@@ -570,22 +566,20 @@ public class ResultDocument extends Instruction
         assert controller != null;
         if (uri != null) {
             if (controller.getDocumentPool().find(uri) != null) {
-                XPathException err = new XPathException("Cannot write to a URI that has already been read: " +
-                                                                (uri.equals(Controller.ANONYMOUS_PRINCIPAL_OUTPUT_URI) ? "(implicit output URI)" : uri));
-                err.setXPathContext(context);
-                err.setErrorCode("XTDE1500");
-                throw err;
+                throw new XPathException("Cannot write to a URI that has already been read: " +
+                                                                (uri.equals(Controller.ANONYMOUS_PRINCIPAL_OUTPUT_URI) ? "(implicit output URI)" : uri))
+                        .withXPathContext(context)
+                        .withErrorCode("XTDE1500");
             }
 
             DocumentKey documentKey = new DocumentKey(uri);
             //noinspection SynchronizationOnLocalVariableOrMethodParameter
             synchronized(controller) {
                 if (!controller.checkUniqueOutputDestination(documentKey)) {
-                    XPathException err = new XPathException("Cannot write more than one result document to the same URI: " +
-                                                                    (uri.equals(Controller.ANONYMOUS_PRINCIPAL_OUTPUT_URI) ? "(implicit output URI)" : uri));
-                    err.setXPathContext(context);
-                    err.setErrorCode("XTDE1490");
-                    throw err;
+                    throw new XPathException("Cannot write more than one result document to the same URI: " +
+                                                                    (uri.equals(Controller.ANONYMOUS_PRINCIPAL_OUTPUT_URI) ? "(implicit output URI)" : uri))
+                            .withXPathContext(context)
+                            .withErrorCode("XTDE1490");
                 } else {
                     controller.addUnavailableOutputDestination(documentKey);
                 }
@@ -621,28 +615,25 @@ public class ResultDocument extends Instruction
                 try {
                     parts = NameChecker.getQNameParts(format);
                 } catch (QNameException e) {
-                    XPathException err = new XPathException("The requested output format " + Err.wrap(format) + " is not a valid QName");
-                    err.maybeSetLocation(getFormatExpression().getLocation());
-                    err.setErrorCode("XTDE1460");
-                    err.setXPathContext(context);
-                    throw err;
+                    throw new XPathException("The requested output format " + Err.wrap(format) + " is not a valid QName")
+                            .withErrorCode("XTDE1460")
+                            .withXPathContext(context)
+                            .withLocation(getFormatExpression().getLocation());
                 }
-                String uri = nsResolver.getURIForPrefix(parts[0], false);
+                NamespaceUri uri = nsResolver.getURIForPrefix(parts[0], false);
                 if (uri == null) {
-                    XPathException err = new XPathException("The namespace prefix in the format name " + format + " is undeclared");
-                    err.maybeSetLocation(getFormatExpression().getLocation());
-                    err.setErrorCode("XTDE1460");
-                    err.setXPathContext(context);
-                    throw err;
+                    throw new XPathException("The namespace prefix in the format name " + format + " is undeclared")
+                            .withLocation(getFormatExpression().getLocation())
+                            .withErrorCode("XTDE1460")
+                            .withXPathContext(context);
                 }
                 qName = new StructuredQName(parts[0], uri, parts[1]);
             }
             computedGlobalProps = ((StylesheetPackage) getRetainedStaticContext().getPackageData()).getNamedOutputProperties(qName);
             if (computedGlobalProps == null) {
-                XPathException err = new XPathException("There is no xsl:output format named " + format);
-                err.setErrorCode("XTDE1460");
-                err.setXPathContext(context);
-                throw err;
+                throw new XPathException("There is no xsl:output format named " + format)
+                        .withErrorCode("XTDE1460")
+                        .withXPathContext(context);
             }
 
         }
@@ -653,16 +644,13 @@ public class ResultDocument extends Instruction
 
         // First handle the properties with fixed values on xsl:result-document
 
-        for (Object keyo : localProperties.keySet()) {
-            String key = (String) keyo;
+        for (String key : localProperties.stringPropertyNames()) {
             StructuredQName qName = StructuredQName.fromClarkName(key);
             try {
-                setSerializationProperty(computedLocalProps, qName.getURI(), qName.getLocalPart(),
+                setSerializationProperty(computedLocalProps, qName.getNamespaceUri(), qName.getLocalPart(),
                                          localProperties.getProperty(key), nsResolver, true, config);
             } catch (XPathException e) {
-                e.setErrorCode("XTDE0030");
-                e.maybeSetLocation(getLocation());
-                throw e;
+                throw e.withErrorCode("XTDE0030").maybeWithLocation(getLocation());
             }
         }
 
@@ -672,15 +660,15 @@ public class ResultDocument extends Instruction
             for (Map.Entry<StructuredQName, Operand> entry : serializationAttributes.entrySet()) {
                 String value = entry.getValue().getChildExpression().evaluateAsString(context).toString();
                 String lname = entry.getKey().getLocalPart();
-                String uri = entry.getKey().getURI();
+                NamespaceUri uri = entry.getKey().getNamespaceUri();
                 try {
                     setSerializationProperty(computedLocalProps, uri, lname, value, nsResolver, false, config);
                 } catch (XPathException e) {
                     e.setErrorCode("XTDE0030");
                     e.maybeSetLocation(getLocation());
                     e.maybeSetContext(context);
-                    if (NamespaceConstant.SAXON.equals(e.getErrorCodeNamespace()) &&
-                            "SXWN".equals(e.getErrorCodeLocalPart().substring(0, 4))) {
+                    if (e.getErrorCodeQName().hasURI(NamespaceUri.SAXON) &&
+                            "SXWN".equals(e.getErrorCodeQName().getLocalPart().substring(0, 4))) {
                         XmlProcessingException ee = new XmlProcessingException(e);
                         ee.setWarning(true);
                         controller.getErrorReporter().report(ee);
@@ -690,6 +678,9 @@ public class ResultDocument extends Instruction
                 }
             }
         }
+
+        // For choosing the default output method, avoid using the backwards-compatibility rules
+        computedLocalProps.setProperty(SaxonOutputKeys.STYLESHEET_VERSION, "30");
 
         return computedLocalProps;
     }
@@ -730,7 +721,7 @@ public class ResultDocument extends Instruction
      * @throws XPathException if any serialization property has an invalid value
      */
 
-    public static void setSerializationProperty(Properties details, String uri, String lname,
+    public static void setSerializationProperty(Properties details, NamespaceUri uri, String lname,
                                                 String value, /*@Nullable*/ NamespaceResolver nsResolver,
                                                 boolean prevalidated, Configuration config)
             throws XPathException {
@@ -739,7 +730,7 @@ public class ResultDocument extends Instruction
         if (!uri.isEmpty()) {
             clarkName = "{" + uri + "}" + lname;
         }
-        if (uri.isEmpty() || NamespaceConstant.SAXON.equals(uri)) {
+        if (uri.isEmpty() || NamespaceUri.SAXON.equals(uri)) {
             switch (clarkName) {
                 case "method":
                     value = Whitespace.trim(value);
@@ -759,27 +750,21 @@ public class ResultDocument extends Instruction
                             parts = NameChecker.getQNameParts(value);
                             String prefix = parts[0];
                             if (prefix.isEmpty()) {
-                                XPathException err = new XPathException("method must be xml, html, xhtml, text, json, adaptive, or a prefixed name");
-                                err.setErrorCode("SEPM0016");
-                                err.setIsStaticError(true);
-                                throw err;
+                                throw new XPathException("method must be xml, html, xhtml, text, json, adaptive, or a prefixed name")
+                                        .withErrorCode("SEPM0016").asStaticError();
                             } else if (nsResolver != null) {
-                                String muri = nsResolver.getURIForPrefix(prefix, false);
+                                NamespaceUri muri = nsResolver.getURIForPrefix(prefix, false);
                                 if (muri == null) {
-                                    XPathException err = new XPathException("Namespace prefix '" + prefix + "' has not been declared");
-                                    err.setErrorCode("SEPM0016");
-                                    err.setIsStaticError(true);
-                                    throw err;
+                                    throw new XPathException("Namespace prefix '" + prefix + "' has not been declared")
+                                            .withErrorCode("SEPM0016").asStaticError();
                                 }
-                                details.setProperty(OutputKeys.METHOD, '{' + muri + '}' + parts[1]);
+                                details.setProperty(OutputKeys.METHOD, '{' + muri.toString() + '}' + parts[1]);
                             } else {
                                 details.setProperty(OutputKeys.METHOD, value);
                             }
                         } catch (QNameException e) {
-                            XPathException err = new XPathException("Invalid method name. " + e.getMessage());
-                            err.setErrorCode("SEPM0016");
-                            err.setIsStaticError(true);
-                            throw err;
+                            throw new XPathException("Invalid method name. " + e.getMessage())
+                                    .withErrorCode("SEPM0016").asStaticError();
                         }
                     }
                     break;
@@ -831,7 +816,7 @@ public class ResultDocument extends Instruction
             }
         } else {
             // properties in user-defined namespaces
-            details.setProperty('{' + uri + '}' + lname, value);
+            details.setProperty('{' + uri.toString() + '}' + lname, value);
         }
 
     }
@@ -858,14 +843,14 @@ public class ResultDocument extends Instruction
         out.emitAttribute("global", exportProperties(globalProperties));
         out.emitAttribute("local", exportProperties(localProperties));
         if (getValidationAction() != Validation.SKIP && getValidationAction() != Validation.BY_TYPE) {
-            out.emitAttribute("validation", Validation.toString(getValidationAction()));
-        }
-        if (async) {
-            out.emitAttribute("flags", "a");
+            out.emitAttribute("validation", Validation.describe(getValidationAction()));
         }
         final SchemaType schemaType = getSchemaType();
         if (schemaType != null) {
             out.emitAttribute("type", schemaType.getStructuredQName());
+        }
+        if (async) {
+            out.emitAttribute("flags", "a");
         }
         if (getHref() != null) {
             out.setChildRole("href");
@@ -897,10 +882,8 @@ public class ResultDocument extends Instruction
                 // TODO: other QName-valued fields such as cdata-section-elements??
                 val = val.replace("{", "Q{");
             }
-            if (key.startsWith("{")) {
-                key = "Q" + key;
-            }
-            writer.append(key).append("=").append(val).append("\n");
+            String adjustedKey = key.startsWith("{") ? "Q" + key : key;
+            writer.append(adjustedKey).append("=").append(val).append("\n");
         }
         return writer.toString();
     }
@@ -918,7 +901,7 @@ public class ResultDocument extends Instruction
     public static void processXslOutputElement(NodeInfo element, Properties props, XPathContext c) throws XPathException {
         NamespaceResolver resolver = element.getAllNamespaces();
         for (AttributeInfo att : element.attributes()) {
-            String uri = att.getNodeName().getURI();
+            NamespaceUri uri = att.getNodeName().getNamespaceUri();
             String local = att.getNodeName().getLocalPart();
             String val = Whitespace.trim(att.getValue());
             setSerializationProperty(props, uri, local, val, resolver, false, c.getConfiguration());
@@ -954,5 +937,28 @@ public class ResultDocument extends Instruction
         return contentOp.getChildExpression();
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return an appropriate {@link Elaborator}
+     */
+    @Override
+    public Elaborator getElaborator() {
+        return new ResultDocumentElaborator();
+    }
+
+    private static class ResultDocumentElaborator extends PushElaborator {
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            ResultDocument expr = (ResultDocument) getExpression();
+            PushEvaluator contentPush = expr.getContentExpression().makeElaborator().elaborateForPush();
+            return (output, context) -> {
+                expr.checkNotTemporaryOutputState(context);
+                context.getConfiguration().processResultDocument(expr, contentPush, context);
+                return null;
+            };
+        }
+    }
 }
 

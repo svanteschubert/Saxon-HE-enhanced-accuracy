@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -31,7 +31,7 @@ import java.net.*;
 
 public class StandardResultDocumentResolver implements ResultDocumentResolver {
 
-    private static StandardResultDocumentResolver theInstance = new StandardResultDocumentResolver();
+    private static final StandardResultDocumentResolver theInstance = new StandardResultDocumentResolver();
 
     /**
      * Get a singular instance
@@ -100,6 +100,8 @@ public class StandardResultDocumentResolver implements ResultDocumentResolver {
             throw new XPathException("Specified protocol does not allow output", err5);
         } catch (IOException err4) {
             throw new XPathException("Cannot open connection to specified URL", err4);
+        } catch (Exception err6) {
+            throw new XPathException("Standard result document resolver failed", err6);
         }
     }
 
@@ -113,6 +115,7 @@ public class StandardResultDocumentResolver implements ResultDocumentResolver {
             // This is optimistic: I have yet to discover a URL scheme that it can handle "out of the box".
             // But it can apparently be achieved using custom-written protocol handlers.
 
+            String details = "";
             URLConnection connection = absoluteURI.toURL().openConnection();
             connection.setDoInput(false);
             connection.setDoOutput(true);
@@ -120,7 +123,13 @@ public class StandardResultDocumentResolver implements ResultDocumentResolver {
             OutputStream stream = connection.getOutputStream();
             StreamResult result = new StreamResult(stream);
             result.setSystemId(absoluteURI.toASCIIString());
-            return result;
+            try {
+                return result;
+            } catch (Exception e) {
+                details = e.getMessage();
+                throw new XPathException("Failed to establish connection to non-file output destination" +
+                        (details.isEmpty() ? "" : (": " + details)));
+            }
         }
     }
 

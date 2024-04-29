@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.lib.CollectionFinder;
 import net.sf.saxon.lib.ResourceCollection;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
@@ -26,20 +27,42 @@ import java.util.Iterator;
 
 public class UriCollection extends SystemFunction {
 
-    private SequenceIterator getUris(final String href, final XPathContext context) throws XPathException {
-        ResourceCollection rCollection = context.getController().getCollectionFinder().findCollection(context, href);
-        if (rCollection == null) {
+    //@CSharpInnerClass(outer=false, extra={"java.util.Iterator<string> sources"})
+    private SequenceIterator getUris(final String absoluteURI, final XPathContext context) throws XPathException {
+
+        // Use a collection registered with the configuration if there is one
+
+        ResourceCollection collection = context.getConfiguration().getRegisteredCollection(absoluteURI);
+
+        // Call the user-supplied CollectionFinder to get the ResourceCollection
+
+        if (collection == null) {
+            CollectionFinder collectionFinder = context.getController().getCollectionFinder();
+            if (collectionFinder != null) {
+                collection = collectionFinder.findCollection(context, absoluteURI);
+            }
+        }
+
+        if (collection == null) {
             // Should not happen, we're calling user code so we check for it.
-            XPathException err = new XPathException("No collection has been defined for href: " + (href == null ? "" : href));
-            err.setErrorCode("FODC0002");
-            err.setXPathContext(context);
-            throw err;
+            throw new XPathException("No collection has been defined for href: " + (absoluteURI == null ? "" : absoluteURI))
+                    .withErrorCode("FODC0002").withXPathContext(context);
 
         }
-        final Iterator<String> sources = rCollection.getResourceURIs(context);
+        final Iterator<String> sources = collection.getResourceURIs(context);
         final Iterator<AnyURIValue> uris = new MappingJavaIterator<String, AnyURIValue>(sources, s -> new AnyURIValue(s));
         return new IteratorWrapper(uris);
     }
+
+    private Sequence getDefaultUriCollection(XPathContext context) throws XPathException {
+        String href = context.getConfiguration().getDefaultCollection();
+        if (href == null) {
+            throw new XPathException("No default collection has been defined", "FODC0002");
+        } else {
+            return new LazySequence(getUris(href, context));
+        }
+    }
+
 
     /**
      * Evaluate the expression
@@ -51,6 +74,7 @@ public class UriCollection extends SystemFunction {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
+    //@CSharpReplaceBody(code="throw new NotImplementedException();")
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         if (arguments.length == 0) {
             return getDefaultUriCollection(context);
@@ -78,14 +102,6 @@ public class UriCollection extends SystemFunction {
 
     }
 
-    private Sequence getDefaultUriCollection(XPathContext context) throws XPathException {
-        String href = context.getConfiguration().getDefaultCollection();
-        if (href == null) {
-            throw new XPathException("No default collection has been defined", "FODC0002");
-        } else {
-            return new LazySequence(getUris(href, context));
-        }
-    }
 
 }
 

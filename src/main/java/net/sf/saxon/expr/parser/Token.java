@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -221,6 +221,14 @@ public abstract class Token {
      */
     public static final int TREAT_AS = 47;
     /**
+     * operator "??"
+     */
+    public static final int QMARK_QMARK = 48;
+    /*
+     * operator "!!"
+     */
+    public static final int BANG_BANG = 49;
+    /**
      * operator "eq"
      */
     public static final int FEQ = 50;       // "Fortran" style comparison operators eq, ne, etc
@@ -298,9 +306,9 @@ public abstract class Token {
     public static final int MODIFY = 68;
 
     /**
-     * Node kind, e.g. "node()" or "comment()"
+     * `name(` for a reserved function name, e.g. "node(" or "comment(" or "function(" or "union("
      */
-    public static final int NODEKIND = 69;
+    public static final int KEYWORD_LBRA = 69;
     /**
      * "*:" token
      */
@@ -322,7 +330,7 @@ public abstract class Token {
      */
     public static final int FOR_SLIDING = 74;
     /**
-     * "for member" (Saxon extension)
+     * "for member" (XQuery 4.0)
      */
     public static final int FOR_MEMBER = 75;
 
@@ -334,7 +342,7 @@ public abstract class Token {
     /**
      * Arrow operator "=&gt;" (XQuery 3.1)
      */
-    public static final int ARROW = 77;
+    public static final int FAT_ARROW = 77;
     /**
      * First part of a string template. Token value includes all the text from ``[ up to the first `{
      */
@@ -351,6 +359,28 @@ public abstract class Token {
      * "orElse" (Saxon extension)
      */
     public static final int OR_ELSE = 81;
+
+    /**
+     * Thin arrow operator "-&gt;" (XQuery 4.0)
+     */
+    public static final int THIN_ARROW = 83;
+
+    /**
+     * Mathematical multiply operator "×"
+     */
+
+    public static final int MATH_MULT = 84;
+
+    /**
+     * Mathematical divide operator "÷"
+     */
+
+    public static final int MATH_DIVIDE = 85;
+
+    /**
+     * Arrow operator "=&gt;" (XQuery 3.1)
+     */
+    public static final int MAPPING_ARROW = 86;
 
 
     // The following tokens are used only in the query prolog. They are categorized
@@ -375,130 +405,136 @@ public abstract class Token {
      */
     public static final int DECLARE_DEFAULT = 91;
     /**
+     * "declare fixed"
+     */
+    public static final int DECLARE_FIXED = 92;
+    /**
      * "declare construction"
      */
-    public static final int DECLARE_CONSTRUCTION = 92;
+    public static final int DECLARE_CONSTRUCTION = 98;
     /**
      * "declare base-uri"
      */
-    public static final int DECLARE_BASEURI = 93;
+    public static final int DECLARE_BASEURI = 99;
     /**
      * "declare boundary-space"
      */
-    public static final int DECLARE_BOUNDARY_SPACE = 94;
+    public static final int DECLARE_BOUNDARY_SPACE = 101;
     /**
      * "declare decimal-format"
      */
-    public static final int DECLARE_DECIMAL_FORMAT = 95;
+    public static final int DECLARE_DECIMAL_FORMAT = 103;
     /**
      * "import schema"
      */
-    public static final int IMPORT_SCHEMA = 96;
+    public static final int IMPORT_SCHEMA = 105;
     /**
      * "import module"
      */
-    public static final int IMPORT_MODULE = 97;
+    public static final int IMPORT_MODULE = 107;
     /**
      * "declare variable"
      */
-    public static final int DECLARE_VARIABLE = 98;
+    public static final int DECLARE_VARIABLE = 108;
     /**
      * "declare context"
      */
-    public static final int DECLARE_CONTEXT = 99;
+    public static final int DECLARE_CONTEXT = 109;
     /**
      * "declare function"
      */
-    public static final int DECLARE_FUNCTION = 100;
+    public static final int DECLARE_FUNCTION = 110;
     /**
      * "module namespace"
      */
-    public static final int MODULE_NAMESPACE = 101;
+    public static final int MODULE_NAMESPACE = 111;
     /**
      * Various compound symbols supporting XQuery validation expression
      */
-    public static final int VALIDATE = 102;
-    public static final int VALIDATE_STRICT = 103;
-    public static final int VALIDATE_LAX = 104;
-    public static final int VALIDATE_TYPE = 105;
+    public static final int VALIDATE = 112;
+    public static final int VALIDATE_STRICT = 113;
+    public static final int VALIDATE_LAX = 114;
+    public static final int VALIDATE_TYPE = 115;
     /**
      * percent sign '%'
      */
-    public static final int PERCENT = 106;
+    public static final int PERCENT = 116;
 
     /**
      * "declare xmlspace"
      */
-    public static final int DECLARE_ORDERING = 107;
+    public static final int DECLARE_ORDERING = 117;
 
     /**
      * "declare copy-namespaces"
      */
-    public static final int DECLARE_COPY_NAMESPACES = 108;
+    public static final int DECLARE_COPY_NAMESPACES = 118;
     /**
      * "declare option"
      */
-    public static final int DECLARE_OPTION = 109;
+    public static final int DECLARE_OPTION = 119;
     /**
      * "declare revalidation"
      */
-    public static final int DECLARE_REVALIDATION = 110;
+    public static final int DECLARE_REVALIDATION = 124;
     /**
      * "insert node/nodes"
      */
-    public static final int INSERT_NODE = 111;
+    public static final int INSERT_NODE = 125;
     /**
      * "delete node/nodes"
      */
-    public static final int DELETE_NODE = 112;
+    public static final int DELETE_NODE = 126;
     /**
      * "replace node/nodes"
      */
-    public static final int REPLACE_NODE = 113;
+    public static final int REPLACE_NODE = 127;
     /**
      * "replace value"
      */
-    public static final int REPLACE_VALUE = 114;
+    public static final int REPLACE_VALUE = 128;
     /**
      * "rename node"
      */
-    public static final int RENAME_NODE = 115;
+    public static final int RENAME_NODE = 130;
     /**
      * "first into"
      */
-    public static final int FIRST_INTO = 116;
+    public static final int FIRST_INTO = 131;
     /**
      * "last into"
      */
-    public static final int LAST_INTO = 117;
+    public static final int LAST_INTO = 132;
     /**
      * "after"
      */
-    public static final int AFTER = 118;
+    public static final int AFTER = 133;
     /**
      * "before"
      */
-    public static final int BEFORE = 119;
+    public static final int BEFORE = 134;
     /**
      * "into"
      */
-    public static final int INTO = 120;
+    public static final int INTO = 135;
     /**
      * "with"
      */
-    public static final int WITH = 121;
+    public static final int WITH = 136;
     /**
      * "declare updating [function]"
      */
-    public static final int DECLARE_UPDATING = 122;
+    public static final int DECLARE_UPDATING = 138;
     /**
      * declare %
      */
-    public static final int DECLARE_ANNOTATED = 123;
+    public static final int DECLARE_ANNOTATED = 140;
     /**
      * Saxon extension: declare type
      */
-    public static final int DECLARE_TYPE = 124;
+    public static final int DECLARE_ITEM_TYPE = 144;
+    public static final int SWITCH_CASE = 145;
+
     /**
      * semicolon separator
      */
@@ -508,7 +544,7 @@ public abstract class Token {
     /**
      * Constant identifying the token number of the last token to be classified as an operator
      */
-    static int LAST_OPERATOR = 150;
+    public static final int LAST_OPERATOR = 150;
 
     // Tokens that set "operator" context, so an immediately following "div" is recognized
     // as an operator, not as an element name
@@ -590,9 +626,18 @@ public abstract class Token {
      */
     public static final int COUNT = 220;
     /**
-     * Complete string template with no embedded expressions
+     * Complete string constructor with no embedded expressions
      */
     public static final int STRING_LITERAL_BACKTICKED = 222;
+
+    /**
+     * Backtick (introducing a 4.0 string template)
+     */
+
+    public static final int BACKTICK = 223;
+
+    public static final int HEX_INTEGER = 224;
+    public static final int BINARY_INTEGER = 225;
 
     /**
      * Unary minus sign
@@ -626,7 +671,9 @@ public abstract class Token {
         tokens[PLUS] = "+";
         tokens[MINUS] = "-";
         tokens[MULT] = "*";
+        tokens[MATH_MULT] = "×";
         tokens[DIV] = "div";
+        tokens[MATH_DIVIDE] = "÷";
         tokens[MOD] = "mod";
         tokens[IS] = "is";
         tokens[DOLLAR] = "$";
@@ -654,6 +701,8 @@ public abstract class Token {
         tokens[INSTANCE_OF] = "instance of";
         tokens[CAST_AS] = "cast as";
         tokens[TREAT_AS] = "treat as";
+        tokens[QMARK_QMARK] = "??";
+        tokens[BANG_BANG] = "!!";
         tokens[FEQ] = "eq";
         tokens[FNE] = "ne";
         tokens[FGT] = "gt";
@@ -677,11 +726,14 @@ public abstract class Token {
         tokens[AS] = "as";
 
         tokens[COLON] = ":";
-        tokens[ARROW] = "=>";
+        tokens[FAT_ARROW] = "=>";
+        tokens[MAPPING_ARROW] = "=!>";
+        tokens[THIN_ARROW] = "->";
         tokens[AND_ALSO] = "andAlso";
         tokens[OR_ELSE] = "orElse";
         tokens[STRING_CONSTRUCTOR_INITIAL] = "``[<string>`{";
         tokens[STRING_LITERAL_BACKTICKED] = "``[<string>]``";
+        tokens[BACKTICK] = "`";
         tokens[OTHERWISE] = "otherwise";
 
         tokens[NAME] = "<name>";
@@ -693,7 +745,9 @@ public abstract class Token {
         tokens[STAR] = "*";
         tokens[PREFIX] = "<prefix:*>";
         tokens[NUMBER] = "<numeric-literal>";
-        tokens[NODEKIND] = "<node-type>()";
+        tokens[HEX_INTEGER] = "<hex-integer>";
+        tokens[BINARY_INTEGER] = "<binary-integer>";
+        tokens[KEYWORD_LBRA] = "<node-type>()";
         tokens[FOR] = "for";
         tokens[SUFFIX] = "<*:local-name>";
         tokens[QMARK] = "?";
@@ -739,11 +793,12 @@ public abstract class Token {
         mapDouble("declare base-uri", DECLARE_BASEURI);
         mapDouble("declare boundary-space", DECLARE_BOUNDARY_SPACE);
         mapDouble("declare decimal-format", DECLARE_DECIMAL_FORMAT);
+        mapDouble("declare fixed", DECLARE_FIXED);
         mapDouble("declare ordering", DECLARE_ORDERING);
         mapDouble("declare copy-namespaces", DECLARE_COPY_NAMESPACES);
         mapDouble("declare option", DECLARE_OPTION);
         mapDouble("declare revalidation", DECLARE_REVALIDATION);
-        mapDouble("declare type", DECLARE_TYPE); // Saxon extension
+        mapDouble("declare item-type", DECLARE_ITEM_TYPE);
         mapDouble("import schema", IMPORT_SCHEMA);
         mapDouble("import module", IMPORT_MODULE);
         mapDouble("declare variable", DECLARE_VARIABLE);
@@ -764,6 +819,7 @@ public abstract class Token {
         mapDouble("rename nodes", RENAME_NODE);
         mapDouble("first into", FIRST_INTO);
         mapDouble("last into", LAST_INTO);
+        mapDouble("switch case", SWITCH_CASE);
     }
 
     private static void mapDouble(String doubleKeyword, int token) {

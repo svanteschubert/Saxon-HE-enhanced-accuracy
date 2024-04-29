@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,12 @@ package net.sf.saxon.pattern;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.functions.Current;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
@@ -30,9 +34,12 @@ import net.sf.saxon.type.*;
 
 public final class GeneralNodePattern extends Pattern {
 
-    private Expression equivalentExpr = null;
-    private NodeTest itemType = null;
+    private Expression equivalentExpr;
+    private final NodeTest itemType;
     private Expression topNodeEquivalent = null;
+    private PullEvaluator equivalentExprEvaluator;
+    private PullEvaluator equivalentTopNodeEvaluator;
+    private Pattern precondition = null;
 
     /**
      * Create a GeneralNodePattern
@@ -69,13 +76,12 @@ public final class GeneralNodePattern extends Pattern {
                     }
                 }
                 if (copyHead instanceof AxisExpression) {
-                    ((AxisExpression) copyHead).setAxis(AxisInfo.SELF);
+                    ((AxisExpression)copyHead).setAxis(AxisInfo.SELF);
                     topNodeEquivalent = copy;
                 }
             }
         }
     }
-
 
     /**
      * Get the immediate sub-expressions of this expression, with information about the relationship
@@ -151,6 +157,15 @@ public final class GeneralNodePattern extends Pattern {
                 // cannot make pattern from expression - not a problem, just use the original
             }
         }
+        // See if there are any predicates we can promote, to avoid a complex search
+        if (equivalentExpr instanceof FirstItemExpression || equivalentExpr instanceof LastItemExpression) {
+            UnaryExpression unaryExpr = ((UnaryExpression)equivalentExpr);
+            Expression baseExpr = unaryExpr.getBaseExpression();
+            if (baseExpr instanceof FilterExpression && !((FilterExpression)baseExpr).isFilterIsPositional()) {
+                precondition = new BasePatternWithPredicate(new UniversalPattern(), ((FilterExpression) baseExpr).getFilter().copy(new RebindingMap()));
+                precondition = precondition.typeCheck(visitor, contextInfo).optimize(visitor, contextInfo);
+            }
+        }
         return this;
     }
 
@@ -207,14 +222,20 @@ public final class GeneralNodePattern extends Pattern {
         if (!itemType.matches(item, th)) {
             return false;
         }
+        if (precondition != null && !precondition.matches(item, context)) {
+            return false;
+        }
         AxisIterator anc = ((NodeInfo) item).iterateAxis(AxisInfo.ANCESTOR_OR_SELF);
-        NodeInfo top = (NodeInfo) item;
+        NodeInfo top = (NodeInfo)item;
         while (true) {
             NodeInfo a = anc.next();
             if (a == null) {
                 // The first step in a pattern, if it uses the child axis, is interpreted as "child-or-top" (test case match-274)
                 if (topNodeEquivalent != null && UType.CHILD_NODE_KINDS.matches(top)) {
-                    return isSelected(((NodeInfo) item), top, topNodeEquivalent, context);
+                    if (equivalentTopNodeEvaluator == null) {
+                        equivalentTopNodeEvaluator = topNodeEquivalent.makeElaborator().elaborateForPull();
+                    }
+                    return isSelected(((NodeInfo) item), top, equivalentTopNodeEvaluator, context);
                 }
                 return false;
             }
@@ -259,10 +280,13 @@ public final class GeneralNodePattern extends Pattern {
             }
         }
 
-        return isSelected(node, anchor, equivalentExpr, context);
+        if (equivalentExprEvaluator == null) {
+            equivalentExprEvaluator = equivalentExpr.makeElaborator().elaborateForPull();
+        }
+        return isSelected(node, anchor, equivalentExprEvaluator, context);
     }
 
-    private boolean isSelected(NodeInfo node, NodeInfo anchor, Expression selector, XPathContext context) throws XPathException {
+    private boolean isSelected(NodeInfo node, NodeInfo anchor, PullEvaluator selector, XPathContext context) throws XPathException {
         // System.err.println("Testing positional pattern against node " + node.generateId());
         XPathContext c2 = context.newMinorContext();
         ManualIterator iter = new ManualIterator(anchor);
@@ -270,7 +294,7 @@ public final class GeneralNodePattern extends Pattern {
         try {
             SequenceIterator nsv = selector.iterate(c2);
             while (true) {
-                NodeInfo n = (NodeInfo) nsv.next();
+                NodeInfo n = (NodeInfo)nsv.next();
                 if (n == null) {
                     return false;
                 }
@@ -285,7 +309,6 @@ public final class GeneralNodePattern extends Pattern {
             return false;
         }
     }
-
 
     /**
      * Get a UType indicating which kinds of items this Pattern can match.
@@ -341,7 +364,7 @@ public final class GeneralNodePattern extends Pattern {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return 83641 ^ equivalentExpr.hashCode();
     }
 
@@ -358,9 +381,8 @@ public final class GeneralNodePattern extends Pattern {
         GeneralNodePattern n = new GeneralNodePattern(equivalentExpr.copy(rebindings), itemType);
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
-        if (topNodeEquivalent != null) {
-            n.topNodeEquivalent = topNodeEquivalent.copy(rebindings);
-        }
+        n.topNodeEquivalent = topNodeEquivalent == null ? null : topNodeEquivalent.copy(rebindings);
+        n.precondition = precondition;
         return n;
     }
 

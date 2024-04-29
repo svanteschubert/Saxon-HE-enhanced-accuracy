@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,8 @@
 package net.sf.saxon.pull;
 
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 
 import javax.xml.namespace.NamespaceContext;
 import java.util.ArrayList;
@@ -20,7 +22,9 @@ import java.util.List;
  * NamespaceResolver to be wrapped as a JAXP NamespaceContext.
  */
 
-public class NamespaceContextImpl implements NamespaceContext, NamespaceResolver {
+public class NamespaceContextImpl implements NamespaceResolver
+        , NamespaceContext
+{
 
     NamespaceResolver resolver;
 
@@ -46,7 +50,7 @@ public class NamespaceContextImpl implements NamespaceContext, NamespaceResolver
 
     /*@Nullable*/
     @Override
-    public String getURIForPrefix(String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
         return resolver.getURIForPrefix(prefix, useDefault);
     }
 
@@ -72,7 +76,8 @@ public class NamespaceContextImpl implements NamespaceContext, NamespaceResolver
         if (prefix.equals("xmlns")) {
             return "http://www.w3.org/2000/xmlns/";
         }
-        return resolver.getURIForPrefix(prefix, true);
+        NamespaceUri uri = resolver.getURIForPrefix(prefix, true);
+        return uri == null ? null : uri.toString();
     }
 
     /**
@@ -83,12 +88,13 @@ public class NamespaceContextImpl implements NamespaceContext, NamespaceResolver
      */
 
     @Override
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public String getPrefix(String uri) {
-        Iterator prefixes = iteratePrefixes();
+        Iterator<String> prefixes = iteratePrefixes();
         while (prefixes.hasNext()) {
-            String p = (String) prefixes.next();
-            String u = resolver.getURIForPrefix(p, true);
-            if (u.equals(uri)) {
+            String p = prefixes.next();
+            NamespaceUri u = resolver.getURIForPrefix(p, true);
+            if (u.toString().equals(uri)) {
                 return p;
             }
         }
@@ -106,8 +112,8 @@ public class NamespaceContextImpl implements NamespaceContext, NamespaceResolver
         List<String> list = new ArrayList<>(4);
         Iterator<String> prefixes = iteratePrefixes();
         prefixes.forEachRemaining(p -> {
-            String u = resolver.getURIForPrefix(p, true);
-            if (u.equals(uri)) {
+            NamespaceUri u = resolver.getURIForPrefix(p, true);
+            if (u.toString().equals(uri)) {
                 list.add(p);
             }
         });

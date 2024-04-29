@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,7 @@ import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
@@ -24,6 +24,7 @@ import javax.xml.xpath.XPathFunction;
 import javax.xml.xpath.XPathFunctionResolver;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The XPathFunctionLibrary is a FunctionLibrary that supports binding of XPath function
@@ -70,6 +71,8 @@ public class XPathFunctionLibrary implements FunctionLibrary {
      * @param staticArgs   The expressions supplied statically in the function call. The intention is
      *                     that the static type of the arguments (obtainable via getItemType() and getCardinality() may
      *                     be used as part of the binding algorithm.
+     * @param keywords     May be null if no keywords are used in the function call. Otherwise, a map identifying the
+     *                     keywords appearing in the function call, and the 0-based position at which they appeared.
      * @param env          The static context
      * @param reasons      If no matching function is found by the function library, it may add
      *                     a diagnostic explanation to this list explaining why none of the available
@@ -80,12 +83,12 @@ public class XPathFunctionLibrary implements FunctionLibrary {
 
     /*@Nullable*/
     @Override
-    public Expression bind(/*@NotNull*/ SymbolicName.F functionName, /*@NotNull*/  Expression[] staticArgs, StaticContext env, List<String> reasons) {
+    public Expression bind(/*@NotNull*/ SymbolicName.F functionName, /*@NotNull*/  Expression[] staticArgs, Map<StructuredQName, Integer> keywords, StaticContext env, List<String> reasons) {
         if (resolver == null) {
             return null;
         }
         StructuredQName qn = functionName.getComponentName();
-        QName name = new QName(qn.getURI(), qn.getLocalPart());
+        QName name = new QName(qn.getNamespaceUri().toString(), qn.getLocalPart());
         XPathFunction function = resolver.resolveFunction(name, functionName.getArity());
         if (function == null) {
             return null;
@@ -110,13 +113,13 @@ public class XPathFunctionLibrary implements FunctionLibrary {
      *          that is private
      */
     @Override
-    public Function getFunctionItem(SymbolicName.F symbolicName, StaticContext staticContext) throws XPathException {
+    public FunctionItem getFunctionItem(SymbolicName.F symbolicName, StaticContext staticContext) throws XPathException {
         if (resolver == null) {
             return null;
         }
         StructuredQName functionName = symbolicName.getComponentName();
         int arity = symbolicName.getArity();
-        QName name = new QName(functionName.getURI(), functionName.getLocalPart());
+        QName name = new QName(functionName.getNamespaceUri().toString(), functionName.getLocalPart());
         XPathFunction function = resolver.resolveFunction(name, arity);
         if (function == null) {
             return null;
@@ -132,14 +135,16 @@ public class XPathFunctionLibrary implements FunctionLibrary {
      * Test whether a function with a given name and arity is available
      * <p>This supports the function-available() function in XSLT.</p>
      *
-     * @param functionName the qualified name of the function being called
+     * @param functionName  the qualified name of the function being called
+     * @param languageLevel the XPath language level (times 10, e.g. 31 for XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName) {
+    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
         return resolver != null &&
                 resolver.resolveFunction(
-                        new QName(functionName.getComponentName().getURI(), functionName.getComponentName().getLocalPart()),
+                        new QName(functionName.getComponentName().getNamespaceUri().toString(),
+                                  functionName.getComponentName().getLocalPart()),
                         functionName.getArity()) != null;
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.s9api;
 import net.sf.saxon.event.*;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
  * An <code>RawDestination</code> is a {@link Destination} that accepts a sequence output
@@ -18,6 +19,7 @@ import net.sf.saxon.trans.XPathException;
  * option <code>build-tree="no"</code>
  */
 
+@CSharpModifiers(code = {"internal"})
 public class RawDestination extends AbstractDestination {
 
     private SequenceCollector sequenceOutputter;
@@ -36,7 +38,7 @@ public class RawDestination extends AbstractDestination {
      * @param pipe The Saxon configuration. This is supplied so that the destination can
      *               use information from the configuration (for example, a reference to the name pool)
      *               to construct or configure the returned Receiver.
-     * @param params
+     * @param params the serialization properties
      * @return the Receiver to which events are to be sent.
      */
 
@@ -74,7 +76,7 @@ public class RawDestination extends AbstractDestination {
      * Return the result sequence, after it has been constructed.
      * <p>This method should not be called until the destination has been closed.</p>
      *
-     * @return the the result sequence
+     * @return the result sequence
      * @throws IllegalStateException if called during the execution of the process that
      *                               is writing the tree.
      */

@@ -10,11 +10,12 @@ package net.sf.saxon.functions.hof;
 import net.sf.saxon.expr.FunctionCall;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.functions.AbstractFunction;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.AnnotationList;
@@ -25,31 +26,39 @@ import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.function.Supplier;
+
 /**
  * A function item obtained by coercing a supplied function; this adds a wrapper to perform dynamic
  * type checking of the arguments in any call, and type checking of the result.
  */
 public class CoercedFunction extends AbstractFunction {
 
-    private Function targetFunction;
-    private SpecificFunctionType requiredType;
+    private FunctionItem targetFunction;
+    private final SpecificFunctionType requiredType;
+    private final boolean allowReducedArity;
 
     /**
      * Create a CoercedFunction as a wrapper around a target function
      *
-     * @param targetFunction the function to be wrapped by a type-checking layer
-     * @param requiredType the type of the coerced function, that is the type required
-     *                     by the context in which the target function is being used
+     * @param targetFunction    the function to be wrapped by a type-checking layer
+     * @param requiredType      the type of the coerced function, that is the type required
+     *                          by the context in which the target function is being used
+     * @param allowReducedArity true if the 4.0 rules apply: the supplied function may have lower arity
+     *                          than the required type
      * @throws XPathException if the arity of the supplied function does not match the arity of the required type
      */
 
-    public CoercedFunction(Function targetFunction, SpecificFunctionType requiredType) throws XPathException {
+    public CoercedFunction(FunctionItem targetFunction, SpecificFunctionType requiredType, boolean allowReducedArity) throws XPathException {
         if (targetFunction.getArity() != requiredType.getArity()) {
-            throw new XPathException(
-                    wrongArityMessage(targetFunction, requiredType.getArity()), "XPTY0004");
+            if (targetFunction.getArity() > requiredType.getArity() || !allowReducedArity) {
+                throw new XPathException(
+                        wrongArityMessage(targetFunction, requiredType.getArity()), "XPTY0004");
+            }
         }
         this.targetFunction = targetFunction;
         this.requiredType = requiredType;
+        this.allowReducedArity = allowReducedArity;
     }
 
     /**
@@ -60,6 +69,7 @@ public class CoercedFunction extends AbstractFunction {
 
     public CoercedFunction(SpecificFunctionType requiredType) {
         this.requiredType = requiredType;
+        this.allowReducedArity = false;
     }
 
     /**
@@ -68,10 +78,12 @@ public class CoercedFunction extends AbstractFunction {
      * @throws XPathException if the arity of the supplied function does not match the arity of the required type
      */
 
-    public void setTargetFunction(Function targetFunction) throws XPathException {
+    public void setTargetFunction(FunctionItem targetFunction) throws XPathException {
         if (targetFunction.getArity() != requiredType.getArity()) {
-            throw new XPathException(
-                    wrongArityMessage(targetFunction, requiredType.getArity()), "XPTY0004");
+            if (targetFunction.getArity() > requiredType.getArity() || !allowReducedArity) {
+                throw new XPathException(
+                        wrongArityMessage(targetFunction, requiredType.getArity()), "XPTY0004");
+            }
         }
         this.targetFunction = targetFunction;
     }
@@ -123,7 +135,7 @@ public class CoercedFunction extends AbstractFunction {
      */
     @Override
     public String getDescription() {
-        return "coerced " + targetFunction.getDescription();
+        return targetFunction.getDescription() + " (used where the required type is " + requiredType + ")";
     }
 
     /**
@@ -137,8 +149,12 @@ public class CoercedFunction extends AbstractFunction {
         return targetFunction.getArity();
     }
 
+    /**
+     * Get the function annotations. These are the same as the annotations of the base function
+     * @return the annotations of the base function
+     */
     @Override
-    public AnnotationList getAnnotations() {     // Bug 5085
+    public AnnotationList getAnnotations() {
         return targetFunction.getAnnotations();
     }
 
@@ -156,58 +172,35 @@ public class CoercedFunction extends AbstractFunction {
     public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
         SpecificFunctionType req = requiredType;
         SequenceType[] argTypes = targetFunction.getFunctionItemType().getArgumentTypes();
+        int suppliedArity = Math.min(args.length, argTypes.length);
         TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
-        Sequence[] targetArgs = new Sequence[args.length];
-        for (int i = 0; i < args.length; i++) {
-            args[i] = args[i].materialize();
-            if (argTypes[i].matches(args[i], th)) {
-                targetArgs[i] = args[i];
+        Sequence[] targetArgs = new Sequence[suppliedArity];
+        for (int i = 0; i < suppliedArity; i++) {
+            GroundedValue gVal = args[i].materialize();
+            if (argTypes[i].matches(gVal, th)) {
+                targetArgs[i] = gVal;
             } else {
-                RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION, targetFunction.getDescription(), i);
-                targetArgs[i] = th.applyFunctionConversionRules(args[i], argTypes[i], role, Loc.NONE);
+                final int pos = i;
+                Supplier<RoleDiagnostic> role =
+                        () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, targetFunction.getDescription(), pos);
+                targetArgs[i] = th.applyFunctionConversionRules(gVal, argTypes[i], role, Loc.NONE);
             }
         }
-        Sequence rawResult = targetFunction.call(context, targetArgs);
-        rawResult = rawResult.materialize();
-            // Needed because we have to examine the value twice, once to check its type, and then to convert it.
-            // It would be better if applyFunctionConversionRules were a mapping function...
+        // TODO: don't materialize the result if static type checking tells us the result will be OK
+        GroundedValue rawResult = targetFunction.call(context, targetArgs).materialize();
         if (req.getResultType().matches(rawResult, th)) {
             return rawResult;
         } else {
-            RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, targetFunction.getDescription(), 0);
+            Supplier<RoleDiagnostic> role =
+                    () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, getDescription(), 0);
             return th.applyFunctionConversionRules(rawResult, req.getResultType(), role, Loc.NONE);
         }
     }
 
-    /**
-     * Factory method to create a CoercedFunction with a given type, for a given targetFunction.
-     * It is assumed that we have already established that coercion is needed.
-     * Called from Bytecode compiler.
-     * @param suppliedFunction the function to be coerced
-     * @param requiredType the target type for the coercion
-     * @param role diagnostic information about the role of the expression being coerced
-     * @return the function after coercion
-     * @throws XPathException if the function cannot be coerced to the required type (for example,
-     * because it has the wrong arity)
-     */
 
-    public static CoercedFunction coerce(Function suppliedFunction, SpecificFunctionType requiredType,
-                                         RoleDiagnostic role)
-            throws XPathException {
-        // DO NOT DELETE THIS METHOD: IT IS CALLED FROM BYTECODE
-        int arity = requiredType.getArity();
-        if (suppliedFunction.getArity() != arity) {
-            String msg = role.composeErrorMessage(
-                    requiredType, suppliedFunction, null);
-            msg += ". " + wrongArityMessage(suppliedFunction, arity);
-            throw new XPathException(msg, "XPTY0004");
-        }
-        return new CoercedFunction(suppliedFunction, requiredType);
-    }
-
-    private static String wrongArityMessage(Function supplied, int expected) {
-        return "The supplied function (" + supplied.getDescription() + ") has " + FunctionCall.pluralArguments(supplied.getArity()) +
-                " - expected " + expected;
+    private static String wrongArityMessage(FunctionItem supplied, int expected) {
+        return "The supplied function (" + supplied.getDescription() + ") has " + FunctionCall.plural(supplied.getArity(), "parameter") +
+                " - expected a function with " + FunctionCall.plural(expected, "parameter");
     }
 
     /**
@@ -225,4 +218,4 @@ public class CoercedFunction extends AbstractFunction {
 
 }
 
-// Copyright (c) 2009-2020 Saxonica Limited
+// Copyright (c) 2009-2023 Saxonica Limited

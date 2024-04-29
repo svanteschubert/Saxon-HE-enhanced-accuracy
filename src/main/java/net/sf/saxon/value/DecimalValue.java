@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 
 package net.sf.saxon.value;
+
+import net.sf.saxon.type.AtomicType;
+
+import java.math.BigDecimal;
 
 /**
  * Abstract class representing the XDM type xs:decimal. An instance of xs:decimal that is also
@@ -18,6 +22,16 @@ package net.sf.saxon.value;
  */
 
 public abstract class DecimalValue extends NumericValue {
+
+    public DecimalValue(AtomicType typeLabel) {
+        super(typeLabel);
+    }
+    /**
+     * Implementations of Decimal value don't throw an exception when converted to BigDecimal
+     * @return the BigDecimal representation of the value
+     */
+    @Override
+    public abstract BigDecimal getDecimalValue();
 }
 
 

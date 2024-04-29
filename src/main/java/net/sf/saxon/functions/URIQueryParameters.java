@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.AllElementsSpaceStrippingRule;
 import net.sf.saxon.om.IgnorableSpaceStrippingRule;
@@ -16,33 +17,41 @@ import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.regex.ARegularExpression;
 import net.sf.saxon.regex.JavaRegularExpression;
 import net.sf.saxon.regex.RegularExpression;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.trans.Instantiator;
 import net.sf.saxon.trans.Maker;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+import net.sf.saxon.transpile.CSharpNullable;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import org.xml.sax.XMLReader;
 
 import java.io.File;
 import java.io.FilenameFilter;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.StringTokenizer;
 
 /**
  * A set of query parameters on a URI passed to the collection() or document() function
  */
-
+@CSharpNullable("enable")
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class URIQueryParameters {
 
-    /*@Nullable*/ FilenameFilter filter = null;
-    Boolean recurse = null;
-    Integer validation = null;
-    SpaceStrippingRule strippingRule = null;
-    Integer onError = null;
-    Maker<XMLReader> parserMaker = null;
-    Boolean xinclude = null;
-    Boolean stable = null;
-    Boolean metadata = null;
-    String contentType = null;
+    Optional<FilenameFilter> filter = Optional.empty();
+    Optional<Boolean> recurse = Optional.empty();
+    Optional<Integer> validation = Optional.empty();
+    Optional<SpaceStrippingRule> strippingRule = Optional.empty();
+    Optional<Integer> onError = Optional.empty();
+
+    Optional<Boolean> xinclude = Optional.empty();
+    Optional<Boolean> stable = Optional.empty();
+    Optional<Boolean> metadata = Optional.empty();
+    Optional<String> contentType = Optional.empty();
+
+    Optional<Maker<XMLReader>> parserMaker = Optional.empty();
+
 
     public static final int ON_ERROR_FAIL = 1;
     public static final int ON_ERROR_WARNING = 2;
@@ -72,87 +81,93 @@ public class URIQueryParameters {
 
     private void processParameter(Configuration config, String keyword, String value) throws XPathException {
         if (keyword.equals("select")) {
-            filter = makeGlobFilter(value);
+            filter = Optional.of(makeGlobFilter(value));
         } else if (keyword.equals("match")) {
-            ARegularExpression regex = new ARegularExpression(value, "", "XP", new ArrayList<>(), config);
-            filter = new RegexFilter(regex);
+            ARegularExpression regex = new ARegularExpression(StringView.of(value).tidy(), "", "XP", new ArrayList<>(), config);
+            filter = Optional.of(new RegexFilter(regex));
         } else if (keyword.equals("recurse")) {
-            recurse = "yes".equals(value);
+            recurse = Optional.of("yes".equals(value));
         } else if (keyword.equals("validation")) {
             int v = Validation.getCode(value);
             if (v != Validation.INVALID) {
-                validation = v;
+                validation = Optional.of(v);
             }
         } else if (keyword.equals("strip-space")) {
             switch (value) {
                 case "yes":
-                    strippingRule = AllElementsSpaceStrippingRule.getInstance();
+                    strippingRule = Optional.of(AllElementsSpaceStrippingRule.getInstance());
                     break;
                 case "ignorable":
-                    strippingRule = IgnorableSpaceStrippingRule.getInstance();
+                    strippingRule = Optional.of(IgnorableSpaceStrippingRule.getInstance());
                     break;
                 case "no":
-                    strippingRule = NoElementsSpaceStrippingRule.getInstance();
+                    strippingRule = Optional.of(NoElementsSpaceStrippingRule.getInstance());
                     break;
             }
         } else if (keyword.equals("stable")) {
             if (value.equals("yes")) {
-                stable = Boolean.TRUE;
+                stable = Optional.of(Boolean.TRUE);
             } else if (value.equals("no")) {
-                stable = Boolean.FALSE;
+                stable = Optional.of(Boolean.FALSE);
             }
         } else if (keyword.equals("metadata")) {
             if (value.equals("yes")) {
-                metadata = Boolean.TRUE;
+                metadata = Optional.of(Boolean.TRUE);
             } else if (value.equals("no")) {
-                metadata = Boolean.FALSE;
+                metadata = Optional.of(Boolean.FALSE);
             }
         } else if (keyword.equals("xinclude")) {
             if (value.equals("yes")) {
-                xinclude = Boolean.TRUE;
+                checkXIncludeIsSupported();
+                xinclude = Optional.of(Boolean.TRUE);
             } else if (value.equals("no")) {
-                xinclude = Boolean.FALSE;
+                xinclude = Optional.of(Boolean.FALSE);
             }
         } else if (keyword.equals("content-type")) {
-            contentType = value;
+            contentType = Optional.of(value);
         } else if (keyword.equals("on-error")) {
             switch (value) {
                 case "warning":
-                    onError = ON_ERROR_WARNING;
+                    onError = Optional.of(ON_ERROR_WARNING);
                     break;
                 case "ignore":
-                    onError = ON_ERROR_IGNORE;
+                    onError = Optional.of(ON_ERROR_IGNORE);
                     break;
                 case "fail":
-                    onError = ON_ERROR_FAIL;
+                    onError = Optional.of(ON_ERROR_FAIL);
                     break;
             }
         } else if (keyword.equals("parser") && config != null) {
-            parserMaker = new Instantiator<>(value, config);
+            parserMaker = Optional.of(new Instantiator<>(value, config));
         }
     }
 
+    @CSharpReplaceBody(code="throw new Saxon.Hej.trans.XPathException(\"XInclude is not supported in SaxonCS\");")
+    private static void checkXIncludeIsSupported() throws XPathException {
+        // No action on SaxonJ
+    }
+
     public static FilenameFilter makeGlobFilter(String value) throws XPathException {
-        FastStringBuffer sb = new FastStringBuffer(value.length() + 6);
-        sb.cat('^');
+        UnicodeBuilder sb = new UnicodeBuilder();
+        sb.append('^');
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
             if (c == '.') {
                 // replace "." with "\."
-                sb.append("\\.");
+                sb.appendLatin("\\.");
             } else if (c == '*') {
                 // replace "*" with ".*"
-                sb.append(".*");
+                sb.appendLatin(".*");
             } else if (c == '?') {
                 // replace "?" with ".?"
-                sb.append(".?");
+                sb.appendLatin(".?");
             } else {
-                sb.cat(c);
+                sb.append(c);
             }
         }
-        sb.cat('$');
+        sb.append('$');
         try {
-            return new RegexFilter(new JavaRegularExpression(sb, ""));
+            return new RegexFilter(new JavaRegularExpression(sb.toUnicodeString(), ""));
         } catch (XPathException e) {
             throw new XPathException("Invalid glob " + value + " in collection URI", "FODC0004");
         }
@@ -162,83 +177,109 @@ public class URIQueryParameters {
      * Get the value of the strip-space=yes|no parameter.
      *
      * @return an instance of {@link AllElementsSpaceStrippingRule}, {@link IgnorableSpaceStrippingRule},
-     * or {@link NoElementsSpaceStrippingRule}, or null
+     * or {@link NoElementsSpaceStrippingRule}, or absent.
      */
 
-    public SpaceStrippingRule getSpaceStrippingRule() {
+    public Optional<SpaceStrippingRule> getSpaceStrippingRule() {
         return strippingRule;
     }
 
     /**
-     * Get the value of the validation=strict|lax|preserve|strip parameter, or null if unspecified
+     * Get the value of the validation=strict|lax|preserve|strip parameter, or absent if unspecified
      */
 
-    public Integer getValidationMode() {
+    public Optional<Integer> getValidationMode() {
         return validation;
     }
 
     /**
-     * Get the file name filter (select=pattern), or null if unspecified
+     * Get the file name filter (select=pattern), or absent if unspecified
      */
 
-    public FilenameFilter getFilenameFilter() {
+    public Optional<FilenameFilter> getFilenameFilter() {
         return filter;
     }
 
     /**
-     * Get the value of the recurse=yes|no parameter, or null if unspecified
+     * Get the value of the recurse=yes|no parameter, or absent if unspecified
      */
 
-    public Boolean getRecurse() {
+    public Optional<Boolean> getRecurse() {
         return recurse;
     }
 
     /**
-     * Get the value of the on-error=fail|warning|ignore parameter, or null if unspecified
+     * Get the value of the on-error=fail|warning|ignore parameter, or absent if unspecified
      */
 
-    public Integer getOnError() {
+    public Optional<Integer> getOnError() {
         return onError;
     }
 
     /**
-     * Get the value of xinclude=yes|no, or null if unspecified
+     * Get the value of xinclude=yes|no, or absent if unspecified
      */
 
-    public Boolean getXInclude() {
+    public Optional<Boolean> getXInclude() {
         return xinclude;
     }
 
     /**
-     * Get the value of metadata=yes|no, or null if unspecified
+     * Get the value of metadata=yes|no, or absent if unspecified
      */
 
-    public Boolean getMetaData() {
+    public Optional<Boolean> getMetaData() {
         return metadata;
     }
 
     /**
-     * Get the value of media-type, or null if absent
+     * Get the value of media-type, or absent if absent
      */
 
-    public String getContentType() {
+    public Optional<String> getContentType() {
         return contentType;
     }
 
     /**
-     * Get the value of stable=yes|no, or null if unspecified
+     * Get the value of stable=yes|no, or absent if unspecified
      */
 
-    public Boolean getStable() {
+    public Optional<Boolean> getStable() {
         return stable;
     }
 
     /**
-     * Get a factory for the selected XML parser class, or null if unspecified
+     * Get a factory for the selected XML parser class, or absent if unspecified
      */
 
-    public Maker<XMLReader> getXMLReaderMaker() {
+    public Optional<Maker<XMLReader>> getXMLReaderMaker() {
         return parserMaker;
+    }
+
+    /**
+     * Create ParseOptions based on these query parameters
+     */
+
+    @SuppressWarnings("OptionalIsPresent")
+    public ParseOptions makeParseOptions(Configuration config) throws XPathException {
+
+        ParseOptions options = new ParseOptions();
+        Optional<SpaceStrippingRule> stripSpace = getSpaceStrippingRule();
+        if (stripSpace.isPresent()) {
+            options = options.withSpaceStrippingRule(stripSpace.get());
+        }
+
+        Optional<Integer> validation = getValidationMode();
+        if (validation.isPresent()) {
+            options = options.withSchemaValidationMode(validation.get());
+        }
+
+        Optional<Boolean> xinclude = getXInclude();
+        if (xinclude.isPresent()) {
+            options = options.withXIncludeAware(xinclude.get());
+        }
+
+        return options;
     }
 
     /**
@@ -247,7 +288,7 @@ public class URIQueryParameters {
 
     public static class RegexFilter implements FilenameFilter {
 
-        private RegularExpression pattern;
+        private final RegularExpression pattern;
 
 
         public RegexFilter(RegularExpression regex) {
@@ -266,7 +307,7 @@ public class URIQueryParameters {
 
         @Override
         public boolean accept(File dir, String name) {
-            return new File(dir, name).isDirectory() || pattern.matches(name);
+            return new File(dir, name).isDirectory() || pattern.matches(StringView.of(name).tidy());
         }
 
         /**
@@ -276,7 +317,7 @@ public class URIQueryParameters {
          * @return true if the name matches the pattern.
          */
         public boolean matches(String name) {
-            return pattern.matches(name);
+            return pattern.matches(StringView.of(name).tidy());
         }
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,12 +12,10 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.expr.parser.Evaluator;
-import net.sf.saxon.om.AxisInfo;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.tree.iter.ManualIterator;
@@ -31,8 +29,8 @@ import java.util.List;
  */
 public class AccumulatorData implements IAccumulatorData {
 
-    private Accumulator accumulator;
-    private List<DataPoint> values = new ArrayList<>();
+    private final Accumulator accumulator;
+    private final List<DataPoint> values = new ArrayList<>();
     private boolean building = false;
 
     public AccumulatorData(Accumulator acc) {
@@ -61,23 +59,27 @@ public class AccumulatorData implements IAccumulatorData {
 
     public void buildIndex(NodeInfo doc, XPathContext context) throws XPathException {
         //System.err.println("Building accData " + this);
-        if (building) {
-            throw new XPathException("Accumulator " + accumulator.getAccumulatorName().getDisplayName() +
-                " requires access to its own value", "XTDE3400");
+        try {
+            if (building) {
+                throw new XPathException("Accumulator " + accumulator.getAccumulatorName().getDisplayName() +
+                    " requires access to its own value", "XTDE3400");
+            }
+            building = true;
+            Expression initialValue = accumulator.getInitialValueExpression();
+            XPathContextMajor c2 = context.newContext();
+            SlotManager sf = accumulator.getSlotManagerForInitialValueExpression();
+            Sequence[] slots = new Sequence[sf.getNumberOfVariables()];
+            c2.setStackFrame(sf, slots);
+            c2.setCurrentIterator(new ManualIterator(doc));
+            Sequence val = SequenceTool.toGroundedValue(initialValue.iterate(c2));
+            values.add(new DataPoint(new Visit(doc, false), val));
+            val = visit(doc, val, c2);
+            values.add(new DataPoint(new Visit(doc, true), val));
+            ((ArrayList<DataPoint>) values).trimToSize();
+            building = false;
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
         }
-        building = true;
-        Expression initialValue = accumulator.getInitialValueExpression();
-        XPathContextMajor c2 = context.newContext();
-        SlotManager sf = accumulator.getSlotManagerForInitialValueExpression();
-        Sequence[] slots = new Sequence[sf.getNumberOfVariables()];
-        c2.setStackFrame(sf, slots);
-        c2.setCurrentIterator(new ManualIterator(doc));
-        Sequence val = initialValue.iterate(c2).materialize();
-        values.add(new DataPoint(new Visit(doc, false), val));
-        val = visit(doc, val, c2);
-        values.add(new DataPoint(new Visit(doc, true), val));
-        ((ArrayList) values).trimToSize();
-        building = false;
         //diagnosticPrint();
     }
 
@@ -122,11 +124,10 @@ public class AccumulatorData implements IAccumulatorData {
             }
             return value;
         } catch (StackOverflowError e) {
-            XPathException err = new XPathException.StackOverflow(
+            throw new XPathException.StackOverflow(
                     "Too many nested accumulator evaluations. The accumulator definition may have cyclic dependencies",
-                    "XTDE3400", accumulator);
-            err.setXPathContext(context);
-            throw err;
+                    "XTDE3400", accumulator)
+                    .withXPathContext(context);
         }
     }
 
@@ -162,7 +163,7 @@ public class AccumulatorData implements IAccumulatorData {
         c2.setLocalVariable(0, value);
         c2.setCurrentComponent(accumulator.getDeclaringComponent());
         c2.setTemporaryOutputState(StandardNames.XSL_ACCUMULATOR_RULE);
-        value = Evaluator.EAGER_SEQUENCE.evaluate(delta, c2);
+        value = ExpressionTool.eagerEvaluate(delta, c2);
         //System.err.println("Node " + ((TinyNodeImpl) node).getNodeNumber() + " : " + value);
         if (node.getParent() == null && !isPostDescent && values.size() == 1) {
             // Overwrite the accumulator's initial value with the "before document start" value. Bug 4786.

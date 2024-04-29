@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,75 +7,168 @@
 
 package net.sf.saxon.om;
 
+import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.functions.Reverse;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.EmptySequence;
+import net.sf.saxon.value.SequenceExtent;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
+
 /**
- * A value that is a sequence containing one or more items. The main use is in declarations of reflexive extension
- * functions, where declaring an argument of type &lt;ZeroOrMore&lt;IntegerValue&gt;&gt; triggers automatic type
- * checking in the same way as for a native XSLT/XQuery function declaring the type as xs:integer*.
+ * A sequence value implemented extensionally. That is, this class represents a sequence
+ * by allocating memory to each item in the sequence.
  */
 
 public class ZeroOrMore<T extends Item> implements GroundedValue, Iterable<T> {
 
-    private List<T> content;
+    private final List<T> value;
 
     /**
-     * Create a sequence containing zero or one items
+     * Construct a SequenceExtent from a List. The members of the list must all
+     * be Items
      *
-     * @param content The content of the sequence
+     * @param list the list of items to be included in the sequence
      */
 
-    public ZeroOrMore(T[] content) {
-        this.content = Arrays.asList(content);
+    public ZeroOrMore(List<T> list) {
+        this.value = list;
     }
 
-    public ZeroOrMore(List<T> content) {
-        this.content = content;
+    protected List<T> getValue() {
+        return value;
     }
 
-    public ZeroOrMore(SequenceIterator iter) throws XPathException {
-        content = new ArrayList<>();
-        iter.forEachOrFail(item -> content.add((T)item));
+    public static <T extends Item> ZeroOrMore<T> fromSequenceIterator(SequenceIterator iter) throws XPathException {
+        List<T> list = new ArrayList<>();
+        for (Item item; (item = iter.next()) != null; ) {
+            list.add((T)item);
+        }
+        return new ZeroOrMore<>(list);
     }
 
+    @Override
+    public UnicodeString getUnicodeStringValue() throws XPathException {
+        return SequenceTool.getStringValue(this);
+    }
+
+    @Override
+    public String getStringValue() throws XPathException {
+        return SequenceTool.stringify(this);
+    }
+
+    /**
+     * Get the first item in the sequence.
+     *
+     * @return the first item in the sequence if there is one, or null if the sequence
+     *         is empty
+     */
     @Override
     public T head() {
-        return content.isEmpty() ? null : content.get(0);
-    }
-
-    @Override
-    public ListIterator<T> iterate() {
-        return new ListIterator<>(content);
-    }
-
-    @Override
-    public Iterator<T> iterator() {
-        return content.iterator();
+        return itemAt(0);
     }
 
     /**
-     * Get the n'th item in the value, counting from 0
+     * Get the number of items in the sequence
      *
-     * @param n the index of the required item, with 0 representing the first item in the sequence
-     * @return the n'th item if it exists, or null otherwise
+     * @return the number of items in the sequence
      */
+
     @Override
-    public T itemAt(int n) {
-        if (n >= 0 && n < content.size()) {
-            return content.get(n);
-        } else {
-            return null;
+    public int getLength() {
+        return value.size();
+    }
+
+    /**
+     * Determine the cardinality
+     *
+     * @return the cardinality of the sequence, using the constants defined in
+     *         net.sf.saxon.value.Cardinality
+     * @see Cardinality
+     */
+
+    public int getCardinality() {
+        switch (value.size()) {
+            case 0:
+                return StaticProperty.EMPTY;
+            case 1:
+                return StaticProperty.EXACTLY_ONE;
+            default:
+                return StaticProperty.ALLOWS_ONE_OR_MORE;
         }
     }
+
+    /**
+     * Get the n'th item in the sequence (starting with 0 as the first item)
+     *
+     * @param n the position of the required item
+     * @return the n'th item in the sequence, or null if the position is out of range
+     */
+
+    /*@Nullable*/
+    @Override
+    public T itemAt(int n) {
+        if (n < 0 || n >= getLength()) {
+            return null;
+        } else {
+            return value.get(n);
+        }
+    }
+
+    /**
+     * Return an iterator over this sequence.
+     *
+     * @return the required SequenceIterator, positioned at the start of the
+     *         sequence
+     */
+
+    /*@NotNull*/
+    @Override
+    public ListIterator.Of<T> iterate() {
+        return new ListIterator.Of<T>(value);
+    }
+
+    /**
+     * Return an enumeration of this sequence in reverse order (used for reverse axes)
+     *
+     * @return an AxisIterator that processes the items in reverse order
+     */
+
+    /*@NotNull*/
+    public SequenceIterator reverseIterate() {
+        return Reverse.reverseIterator(value);
+    }
+
+    /**
+     * Get the effective boolean value
+     */
+
+    @Override
+    public boolean effectiveBooleanValue() throws XPathException {
+        int len = getLength();
+        if (len == 0) {
+            return false;
+        } else {
+            Item first = value.get(0);
+            if (first instanceof NodeInfo) {
+                return true;
+            } else if (len == 1 && first instanceof AtomicValue) {
+                return first.effectiveBooleanValue();
+            } else {
+                // this will fail - reuse the error messages
+                return ExpressionTool.effectiveBooleanValue(iterate());
+            }
+        }
+    }
+
 
     /**
      * Get a subsequence of the value
@@ -87,89 +180,60 @@ public class ZeroOrMore<T extends Item> implements GroundedValue, Iterable<T> {
      *               get the subsequence up to the end of the base sequence. If the value is negative, an empty sequence
      *               is returned. If the value goes off the end of the sequence, the result returns items up to the end
      *               of the sequence
-     * @return the required subsequence.
+     * @return the required subsequence. If min is
      */
+
+    /*@NotNull*/
     @Override
-    public ZeroOrMore<T> subsequence(int start, int length) {
+    public GroundedValue subsequence(int start, int length) {
         if (start < 0) {
             start = 0;
         }
-        if (start + length > content.size()) {
-            length = content.size() - start;
+        if (start > value.size()) {
+            return EmptySequence.getInstance();
         }
-        return new ZeroOrMore<>(content.subList(start, start+ length));
+        return new SequenceExtent.Of<T>(value.subList(start, start+length)).reduce();
     }
 
-    /**
-     * Get the size of the value (the number of items)
-     *
-     * @return the number of items in the sequence
-     */
-    @Override
-    public int getLength() {
-        return content.size();
-    }
-
-    /**
-     * Get the effective boolean value of this sequence
-     *
-     * @return the effective boolean value
-     * @throws net.sf.saxon.trans.XPathException
-     *          if the sequence has no effective boolean value (for example a sequence of two integers)
-     */
-    @Override
-    public boolean effectiveBooleanValue() throws XPathException {
-        return ExpressionTool.effectiveBooleanValue(iterate());
-    }
-
-    /**
-     * Get the string value of this sequence. The string value of an item is the result of applying the string()
-     * function. The string value of a sequence is the space-separated result of applying the string-join() function
-     * using a single space as the separator
-     *
-     * @return the string value of the sequence.
-     * @throws net.sf.saxon.trans.XPathException
-     *          if the sequence contains items that have no string value (for example, function items)
-     */
-    @Override
-    public String getStringValue() throws XPathException {
-        return SequenceTool.getStringValue(this);
-    }
-
-    /**
-     * Get the string value of this sequence. The string value of an item is the result of applying the string()
-     * function. The string value of a sequence is the space-separated result of applying the string-join() function
-     * using a single space as the separator
-     *
-     * @return the string value of the sequence.
-     * @throws net.sf.saxon.trans.XPathException
-     *          if the sequence contains items that have no string value (for example, function items)
-     */
-    @Override
-    public CharSequence getStringValueCS() throws XPathException {
-        return SequenceTool.getStringValue(this);
+    /*@NotNull*/
+    public String toString() {
+        StringBuilder fsb = new StringBuilder(64);
+        for (int i = 0; i < value.size(); i++) {
+            fsb.append(i == 0 ? "(" : ", ");
+            fsb.append(value.get(i).toString());
+        }
+        fsb.append(')');
+        return fsb.toString();
     }
 
     /**
      * Reduce the sequence to its simplest form. If the value is an empty sequence, the result will be
      * EmptySequence.getInstance(). If the value is a single atomic value, the result will be an instance
-     * of {@link AtomicValue}. If the value is a single item of any other kind, the result will be an instance
-     * of {@link One}. Otherwise, the result will typically be unchanged.
+     * of AtomicValue. If the value is a single item of any other kind, the result will be an instance
+     * of One. Otherwise, the result will typically be unchanged.
      *
      * @return the simplified sequence
      */
     @Override
     public GroundedValue reduce() {
-        if (content.isEmpty()) {
+        int len = getLength();
+        if (len == 0) {
             return EmptySequence.getInstance();
-        } else if (content.size() == 1) {
-            T first = content.get(0);
-            if (first instanceof AtomicValue) {
-                return first;
-            } else {
-                return new One<>(head());
-            }
+        } else if (len == 1) {
+            return itemAt(0);
+        } else {
+            return this;
         }
-        return this;
+    }
+
+    /**
+     * Get an iterator (a Java {@link Iterator}) over the items in this sequence.
+     * @return an iterator over the items in this sequence.
+     */
+
+    //@Override
+    public Iterator<T> iterator() {
+        return value.iterator();
     }
 }
+

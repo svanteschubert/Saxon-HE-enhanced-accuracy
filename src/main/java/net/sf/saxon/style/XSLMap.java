@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.style;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.StaticProperty;
@@ -14,17 +15,20 @@ import net.sf.saxon.expr.instruct.SequenceInstr;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.expr.parser.TypeChecker;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.ma.map.HashTrieMap;
 import net.sf.saxon.ma.map.MapFunctionSet;
 import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.QNameValue;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
+
+import java.util.function.Supplier;
 
 /**
  * Handler for xsl:map instructions in an XSLT 3.0 stylesheet. <br>
@@ -64,20 +68,27 @@ public class XSLMap extends StyleElement {
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String f = attName.getDisplayName();
             String value = att.getValue();
-            if (attName.hasURI(NamespaceConstant.SAXON)) {
-                if (isExtensionAttributeAllowed(attName.getDisplayName())) {
-                    if (attName.getLocalPart().equals("on-duplicates")) {
+            if (attName.getLocalPart().equals("on-duplicates")) {
+                if (attName.getNamespaceUri().isEmpty()) {
+                    if ( requireXslt40Attribute("on-duplicates")) {
                         onDuplicates = makeExpression(value, att);
+                    }
+                } else if (attName.hasURI(NamespaceUri.SAXON)) {
+                    if (getConfiguration().isLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION)) {
+                        onDuplicates = makeExpression(value, att);
+                    } else {
+                        issueWarning("saxon:on-duplicates ignored - requires Saxon-PE license",
+                                       SaxonErrorCode.SXWN9013);
                     }
                 }
             } else {
@@ -92,8 +103,8 @@ public class XSLMap extends StyleElement {
         select = select.simplify();
         // Custom type-checking; the checking performed by map:merge() gives poor diagnostics
         TypeChecker tc = getConfiguration().getTypeChecker(false);
-        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.MISC, "xsl:map sequence constructor", 0);
-        role.setErrorCode("XTTE3375");
+        Supplier<RoleDiagnostic> role =
+                () -> new RoleDiagnostic(RoleDiagnostic.MISC, "xsl:map sequence constructor", 0, "XTTE3375");
         select = tc.staticTypeCheck(
                 select,
                 SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.ALLOWS_ZERO_OR_MORE),
@@ -102,18 +113,18 @@ public class XSLMap extends StyleElement {
         Expression optionsExp;
 
         if (onDuplicates != null) {
-            optionsExp = MapFunctionSet.getInstance().makeFunction("entry", 2).makeFunctionCall(
-                    Literal.makeLiteral(new QNameValue("", NamespaceConstant.SAXON, "on-duplicates")),
+            optionsExp = MapFunctionSet.getInstance(31).makeFunction("entry", 2).makeFunctionCall(
+                    Literal.makeLiteral(new QNameValue("", NamespaceUri.SAXON, "on-duplicates")),
                     onDuplicates);
         } else {
             HashTrieMap options = new HashTrieMap();
-            options.initialPut(new StringValue("duplicates"), new StringValue("reject"));
-            options.initialPut(new QNameValue("", NamespaceConstant.SAXON, "duplicates-error-code"),
-                               new StringValue("XTDE3365"));
+            options.initialPut(StringValue.bmp("duplicates"), StringValue.bmp("reject"));
+            options.initialPut(new QNameValue("", NamespaceUri.SAXON, "duplicates-error-code"),
+                               StringValue.bmp("XTDE3365"));
             optionsExp = Literal.makeLiteral(options, select);
         }
 
-        Expression exp = MapFunctionSet.getInstance().makeFunction("merge", 2)
+        Expression exp = MapFunctionSet.getInstance(31).makeFunction("merge", 2)
                 .makeFunctionCall(select, optionsExp);
         if (getConfiguration().getBooleanProperty(Feature.STRICT_STREAMABILITY)) {
             exp = new SequenceInstr(exp);

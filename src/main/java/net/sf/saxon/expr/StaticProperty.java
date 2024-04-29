@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.value.Cardinality;
 
 /**
@@ -17,8 +17,6 @@ import net.sf.saxon.value.Cardinality;
 
 public abstract class StaticProperty {
 
-    // TODO: use an EnumSet
-
     /**
      * Bit setting: Expression depends on current() item
      */
@@ -26,7 +24,9 @@ public abstract class StaticProperty {
     public static final int DEPENDS_ON_CURRENT_ITEM = 1;
 
     /**
-     * Bit setting: Expression depends on context item
+     * Bit setting: Expression depends on context item. This setting is NOT used
+     * where the expression depends only on the context document: that is
+     * indicated by {@link #DEPENDS_ON_CONTEXT_DOCUMENT}.
      */
 
     public static final int DEPENDS_ON_CONTEXT_ITEM = 1 << 1;
@@ -63,7 +63,8 @@ public abstract class StaticProperty {
 
 
     /**
-     * Bit setting: Expression depends on local variables
+     * Bit setting: Expression depends on local variables (excluding local variables
+     * declared within the expression itself)
      */
 
     public static final int DEPENDS_ON_LOCAL_VARIABLES = 1 << 7;
@@ -93,6 +94,12 @@ public abstract class StaticProperty {
      */
 
     public static final int DEPENDS_ON_STATIC_CONTEXT = 1 << 11;
+
+    /**
+     * Bit setting: Expression binds (and typically references) its own range variables
+     */
+
+    public static final int DEPENDS_ON_OWN_RANGE_VARIABLES = 1 << 12;
 
     /**
      * Combination of bits representing dependencies on the XSLT context
@@ -295,6 +302,13 @@ public abstract class StaticProperty {
 
     public static final int ALL_NODES_UNTYPED = 1 << 27;
 
+    /**
+     * Expression property: this bit indicates that the result of an expression will
+     * be a function other than a map or array
+     */
+
+    public static final int COMPUTED_FUNCTION = 1 << 28;
+
 
     /**
      * Mask to select all the dependency bits
@@ -312,6 +326,7 @@ public abstract class StaticProperty {
                     DEPENDS_ON_ASSIGNABLE_GLOBALS |
                     DEPENDS_ON_RUNTIME_ENVIRONMENT |
                     DEPENDS_ON_STATIC_CONTEXT |
+                    DEPENDS_ON_OWN_RANGE_VARIABLES |
                     HAS_SIDE_EFFECTS;
 
     /**
@@ -331,7 +346,8 @@ public abstract class StaticProperty {
                     HAS_SIDE_EFFECTS |
                     NOT_UNTYPED_ATOMIC |
                     ALL_NODES_UNTYPED |
-                    ALL_NODES_NEWLY_CREATED;
+                    ALL_NODES_NEWLY_CREATED |
+                    COMPUTED_FUNCTION;
 
     /**
      * Mask for nodeset-related properties
@@ -353,7 +369,7 @@ public abstract class StaticProperty {
 
     // For diagnostic display of static properties
     public static String display(int props) {
-        FastStringBuffer s = new FastStringBuffer(128);
+        StringBuilder s = new StringBuilder(128);
         s.append("D(");
         if ((props & DEPENDS_ON_CURRENT_ITEM) != 0) {
             s.append("U");

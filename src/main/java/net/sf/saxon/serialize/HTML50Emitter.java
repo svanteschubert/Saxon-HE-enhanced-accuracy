@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,14 @@
 
 package net.sf.saxon.serialize;
 
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.AttributeMap;
 import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringConstants;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.SchemaType;
 
 import javax.xml.transform.OutputKeys;
@@ -57,12 +59,13 @@ public class HTML50Emitter extends HTMLEmitter {
     /**
      * Decide whether an element is "serialized as an HTML element" in the language of the 3.0 specification
      *
+     * @param name the name of the element
      * @return true if the element is to be serialized as an HTML element
      */
     @Override
     protected boolean isHTMLElement(NodeName name) {
-        String uri = name.getURI();
-        return uri.equals("") || uri.equals(NamespaceConstant.XHTML);
+        NamespaceUri uri = name.getNamespaceUri();
+        return uri.isEmpty() || uri.equals(NamespaceUri.XHTML);
     }
 
     @Override
@@ -84,7 +87,10 @@ public class HTML50Emitter extends HTMLEmitter {
         try {
             if (systemId == null && publicId == null) {
                 if (name.getLocalPart().equalsIgnoreCase("html")) {
-                    writer.write("<!DOCTYPE HTML>");
+                    writer.writeAscii(DOCTYPE);
+                    if ("yes".equals(outputProperties.getProperty("indent", "yes"))) {
+                        writer.writeAscii(NEWLINE);
+                    }
                 }
             } else {
                 super.writeDocType(name, displayName, systemId, publicId);
@@ -95,6 +101,10 @@ public class HTML50Emitter extends HTMLEmitter {
 
     }
 
+    @CSharpModifiers(code={"private", "readonly", "static", "new"})
+    private final static byte[] DOCTYPE = StringConstants.bytes("<!DOCTYPE HTML>");
+    private final static byte[] NEWLINE = StringConstants.bytes("\n");
+
     @Override
     protected boolean writeDocTypeWithNullSystemId() {
         return true;
@@ -102,13 +112,6 @@ public class HTML50Emitter extends HTMLEmitter {
 
     /**
      * Output element start tag
-     *
-     * @param elemName
-     * @param type
-     * @param attributes
-     * @param namespaces
-     * @param location
-     * @param properties
      */
     @Override
     public void startElement(NodeName elemName, SchemaType type, AttributeMap attributes, NamespaceMap namespaces, Location location, int properties) throws XPathException {

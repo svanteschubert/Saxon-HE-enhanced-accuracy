@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,10 @@ package net.sf.saxon.expr.compat;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.BooleanElaborator;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.expr.sort.CodepointCollator;
@@ -66,7 +70,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -250,9 +254,6 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
         // If the first operand is a singleton boolean,
         // compare it with the effective boolean value of the other operand
 
-        //boolean iter0used = false;
-        boolean iter1used = false;
-
         if (maybeBoolean0) {
             Item i01 = iter0.next();
             Item i02 = i01 == null ? null : iter0.next();
@@ -319,12 +320,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
 
         if (operator == Token.LT || operator == Token.LE || operator == Token.GT || operator == Token.GE) {
             final Configuration config = context.getConfiguration();
-            ItemMappingFunction map = new ItemMappingFunction() {
-                @Override
-                public DoubleValue mapItem(Item item) throws XPathException {
-                    return Number_1.convert((AtomicValue)item, config);
-                }
-            };
+            ItemMappingFunction map = ItemMapper.of(item -> Number_1.convert((AtomicValue)item, config));
             iter0 = new ItemMappingIterator(iter0, map, true);
             iter1 = new ItemMappingIterator(iter1, map, true);
         }
@@ -354,10 +350,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
                         }
                         seq1.add(item1);
                     } catch (XPathException e) {
-                        // re-throw the exception with location information added
-                        e.maybeSetLocation(getLocation());
-                        e.maybeSetContext(context);
-                        throw e;
+                        throw e.maybeWithLocation(getLocation()).maybeWithContext(context);
                     }
                 }
             } else {
@@ -376,7 +369,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
-     * @param rebindings
+     * @param rebindings variables that must be re-bound
      */
 
     /*@NotNull*/
@@ -431,8 +424,8 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
 
         if (t0.equals(BuiltInAtomicType.STRING) || t1.equals(BuiltInAtomicType.STRING) ||
                 (t0.equals(BuiltInAtomicType.UNTYPED_ATOMIC) && t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC))) {
-            StringValue s0 = StringValue.makeStringValue(a0.getStringValueCS());
-            StringValue s1 = StringValue.makeStringValue(a1.getStringValueCS());
+            StringValue s0 = new StringValue(a0.getUnicodeStringValue());
+            StringValue s1 = new StringValue(a1.getUnicodeStringValue());
             return ValueComparison.compare(s0, operator, s1, comparer, false);
         }
 
@@ -440,11 +433,11 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
         // convert it to the type of the other operand, and compare
 
         if (t0.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
-            a0 = t1.getStringConverter(rules).convert((StringValue)a0).asAtomic();
+            a0 = t1.getStringConverter(rules).convert(a0).asAtomic();
         }
 
         if (t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
-            a1 = t0.getStringConverter(rules).convert((StringValue)a1).asAtomic();
+            a1 = t0.getStringConverter(rules).convert(a1).asAtomic();
         }
 
         return ValueComparison.compare(a0, operator, a1, comparer, false);
@@ -470,8 +463,24 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
     }
 
     @Override
-    public String tag() {
+    protected String tag() {
         return "gc10";
+    }
+
+    @Override
+    public Elaborator getElaborator() {
+        return new GeneralComparison10Elaborator();
+    }
+
+    private static class GeneralComparison10Elaborator extends BooleanElaborator {
+
+        @Override
+        public BooleanEvaluator elaborateForBoolean() {
+            GeneralComparison10 expr = (GeneralComparison10) getExpression();
+            PullEvaluator eval0 = expr.getLhsExpression().makeElaborator().elaborateForPull();
+            PullEvaluator eval1 = expr.getRhsExpression().makeElaborator().elaborateForPull();
+            return context -> expr.effectiveBooleanValue(eval0.iterate(context), eval1.iterate(context),context);
+        }
     }
 }
 

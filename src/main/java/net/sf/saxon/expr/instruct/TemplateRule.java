@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,20 +9,23 @@ package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.s9api.Location;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.style.Compilation;
 import net.sf.saxon.style.ComponentDeclaration;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trace.TraceableComponent;
+import net.sf.saxon.trans.Mode;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.trans.rules.RuleTarget;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
@@ -30,6 +33,7 @@ import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 
 /**
@@ -46,11 +50,10 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
 
     // The body of the template is represented by an expression,
     // which is responsible for any type checking that's needed.
-
+    protected Mode mode;
     protected Expression body;
+    protected PushEvaluator bodyEvaluator;
     protected Pattern matchPattern;
-    private boolean hasRequiredParams;
-    private boolean bodyIsTailCallReturner;
     private SequenceType requiredType;
     private boolean declaredStreamable;
     private ItemType requiredContextItemType = AnyItemType.getInstance();
@@ -62,8 +65,7 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
     private int columnNumber;
 
 
-    private List<Rule> rules = new ArrayList<>();
-    protected List<TemplateRule> slaveCopies = new ArrayList<>();
+    private final List<Rule> rules = new ArrayList<>();
 
     /**
      * Create a template
@@ -79,13 +81,28 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
      */
 
     public void setMatchPattern(Pattern pattern) {
-//        if (matchPattern != pattern) {
-//            for (Rule r : rules) {
-//                r.setPattern(pattern);
-//            }
-//        }
+        if (matchPattern != pattern) {
+            for (Rule r : rules) {
+                r.setPattern(pattern);
+            }
+        }
         matchPattern = pattern;
+    }
 
+    /**
+     * Set the mode used by this template rule
+     * @param m the mode
+     */
+    public void setMode(Mode m) {
+        this.mode = m;
+    }
+
+    /**
+     * Get the mode used by this template rule
+     * @return the mode
+     */
+    public Mode getMode() {
+        return mode;
     }
 
     @Override
@@ -152,7 +169,6 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
     @Override
     public void setBody(Expression body) {
         this.body = body;
-        bodyIsTailCallReturner = (body instanceof TailCallReturner);
     }
 
     public void setStackFrameMap(SlotManager map) {
@@ -161,34 +177,6 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
 
     public SlotManager getStackFrameMap() {
         return stackFrameMap;
-    }
-
-//    @Override
-//    public void allocateAllBindingSlots(StylesheetPackage pack) {
-//        super.allocateAllBindingSlots(pack);
-//        if (matchPattern != null) {
-//            allocateBindingSlotsRecursive(pack, this, matchPattern);
-//        }
-//    }
-
-    /**
-     * Set whether this template has one or more required parameters
-     *
-     * @param has true if the template has at least one required parameter
-     */
-
-    public void setHasRequiredParams(boolean has) {
-        hasRequiredParams = has;
-    }
-
-    /**
-     * Ask whether this template has one or more required parameters
-     *
-     * @return true if this template has at least one required parameter
-     */
-
-    public boolean hasRequiredParams() {
-        return hasRequiredParams;
     }
 
     /**
@@ -302,7 +290,7 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
 
     public List<LocalParam> getLocalParams() {
         List<LocalParam> result = new ArrayList<>();
-        gatherLocalParams(getInterpretedBody(), result);
+        gatherLocalParams(getBody(), result);
         return result;
     }
 
@@ -323,13 +311,15 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
      * @param decl        the component declaration of this template rule
      */
 
-    public void prepareInitializer(Compilation compilation, ComponentDeclaration decl, StructuredQName modeName) {
+    public void prepareInitializer(Compilation compilation, ComponentDeclaration decl) {
         // No action in Saxon-HE
     }
 
     /**
      * Ensure that any first-time initialization has been done. Used in Saxon-EE
      * to do JIT compilation
+     *
+     * @throws XPathException if any error occurs
      */
 
     public void initialize() throws XPathException {
@@ -374,10 +364,7 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
             RoleDiagnostic role = new RoleDiagnostic(
                     RoleDiagnostic.MISC, "context item for the template rule", 0);
             String message = role.composeErrorMessage(requiredContextItemType, context.getContextItem(), th);
-            XPathException err = new XPathException(message, "XTTE0590");
-            err.setLocation(this);
-            err.setIsTypeError(true);
-            throw err;
+            throw new XPathException(message, "XTTE0590").withLocation(this).asTypeError();
         }
         if (absentFocus) {
             context = context.newMinorContext();
@@ -385,21 +372,12 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
         }
 
         try {
-            if (bodyIsTailCallReturner) {
-                return ((TailCallReturner) body).processLeavingTail(output, context);
-            } else {
-                body.process(output, context);
-                return null;
-            }
+            ensureBodyEvaluatorExists();
+            return bodyEvaluator.processLeavingTail(output, context);
         } catch (UncheckedXPathException e) {
-            XPathException xe = e.getXPathException();
-            xe.maybeSetLocation(this);
-            xe.maybeSetContext(context);
-            throw xe;
+            throw e.getXPathException().maybeWithLocation(this).maybeWithContext(context);
         } catch (XPathException e) {
-            e.maybeSetLocation(this);
-            e.maybeSetContext(context);
-            throw e;
+            throw e.maybeWithLocation(this).maybeWithContext(context);
         } catch (Exception e2) {
             String message = "Internal error evaluating template rule "
                     + (getLineNumber() > 0 ? " at line " + getLineNumber() : "")
@@ -408,6 +386,16 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
             throw new RuntimeException(message, e2);
         }
     }
+
+    @CSharpReplaceBody(code="ensureBodyEvaluatorExistsCS();")
+    private void ensureBodyEvaluatorExists() {
+        if (bodyEvaluator == null) {
+            bodyEvaluator = atomicBodyEvaluator.updateAndGet(bodyEvaluator -> bodyEvaluator == null ? body.makeElaborator().elaborateForPush() : bodyEvaluator);
+        }
+    }
+
+    private AtomicReference<PushEvaluator> atomicBodyEvaluator = new AtomicReference<>(null);
+
 
     /**
      * Output diagnostic explanation to an ExpressionPresenter
@@ -457,40 +445,6 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
         }
     }
 
-    public Expression getInterpretedBody() {
-        return body.getInterpretedExpression();
-    }
-
-
-    /**
-     * Create a copy of a template rule. This is needed when copying a rule from the "omniMode" (mode=#all)
-     * to a specific mode. Because we want the rules to be chained in the right order within the mode object,
-     * we create the copy as soon as we know it is needed. The problem is that at this stage many of the properties
-     * of the template rule are still uninitialised. So we mark the new copy as a slave of the original, and at
-     * the end of the compilation process we update all the slave copies to match the properties of the original.
-     */
-
-    public TemplateRule copy() {
-        TemplateRule tr = new TemplateRule();
-        if (body == null || matchPattern == null) {
-            slaveCopies.add(tr);
-        } else {
-            copyTo(tr);
-        }
-        return tr;
-    }
-
-    /**
-     * Update the properties of template rules that have been marked as slave copies of this one (typically the same
-     * template, but in a different mode).
-     */
-
-    public void updateSlaveCopies() {
-        for (TemplateRule tr : slaveCopies) {
-            copyTo(tr);
-        }
-    }
-
     protected void copyTo(TemplateRule tr) {
         if (body != null) {
             tr.body = body.copy(new RebindingMap());
@@ -498,8 +452,6 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
         if (matchPattern != null) {
             tr.matchPattern = matchPattern.copy(new RebindingMap());
         }
-        tr.hasRequiredParams = hasRequiredParams;
-        tr.bodyIsTailCallReturner = bodyIsTailCallReturner;
         tr.requiredType = requiredType;
         tr.declaredStreamable = declaredStreamable; // ? this can vary from one mode to another
         tr.requiredContextItemType = requiredContextItemType;

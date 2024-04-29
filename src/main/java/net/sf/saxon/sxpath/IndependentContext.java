@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,15 +13,11 @@ import net.sf.saxon.expr.LocalVariableReference;
 import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.SlotManager;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibraryList;
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.AxisInfo;
-import net.sf.saxon.om.NamespaceResolver;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.AnyItemType;
@@ -45,11 +41,11 @@ import java.util.*;
 public class IndependentContext extends AbstractStaticContext
         implements XPathStaticContext, NamespaceResolver {
 
-    protected HashMap<String, String> namespaces = new HashMap<>(10);
+    protected HashMap<String, NamespaceUri> namespaces = new HashMap<>(10);
     protected HashMap<StructuredQName, XPathVariable> variables = new HashMap<>(20);
     protected NamespaceResolver externalResolver = null;
     protected ItemType requiredContextItemType = AnyItemType.getInstance();
-    protected Set<String> importedSchemaNamespaces = new HashSet<>();
+    protected Set<NamespaceUri> importedSchemaNamespaces = new HashSet<>();
     protected boolean autoDeclare = false;
     protected Executable executable;
     protected RetainedStaticContext retainedStaticContext;
@@ -79,7 +75,7 @@ public class IndependentContext extends AbstractStaticContext
         setDefaultCollationName(config.getDefaultCollationName());
         setOptimizerOptions(config.getOptimizerOptions());
         PackageData pd = new PackageData(config);
-        pd.setHostLanguage(HostLanguage.XPATH);
+        pd.setHostLanguage(HostLanguage.XPATH, 31);
         pd.setSchemaAware(false);
         setPackageData(pd);
     }
@@ -140,7 +136,7 @@ public class IndependentContext extends AbstractStaticContext
      * @param uri    The namespace URI. Must not be null.
      */
 
-    public void declareNamespace(String prefix, String uri) {
+    public void declareNamespace(String prefix, NamespaceUri uri) {
         if (prefix == null) {
             throw new NullPointerException("Null prefix supplied to declareNamespace()");
         }
@@ -162,9 +158,9 @@ public class IndependentContext extends AbstractStaticContext
      */
 
     @Override
-    public void setDefaultElementNamespace(String uri) {
+    public void setDefaultElementNamespace(NamespaceUri uri) {
         if (uri == null) {
-            uri = "";
+            uri = NamespaceUri.NULL;
         }
         super.setDefaultElementNamespace(uri);
         namespaces.put("", uri);
@@ -177,11 +173,11 @@ public class IndependentContext extends AbstractStaticContext
 
     public void clearNamespaces() {
         namespaces.clear();
-        declareNamespace("xml", NamespaceConstant.XML);
-        declareNamespace("xsl", NamespaceConstant.XSLT);
-        declareNamespace("saxon", NamespaceConstant.SAXON);
-        declareNamespace("xs", NamespaceConstant.SCHEMA);
-        declareNamespace("", "");
+        declareNamespace("xml", NamespaceUri.XML);
+        declareNamespace("xsl", NamespaceUri.XSLT);
+        declareNamespace("saxon", NamespaceUri.SAXON);
+        declareNamespace("xs", NamespaceUri.SCHEMA);
+        declareNamespace("", NamespaceUri.NULL);
     }
 
     /**
@@ -192,8 +188,8 @@ public class IndependentContext extends AbstractStaticContext
 
     public void clearAllNamespaces() {
         namespaces.clear();
-        declareNamespace("xml", NamespaceConstant.XML);
-        declareNamespace("", "");
+        declareNamespace("xml", NamespaceUri.XML);
+        declareNamespace("", NamespaceUri.NULL);
     }
 
     /**
@@ -226,9 +222,9 @@ public class IndependentContext extends AbstractStaticContext
             }
             String prefix = ns.getLocalPart();
             if ("".equals(prefix)) {
-                setDefaultElementNamespace(ns.getStringValue());
+                setDefaultElementNamespace(NamespaceUri.of(ns.getStringValue()));
             } else {
-                declareNamespace(ns.getLocalPart(), ns.getStringValue());
+                declareNamespace(ns.getLocalPart(), NamespaceUri.of(ns.getStringValue()));
             }
         }
     }
@@ -300,8 +296,8 @@ public class IndependentContext extends AbstractStaticContext
      */
 
     @Override
-    public XPathVariable declareVariable(String namespaceURI, String localName) {
-        StructuredQName qName = new StructuredQName("", namespaceURI, localName);
+    public XPathVariable declareVariable(NamespaceUri namespaceURI, String localName) {
+        StructuredQName qName = new StructuredQName("", namespaceURI==null ? NamespaceUri.NULL : namespaceURI, localName);
         return declareVariable(qName);
     }
 
@@ -338,8 +334,8 @@ public class IndependentContext extends AbstractStaticContext
      * @since 9.2
      */
 
-    public Iterator<XPathVariable> iterateExternalVariables() {
-        return variables.values().iterator();
+    public Iterable<XPathVariable> getExternalVariables() {
+        return variables.values();
     }
 
     /**
@@ -393,12 +389,12 @@ public class IndependentContext extends AbstractStaticContext
      */
 
     @Override
-    public String getURIForPrefix(String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
         if (externalResolver != null) {
             return externalResolver.getURIForPrefix(prefix, useDefault);
         }
         if (prefix.isEmpty()) {
-            return useDefault ? getDefaultElementNamespace() : "";
+            return useDefault ? getDefaultElementNamespace() : NamespaceUri.NULL;
         } else {
             return namespaces.get(prefix);
         }
@@ -457,7 +453,7 @@ public class IndependentContext extends AbstractStaticContext
             va[var.getLocalSlotNumber()] = var;
         }
         for (XPathVariable v : va) {
-            map.allocateSlotNumber(v.getVariableQName());
+            map.allocateSlotNumber(v.getVariableQName(), v);
         }
         return map;
     }
@@ -468,7 +464,7 @@ public class IndependentContext extends AbstractStaticContext
 
 
     @Override
-    public boolean isImportedSchema(String namespace) {
+    public boolean isImportedSchema(NamespaceUri namespace) {
         return importedSchemaNamespaces.contains(namespace);
     }
 
@@ -479,7 +475,7 @@ public class IndependentContext extends AbstractStaticContext
      */
 
     @Override
-    public Set<String> getImportedSchemaNamespaces() {
+    public Set<NamespaceUri> getImportedSchemaNamespaces() {
         return importedSchemaNamespaces;
     }
 
@@ -490,7 +486,7 @@ public class IndependentContext extends AbstractStaticContext
      *                   static context
      */
 
-    public void setImportedSchemaNamespaces(Set<String> namespaces) {
+    public void setImportedSchemaNamespaces(Set<NamespaceUri> namespaces) {
         importedSchemaNamespaces = namespaces;
         if (!namespaces.isEmpty()) {
             setSchemaAware(true);

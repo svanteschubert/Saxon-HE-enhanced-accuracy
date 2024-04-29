@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,7 +20,11 @@ import java.util.Set;
 
 /**
  * Abstract pattern formed as the union, intersection, or difference of two other patterns;
- * concrete subclasses are used for the different operators
+ * concrete subclasses are used for the different operators.
+ *
+ * Bug #5368 concludes that we can't simply treat "A except B" as meaning that a node must
+ * match pattern A and not match pattern B; similarly for the intersect operator. There
+ * are however special cases where we can do so, for example "@* except @code".
  */
 
 public abstract class VennPattern extends Pattern {
@@ -222,8 +226,8 @@ public abstract class VennPattern extends Pattern {
      */
 
     @Override
-    public int computeHashCode() {
-        return 0x9bd723a6 ^ p1.hashCode() ^ p2.hashCode();
+    protected int computeHashCode() {
+        return 0x6bd723a6 ^ p1.hashCode() ^ p2.hashCode();
     }
 
     /**
@@ -234,7 +238,7 @@ public abstract class VennPattern extends Pattern {
     protected abstract String getOperatorName();
 
     /**
-     * Get the pattern text for diagnostics
+     * Get the original pattern text
      */
     @Override
     public String reconstruct() {

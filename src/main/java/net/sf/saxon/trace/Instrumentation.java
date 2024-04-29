@@ -11,32 +11,47 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Internal class used for instrumentation purposes. It maintains a number of counters and displays these at the
- * end of the run. Currently implemented only for the Transform command line, with -t option set.
+ * Internal class used for instrumentation purposes. It maintains a number of counters and displays these on request.
+ * The counters are output by calling {@code Instrumentation.report()}, typically at the end of a run.
  */
 
 public class Instrumentation {
 
+    // Set this flag to true to enable counters to be maintained
     public static final boolean ACTIVE = false;
 
     public static HashMap<String, Long> counters = new HashMap<>();
 
+    // Increment a named counter
     public static void count(String counter) {
-        if (counters.containsKey(counter)) {
-            counters.put(counter, counters.get(counter) + 1);
-        } else {
-            counters.put(counter, 1L);
+        if (ACTIVE) {
+            if (counters.containsKey(counter)) {
+                counters.put(counter, counters.get(counter) + 1);
+            } else {
+                counters.put(counter, 1L);
+            }
         }
     }
 
+    // Increase a named counter by a set amount
     public static void count(String counter, long increment) {
-        if (counters.containsKey(counter)) {
-            counters.put(counter, counters.get(counter) + increment);
-        } else {
-            counters.put(counter, increment);
+        if (ACTIVE) {
+            if (counters.containsKey(counter)) {
+                counters.put(counter, counters.get(counter) + increment);
+            } else {
+                counters.put(counter, increment);
+            }
         }
     }
 
+    public static String callStack() {
+        StackTraceElement[] stacktrace = Thread.currentThread().getStackTrace();
+        return stacktrace[3].getClassName() + "." + stacktrace[3].getMethodName() +
+                                      " from " + stacktrace[4].getClassName() + "." + stacktrace[4].getMethodName() +
+                                      " from " + stacktrace[5].getClassName() + "." + stacktrace[5].getMethodName();
+    }
+
+    // Output the current counter values
     public static void report() {
         if (ACTIVE && !counters.isEmpty()) {
             System.err.println("COUNTERS");
@@ -46,8 +61,11 @@ public class Instrumentation {
         }
     }
 
+    // Reset all counters
     public static void reset() {
-        counters.clear();
+        if (ACTIVE) {
+            counters.clear();
+        }
     }
 
 }

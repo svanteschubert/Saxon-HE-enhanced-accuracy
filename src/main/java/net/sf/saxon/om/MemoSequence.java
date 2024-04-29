@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,10 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.expr.LastPositionFinder;
+import net.sf.saxon.expr.elab.LearningEvaluator;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.tree.iter.ArrayIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.GroundedIterator;
@@ -17,7 +20,6 @@ import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceExtent;
 
 import java.util.Arrays;
-import java.util.EnumSet;
 
 /**
  * A Sequence implementation that represents a lazy evaluation of a supplied iterator. Items
@@ -28,11 +30,15 @@ import java.util.EnumSet;
 
 public class MemoSequence implements Sequence {
 
-    SequenceIterator inputIterator;
+    private final SequenceIterator inputIterator;
 
     private Item[] reservoir = null;
     private int used;
 
+    private LearningEvaluator learningEvaluator;
+    private int serialNumber;
+
+    @CSharpSimpleEnum
     private enum State {
         // State in which no items have yet been read
         UNREAD,
@@ -47,11 +53,18 @@ public class MemoSequence implements Sequence {
         // State in which we know that the value is an empty sequence
         EMPTY}
 
-    protected State state = State.UNREAD;
+    private State state = State.UNREAD;
 
     public MemoSequence(SequenceIterator iterator) {
         this.inputIterator = iterator;
     }
+
+
+    public void setLearningEvaluator(LearningEvaluator caller, int serialNumber) {
+        this.learningEvaluator = caller;
+        this.serialNumber = serialNumber;
+    }
+
 
     @Override
     public Item head() throws XPathException {
@@ -60,8 +73,7 @@ public class MemoSequence implements Sequence {
 
 
     @Override
-    public synchronized SequenceIterator iterate() throws XPathException {
-
+    public synchronized SequenceIterator iterate() {
         switch (state) {
             case UNREAD:
                 state = State.BUSY;
@@ -72,33 +84,31 @@ public class MemoSequence implements Sequence {
                 reservoir = new Item[50];
                 used = 0;
                 state = State.MAYBE_MORE;
-                return new ProgressiveIterator();
+                return new ProgressiveIterator(this);
 
             case MAYBE_MORE:
-                return new ProgressiveIterator();
+                return new ProgressiveIterator(this);
 
             case ALL_READ:
                 switch (used) {
                     case 0:
                         state = State.EMPTY;
-                        return EmptyIterator.emptyIterator();
+                        return EmptyIterator.getInstance();
                     case 1:
                         assert reservoir != null;
                         return SingletonIterator.makeIterator(reservoir[0]);
                     default:
-                        return new ArrayIterator<>(reservoir, 0, used);
+                        return new ArrayIterator.Of<>(reservoir, 0, used);
                 }
 
             case BUSY:
                 // recursive entry: can happen if there is a circularity involving variable and function definitions
                 // Can also happen if variable evaluation is attempted in a debugger, hence the cautious message
-                XPathException de = new XPathException("Attempt to access a variable while it is being evaluated");
-                de.setErrorCode("XTDE0640");
-                //de.setXPathContext(context);
-                throw de;
+                XPathException de = new XPathException("Attempt to access a variable while it is being evaluated", "XTDE0640");
+                throw new UncheckedXPathException(de);
 
             case EMPTY:
-                return EmptyIterator.emptyIterator();
+                return EmptyIterator.getInstance();
 
             default:
                 throw new IllegalStateException("Unknown iterator state");
@@ -186,62 +196,67 @@ public class MemoSequence implements Sequence {
      * copying them into the reservoir as they are read.
      */
 
-    public final class ProgressiveIterator
+    public final static class ProgressiveIterator
             implements SequenceIterator, LastPositionFinder, GroundedIterator {
 
-        int position = -1;  // zero-based position in the reservoir of the
-        // item most recently read
+        private final MemoSequence container;
+        private int position = -1;  // zero-based position in the reservoir of the
+                                    // item most recently read
 
         /**
          * Create a ProgressiveIterator
+         * @param container the containing MemoSequence
          */
 
-        public ProgressiveIterator() {
+        public ProgressiveIterator(MemoSequence container) {
+            this.container = container;
         }
 
         /**
          * Get the containing MemoSequence
-         *
+         * @return the containing MemoSequence
          */
 
         public MemoSequence getMemoSequence() {
-            return MemoSequence.this;
+            return container;
         }
 
         /*@Nullable*/
         @Override
-        public Item next() throws XPathException {
-            synchronized (MemoSequence.this) {
+        public Item next() {
+            synchronized (container) {
                 // synchronized for the case where a multi-threaded xsl:for-each is reading the variable
                 if (position == -2) {   // means we've already returned null once, keep doing so if called again.
                     return null;
                 }
-                if (++position < used) {
-                    assert reservoir != null;
-                    return reservoir[position];
-                } else if (state == State.ALL_READ) {
+                if (++position < container.used) {
+                    assert container.reservoir != null;
+                    return container.reservoir[position];
+                } else if (container.state == State.ALL_READ) {
                     // someone else has read the input to completion in the meantime
                     position = -2;
                     return null;
                 } else {
-                    assert inputIterator != null;
-                    Item i = inputIterator.next();
+                    assert container.inputIterator != null;
+                    Item i = container.inputIterator.next();
                     if (i == null) {
-                        state = State.ALL_READ;
-                        condense();
+                        container.state = State.ALL_READ;
+                        container.condense();
                         position = -2;
+                        reportCompletion();
                         return null;
                     }
-                    position = used;
-                    append(i);
-                    state = State.MAYBE_MORE;
+                    position = container.used;
+                    container.append(i);
+                    container.state = State.MAYBE_MORE;
                     return i;
                 }
             }
         }
 
         @Override
-        public void close() {
+        public boolean supportsGetLength() {
+            return true;
         }
 
         /**
@@ -249,21 +264,26 @@ public class MemoSequence implements Sequence {
          */
 
         @Override
-        public int getLength() throws XPathException {
-            if (state == State.ALL_READ) {
-                return used;
-            } else if (state == State.EMPTY) {
+        public int getLength() {
+            if (container.state == State.ALL_READ) {
+                return container.used;
+            } else if (container.state == State.EMPTY) {
                 return 0;
             } else {
                 // save the current position
                 int savePos = position;
                 // fill the reservoir
+                //noinspection StatementWithEmptyBody
                 while (next() != null) {}
                 // reset the current position
                 position = savePos;
                 // return the total number of items
-                return used;
+                return container.used;
             }
+        }
+
+        public boolean isActuallyGrounded() {
+            return true;
         }
 
         /**
@@ -275,10 +295,10 @@ public class MemoSequence implements Sequence {
 
         /*@Nullable*/
         @Override
-        public GroundedValue materialize() throws XPathException {
-            if (state == State.ALL_READ) {
+        public GroundedValue materialize() {
+            if (container.state == State.ALL_READ) {
                 return makeExtent();
-            } else if (state == State.EMPTY) {
+            } else if (container.state == State.EMPTY) {
                 return EmptySequence.getInstance();
             } else {
                 // save the current position
@@ -294,53 +314,79 @@ public class MemoSequence implements Sequence {
         }
 
         private GroundedValue makeExtent() {
-            if (used == reservoir.length) {
-                if (used == 0) {
+            if (container.used == container.reservoir.length) {
+                if (container.used == 0) {
                     return EmptySequence.getInstance();
-                } else if (used == 1) {
-                    return reservoir[0];
+                } else if (container.used == 1) {
+                    return container.reservoir[0];
                 } else {
-                    return new SequenceExtent(reservoir);
+                    return new SequenceExtent.Of<Item>(container.reservoir);
                 }
             } else {
-                return SequenceExtent.makeSequenceExtent(Arrays.asList(reservoir).subList(0, used));
+                return SequenceExtent.makeSequenceExtent(
+                        Arrays.asList(container.reservoir).subList(0, container.used));
             }
         }
 
         @Override
-        public GroundedValue getResidue() throws XPathException {
-            if (state == State.EMPTY || position >= used || position == -2) {
+        public GroundedValue getResidue() {
+            if (container.state == State.EMPTY || position >= container.used || position == -2) {
                 return EmptySequence.getInstance();
-            } else if (state == State.ALL_READ) {
-                return SequenceExtent.makeSequenceExtent(Arrays.asList(reservoir).subList(position + 1, used));
+            } else if (container.state == State.ALL_READ) {
+                return SequenceExtent.makeSequenceExtent(
+                        Arrays.asList(container.reservoir).subList(position + 1, container.used));
             } else {
                 // save the current position
                 int savePos = position;
                 // fill the reservoir
+                //noinspection StatementWithEmptyBody
                 while (next() != null) {
                 }
                 // reset the current position
                 position = savePos;
                 // return all the items
-                return SequenceExtent.makeSequenceExtent(Arrays.asList(reservoir).subList(position + 1, used));
+                return SequenceExtent.makeSequenceExtent(
+                        Arrays.asList(container.reservoir).subList(position + 1, container.used));
+            }
+        }
+
+        /**
+         * Close the iterator. This indicates to the supplier of the data that the client
+         * does not require any more items to be delivered by the iterator. This may enable the
+         * supplier to release resources. After calling close(), no further calls on the
+         * iterator should be made; if further calls are made, the effect of such calls is undefined.
+         * <p>For example, the iterator returned by the unparsed-text-lines() function has a close() method
+         * that causes the underlying input stream to be closed, whether or not the file has been read
+         * to completion.</p>
+         * <p>Closing an iterator is important when the data is being "pushed" in
+         * another thread. Closing the iterator terminates that thread and means that it needs to do
+         * no additional work. Indeed, failing to close the iterator may cause the push thread to hang
+         * waiting for the buffer to be emptied.</p>
+         * <p>Closing an iterator is not necessary if the iterator is read to completion: if a call
+         * on {@link #next()} returns null, the iterator will be closed automatically. An explicit
+         * call on {@link #close()} is needed only when iteration is abandoned prematurely.</p>
+         *
+         * @since 9.1. Default implementation added in 9.9.
+         */
+        @Override
+        public void close() {
+            if (container.state == State.ALL_READ) {
+                reportCompletion();
+            }
+        }
+
+        private void reportCompletion() {
+            // When we've finished with the iterator, provide feedback to the binding instruction
+            // as to whether all the data was read, or whether there was an early exit. This can
+            // be used to switch the evaluation strategy from lazy evaluation to eager evaluation.
+            // In fact we only notify when the iterator is read to completion, otherwise we
+            // would get multiple notifications for constructs like `if (!empty(x)) then x`.
+            if (container.learningEvaluator != null) {
+                container.learningEvaluator.reportCompletion(container.serialNumber);
             }
         }
 
 
-        /**
-         * Get properties of this iterator, as a bit-significant integer.
-         *
-         * @return the properties of this iterator. This will be some combination of
-         *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED} and {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER}. It is always
-         *         acceptable to return the value zero, indicating that there are no known special properties.
-         */
-
-        @Override
-        public EnumSet<Property> getProperties() {
-            // bug 1740 shows that it is better to report the iterator as grounded even though this
-            // may trigger eager evaluation of the underlying sequence.
-            return EnumSet.of(Property.GROUNDED, Property.LAST_POSITION_FINDER);
-        }
     }
 
 }

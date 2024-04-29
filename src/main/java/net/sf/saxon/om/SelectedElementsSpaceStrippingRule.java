@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import net.sf.saxon.style.StylesheetModule;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.type.AlphaCode;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -37,12 +37,14 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
 
     private Rule anyElementRule = null;
     private Rule unnamedElementRuleChain = null;
-    private HashMap<NodeName, Rule> namedElementRules = new HashMap<NodeName, Rule>(32);
+    private final HashMap<NodeName, Rule> namedElementRules = new HashMap<NodeName, Rule>(32);
     private int sequence = 0;
-    private boolean rejectDuplicates; // in XSLT 3.0, duplicate conflicting rules are a static error
+    private final boolean rejectDuplicates; // in XSLT 3.0, duplicate conflicting rules are a static error
 
     /**
      * Create the ruleset
+     *
+     * @param rejectDuplicates indicates whether duplicate conflicting rules are a static error
      */
 
     public SelectedElementsSpaceStrippingRule(boolean rejectDuplicates) {
@@ -52,9 +54,9 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
     /**
      * Decide whether an element is in the set of white-space preserving element names
      *
-     * @param fingerprint Identifies the name of the element whose whitespace is to
+     * @param fingerprint identifies the name of the element whose whitespace is to
      *                    be preserved
-     * @param schemaType
+     * @param schemaType  the type annotation of the element
      * @return ALWAYS_PRESERVE if the element is in the set of white-space preserving
      *         element types, ALWAYS_STRIP if the element is to be stripped regardless of the
      *         xml:space setting, and STRIP_DEFAULT otherwise
@@ -95,8 +97,6 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
         int minImportPrecedence = module.getMinImportPrecedence();
 
         NodeTestPattern pattern = new NodeTestPattern(test);
-        //pattern.setSystemId(module.getRootElement().getSystemId());
-        //pattern.setLineNumber(lineNumber);
         addRule(pattern, action, precedence, minImportPrecedence);
     }
 
@@ -271,7 +271,7 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
      * is necessary
      *
      * @return a filter in the form of a ProxyReceiver, or null
-     * @param next
+     * @param next the Receiver that is to receive the filtered event stream
      */
     @Override
     public ProxyReceiver makeStripper(Receiver next) {
@@ -310,23 +310,23 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
         presenter.endElement();
     }
 
-    private static void exportRuleJS(Rule rule, FastStringBuffer fsb) {
-        String which = rule.getAction() == Stripper.STRIP ? "true" : "false";
-        NodeTest test = (NodeTest)rule.getPattern().getItemType();
-        if (test instanceof NodeKindTest) {
-            // elements="*"
-            fsb.append("return " + which + ";");
-        } else if (test instanceof NameTest) {
-            fsb.append("if (uri=='" + test.getMatchingNodeName().getURI() +
-                               "' && local=='" + test.getMatchingNodeName().getLocalPart() +
-                               "') return " + which + ";" );
-        } else if (test instanceof NamespaceTest) {
-            fsb.append("if (uri=='" + ((NamespaceTest)test).getNamespaceURI() + "') return " + which + ";");
-        } else if (test instanceof LocalNameTest) {
-            fsb.append("if (local=='" + ((LocalNameTest) test).getLocalName() + "') return " + which + ";");
-        } else {
-            throw new IllegalStateException("Cannot export " + test.getClass());
-        }
-    }
+//    private static void exportRuleJS(Rule rule, StringBuilder fsb) {
+//        String which = rule.getAction() == Stripper.STRIP ? "true" : "false";
+//        NodeTest test = (NodeTest)rule.getPattern().getItemType();
+//        if (test instanceof NodeKindTest) {
+//            // elements="*"
+//            fsb.append("return " + which + ";");
+//        } else if (test instanceof NameTest) {
+//            fsb.append("if (uri=='" + test.getMatchingNodeName().getURI() +
+//                               "' && local=='" + test.getMatchingNodeName().getLocalPart() +
+//                               "') return " + which + ";" );
+//        } else if (test instanceof NamespaceTest) {
+//            fsb.append("if (uri=='" + ((NamespaceTest)test).getNamespaceURI() + "') return " + which + ";");
+//        } else if (test instanceof LocalNameTest) {
+//            fsb.append("if (local=='" + ((LocalNameTest) test).getLocalName() + "') return " + which + ";");
+//        } else {
+//            throw new IllegalStateException("Cannot export " + test.getClass());
+//        }
+//    }
 }
 

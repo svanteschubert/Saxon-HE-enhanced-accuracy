@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -37,10 +37,10 @@ import java.util.WeakHashMap;
 public class AccumulatorManager {
 
 
-    private transient WeakHashMap<TreeInfo, Map<Accumulator, IAccumulatorData>> accumulatorDataIndex =
+    private final transient WeakHashMap<TreeInfo, Map<Accumulator, IAccumulatorData>> accumulatorDataIndex =
         new WeakHashMap<TreeInfo, Map<Accumulator, IAccumulatorData>>();
 
-    private transient WeakHashMap<TreeInfo, Set<? extends Accumulator>> applicableAccumulators =
+    private final transient WeakHashMap<TreeInfo, Set<? extends Accumulator>> applicableAccumulators =
             new WeakHashMap<TreeInfo, Set<? extends Accumulator>>();
 
     public AccumulatorManager() {
@@ -58,6 +58,18 @@ public class AccumulatorManager {
     }
 
     /**
+     * Get the set of accumulators applicable to a particular tree
+     *
+     * @param tree the tree in question
+     * @return the set of applicable accumulators; a value of null indicates the universal set (all accumulators
+     * are applicable
+     */
+
+    public Set<? extends Accumulator> getApplicableAccumulators(TreeInfo tree) {
+        return applicableAccumulators.get(tree);
+    }
+
+    /**
      * Ask whether a particular accumulator is applicable to a particular tree
      * @param tree the tree in question
      * @param accumulator the accumulator in question
@@ -69,7 +81,7 @@ public class AccumulatorManager {
         return accSet == null || accSet.contains(accumulator);
     }
 
-    private static AccumulatorData MARKER = new AccumulatorData(null);
+    private static final AccumulatorData MARKER = new AccumulatorData(null);
 
     /**
      * Get the data relating to a particular accumulator for a particular unstreamed document tree
@@ -95,9 +107,9 @@ public class AccumulatorManager {
             }
         } else {
             map = new HashMap<Accumulator, IAccumulatorData>();
-            map.put(acc, MARKER);
             accumulatorDataIndex.put(doc, map);
         }
+        map.put(acc, MARKER);
         if (doc instanceof VirtualTreeInfo && ((VirtualTreeInfo)doc).isCopyAccumulators()) {
             NodeInfo original = ((VirtualCopy) doc.getRootNode()).getOriginalNode();
             IAccumulatorData originalData = getAccumulatorData(original.getTreeInfo(), acc, context);

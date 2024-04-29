@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,81 +8,112 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.regex.BMPString;
-import net.sf.saxon.regex.EmptyString;
-import net.sf.saxon.regex.LatinString;
-import net.sf.saxon.regex.UnicodeString;
+import net.sf.saxon.str.*;
+import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.tree.util.CharSequenceConsumer;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.z.IntIterator;
 
 
 /**
  * An atomic value of type xs:string. This class is also used for types derived from xs:string.
- * Subclasses of StringValue are used for xs:untypedAtomic and xs:anyURI values.
+ * The StringValue class is also used for xs:untypedAtomic; a subclass is used for xs:anyURI values.
+ *
+ * <p>Internally the value is held as a wrapper around a {@link UnicodeString}, which allows
+ * a variety of implementations</p>
+ *
+ * <p>The {@code equals} and {@code compareTo} methods support ordering in codepoint
+ * collation sequence.</p>
  */
 
 public class StringValue extends AtomicValue {
 
-    public static final StringValue EMPTY_STRING = new StringValue(EmptyString.THE_INSTANCE);
-    public static final StringValue SINGLE_SPACE = new StringValue(LatinString.SINGLE_SPACE);
-    public static final StringValue TRUE = new StringValue(new LatinString("true"));
-    public static final StringValue FALSE = new StringValue(new LatinString("false"));
 
-    // We hold the value as a CharSequence (it may be a StringBuffer rather than a string)
-    // But the first time this is converted to a string, we keep it as a string
+    protected final UnicodeString content;
 
-    protected CharSequence value;     // may be zero-length, will never be null
+    public static final StringValue EMPTY_STRING = new StringValue(EmptyUnicodeString.getInstance());
+    public static final StringValue SINGLE_SPACE = new StringValue(StringConstants.SINGLE_SPACE);
+    public static final StringValue TRUE = new StringValue(StringConstants.TRUE);
+    public static final StringValue FALSE = new StringValue(StringConstants.FALSE);
+
+    public static final StringValue ZERO_LENGTH_UNTYPED = StringValue.makeUntypedAtomic(EmptyUnicodeString.getInstance());
+
 
     /**
      * Protected constructor for use by subtypes
      */
 
     protected StringValue() {
-        value = "";
-        typeLabel = BuiltInAtomicType.STRING;
+        super(BuiltInAtomicType.STRING);
+        content = EmptyUnicodeString.getInstance();
     }
 
     /**
-     * Constructor. Note that although a StringValue may wrap any kind of CharSequence
-     * (usually a String, but it can also be, for example, a StringBuffer), the caller
-     * is responsible for ensuring that the value is immutable.
-     *
-     * @param value the String value. Null is taken as equivalent to "".
+     * Protected constructor for use by subtypes
      */
 
-    public StringValue(/*@Nullable*/ CharSequence value) {
-        this.value = value == null ? "" : value;
-        typeLabel = BuiltInAtomicType.STRING;
+    protected StringValue(AtomicType typeLabel) {
+        super(typeLabel);
+        content = EmptyUnicodeString.getInstance();
     }
 
     /**
-     * Constructor. Note that although a StringValue may wrap any kind of CharSequence
+     * Construct an instance that wraps a supplied {@code UnicodeString}, with the default
+     * type xs:string
+     * @param content the {@code UnicodeString} to wrap
+     */
+
+    public StringValue(UnicodeString content) {
+        this(content, BuiltInAtomicType.STRING);
+    }
+
+    /**
+     * Construct an instance that wraps a supplied {@code UnicodeString}, with a supplied atomic type
+     * @param content the {@code UnicodeString} to wrap
+     * @param type    the requested atomic type
+     */
+
+    public StringValue(UnicodeString content, AtomicType type) {
+        super(type);
+        this.content = content;
+    }
+
+    /**
+     * Constructor from String. Creates an instance of xs:string.
+     * @param value the String value.
+     */
+
+    public StringValue(String value) {
+        this(value, BuiltInAtomicType.STRING);
+    }
+
+    /**
+     * Constructor from String. Note that although a StringValue may wrap any kind of CharSequence
      * (usually a String, but it can also be, for example, a StringBuffer), the caller
      * is responsible for ensuring that the value is immutable.
      *
      * @param value     the String value.
      * @param typeLabel the type of the value to be created. The caller must ensure that this is
-     *                  a type derived from string and that the string is valid against this type.
+     *                  a type derived from xs:string and that the string is valid against this type.
      */
 
-    public StringValue(CharSequence value, AtomicType typeLabel) {
-        this.value = value;
-        this.typeLabel = typeLabel;
+    public StringValue(String value, AtomicType typeLabel) {
+        super(typeLabel);
+        this.content = StringTool.fromCharSequence(value);
     }
 
-
     /**
-     * Assert that the string is known to contain no surrogate pairs
+     * Factory method for untyped atomic values
+     * @param value the string value
+     * @return a new untyped atomic value around this string
      */
 
-    public synchronized void setContainsNoSurrogates() {
-        if (!(value instanceof BMPString || value instanceof LatinString || value instanceof EmptyString)) {
-            value = new BMPString(value);
-        }
+    public static StringValue makeUntypedAtomic(UnicodeString value) {
+        return new StringValue(value, BuiltInAtomicType.UNTYPED_ATOMIC);
     }
 
     /**
@@ -93,10 +124,24 @@ public class StringValue extends AtomicValue {
      */
 
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        StringValue v = new StringValue(value);
-        v.typeLabel = typeLabel;
-        return v;
+    public StringValue copyAsSubType(AtomicType typeLabel) {
+        if (typeLabel == this.typeLabel) {
+            return this;
+        } else {
+            return new StringValue(this.content, typeLabel);
+        }
+    }
+
+    /**
+     * Construct a StringValue whose content is known to consist entirely of BMP characters
+     * (codepoints less than 65536, with no surrogate pairs)
+     * @param content the content of the string, which the caller guarantees to contain
+     *                no surrogate pairs
+     * @return the corresponding StringValue
+     */
+    public static StringValue bmp(String content) {
+        //TODO: most if not all calls supply a literal String. Use a static constant pool.
+        return new StringValue(BMPString.of(content));
     }
 
     /**
@@ -108,7 +153,7 @@ public class StringValue extends AtomicValue {
 
     @Override
     public BuiltInAtomicType getPrimitiveType() {
-        return BuiltInAtomicType.STRING;
+        return typeLabel == BuiltInAtomicType.UNTYPED_ATOMIC ? BuiltInAtomicType.UNTYPED_ATOMIC : BuiltInAtomicType.STRING;
     }
 
     /**
@@ -120,123 +165,54 @@ public class StringValue extends AtomicValue {
      */
 
     /*@NotNull*/
-    public static StringValue makeStringValue(/*@Nullable*/ CharSequence value) {
+    public static StringValue makeStringValue(CharSequence value) {
         if (value == null || value.length() == 0) {
+            return StringValue.EMPTY_STRING;
+        } else {
+            return new StringValue(value.toString());
+        }
+    }
+
+    public static StringValue makeUStringValue(UnicodeString value) {
+        if (value == null || value.isEmpty()) {
             return StringValue.EMPTY_STRING;
         } else {
             return new StringValue(value);
         }
     }
 
-    /**
-     * Utility method to test whether a CharSequence is empty
-     * @param string the input CharSequence
-     * @return true if the CharSequence is empty
-     */
-
-    public static boolean isEmpty(CharSequence string) {
-        if (string instanceof String) {
-            return ((String) string).isEmpty();
-        } else if (string instanceof UnicodeString) {
-            return ((UnicodeString)string).uLength() == 0;
-        } else {
-            return string.length() == 0;
-        }
-    }
-
-    /**
-     * Get the string value as a CharSequence
-     */
-
     @Override
-    public final CharSequence getPrimitiveStringValue() {
-        return value;
+    public UnicodeString getPrimitiveStringValue() {
+        return content;
     }
 
     /**
-     * Set the value of the item as a CharSequence.
-     * <p><b>For system use only. In principle, a StringValue is immutable. However, in special circumstances,
-     * if it is newly constructed, the content can be changed to reflect the effect of the whiteSpace facet.</b></p>
-     *
-     * @param value the value of the string
+     * Get the content of this <code>StringValue</code>
+     * @return the content
      */
 
-    public final void setStringValueCS(CharSequence value) {
-        this.value = value;
+    public UnicodeString getContent() {
+        return content;
     }
 
     /**
-     * Get the length of this string, as defined in XPath. This is not the same as the Java length,
-     * as a Unicode surrogate pair counts as a single character
-     *
+     * Get the length of this string, in code points
      * @return the length of the string in Unicode code points
      */
 
-    public synchronized int getStringLength() {
-        if (!(value instanceof UnicodeString)) {
-            makeUnicodeString();
-        }
-        return ((UnicodeString)value).uLength();
+    public long length() {
+        return content.length();
     }
 
     /**
-     * Get an upper bound on the length of the string in Unicode codepoints.
-     * @return a value N such that getStringLength &lt;= N. In practice, if the string is held
-     * as UTF16 codepoints this will be the length in UTF16 codepoints; if it is held in Unicode
-     * codepoints, it will be the length in Unicode codepoints
-     */
-
-    public synchronized int getStringLengthUpperBound() {
-        if (value instanceof UnicodeString) {
-            return ((UnicodeString) value).uLength();
-        } else {
-            return value.length();
-        }
-    }
-
-    /**
-     * Get a UnicodeString value representing the same characters as this string. This is a memo-function;
-     * the value is computed the first time it is needed, and is cached for subsequent reuse
+     * Get the length of this string, in code points
      *
-     * @return the corresponding UnicodeString
+     * @return the length of the string in Unicode code points, provided that it is less than 2^31
+     * @throws UnsupportedOperationException if the string contains more than 2^31 code points
      */
 
-    public synchronized UnicodeString getUnicodeString() {
-        if (!(value instanceof UnicodeString)) {
-            makeUnicodeString();
-        }
-        return (UnicodeString)value;
-    }
-
-    /**
-     * Construct a Unicode representation of this string in which each character occupies a fixed amount of space,
-     * allowing direct addressing and counting of Unicode characters
-     */
-
-    private void makeUnicodeString() {
-        value = UnicodeString.makeUnicodeString(value);
-    }
-
-    /**
-     * Get the length of a string, as defined in XPath. This is not the same as the Java length,
-     * as a Unicode surrogate pair counts as a single character.
-     *
-     * @param s The string whose length is required
-     * @return the length of the string in Unicode code points
-     */
-
-    public static int getStringLength(/*@NotNull*/ CharSequence s) {
-        if (s instanceof UnicodeString) {
-            return ((UnicodeString) s).uLength();
-        }
-        int n = 0;
-        for (int i = 0; i < s.length(); i++) {
-            int c = (int) s.charAt(i);
-            if (c < 55296 || c > 56319) {
-                n++;    // don't count high surrogates, i.e. D800 to DBFF
-            }
-        }
-        return n;
+    public int length32() {
+        return content.length32();
     }
 
 
@@ -247,28 +223,9 @@ public class StringValue extends AtomicValue {
      * @return true if the string is zero length
      */
 
-    public boolean isZeroLength() {
-        return value.length() == 0;
-    }
 
-    /**
-     * Determine whether the string contains surrogate pairs
-     *
-     * @return true if the string contains any non-BMP characters
-     */
-
-    public boolean containsSurrogatePairs() {
-        return UnicodeString.containsSurrogatePairs(value);
-    }
-
-    /**
-     * Ask whether the string is known to contain no surrogate pairs.
-     *
-     * @return true if it is known to contain no surrogates, false if the answer is not known
-     */
-
-    public boolean isKnownToContainNoSurrogates() {
-        return value instanceof BMPString || value instanceof LatinString || value instanceof EmptyString;
+    public boolean isEmpty() {
+        return content.isEmpty();
     }
 
     /**
@@ -278,71 +235,18 @@ public class StringValue extends AtomicValue {
      */
 
     /*@NotNull*/
-    public synchronized AtomicIterator<Int64Value> iterateCharacters() {
-        if (value instanceof UnicodeString) {
-            return new UnicodeCharacterIterator((UnicodeString)value);
-        } else {
-            return new CharacterIterator(value);
-        }
-    }
-
-    /**
-     * Expand a string containing surrogate pairs into an array of 32-bit characters
-     *
-     * @param s the string to be expanded
-     * @return an array of integers representing the Unicode code points
-     */
-
-    /*@NotNull*/
-    public static int[] expand(/*@NotNull*/ CharSequence s) {
-        int[] array = new int[getStringLength(s)];
-        int o = 0;
-        for (int i = 0; i < s.length(); i++) {
-            int charval;
-            int c = s.charAt(i);
-            if (c >= 55296 && c <= 56319) {
-                // we'll trust the data to be sound
-                charval = ((c - 55296) * 1024) + ((int) s.charAt(i + 1) - 56320) + 65536;
-                i++;
-            } else {
-                charval = c;
-            }
-            array[o++] = charval;
-        }
-        return array;
-    }
-
-    /**
-     * Contract an array of integers containing Unicode codepoints into a Java string
-     *
-     * @param codes an array of integers representing the Unicode code points
-     * @param used  the number of items in the array that are actually used
-     * @return the constructed string
-     */
-
-    /*@NotNull*/
-    public static CharSequence contract(/*@NotNull*/ int[] codes, int used) {
-        FastStringBuffer sb = new FastStringBuffer(codes.length);
-        for (int i = 0; i < used; i++) {
-            sb.appendWideChar(codes[i]);
-        }
-        return sb;
+    public synchronized AtomicIterator iterateCharacters() {
+        return new CodepointIterator(codePoints());
     }
 
 
     /**
      * Get an object value that implements the XPath equality and ordering comparison semantics for this value.
-     * If the ordered parameter is set to true, the result will be a Comparable and will support a compareTo()
-     * method with the semantics of the XPath lt/gt operator, provided that the other operand is also obtained
-     * using the getXPathComparable() method. In all cases the result will support equals() and hashCode() methods
-     * that support the semantics of the XPath eq operator, again provided that the other operand is also obtained
-     * using the getXPathComparable() method. A context argument is supplied for use in cases where the comparison
+     * A context argument is supplied for use in cases where the comparison
      * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
      * collation.
      *
      *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
      * @param collator Collation to be used for comparing strings
      * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
      *                 sensitive
@@ -352,48 +256,68 @@ public class StringValue extends AtomicValue {
      */
 
     @Override
-    public AtomicMatchKey getXPathComparable(boolean ordered, /*@NotNull*/ StringCollator collator, int implicitTimezone) {
-        return collator.getCollationKey(value);
+    public AtomicMatchKey getXPathMatchKey(/*@NotNull*/ StringCollator collator, int implicitTimezone) {
+        return collator.getCollationKey(this.getUnicodeStringValue());
     }
 
     /**
-     * Determine if two AtomicValues are equal, according to XPath rules. (This method
-     * is not used for string comparisons, which are always under the control of a collation.
-     * If we get here, it's because there's a type error in the comparison.)
+     * Get an atomic value that encapsulates this match key. Needed to support the collation-key() function.
      *
-     * @throws ClassCastException always
+     * @return an atomic value that encapsulates this match key
      */
 
-    public boolean equals(Object other) {
-        throw new ClassCastException("equals on StringValue is not allowed");
+    public Base64BinaryValue getCodepointCollationKey() {
+        int len = getContent().length32();
+        byte[] result = new byte[len * 3];
+        for (int i = 0, j = 0; i < len; i++) {
+            int c = getContent().codePointAt(i);
+            result[j++] = (byte) (c >> 16);
+            result[j++] = (byte) (c >> 8);
+            result[j++] = (byte) c;
+        }
+        return new Base64BinaryValue(result);
+    }
+
+    /**
+     * Get an iterator over the Unicode codepoints in the value. These will always be full codepoints, never
+     * surrogates (surrogate pairs are combined where necessary).
+     * @return a sequence of Unicode codepoints
+     */
+
+    public IntIterator codePoints() {
+        return content.codePoints();
     }
 
     public int hashCode() {
-        return value.hashCode();
+        // Same algorithm as String#hashCode(), but not cached; and truncated after 100 characters
+        int h = 0;
+        int count = 0;
+        IntIterator iter = codePoints();
+        while (iter.hasNext()) {
+            h = 31 * h + iter.next();
+            if (++count >= 100) {
+                break;
+            }
+        }
+        return h;
     }
 
     /**
-     * Test whether this StringValue is equal to another under the rules of the codepoint collation
+     * Test whether this StringValue is equal to another under the rules of the codepoint collation.
+     * The type annotation is ignored.
      *
-     * @param other the value to be compared with this value
+     * @param o the value to be compared with this value
      * @return true if the strings are equal on a codepoint-by-codepoint basis
      */
 
-    public boolean codepointEquals(/*@NotNull*/ StringValue other) {
-        if (value instanceof String) {
-            return ((String) value).contentEquals(other.value);
-        } else if (other.value instanceof String) {
-            return ((String)other.value).contentEquals(value);
-        } else if (value instanceof UnicodeString) {
-            if (!(other.value instanceof UnicodeString)) {
-                other.makeUnicodeString();
-            }
-            return value.equals(other.value);
+    public boolean equals(Object o) {
+        if (o instanceof StringValue) {
+            return content.equals(((StringValue)o).content);
         } else {
-            // Avoid conversion to String unless the lengths are equal
-            return value.length() == other.value.length() && value.toString().equals(other.value.toString());
+            return false;
         }
     }
+
 
     /**
      * Get the effective boolean value of a string
@@ -403,34 +327,51 @@ public class StringValue extends AtomicValue {
 
     @Override
     public boolean effectiveBooleanValue() {
-        return !isZeroLength();
+        return !isEmpty();
     }
 
+    /**
+     * Display as a string. In general toString() for an atomic value displays the value as it would be
+     * written in XPath: so this method returns the string with delimiting quotes.
+     * @see #getUnicodeStringValue()
+     */
 
     /*@NotNull*/
     public String toString() {
-        return "\"" + value + '\"';
+        return getContent().toString();
+    }
+
+    @Override
+    public UnicodeString getUnicodeStringValue() {
+        return content;
     }
 
     @Override
     public String toShortString() {
-        String s = value.toString();
+        String s = content.toString();
         if (s.length() > 40) {
-            s = s.substring(0,35) + "...";
+            s = s.substring(0,20) + " ... " + s.substring(s.length()-20);
         }
-        return "\"" + s + '\"';
+        s = "\"" + s + '\"';
+        if (typeLabel == BuiltInAtomicType.UNTYPED_ATOMIC) {
+            s = "u" + s;
+        }
+        return s;
     }
 
-    /**
-     * Get a Comparable value that implements the XML Schema comparison semantics for this value.
-     * Returns null if the value is not comparable according to XML Schema rules. This implementation
-     * returns the underlying Java string, which works because strings will only be compared for
-     * equality, not for ordering, and the equality rules for strings in XML schema are the same as in Java.
-     */
-
     @Override
-    public Comparable getSchemaComparable() {
-        return getStringValue();
+    @CSharpInnerClass(outer=true, extra={"Saxon.Hej.lib.StringCollator collator"})
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+        return new XPathComparable() {
+            @Override
+            public int compareTo(XPathComparable o) {
+                if (o instanceof StringValue) {
+                    return collator.compareStrings(getContent(), ((StringValue)o).content);
+                } else {
+                    throw new ClassCastException("Cannot compare xs:string to " + o.toString());
+                }
+            }
+        };
     }
 
     /**
@@ -450,32 +391,8 @@ public class StringValue extends AtomicValue {
     public boolean isIdentical(/*@NotNull*/ AtomicValue v) {
         return v instanceof StringValue &&
                 (this instanceof AnyURIValue == v instanceof AnyURIValue) &&
-                (this instanceof UntypedAtomicValue == v instanceof UntypedAtomicValue) &&
-                codepointEquals((StringValue) v);
-    }
-
-    /**
-     * Produce a diagnostic representation of the contents of the string
-     *
-     * @param s the string
-     * @return a string in which non-Ascii-printable characters are replaced by \ uXXXX escapes
-     */
-
-    /*@NotNull*/
-    public static String diagnosticDisplay(/*@NotNull*/ String s) {
-        FastStringBuffer fsb = new FastStringBuffer(s.length());
-        for (int i = 0, len = s.length(); i < len; i++) {
-            char c = s.charAt(i);
-            if (c >= 0x20 && c <= 0x7e) {
-                fsb.cat(c);
-            } else {
-                fsb.append("\\u");
-                for (int shift = 12; shift >= 0; shift -= 4) {
-                    fsb.cat("0123456789ABCDEF".charAt((c >> shift) & 0xF));
-                }
-            }
-        }
-        return fsb.toString();
+                (this.isUntypedAtomic() == v.isUntypedAtomic()) &&
+                equals(v);
     }
 
     /**
@@ -484,13 +401,14 @@ public class StringValue extends AtomicValue {
      */
 
 
-    public final static class CharacterIterator implements AtomicIterator<Int64Value> {
+    public final static class CharacterIterator implements AtomicIterator {
 
         int inpos = 0;        // 0-based index of the current Java char
-        private CharSequence value;
+        private final CharSequence value;
 
         /**
          * Create an iterator over a string
+         * @param value the string
          */
 
         public CharacterIterator(CharSequence value) {
@@ -508,10 +426,7 @@ public class StringValue extends AtomicValue {
                     try {
                         current = ((c - 55296) * 1024) + ((int) value.charAt(inpos++) - 56320) + 65536;
                     } catch (StringIndexOutOfBoundsException e) {
-                        System.err.println("Invalid surrogate at end of string");
-                        System.err.println(diagnosticDisplay(value.toString()));
-                        e.printStackTrace();
-                        throw e;
+                        throw new AssertionError("Invalid surrogate at end of string: " + StringTool.diagnosticDisplay(value.toString()));
                     }
                 } else {
                     current = c;
@@ -524,47 +439,19 @@ public class StringValue extends AtomicValue {
 
     }
 
-    public final static class UnicodeCharacterIterator implements AtomicIterator<Int64Value> {
 
-        UnicodeString uValue;
-        int inpos = 0;        // 0-based index of the current Java char
+    public static final class Builder implements UniStringConsumer {
 
-        /**
-         * Create an iterator over a string
-         */
-
-        public UnicodeCharacterIterator(UnicodeString value) {
-            this.uValue = value;
-        }
-
-        /*@Nullable*/
-        @Override
-        public Int64Value next() {
-            if (inpos < uValue.uLength()) {
-                return new Int64Value(uValue.uCharAt(inpos++));
-            } else {
-                return null;
-            }
-        }
-
-    }
-
-    public static final class Builder implements CharSequenceConsumer {
-
-        FastStringBuffer buffer = new FastStringBuffer(256);
+        UnicodeBuilder buffer = new UnicodeBuilder();
 
         @Override
-        public CharSequenceConsumer cat(CharSequence chars) {
-            return buffer.cat(chars);
+        public UniStringConsumer accept(UnicodeString chars) {
+            buffer.accept(chars);
+            return this;
         }
 
-        @Override
-        public CharSequenceConsumer cat(char c) {
-            return buffer.cat(c);
-        }
-
-        public StringValue getStringValue() {
-            return new StringValue(buffer.condense());
+        public UnicodeString getStringValue() {
+            return buffer.toUnicodeString();
         }
 
     }

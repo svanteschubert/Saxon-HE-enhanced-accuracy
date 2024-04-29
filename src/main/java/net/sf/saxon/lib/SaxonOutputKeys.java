@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,10 +9,12 @@ package net.sf.saxon.lib;
 
 import net.sf.saxon.om.NameChecker;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.QNameException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ValidationException;
 import net.sf.saxon.value.BigDecimalValue;
+import net.sf.saxon.value.DecimalValue;
 
 import javax.xml.transform.OutputKeys;
 import java.math.BigDecimal;
@@ -75,6 +77,13 @@ public class SaxonOutputKeys {
     /*@NotNull*/ public static final String ALLOW_DUPLICATE_NAMES = "allow-duplicate-names";
 
     /**
+     * escape-solidus = yes|no.
+     * <p>Defines whether forward slash is escaped by the JSON output method</p>
+     */
+
+    /*@NotNull*/ public static final String ESCAPE_SOLIDUS = "escape-solidus";
+
+    /**
      * build-tree = yes|no.
      * <p>Defines whether the raw output is used to build an XML document tree</p>
      */
@@ -87,6 +96,14 @@ public class SaxonOutputKeys {
      */
 
     /*@NotNull*/ public static final String INDENT_SPACES = "{http://saxon.sf.net/}indent-spaces";
+
+    /**
+     * saxon:internal-dtd-subset = string.
+     * <p>Contains the internal subset of the DTD, which is output as-is by the serializer</p>
+     */
+
+    /*@NotNull*/ public static final String INTERNAL_DTD_SUBSET = "{http://saxon.sf.net/}internal-dtd-subset";
+
 
     /**
      * saxon:line-length = integer.
@@ -340,7 +357,7 @@ public class SaxonOutputKeys {
             } else {
                 try {
                     String[] parts = NameChecker.getQNameParts(displayname);
-                    String muri = nsResolver.getURIForPrefix(parts[0], useDefaultNS);
+                    NamespaceUri muri = nsResolver.getURIForPrefix(parts[0], useDefaultNS);
                     if (muri == null) {
                         throw new XPathException("Namespace prefix '" + parts[0] + "' has not been declared", errorCode);
                     }
@@ -389,7 +406,7 @@ public class SaxonOutputKeys {
         String htmlVersion = properties.getProperty(SaxonOutputKeys.HTML_VERSION);
         try {
             return htmlVersion != null &&
-                    ((BigDecimalValue)BigDecimalValue.makeDecimalValue(htmlVersion, false).asAtomic())
+                    ((DecimalValue)BigDecimalValue.makeDecimalValue(htmlVersion, false).asAtomic())
                             .getDecimalValue().equals(BigDecimal.valueOf(5));
         } catch (ValidationException e) {
             return false;
@@ -412,7 +429,7 @@ public class SaxonOutputKeys {
         }
         if (htmlVersion != null) {
             try {
-                return ((BigDecimalValue)BigDecimalValue.makeDecimalValue(htmlVersion, false).asAtomic())
+                return ((DecimalValue)BigDecimalValue.makeDecimalValue(htmlVersion, false).asAtomic())
                                 .getDecimalValue().equals(BigDecimal.valueOf(5));
             } catch (ValidationException e) {
                 return false;

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,7 @@ import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
-
-import java.util.function.IntPredicate;
+import net.sf.saxon.z.IntPredicateProxy;
 
 /**
  * Iterate over the following axis starting at a given node.
@@ -21,13 +20,13 @@ import java.util.function.IntPredicate;
 
 final class FollowingIterator implements AxisIterator {
 
-    private TinyTree tree;
-    private TinyNodeImpl startNode;
+    private final TinyTree tree;
+    private final TinyNodeImpl startNode;
     private NodeInfo current;
-    private NodeTest test;
-    private boolean includeDescendants;
+    private final NodeTest test;
+    private final boolean includeDescendants;
     int position = 0;
-    private final IntPredicate matcher;
+    private final IntPredicateProxy matcher;
     private NodeInfo pending;
 
     /**

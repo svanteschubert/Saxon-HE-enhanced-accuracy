@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,6 @@
 package net.sf.saxon.expr.parser;
 
 import net.sf.saxon.s9api.Location;
-import org.xml.sax.Locator;
 
 import javax.xml.transform.SourceLocator;
 
@@ -19,9 +18,9 @@ import javax.xml.transform.SourceLocator;
 
 public class Loc implements Location {
 
-    private String systemId;
-    private int lineNumber;
-    private int columnNumber = -1;
+    private final String systemId;
+    private final int lineNumber;
+    private final int columnNumber;
 
     public static Loc NONE = new Loc(null, -1, -1);
 
@@ -35,16 +34,6 @@ public class Loc implements Location {
         systemId = loc.getSystemId();
         lineNumber = loc.getLineNumber();
         columnNumber = loc.getColumnNumber();
-    }
-
-    /**
-     * Create an ExpressionLocation, taking the data from a supplied SAX Locator
-     *
-     * @param loc the SAX Locator
-     */
-
-    public static Loc makeFromSax(Locator loc) {
-        return new Loc(loc.getSystemId(), loc.getLineNumber(), loc.getColumnNumber());
     }
 
     /**
@@ -107,7 +96,7 @@ public class Loc implements Location {
     }
 
     /**
-     * Get an immutable copy of this Location object. By default Location objects may be mutable, so they
+     * Get an immutable copy of this Location object. By default, Location objects may be mutable, so they
      * should not be saved for later use. The result of this operation holds the same location information,
      * but in an immutable form.
      */
@@ -118,6 +107,9 @@ public class Loc implements Location {
 
     /**
      * Ask whether this is an "unknown location"
+     *
+     * @param location a location
+     * @return true if this is an "unknown location"
      */
 
     public static boolean isUnknown(Location location) {

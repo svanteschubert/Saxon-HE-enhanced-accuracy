@@ -55,9 +55,9 @@ public class JLine2Talker implements Talker {
     public String exchange(String message) {
         try {
             if (DEBUG) {
-                console.println(debugLog);
                 debugLog.setLength(0);
             }
+
             if (message != null && !message.isEmpty()) {
                 console.println(message);
             }
@@ -75,6 +75,7 @@ public class JLine2Talker implements Talker {
 
     private static void log(String message) {
         if (DEBUG) {
+            System.err.println("DEBUG:" + message);
             debugLog.append(message);
         }
     }
@@ -126,6 +127,10 @@ public class JLine2Talker implements Talker {
                             } else if (!(new File(translated).isAbsolute())) {
                                 String cwd = System.getProperty("user.dir");
                                 translated = cwd + separator() + translated;
+                            }
+
+                            if (File.separator.equals("\\")) {
+                                translated = translated.replace('/', '\\');
                             }
 
                             File file = new File(translated);

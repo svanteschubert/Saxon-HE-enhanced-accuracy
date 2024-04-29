@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.dom;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NamePool;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.NameTest;
 import net.sf.saxon.tree.iter.AxisIterator;
@@ -198,7 +199,7 @@ public class ElementOverNodeInfo extends NodeOverNodeInfo implements Element {
             Node node = getAttributes().getNamedItemNS(namespaceURI, localName);
             return node == null ? "" : node.getNodeValue();
         }
-        String uri = namespaceURI == null ? "" : namespaceURI;
+        NamespaceUri uri = namespaceURI == null ? NamespaceUri.NULL : NamespaceUri.of(namespaceURI);
         String val = node.getAttributeValue(uri, localName);
         if (val == null) {
             return "";
@@ -269,7 +270,7 @@ public class ElementOverNodeInfo extends NodeOverNodeInfo implements Element {
     @Override
     public Attr getAttributeNodeNS(String namespaceURI, String localName) {
         NamePool pool = node.getConfiguration().getNamePool();
-        NameTest test = new NameTest(Type.ATTRIBUTE, namespaceURI, localName, pool);
+        NameTest test = new NameTest(Type.ATTRIBUTE, NamespaceUri.of(namespaceURI), localName, pool);
         AxisIterator atts = node.iterateAxis(AxisInfo.ATTRIBUTE, test);
         return (Attr) wrap(atts.next());
     }
@@ -342,8 +343,7 @@ public class ElementOverNodeInfo extends NodeOverNodeInfo implements Element {
             Node node = getAttributes().getNamedItemNS(namespaceURI, localName);
             return node != null;
         }
-        String uri = namespaceURI == null ? "" : namespaceURI;
-        return node.getAttributeValue(uri, localName) != null;
+        return node.getAttributeValue(NamespaceUri.of(namespaceURI), localName) != null;
     }
 
     /**

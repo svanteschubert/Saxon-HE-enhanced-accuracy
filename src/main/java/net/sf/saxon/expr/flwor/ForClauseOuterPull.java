@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,8 @@
 package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.om.FocusTrackingIterator;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.Int64Value;
@@ -40,7 +40,8 @@ public class ForClauseOuterPull extends ForClausePull {
                 if (!base.nextTuple(context)) {
                     return false;
                 }
-                currentIteration = new FocusTrackingIterator(forClause.getSequence().iterate(context));
+                currentIteration = SequenceTool.focusTracker(
+                        forClause.getSequence().makeElaborator().elaborateForPull().iterate(context));
                 next = currentIteration.next();
                 if (next == null) {
                     context.setLocalVariable(forClause.getRangeVariable().getLocalSlotNumber(),

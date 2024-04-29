@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -27,7 +27,7 @@ import net.sf.saxon.value.AtomicValue;
  */
 public class TextOnlyCopyRuleSet implements BuiltInRuleSet {
 
-    private static TextOnlyCopyRuleSet THE_INSTANCE = new TextOnlyCopyRuleSet();
+    private static final TextOnlyCopyRuleSet THE_INSTANCE = new TextOnlyCopyRuleSet();
 
     /**
      * Get the singleton instance of this class
@@ -78,7 +78,7 @@ public class TextOnlyCopyRuleSet implements BuiltInRuleSet {
                     // NOTE: I tried changing this to use the text node's copy() method, but
                     // performance was worse
                 case Type.ATTRIBUTE:
-                    output.characters(item.getStringValueCS(), locationId, ReceiverOption.NONE);
+                    output.characters(item.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                     return;
                 case Type.COMMENT:
                 case Type.PROCESSING_INSTRUCTION:
@@ -97,7 +97,7 @@ public class TextOnlyCopyRuleSet implements BuiltInRuleSet {
                 tc = tc.processLeavingTail();
             }
         } else if (item instanceof AtomicValue) {
-            output.characters(item.getStringValueCS(), locationId, ReceiverOption.NONE);
+            output.characters(item.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
         } else {
             // no action (e.g. for function items
         }
@@ -122,8 +122,8 @@ public class TextOnlyCopyRuleSet implements BuiltInRuleSet {
      * @return the default action for unmatched nodes: one of DEEP_COPY, SHALLOW_SKIP, DEEP_SKIP, FAIL, etc
      */
     @Override
-    public int[] getActionForParentNodes(int nodeKind) {
-        return new int[]{APPLY_TEMPLATES_TO_CHILDREN};
+    public BuiltInRules[] getActionForParentNodes(int nodeKind) {
+        return new BuiltInRules[]{BuiltInRules.APPLY_TEMPLATES_TO_CHILDREN};
     }
 }
 

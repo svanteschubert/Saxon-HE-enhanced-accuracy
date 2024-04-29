@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,29 +7,29 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.s9api.HostLanguage;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.tiny.Statistics;
 import net.sf.saxon.tree.tiny.TinyBuilder;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.TextFragmentValue;
-import net.sf.saxon.value.UntypedAtomicValue;
 
 
 /**
@@ -44,8 +44,9 @@ import net.sf.saxon.value.UntypedAtomicValue;
 
 public class DocumentInstr extends ParentNodeConstructor {
 
-    private boolean textOnly;
-    /*@Nullable*/ private String constantText;
+    private final boolean textOnly;
+    private final UnicodeString constantText;
+    private Statistics treeStatistics = new Statistics();
 
     /**
      * Create a document constructor instruction
@@ -56,7 +57,7 @@ public class DocumentInstr extends ParentNodeConstructor {
      */
 
     public DocumentInstr(boolean textOnly,
-                         String constantText) {
+                         UnicodeString constantText) {
         this.textOnly = textOnly;
         this.constantText = constantText;
     }
@@ -94,7 +95,7 @@ public class DocumentInstr extends ParentNodeConstructor {
      * @return the fixed text value if appropriate; otherwise null
      */
 
-    public /*@Nullable*/ CharSequence getConstantText() {
+    public /*@Nullable*/ UnicodeString getConstantText() {
         return constantText;
     }
 
@@ -103,7 +104,7 @@ public class DocumentInstr extends ParentNodeConstructor {
      * on the content of the node
      *
      * @param env the static context
-     * @throws XPathException
+     * @throws XPathException if the check fails
      */
 
     @Override
@@ -153,7 +154,7 @@ public class DocumentInstr extends ParentNodeConstructor {
                     }
                     if (validation == Validation.STRICT && component instanceof FixedElement) {
                         SchemaDeclaration decl = env.getConfiguration().getElementDeclaration(
-                                ((FixedElement) component).getElementName().getFingerprint());
+                                ((FixedElement) component).getFixedElementName().getFingerprint());
                         if (decl != null) {
                             ((FixedElement) component).getContentExpression().
                                     checkPermittedContents(decl.getType(), true);
@@ -172,7 +173,7 @@ public class DocumentInstr extends ParentNodeConstructor {
      * @return a set of flags indicating static properties of this expression
      */
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         p |= StaticProperty.SINGLE_DOCUMENT_NODESET;
         if (getValidationAction() == Validation.SKIP) {
@@ -191,7 +192,7 @@ public class DocumentInstr extends ParentNodeConstructor {
     public Expression getStringValueExpression() {
         if (textOnly) {
             if (constantText != null) {
-                return new StringLiteral(new UntypedAtomicValue(constantText));
+                return new StringLiteral(StringValue.makeUntypedAtomic(constantText));
             } else if (getContentExpression() instanceof ValueOf) {
                 return ((ValueOf) getContentExpression()).convertToCastAsString();
             } else {
@@ -210,7 +211,7 @@ public class DocumentInstr extends ParentNodeConstructor {
     /**
      * Copy an expression. This makes a deep copy.
      *
-     * @param rebindings
+     * @param rebindings the rebinding map
      * @return the copy of the original expression
      */
 
@@ -235,84 +236,14 @@ public class DocumentInstr extends ParentNodeConstructor {
         return NodeKindTest.DOCUMENT;
     }
 
-    @Override
-    public TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException {
-        if (preservingTypes && !textOnly) {
-            output.startDocument(ReceiverOption.NONE);
-            getContentExpression().process(output, context);
-            output.endDocument();
-            return null;
-        } else {
-            Item item = evaluateItem(context);
-            if (item != null) {
-                output.append(item, getLocation(), ReceiverOption.ALL_NAMESPACES);
-            }
-            return null;
-        }
-    }
-
     /**
      * Evaluate as an item.
      */
 
     @Override
     public NodeInfo evaluateItem(XPathContext context) throws XPathException {
-        Controller controller = context.getController();
-        Configuration config = controller.getConfiguration();
-
-        NodeInfo root;
-        if (textOnly) {
-            CharSequence textValue;
-            if (constantText != null) {
-                textValue = constantText;
-            } else {
-                FastStringBuffer sb = new FastStringBuffer(FastStringBuffer.C64);
-                SequenceIterator iter = getContentExpression().iterate(context);
-                Item item;
-                while ((item = iter.next()) != null) {
-                    sb.cat(item.getStringValueCS());
-                }
-                textValue = sb.condense();
-            }
-            root = TextFragmentValue.makeTextFragment(config, textValue, getStaticBaseURIString());
-        } else {
-            try {
-                PipelineConfiguration pipe = controller.makePipelineConfiguration();
-                pipe.setXPathContext(context);
-
-                Builder builder;
-                builder = controller.makeBuilder();
-                builder.setUseEventLocation(false);
-
-                if (builder instanceof TinyBuilder) {
-                    ((TinyBuilder) builder).setStatistics(config.getTreeStatistics().SOURCE_DOCUMENT_STATISTICS);
-                }
-
-                builder.setBaseURI(getStaticBaseURIString());
-                builder.setTiming(false);
-
-                pipe.setHostLanguage(getPackageData().getHostLanguage());
-                builder.setPipelineConfiguration(pipe);
-
-                ComplexContentOutputter out =
-                        ComplexContentOutputter.makeComplexContentReceiver(builder, getValidationOptions());
-                out.open();
-                out.startDocument(ReceiverOption.NONE);
-
-                getContentExpression().process(out, context);
-
-                out.endDocument();
-                out.close();
-                root = builder.getCurrentRoot();
-            } catch (XPathException e) {
-                e.maybeSetLocation(getLocation());
-                e.maybeSetContext(context);
-                throw e;
-            }
-        }
-        return root;
+        return (NodeInfo) makeElaborator().elaborateForItem().eval(context);
     }
-
 
     /**
      * Get the name of this instruction for diagnostic and tracing purposes
@@ -332,7 +263,7 @@ public class DocumentInstr extends ParentNodeConstructor {
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
         out.startElement("doc", this);
-        if (!out.isRelocatable()) {
+        if (!out.getOptions().relocatable) {
             out.emitAttribute("base", getStaticBaseURIString());
         }
         String flags = "";
@@ -346,10 +277,10 @@ public class DocumentInstr extends ParentNodeConstructor {
             out.emitAttribute("flags", flags);
         }
         if (constantText != null) {
-            out.emitAttribute("text", constantText);
+            out.emitAttribute("text", constantText.toString());
         }
         if (getValidationAction() != Validation.SKIP && getValidationAction() != Validation.BY_TYPE) {
-            out.emitAttribute("validation", Validation.toString(getValidationAction()));
+            out.emitAttribute("validation", Validation.describe(getValidationAction()));
         }
         final SchemaType schemaType = getSchemaType();
         if (schemaType != null) {
@@ -368,6 +299,107 @@ public class DocumentInstr extends ParentNodeConstructor {
     @Override
     public String getStreamerName() {
         return "DocumentInstr";
+    }
+
+    @Override
+    public Elaborator getElaborator() {
+        return new DocumentInstrElaborator();
+    }
+
+    /**
+     * Elaborator for an AtomicSequenceConverter (including an UntypedAtomicConverter, which is
+     * the same except that it uses a different converter internally)
+     */
+
+    public static class DocumentInstrElaborator extends PushElaborator {
+
+        public PushEvaluator elaborateForPush() {
+            DocumentInstr expr = (DocumentInstr) getExpression();
+//            PushEvaluator content = expr.getContentExpression().makeElaborator().elaborateForPush();
+//            if (expr.preservingTypes && !expr.textOnly) {
+//                return (output, context) -> {
+//                    output.setSystemId(expr.getStaticBaseURIString());
+//                    output.startDocument(ReceiverOption.NONE);
+//                    TailCall tc = content.processLeavingTail(output, context);
+//                    dispatchTailCall(tc);
+//                    output.endDocument();
+//                    return null;
+//                };
+//            } else {
+                ItemEvaluator evalAsItem = elaborateForItem();
+                Location loc = expr.getLocation();
+                return (output, context) -> {
+                    Item item = evalAsItem.eval(context);
+                    if (item != null) {
+                        output.append(item, loc, ReceiverOption.ALL_NAMESPACES);
+                    }
+                    return null;
+                };
+//            }
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            DocumentInstr expr = (DocumentInstr) getExpression();
+            String staticBaseUri = expr.getStaticBaseURIString();
+
+            if (expr.textOnly) {
+                if (expr.constantText != null) {
+                    UnicodeString text = expr.constantText;
+                    return context -> TextFragmentValue.makeTextFragment(
+                            context.getConfiguration(), text, staticBaseUri);
+                } else {
+                    PullEvaluator contentEval = expr.getContentExpression().makeElaborator().elaborateForPull();
+                    return context -> {
+                        UnicodeBuilder sb = new UnicodeBuilder();
+                        SequenceIterator iter = contentEval.iterate(context);
+                        for (Item item; (item = iter.next()) != null; ) {
+                            sb.accept(item.getUnicodeStringValue());
+                        }
+                        return TextFragmentValue.makeTextFragment(
+                                context.getConfiguration(), sb.toUnicodeString(), staticBaseUri);
+                    };
+                }
+            } else {
+                PushEvaluator contentEval = expr.getContentExpression().makeElaborator().elaborateForPush();
+                HostLanguage hostLanguage = expr.getPackageData().getHostLanguage();
+                return context -> {
+                    try {
+                        Controller controller = context.getController();
+                        PipelineConfiguration pipe = controller.makePipelineConfiguration();
+                        pipe.setXPathContext(context);
+
+                        Builder builder;
+                        builder = controller.makeBuilder();
+                        builder.setUseEventLocation(false);
+                        builder.setDurability(Durability.TEMPORARY);
+
+                        if (builder instanceof TinyBuilder) {
+                            ((TinyBuilder) builder).setStatistics(expr.treeStatistics);
+                        }
+
+                        builder.setBaseURI(staticBaseUri);
+                        builder.setTiming(false);
+
+                        pipe.setHostLanguage(hostLanguage);
+                        builder.setPipelineConfiguration(pipe);
+
+                        ComplexContentOutputter out =
+                                ComplexContentOutputter.makeComplexContentReceiver(builder, expr.getValidationOptions());
+                        out.open();
+                        out.startDocument(ReceiverOption.NONE);
+
+                        TailCall tc = contentEval.processLeavingTail(out, context);
+                        dispatchTailCall(tc);
+                        out.endDocument();
+                        out.close();
+                        return builder.getCurrentRoot();
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+            }
+        }
     }
 }
 

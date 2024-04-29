@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,7 +11,9 @@ package net.sf.saxon.expr;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.sort.SimpleTypeComparison;
 import net.sf.saxon.functions.hof.FunctionLiteral;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.map.KeyValuePair;
@@ -20,6 +22,8 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeTestPattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.query.QueryResult;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -28,8 +32,6 @@ import net.sf.saxon.value.*;
 
 import javax.xml.transform.stream.StreamResult;
 import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Properties;
 
 
@@ -41,7 +43,7 @@ import java.util.Properties;
 
 public class Literal extends Expression {
 
-    private GroundedValue value;
+    private final GroundedValue value;
 
     /**
      * Create a literal as a wrapper around a Value
@@ -54,27 +56,12 @@ public class Literal extends Expression {
     }
 
     /**
-     * Create a Literal containing a sequence of strings
-     *
-     * @param strings the strings to be wrapped
-     * @return a Literal of the string sequence
-     */
-    public static Literal makeStringsLiteral(List<String> strings) {
-        List<StringValue> values = new ArrayList<>();
-        for (String s : strings) {
-            values.add(new StringValue(s));
-        }
-        GroundedValue gv = SequenceExtent.makeSequenceExtent(values);
-        return makeLiteral(gv);
-    }
-
-    /**
      * Get the value represented by this Literal
      *
      * @return the constant value
      */
 
-    public GroundedValue getValue() {
+    public GroundedValue getGroundedValue() {
         return value;
     }
 
@@ -150,7 +137,7 @@ public class Literal extends Expression {
             return UType.VOID;
         } else if (value instanceof AtomicValue) {
             return ((AtomicValue) value).getUType();
-        } else if (value instanceof Function) {
+        } else if (value instanceof FunctionItem) {
             return UType.FUNCTION;
         } else {
             return super.getStaticUType(contextItemType);
@@ -163,27 +150,22 @@ public class Literal extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         if (value.getLength() == 0) {
             return StaticProperty.EMPTY;
         } else if (value instanceof AtomicValue) {
             return StaticProperty.EXACTLY_ONE;
         }
-        try {
-            SequenceIterator iter = value.iterate();
-            Item next = iter.next();
-            if (next == null) {
-                return StaticProperty.EMPTY;
+        SequenceIterator iter = value.iterate();
+        Item next = iter.next();
+        if (next == null) {
+            return StaticProperty.EMPTY;
+        } else {
+            if (iter.next() != null) {
+                return StaticProperty.ALLOWS_MANY;
             } else {
-                if (iter.next() != null) {
-                    return StaticProperty.ALLOWS_MANY;
-                } else {
-                    return StaticProperty.EXACTLY_ONE;
-                }
+                return StaticProperty.EXACTLY_ONE;
             }
-        } catch (XPathException err) {
-            // can't actually happen
-            return StaticProperty.ALLOWS_ZERO_OR_MORE;
         }
     }
 
@@ -196,12 +178,25 @@ public class Literal extends Expression {
 
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         if (value.getLength() == 0) {
             // An empty sequence has all special properties except "has side effects".
             return StaticProperty.SPECIAL_PROPERTY_MASK & ~StaticProperty.HAS_SIDE_EFFECTS;
         }
         return StaticProperty.NO_NODES_NEWLY_CREATED;
+    }
+
+    /**
+     * Ask whether the expression supports lazy evaluation.
+     *
+     * @return false either if the expression cannot be evaluated lazily
+     * because it has dependencies that cannot be saved in the context, or
+     * because lazy evaluation is pointless (for example, for literals
+     * and variable references).
+     */
+    @Override
+    public boolean supportsLazyEvaluation() {
+        return false;
     }
 
     /**
@@ -366,7 +361,7 @@ public class Literal extends Expression {
         if (value instanceof Item) {
             output.append((Item) value, getLocation(), ReceiverOption.ALL_NAMESPACES);
         } else {
-            value.iterate().forEachOrFail(it -> output.append(it, getLocation(), ReceiverOption.ALL_NAMESPACES));
+            SequenceTool.supply(value.iterate(), (ItemConsumer<? super Item>) it -> output.append(it, getLocation(), ReceiverOption.ALL_NAMESPACES));
         }
     }
 
@@ -393,12 +388,12 @@ public class Literal extends Expression {
       */
 
     @Override
-    public CharSequence evaluateAsString(XPathContext context) throws XPathException {
+    public UnicodeString evaluateAsString(XPathContext context) throws XPathException {
         AtomicValue value = (AtomicValue) evaluateItem(context);
         if (value == null) {
-            return "";
+            return EmptyUnicodeString.getInstance();
         }
-        return value.getStringValueCS();
+        return value.getUnicodeStringValue();
     }
 
 
@@ -420,25 +415,6 @@ public class Literal extends Expression {
 
 
     /**
-     * Evaluate an updating expression, adding the results to a Pending Update List.
-     * The default implementation of this method, which is used for non-updating expressions,
-     * throws an UnsupportedOperationException. The implementation for a literal representing
-     * an empty sequence, however, is a no-op.
-     *
-     * @param context the XPath dynamic evaluation context
-     * @param pul     the pending update list to which the results should be written
-     */
-
-    @Override
-    public void evaluatePendingUpdates(XPathContext context, PendingUpdateList pul) throws XPathException {
-        if (value.getLength() == 0) {
-            // do nothing
-        } else {
-            super.evaluatePendingUpdates(context, pul);
-        }
-    }
-
-    /**
      * Determine whether two literals are equal, when considered as expressions.
      *
      * @param obj the other expression
@@ -454,50 +430,46 @@ public class Literal extends Expression {
         }
         GroundedValue v0 = value;
         GroundedValue v1 = ((Literal) obj).value;
-        try {
-            SequenceIterator i0 = v0.iterate();
-            SequenceIterator i1 = v1.iterate();
-            while (true) {
-                Item m0 = i0.next();
-                Item m1 = i1.next();
-                if (m0 == null && m1 == null) {
-                    return true;
-                }
-                if (m0 == null || m1 == null) {
-                    return false;
-                }
-                if (m0 == m1) {
-                    continue;
-                }
-                boolean n0 = m0 instanceof NodeInfo;
-                boolean n1 = m1 instanceof NodeInfo;
-                if (n0 != n1) {
-                    return false;
-                }
-                if (n0) {
-                    if (m0.equals(m1)) {
-                        continue;
-                    } else {
-                        return false;
-                    }
-                }
-                boolean a0 = m0 instanceof AtomicValue;
-                boolean a1 = m1 instanceof AtomicValue;
-                if (a0 != a1) {
-                    return false;
-                }
-                if (a0) {
-                    if (((AtomicValue) m0).isIdentical((AtomicValue) m1) &&
-                            ((AtomicValue) m0).getItemType() == ((AtomicValue) m1).getItemType()) {
-                        continue;
-                    } else {
-                        return false;
-                    }
-                }
-                // don't attempt to compare functions, maps, and arrays
+        SequenceIterator i0 = v0.iterate();
+        SequenceIterator i1 = v1.iterate();
+        while (true) {
+            Item m0 = i0.next();
+            Item m1 = i1.next();
+            if (m0 == null && m1 == null) {
+                return true;
+            }
+            if (m0 == null || m1 == null) {
                 return false;
             }
-        } catch (XPathException err) {
+            if (m0 == m1) {
+                continue;
+            }
+            boolean n0 = m0 instanceof NodeInfo;
+            boolean n1 = m1 instanceof NodeInfo;
+            if (n0 != n1) {
+                return false;
+            }
+            if (n0) {
+                if (m0.equals(m1)) {
+                    continue;
+                } else {
+                    return false;
+                }
+            }
+            boolean a0 = m0 instanceof AtomicValue;
+            boolean a1 = m1 instanceof AtomicValue;
+            if (a0 != a1) {
+                return false;
+            }
+            if (a0) {
+                if (((AtomicValue) m0).isIdentical((AtomicValue) m1) &&
+                        ((AtomicValue) m0).getItemType() == ((AtomicValue) m1).getItemType()) {
+                    continue;
+                } else {
+                    return false;
+                }
+            }
+            // don't attempt to compare functions, maps, and arrays
             return false;
         }
     }
@@ -507,9 +479,10 @@ public class Literal extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         if (value instanceof AtomicSequence) {
-            return ((AtomicSequence) value).getSchemaComparable().hashCode();
+            return SimpleTypeComparison.getInstance().hash((AtomicSequence) value);
+            // TODO: why this comparator - what are we using this hash code for?
         } else {
             return super.computeHashCode();
         }
@@ -550,7 +523,7 @@ public class Literal extends Expression {
             out.startElement("node");
             final int nodeKind = ((NodeInfo) value).getNodeKind();
             out.emitAttribute("kind", nodeKind + "");
-            if (((ExpressionPresenter.ExportOptions) out.getOptions()).explaining) {
+            if (out.getOptions().explaining) {
                 String name = ((NodeInfo) value).getDisplayName();
                 if (!name.isEmpty()) {
                     out.emitAttribute("name", name);
@@ -582,13 +555,14 @@ public class Literal extends Expression {
                         if (!name.getPrefix().isEmpty()) {
                             out.emitAttribute("prefix", name.getPrefix());
                         }
-                        if (!name.getURI().isEmpty()) {
-                            out.emitAttribute("ns", name.getURI());
+                        if (!name.hasURI(NamespaceUri.NULL)) {
+                            out.emitAttribute("ns", name.getNamespaceUri().toString());
                         }
                         out.emitAttribute("content", ((NodeInfo) value).getStringValue());
                         break;
                     default:
                         assert false;
+                        break;
 
                 }
             }
@@ -601,22 +575,24 @@ public class Literal extends Expression {
                 exportValue(kvp.value, out);
             }
             out.endElement();
-        } else if (value instanceof Function) {
-            ((Function) value).export(out);
-        } else if (value instanceof ExternalObject) {
-            if (((ExpressionPresenter.ExportOptions)out.getOptions()).explaining) {
+        } else if (value instanceof FunctionItem) {
+            ((FunctionItem) value).export(out);
+        } else if (value instanceof AnyExternalObject) {
+            if (out.getOptions().explaining) {
                 out.startElement("externalObject");
-                out.emitAttribute("class", ((ExternalObject)value).getObject().getClass().getName());
+                out.emitAttribute("class", ((AnyExternalObject)value).getWrappedObject().getClass().getName());
                 out.endElement();
             } else {
-                throw new XPathException("Cannot export a stylesheet containing literal values bound to external Java objects", SaxonErrorCode.SXST0070);
+                throw new XPathException(
+                        "Cannot export a stylesheet containing literal values bound to external Java objects",
+                        SaxonErrorCode.SXST0070);
             }
         } else {
             out.startElement("literal");
             if (value instanceof GroundedValue) {
                 out.emitAttribute("count", ((GroundedValue) value).getLength() + "");
             }
-            value.iterate().forEachOrFail(it -> exportValue(it, out));
+            SequenceTool.supply(value.iterate(), (ItemConsumer<? super Item>) it -> exportValue(it, out));
             out.endElement();
 
         }
@@ -635,7 +611,7 @@ public class Literal extends Expression {
     }
 
     public static void exportAtomicValue(AtomicValue value, ExpressionPresenter out) throws XPathException {
-        if ("JS".equals(((ExpressionPresenter.ExportOptions) out.getOptions()).target)) {
+        if ("JS".equals(out.getOptions().target)) {
             value.checkValidInJavascript();
         }
         AtomicType type = value.getItemType();
@@ -662,7 +638,7 @@ public class Literal extends Expression {
         } else if (value instanceof QualifiedNameValue) {
             out.startElement("qName");
             out.emitAttribute("pre", ((QualifiedNameValue) value).getPrefix());
-            out.emitAttribute("uri", ((QualifiedNameValue) value).getNamespaceURI());
+            out.emitAttribute("uri", ((QualifiedNameValue) value).getNamespaceURI().toString());
             out.emitAttribute("loc", ((QualifiedNameValue) value).getLocalName());
             if (!type.equals(BuiltInAtomicType.QNAME)) {
                 out.emitAttribute("type", type.getEQName());
@@ -687,8 +663,12 @@ public class Literal extends Expression {
             return "()";
         } else if (value.getLength() == 1) {
             return value.toShortString();
+        } else if (value.getLength() == 2) {
+            return "(" + value.head().toShortString() + ", " + value.itemAt(1).toShortString() + ")";
         } else {
-            return "(" + value.head().toShortString() + ", ...{" + value.getLength() + "})";
+            return "(" + value.head().toShortString()
+                    + ", " + value.itemAt(1).toShortString()
+                    + ", ...{" + value.getLength() + "})";
         }
     }
 
@@ -702,7 +682,7 @@ public class Literal extends Expression {
      */
 
     public static boolean isAtomic(Expression exp) {
-        return exp instanceof Literal && ((Literal) exp).getValue() instanceof AtomicValue;
+        return exp instanceof Literal && ((Literal) exp).getGroundedValue() instanceof AtomicValue;
     }
 
     /**
@@ -714,7 +694,7 @@ public class Literal extends Expression {
      */
 
     public static boolean isEmptySequence(Expression exp) {
-        return exp instanceof Literal && ((Literal) exp).getValue().getLength() == 0;
+        return exp instanceof Literal && ((Literal) exp).getGroundedValue().getLength() == 0;
     }
 
     /**
@@ -728,7 +708,7 @@ public class Literal extends Expression {
 
     public static boolean isConstantBoolean(Expression exp, boolean value) {
         if (exp instanceof Literal) {
-            GroundedValue b = ((Literal) exp).getValue();
+            GroundedValue b = ((Literal) exp).getGroundedValue();
             return b instanceof BooleanValue && ((BooleanValue) b).getBooleanValue() == value;
         }
         return false;
@@ -746,7 +726,7 @@ public class Literal extends Expression {
     public static boolean hasEffectiveBooleanValue(Expression exp, boolean value) {
         if (exp instanceof Literal) {
             try {
-                return value == ((Literal) exp).getValue().effectiveBooleanValue();
+                return value == ((Literal) exp).getGroundedValue().effectiveBooleanValue();
             } catch (XPathException err) {
                 return false;
             }
@@ -763,8 +743,23 @@ public class Literal extends Expression {
 
     public static boolean isConstantOne(Expression exp) {
         if (exp instanceof Literal) {
-            GroundedValue v = ((Literal) exp).getValue();
+            GroundedValue v = ((Literal) exp).getGroundedValue();
             return v instanceof Int64Value && ((Int64Value) v).longValue() == 1;
+        }
+        return false;
+    }
+
+    /**
+     * Test if a literal represents the integer value 1
+     *
+     * @param exp an expression
+     * @return true if the expression is a literal and the literal represents the integer value 1
+     */
+
+    public static boolean isConstantZero(Expression exp) {
+        if (exp instanceof Literal) {
+            GroundedValue v = ((Literal) exp).getGroundedValue();
+            return v instanceof Int64Value && ((Int64Value) v).longValue() == 0;
         }
         return false;
     }
@@ -801,12 +796,12 @@ public class Literal extends Expression {
      * @return the Literal
      */
 
-    public static <T extends Item> Literal makeLiteral(GroundedValue value) {
+    public static Literal makeLiteral(GroundedValue value) {
         value = value.reduce();
         if (value instanceof StringValue) {
             return new StringLiteral((StringValue) value);
-        } else if (value instanceof Function && !(value instanceof MapItem || value instanceof ArrayItem)) {
-            return new FunctionLiteral((Function) value);
+        } else if (value instanceof FunctionItem && !(value instanceof MapItem || value instanceof ArrayItem)) {
+            return new FunctionLiteral((FunctionItem) value);
         } else {
             return new Literal(value);
         }
@@ -838,5 +833,120 @@ public class Literal extends Expression {
     @Override
     public String getStreamerName() {
         return "Literal";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new LiteralElaborator();
+    }
+
+    /**
+     * Elaborator for a literal.
+     *
+     * <p>Evaluators are supplied for evaluation in pull, push, and singleton mode, as well as boolean
+     * evaluation</p>
+     */
+
+    public static class LiteralElaborator extends PullElaborator {
+
+        @Override
+        public SequenceEvaluator eagerly() {
+            GroundedValue value = ((Literal) getExpression()).getGroundedValue();
+            return new LiteralEvaluator(value);
+        }
+
+        @Override
+        public SequenceEvaluator lazily(boolean repeatable, boolean lazyEvaluationRequired) {
+            return eagerly();
+        }
+
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            GroundedValue value = ((Literal)getExpression()).getGroundedValue();
+            return context -> value.iterate();
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            Literal expr = (Literal)getExpression();
+            GroundedValue value = ((Literal) getExpression()).getGroundedValue();
+            if (value instanceof Item) {
+                return (out, context) -> {
+                    out.append((Item)value, expr.getLocation(), ReceiverOption.ALL_NAMESPACES);
+                    return null;
+                };
+            } else {
+                return (out, context) -> {
+                    for (Item item : value.asIterable()) {
+                         out.append(item, expr.getLocation(), ReceiverOption.ALL_NAMESPACES);
+                    }
+                    return null;
+                };
+            }
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            GroundedValue value = ((Literal) getExpression()).getGroundedValue();
+            assert value.getLength() < 2;
+            Item item = value.head();
+            return context -> item;
+        }
+
+        @Override
+        public BooleanEvaluator elaborateForBoolean() {
+            GroundedValue value = ((Literal) getExpression()).getGroundedValue();
+            try {
+                boolean ebv = value.effectiveBooleanValue();
+                return context -> ebv;
+            } catch (XPathException e) {
+                return context -> {
+                    throw e;
+                };
+            }
+        }
+
+        @Override
+        public UnicodeStringEvaluator elaborateForUnicodeString(boolean zeroLengthWhenAbsent) {
+            GroundedValue value = ((Literal) getExpression()).getGroundedValue();
+            try {
+                UnicodeString str = value.getUnicodeStringValue();
+                return context -> str;
+            } catch (XPathException e) {
+                return context -> {
+                    throw e;
+                };
+            }
+        }
+
+        @Override
+        public StringEvaluator elaborateForString(boolean zeroLengthWhenAbsent) {
+            GroundedValue value = ((Literal) getExpression()).getGroundedValue();
+            try {
+                String str = value.getStringValue();
+                return context -> str;
+            } catch (XPathException e) {
+                return context -> {
+                    throw e;
+                };
+            }
+        }
+
+        @Override
+        public UpdateEvaluator elaborateForUpdate() {
+            GroundedValue value = ((Literal) getExpression()).getGroundedValue();
+            if (value.getLength() == 0) {
+                return (context, pul) -> {};
+            } else {
+                return super.elaborateForUpdate();
+            }
+        }
     }
 }

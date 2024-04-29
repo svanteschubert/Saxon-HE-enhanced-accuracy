@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,11 +7,9 @@
 
 package net.sf.saxon.style;
 
-import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.AttributeInfo;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 
 /**
@@ -23,6 +21,11 @@ import net.sf.saxon.type.Type;
 
 public class XSLStylesheet extends XSLModuleRoot {
 
+    @Override
+    public void initialise(NodeName elemName, SchemaType elementType, AttributeMap atts, NodeInfo parent, int sequenceNumber) {
+        super.initialise(elemName, elementType, atts, parent, sequenceNumber);
+        processDefaultCollationAttribute();
+    }
 
     @Override
     protected boolean mayContainParam() {
@@ -35,7 +38,7 @@ public class XSLStylesheet extends XSLModuleRoot {
      */
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         processDefaultCollationAttribute();
         processDefaultMode();
@@ -109,11 +112,11 @@ public class XSLStylesheet extends XSLModuleRoot {
                     curr instanceof DataElement) {
                 // all is well
             } else if (curr instanceof StyleElement) {
-                if (!NamespaceConstant.XSLT.equals(curr.getURI()) && !"".equals(curr.getURI())) {
+                if (!((StyleElement)curr).isInXsltNamespace() && !((StyleElement)curr).getNodeName().hasURI(NamespaceUri.NULL)) {
                     // elements in other namespaces are allowed and ignored
                 } else if (curr instanceof AbsentExtensionElement && ((StyleElement) curr).forwardsCompatibleModeIsEnabled()) {
                     // this is OK: an unknown XSLT element is allowed in forwards compatibility mode
-                } else if (NamespaceConstant.XSLT.equals(curr.getURI())) {
+                } else if (((StyleElement) curr).isInXsltNamespace()) {
                     ((StyleElement) curr).compileError("Element " + curr.getDisplayName() +
                                                                " must not appear directly within " + getDisplayName(), "XTSE0010");
                 } else {

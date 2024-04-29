@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.z;
 
 
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 
 import java.util.Arrays;
 
@@ -16,9 +16,8 @@ import java.util.Arrays;
  * Set of int values. This implementation of IntSet uses a sorted array
  * of integer ranges.
  *
- * @author Michael Kay
  */
-public class IntRangeSet implements IntSet {
+public class IntRangeSet extends IntSet {
 
     // The array of start points, which will always be sorted
     private int[] startPoints;
@@ -30,10 +29,10 @@ public class IntRangeSet implements IntSet {
     private int used = 0;
 
     // Hashcode, evaluated lazily
-    private int hashCode = -1;
+    private int _hashCode = -1;
 
     // The number of items in the set
-    private int size = 0;
+    private int count = 0;
 
     /**
      * Create an empty set
@@ -42,8 +41,8 @@ public class IntRangeSet implements IntSet {
         startPoints = new int[4];
         endPoints = new int[4];
         used = 0;
-        size = 0;
-        hashCode = -1;
+        count = 0;
+        _hashCode = -1;
     }
 
     /**
@@ -58,7 +57,7 @@ public class IntRangeSet implements IntSet {
         used = input.used;
         System.arraycopy(input.startPoints, 0, startPoints, 0, used);
         System.arraycopy(input.endPoints, 0, endPoints, 0, used);
-        hashCode = input.hashCode;
+        _hashCode = input._hashCode;
     }
 
     /**
@@ -80,7 +79,7 @@ public class IntRangeSet implements IntSet {
         this.endPoints = endPoints;
         used = startPoints.length;
         for (int i = 0; i < used; i++) {
-            size += (endPoints[i] - startPoints[i] + 1);
+            count += (endPoints[i] - startPoints[i] + 1);
         }
     }
 
@@ -89,7 +88,7 @@ public class IntRangeSet implements IntSet {
         startPoints = new int[4];
         endPoints = new int[4];
         used = 0;
-        hashCode = -1;
+        _hashCode = -1;
     }
 
     @Override
@@ -102,7 +101,7 @@ public class IntRangeSet implements IntSet {
         System.arraycopy(endPoints, 0, s.endPoints, 0, endPoints.length);
         //s.endPoints = Arrays.copyOf(endPoints, endPoints.length);
         s.used = used;
-        s.size = size;
+        s.count = count;
         return s;
     }
 
@@ -118,12 +117,12 @@ public class IntRangeSet implements IntSet {
 
     @Override
     public int size() {
-        return size;
+        return count;
     }
 
     @Override
     public boolean isEmpty() {
-        return size == 0;
+        return count == 0;
     }
 
     @Override
@@ -166,12 +165,12 @@ public class IntRangeSet implements IntSet {
 
     @Override
     public boolean add(int value) {
-        hashCode = -1;
+        _hashCode = -1;
         if (used == 0) {
             ensureCapacity(1);
             startPoints[used - 1] = value;
             endPoints[used - 1] = value;
-            size++;
+            count++;
             return true;
         }
         if (value > endPoints[used - 1]) {
@@ -182,7 +181,7 @@ public class IntRangeSet implements IntSet {
                 startPoints[used - 1] = value;
                 endPoints[used - 1] = value;
             }
-            size++;
+            count++;
             return true;
         }
         if (value < startPoints[0]) {
@@ -195,7 +194,7 @@ public class IntRangeSet implements IntSet {
                 startPoints[0] = value;
                 endPoints[0] = value;
             }
-            size++;
+            count++;
             return true;
         }
         int i = 0;
@@ -225,7 +224,7 @@ public class IntRangeSet implements IntSet {
             } else {
                 endPoints[i]++;
             }
-            size++;
+            count++;
             return true;
         } else if (startPoints[i] - 1 == value) {
             if (value == endPoints[i - 1] + 1) {
@@ -237,7 +236,7 @@ public class IntRangeSet implements IntSet {
             } else {
                 startPoints[i]--;
             }
-            size++;
+            count++;
             return true;
         } else {
             if (value > endPoints[i]) {
@@ -252,7 +251,7 @@ public class IntRangeSet implements IntSet {
             }
             startPoints[i] = value;
             endPoints[i] = value;
-            size++;
+            count++;
             return true;
         }
     }
@@ -276,12 +275,12 @@ public class IntRangeSet implements IntSet {
 
     @Override
     public IntIterator iterator() {
-        return new IntRangeSetIterator();
+        return new IntRangeSetIterator(this);
     }
 
 
     public String toString() {
-        FastStringBuffer sb = new FastStringBuffer(used * 8);
+        StringBuilder sb = new StringBuilder(used * 8);
         for (int i = 0; i < used; i++) {
             sb.append(startPoints[i] + "-" + endPoints[i] + ",");
         }
@@ -313,14 +312,14 @@ public class IntRangeSet implements IntSet {
 
     public int hashCode() {
         // Note, hashcodes are NOT the same as those used by IntHashSet and IntArraySet
-        if (hashCode == -1) {
-            int h = 0x836a89f1;
+        if (_hashCode == -1) {
+            int h = 0x436a89f1;
             for (int i = 0; i < used; i++) {
                 h ^= startPoints[i] + (endPoints[i] << 3);
             }
-            hashCode = h;
+            _hashCode = h;
         }
-        return hashCode;
+        return _hashCode;
     }
 
     /**
@@ -337,12 +336,12 @@ public class IntRangeSet implements IntSet {
             add(low);
             return;
         }
-        hashCode = -1;
+        _hashCode = -1;
         if (used == 0) {
             ensureCapacity(1);
             startPoints[used - 1] = low;
             endPoints[used - 1] = high;
-            size += (high - low + 1);
+            count += (high - low + 1);
         } else if (low > endPoints[used - 1]) {
             if (low == endPoints[used - 1] + 1) {
                 endPoints[used - 1] = high;
@@ -351,7 +350,7 @@ public class IntRangeSet implements IntSet {
                 startPoints[used - 1] = low;
                 endPoints[used - 1] = high;
             }
-            size += (high - low + 1);
+            count += (high - low + 1);
         } else if (high < startPoints[0]) {
             ensureCapacity(used + 1);
             System.arraycopy(startPoints, 0, startPoints, 1, used - 1);
@@ -378,6 +377,8 @@ public class IntRangeSet implements IntSet {
 
     /**
      * Get the start points of the ranges
+     *
+     * @return the start points
      */
 
     public int[] getStartPoints() {
@@ -386,6 +387,8 @@ public class IntRangeSet implements IntSet {
 
     /**
      * Get the end points of the ranges
+     *
+     * @return the end points
      */
 
     public int[] getEndPoints() {
@@ -394,6 +397,8 @@ public class IntRangeSet implements IntSet {
 
     /**
      * Get the number of ranges actually in use
+     *
+     * @return the number of ranges
      */
 
     public int getNumberOfRanges() {
@@ -404,12 +409,14 @@ public class IntRangeSet implements IntSet {
      * Iterator class
      */
 
-    private class IntRangeSetIterator implements IntIterator {
+    private static class IntRangeSetIterator implements IntIterator {
 
+        private IntRangeSet intRangeSet;
         private int i = 0;
         private int current = 0;
 
-        public IntRangeSetIterator() {
+        public IntRangeSetIterator(IntRangeSet intRangeSet) {
+            this.intRangeSet = intRangeSet;
             i = -1;
             current = Integer.MIN_VALUE;
         }
@@ -417,9 +424,9 @@ public class IntRangeSet implements IntSet {
         @Override
         public boolean hasNext() {
             if (i < 0) {
-                return size > 0;
+                return intRangeSet.count > 0;
             } else {
-                return current < endPoints[used - 1];
+                return current < intRangeSet.endPoints[intRangeSet.used - 1];
             }
         }
 
@@ -427,11 +434,11 @@ public class IntRangeSet implements IntSet {
         public int next() {
             if (i < 0) {
                 i = 0;
-                current = startPoints[0];
+                current = intRangeSet.startPoints[0];
                 return current;
             }
-            if (current == endPoints[i]) {
-                current = startPoints[++i];
+            if (current == intRangeSet.endPoints[i]) {
+                current = intRangeSet.startPoints[++i];
                 return current;
             } else {
                 return ++current;

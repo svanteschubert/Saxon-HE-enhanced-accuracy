@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -17,6 +18,7 @@ import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.AlphaCode;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.SequenceType;
@@ -32,8 +34,8 @@ import net.sf.saxon.value.SequenceType;
 
 public class SuppliedParameterReference extends Expression {
 
-    int slotNumber;
-    SequenceType type;
+    private final int slotNumber;
+    private SequenceType type;
 
     /**
      * Constructor
@@ -118,12 +120,25 @@ public class SuppliedParameterReference extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         if (type != null) {
             return type.getCardinality();
         } else {
             return StaticProperty.ALLOWS_ZERO_OR_MORE;
         }
+    }
+
+    /**
+     * Ask whether the expression supports lazy evaluation.
+     *
+     * @return false either if the expression cannot be evaluated lazily
+     * because it has dependencies that cannot be saved in the context, or
+     * because lazy evaluation is pointless (for example, for literals
+     * and variable references).
+     */
+    @Override
+    public boolean supportsLazyEvaluation() {
+        return false;
     }
 
     /**
@@ -168,7 +183,7 @@ public class SuppliedParameterReference extends Expression {
         try {
             return c.evaluateLocalVariable(slotNumber);
         } catch (AssertionError e) {
-            new StandardDiagnostics().printStackTrace(c, c.getConfiguration().getLogger(), 2);
+            new StandardDiagnostics().logStackTrace(c, c.getConfiguration().getLogger(), 2);
             throw new AssertionError(e.getMessage() + ". No value has been set for parameter " + slotNumber);
         }
     }
@@ -230,6 +245,9 @@ public class SuppliedParameterReference extends Expression {
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("supplied", this);
         destination.emitAttribute("slot", slotNumber + "");
+        if (type != null) {
+            destination.emitAttribute("sType", AlphaCode.fromSequenceType(type));
+        }
         destination.endElement();
     }
 
@@ -243,5 +261,53 @@ public class SuppliedParameterReference extends Expression {
 
     public String toString() {
         return "suppliedParam(" + slotNumber + ")";
+    }
+
+    @Override
+    public Elaborator getElaborator() {
+        return new SuppliedParameterReferenceElaborator();
+    }
+
+    public static class SuppliedParameterReferenceElaborator extends PullElaborator {
+        @Override
+        public SequenceEvaluator eagerly() {
+            SuppliedParameterReference varRef = (SuppliedParameterReference) getExpression();
+            int slot = varRef.getSlotNumber();
+            return new LocalVariableEvaluator(slot);
+        }
+
+        @Override
+        public SequenceEvaluator lazily(boolean repeatable, boolean lazyEvaluationRequired) {
+            return eagerly();
+        }
+
+        @Override
+        public PullEvaluator elaborateForPull() {
+            SuppliedParameterReference varRef = (SuppliedParameterReference) getExpression();
+            int slot = varRef.getSlotNumber();
+            return context -> context.evaluateLocalVariable(slot).iterate();
+        }
+
+        @Override
+        public PushEvaluator elaborateForPush() {
+            SuppliedParameterReference varRef = (SuppliedParameterReference) getExpression();
+            int slot = varRef.getSlotNumber();
+            return (out, context) -> {
+                SequenceIterator value = context.evaluateLocalVariable(slot).iterate();
+                Item it;
+                while ((it = value.next()) != null) {
+                    out.append(it);
+                }
+                return null;
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            SuppliedParameterReference varRef = (SuppliedParameterReference) getExpression();
+            int slot = varRef.getSlotNumber();
+            return context -> context.evaluateLocalVariable(slot).head();
+        }
+
     }
 }

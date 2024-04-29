@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,9 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.om.FocusIterator;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.*;
+import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.*;
 
@@ -59,8 +58,12 @@ public class FilterIterator implements SequenceIterator {
      */
 
     @Override
-    public Item next() throws XPathException {
-        return getNextMatchingItem();
+    public Item next() {
+        try {
+            return getNextMatchingItem();
+        } catch (XPathException e) {
+            throw new UncheckedXPathException(e);
+        }
     }
 
     /**
@@ -117,7 +120,7 @@ public class FilterIterator implements SequenceIterator {
                 if (iterator.next() != null) {
                     ExpressionTool.ebvError("a sequence of two or more items starting with a string", filter);
                 }
-                return first.getStringValueCS().length() != 0;
+                return !((StringValue) first).isEmpty();
             } else if (first instanceof Int64Value) {
                 if (iterator.next() != null) {
                     ExpressionTool.ebvError("a sequence of two or more items starting with a numeric value", filter);
@@ -136,7 +139,7 @@ public class FilterIterator implements SequenceIterator {
                                         filter);
                 return false;
             } else {
-                ExpressionTool.ebvError("a sequence starting with " + first.getGenre().getDescription() + " (" + first.toShortString() + ")", filter);
+                ExpressionTool.ebvError("a sequence starting with " + Err.describeGenre(first.getGenre()) + " (" + first.toShortString() + ")", filter);
                 return false;
             }
         }
@@ -145,41 +148,6 @@ public class FilterIterator implements SequenceIterator {
     @Override
     public void close() {
         base.close();
-    }
-
-
-    /**
-     * Subclass to handle the common special case where it is statically known
-     * that the filter cannot return a numeric value
-     */
-
-    public static final class NonNumeric extends FilterIterator {
-
-        /**
-         * Create a CompiledFilterIterator for the situation where it is known that the filter
-         * expression will never evaluate to a number value. For this case we can simply
-         * use the effective boolean value of the predicate
-         *
-         * @param base    iterator over the sequence to be filtered
-         * @param filter  the filter expression
-         * @param context the current context (for evaluating the filter expression as a whole).
-         *                A new context will be created to evaluate the predicate.
-         */
-
-        public NonNumeric(SequenceIterator base, Expression filter,
-                          XPathContext context) {
-            super(base, filter, context);
-        }
-
-        /**
-         * Determine whether the context item matches the filter predicate
-         */
-
-        @Override
-        protected boolean matches() throws XPathException {
-            return filter.effectiveBooleanValue(filterContext);
-        }
-
     }
 
 }

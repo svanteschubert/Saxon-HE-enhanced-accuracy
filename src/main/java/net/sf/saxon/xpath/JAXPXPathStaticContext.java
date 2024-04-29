@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.sxpath.AbstractStaticContext;
 import net.sf.saxon.trans.XPathException;
@@ -38,8 +39,8 @@ import java.util.Set;
 public class JAXPXPathStaticContext extends AbstractStaticContext
         implements NamespaceResolver {
 
-    private SlotManager stackFrameMap;
-    private XPathFunctionLibrary xpathFunctionLibrary;
+    private final SlotManager stackFrameMap;
+    private final XPathFunctionLibrary xpathFunctionLibrary;
 
     private NamespaceContext namespaceContext = new MinimalNamespaceContext();
     private XPathVariableResolver variableResolver;
@@ -61,6 +62,7 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
 
     /**
      * Supply the NamespaceContext used to resolve namespaces.
+     * @param context the namespace context
      */
 
     public void setNamespaceContext(NamespaceContext context) {
@@ -69,6 +71,7 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
 
     /**
      * Get the NamespaceContext that was set using {@link #setNamespaceContext}
+     * @return the namespace context
      */
 
     public NamespaceContext getNamespaceContext() {
@@ -78,6 +81,7 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
     /**
      * Get the stack frame map containing the slot number allocations for the variables declared
      * in this static context
+     * @return the stack frame map
      */
 
     public SlotManager getStackFrameMap() {
@@ -97,6 +101,7 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
 
     /**
      * Get the XPathVariableResolver
+     * @return the XPathVariableResolver
      */
 
     public XPathVariableResolver getXPathVariableResolver() {
@@ -137,15 +142,16 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
      */
 
     @Override
-    public String getURIForPrefix(/*@NotNull*/ String prefix, boolean useDefault) {
+    public NamespaceUri getURIForPrefix(/*@NotNull*/ String prefix, boolean useDefault) {
         if (prefix.isEmpty()) {
             if (useDefault) {
                 return getDefaultElementNamespace();
             } else {
-                return NamespaceConstant.NULL;
+                return NamespaceUri.NULL;
             }
         } else {
-            return namespaceContext.getNamespaceURI(prefix);
+            String uri = namespaceContext.getNamespaceURI(prefix);
+            return uri == null ? null : NamespaceUri.of(uri);
         }
     }
 
@@ -216,12 +222,13 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
      * within a Configuration, there can only be one schema for any given namespace, including the
      * null namespace).
      *
+     * @param namespace the target namespace in question
      * @return true if schema components for the given namespace have been imported into the
      *         schema-aware configuration
      */
 
     @Override
-    public boolean isImportedSchema(String namespace) {
+    public boolean isImportedSchema(NamespaceUri namespace) {
         return getConfiguration().isSchemaAvailable(namespace);
     }
 
@@ -232,7 +239,7 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
      */
 
     @Override
-    public Set<String> getImportedSchemaNamespaces() {
+    public Set<NamespaceUri> getImportedSchemaNamespaces() {
         return getConfiguration().getImportedNamespaces();
     }
 
@@ -317,8 +324,22 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
 
         /*@Nullable*/
         @Override
-        public String getURIForPrefix(String prefix, boolean useDefault) {
-            return getNamespaceURI(prefix);
+        public NamespaceUri getURIForPrefix(String prefix, boolean useDefault) {
+            if (prefix == null) {
+                throw new IllegalArgumentException("prefix");
+            } else if (prefix.equals(XMLConstants.DEFAULT_NS_PREFIX)) {
+                return NamespaceUri.NULL; //XMLConstants.NULL_NS_URI;
+            } else if (prefix.equals("xml")) {
+                return NamespaceUri.XML;
+            } else if (prefix.equals("xs")) {
+                return NamespaceUri.SCHEMA;
+            } else if (prefix.equals("xsi")) {
+                return NamespaceUri.SCHEMA_INSTANCE;
+            } else if (prefix.equals("saxon")) {
+                return NamespaceUri.SAXON;
+            } else {
+                return null;
+            }
         }
     }
 

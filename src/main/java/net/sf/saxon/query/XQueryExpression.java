@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,12 @@ package net.sf.saxon.query;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.ComplexContentOutputter;
+import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
-import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.ExpressionOwner;
-import net.sf.saxon.expr.PackageData;
-import net.sf.saxon.expr.XPathContextMajor;
+import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.GlobalContextRequirement;
 import net.sf.saxon.expr.instruct.GlobalVariable;
@@ -31,8 +31,10 @@ import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trace.TraceableComponent;
 import net.sf.saxon.trans.SaxonErrorCode;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingException;
+import net.sf.saxon.tree.iter.GroundedIterator;
 import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
@@ -42,7 +44,10 @@ import javax.xml.transform.Source;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.stream.StreamResult;
 import java.io.OutputStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+import java.util.Set;
 
 /**
  * XQueryExpression represents a compiled query. This object is immutable and thread-safe,
@@ -57,6 +62,8 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
     protected SlotManager stackFrameMap;
     protected Executable executable;
     protected QueryModule mainModule;
+    protected PullEvaluator pullEvaluator = null;
+    protected PushEvaluator pushEvaluator = null;
 
 
     /**
@@ -174,6 +181,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
     /**
      * Get data about the unit of compilation (XQuery module, XSLT package) to which this
      * container belongs
+     * @return the package information
      */
     public PackageData getPackageData() {
         return mainModule.getPackageData();
@@ -266,10 +274,10 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
 
     /*@NotNull*/
     public StructuredQName[] getExternalVariableNames() {
-        List list = stackFrameMap.getVariableMap();
+        List<StructuredQName> list = stackFrameMap.getVariableMap();
         StructuredQName[] names = new StructuredQName[stackFrameMap.getNumberOfVariables()];
         for (int i = 0; i < names.length; i++) {
-            names[i] = (StructuredQName) list.get(i);
+            names[i] = list.get(i);
         }
         return names;
     }
@@ -295,7 +303,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
             throw new XPathException("Cannot call evaluate() on an updating query");
         }
         ArrayList<Object> list = new ArrayList<>(100);
-        iterator(env).forEachOrFail(item -> list.add(SequenceTool.convertToJava(item)));
+        SequenceTool.supply(iterator(env), (ItemConsumer<? super Item>) item -> list.add(SequenceTool.convertToJava(item)));
         return list;
     }
 
@@ -317,8 +325,8 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         if (isUpdateQuery()) {
             throw new XPathException("Cannot call evaluateSingle() on an updating query");
         }
-        SequenceIterator iterator = iterator(env);
-        Item item = iterator.next();
+        SequenceIterator iter = iterator(env);
+        Item item = iter.next();
         if (item == null) {
             return null;
         }
@@ -352,6 +360,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         if (!env.getConfiguration().isCompatible(getExecutable().getConfiguration())) {
             throw new XPathException("The query must be compiled and executed under the same Configuration", SaxonErrorCode.SXXP0004);
         }
+
         Controller controller = newController(env);
 
         try {
@@ -369,11 +378,11 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
 
             context.openStackFrame(stackFrameMap);
 
-            SequenceIterator iterator = expression.iterate(context);
-            if (iterator.getProperties().contains(SequenceIterator.Property.GROUNDED)) {
+            SequenceIterator iterator = getExpressionIterator(context);
+            if (iterator instanceof GroundedIterator && ((GroundedIterator) iterator).isActuallyGrounded()) {
                 return iterator;
             } else {
-                return new ErrorReportingIterator(iterator, controller.getErrorReporter());
+                return new ErrorReportingIterator(iterator, controller.getErrorReporter(), getLocation());
             }
         } catch (XPathException err) {
             TransformerException terr = err;
@@ -384,6 +393,15 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
             controller.reportFatalError(de);
             throw de;
         }
+    }
+
+    protected SequenceIterator getExpressionIterator(XPathContext context) throws XPathException {
+        synchronized(this) {
+            if (pullEvaluator == null) {
+                pullEvaluator = expression.makeElaborator().elaborateForPull();
+            }
+        }
+        return pullEvaluator.iterate(context);
     }
 
     /**
@@ -452,7 +470,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
 
         // Run the query
         try {
-            expression.process(dest, context);
+            processQuery(dest, context);
         } catch (XPathException err) {
             controller.reportFatalError(err);
             throw err;
@@ -469,6 +487,16 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         if (result instanceof StreamResult) {
             closeStreamIfNecessary((StreamResult) result, mustClose);
         }
+    }
+
+    protected void processQuery(Outputter dest, XPathContext context) throws XPathException {
+        synchronized(this) {
+            if (pushEvaluator == null) {
+                pushEvaluator = expression.makeElaborator().elaborateForPush();
+            }
+        }
+        Expression.dispatchTailCall(
+                pushEvaluator.processLeavingTail(dest, context));
     }
 
     protected void closeStreamIfNecessary(StreamResult result, boolean mustClose) throws XPathException {
@@ -511,9 +539,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         Properties baseProperties = controller.getExecutable().getPrimarySerializationProperties().getProperties();
         SerializerFactory sf = controller.getConfiguration().getSerializerFactory();
         if (outputProperties != null) {
-            Enumeration iter = outputProperties.propertyNames();
-            while (iter.hasMoreElements()) {
-                String key = (String) iter.nextElement();
+            for (String key : outputProperties.stringPropertyNames()) {
                 String value = outputProperties.getProperty(key);
                 try {
                     value = sf.checkOutputProperty(key, value);
@@ -614,6 +640,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
      *
      * @param out an ExpressionPresenter to which the XML representation of the compiled query
      *            will be sent
+     * @throws XPathException if things go wrong
      */
 
     public void explain(/*@NotNull*/ ExpressionPresenter out) throws XPathException {
@@ -759,25 +786,27 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
      * any exceptions that are raised to the ErrorListener
      */
 
-    private class ErrorReportingIterator implements SequenceIterator {
-        private SequenceIterator base;
-        private ErrorReporter reporter;
+    private static class ErrorReportingIterator implements SequenceIterator {
+        private final SequenceIterator base;
+        private final ErrorReporter reporter;
+        private final Location location;
 
-        public ErrorReportingIterator(SequenceIterator base, ErrorReporter reporter) {
+        public ErrorReportingIterator(SequenceIterator base, ErrorReporter reporter, Location location) {
             this.base = base;
             this.reporter = reporter;
+            this.location = location;
         }
 
         /*@Nullable*/
         @Override
-        public Item next() throws XPathException {
+        public Item next() {
             try {
                 return base.next();
-            } catch (XPathException e1) {
-                e1.maybeSetLocation(expression.getLocation());
-                XmlProcessingException err = new XmlProcessingException(e1);
+            } catch (UncheckedXPathException e1) {
+                XPathException xe = e1.getXPathException().maybeWithLocation(location);
+                XmlProcessingException err = new XmlProcessingException(xe);
                 reporter.report(err);
-                e1.setHasBeenReported(true);
+                xe.setHasBeenReported(true);
                 throw e1;
             }
         }

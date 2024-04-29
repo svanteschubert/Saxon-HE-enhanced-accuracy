@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,7 +15,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.UntypedAtomicValue;
 
 /**
  * Implementation of an internal function map:untyped-contains(Map, key) =&gt; boolean,
@@ -31,7 +30,7 @@ public class MapUntypedContains extends SystemFunction {
             ConversionRules rules = context.getConfiguration().getConversionRules();
             MapItem map = (MapItem) arguments[0].head();
             AtomicValue key = (AtomicValue) arguments[1].head();
-            if (key instanceof UntypedAtomicValue) {
+            if (key.isUntypedAtomic()) {
                 for (PrimitiveUType prim : map.getKeyUType().decompose()) {
                     BuiltInAtomicType t = (BuiltInAtomicType)prim.toItemType();
                     StringConverter converter = t.getStringConverter(rules);
@@ -61,5 +60,5 @@ public class MapUntypedContains extends SystemFunction {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 

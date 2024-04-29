@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,7 +23,7 @@ public class XSLBreak extends XSLBreakOrContinue {
     private Expression select;
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         String selectAtt = null;
 
@@ -58,7 +58,7 @@ public class XSLBreak extends XSLBreakOrContinue {
      * initialisation. The default implementation does nothing; it is normally overriden
      * in subclasses.
      *
-     * @param decl
+     * @param decl the component declaration - not used in this case
      */
 
     @Override
@@ -83,7 +83,7 @@ public class XSLBreak extends XSLBreakOrContinue {
             val = compileSequenceConstructor(exec, decl, false);
         }
 
-        Expression brake = new BreakInstr();
+        Expression brake = new BreakInstr().withLocation(saveLocation());
         brake.setRetainedStaticContext(makeRetainedStaticContext());
         return Block.makeBlock(val, brake);
     }

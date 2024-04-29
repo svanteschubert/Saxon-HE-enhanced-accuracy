@@ -7,10 +7,13 @@
 
 package net.sf.saxon.trans;
 
+import net.sf.saxon.transpile.CSharpSimpleEnum;
+
 /**
  * Indicates where the visibility property of a component came from
  */
 
+@CSharpSimpleEnum
 public enum VisibilityProvenance {
     DEFAULTED,
     EXPLICIT,

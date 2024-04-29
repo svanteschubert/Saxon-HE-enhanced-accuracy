@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,11 +12,10 @@ import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.ConditionalInstruction;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.Logger;
-import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.UType;
-import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.IdentityHashMap;
@@ -36,8 +35,11 @@ public class LoopLifter {
 
     /**
      * Apply loop-lifting to an expression (typically the body of a template or function)
-     * @param exp the expression to which loop lifting is applied
+     * @param exp         the expression to which loop lifting is applied
+     * @param visitor     the expression visitor
+     * @param contextInfo the static type of the context item
      * @return the optimized expression
+     * @throws XPathException if any error occurs
      */
 
     public static Expression process(Expression exp, ExpressionVisitor visitor, ContextItemStaticInfo contextInfo)
@@ -64,21 +66,71 @@ public class LoopLifter {
     }
 
     private Expression root;
-    private Configuration config;
+    private final Configuration config;
     private int sequence = 0;
     private boolean changed = false;
     private boolean tracing = false;
     private boolean streaming = false;
+    private final static String MARKER = "marker";
 
     private static class ExpInfo {
         Expression expression;
         int loopLevel;
         boolean multiThreaded;
-        Map<Expression, Boolean> dependees = new IdentityHashMap<>();
+        ExpressionSet dependees;
+    }
+
+    /**
+     * A class representing a set of expressions, compared using object identity rather than
+     * equality; the internal implementation is optimised for the dominant case where the
+     * set is either empty or contains a single entry. (However, an empty set is actually
+     * represented as null).
+     */
+
+    private static class ExpressionSet {
+        private Expression firstExpression;
+        private Map<Expression, String> furtherExpressions;
+
+        public void add(Expression exp) {
+            if (firstExpression == null) {
+                firstExpression = exp;
+            } else if (firstExpression != exp) {
+                if (furtherExpressions == null) {
+                    furtherExpressions = new IdentityHashMap<>(8);
+                    furtherExpressions.put(exp, MARKER);
+                } else {
+                    furtherExpressions.put(exp, MARKER);
+                }
+            }
+        }
+
+        public void addAll(ExpressionSet other) {
+            if (other.firstExpression != null) {
+                add(other.firstExpression);
+                if (other.furtherExpressions != null) {
+                    for (Expression exp : other.furtherExpressions.keySet()) {
+                        add(exp);
+                    }
+                }
+            }
+        }
+
+        public boolean contains(Expression exp) {
+            if (firstExpression == null) {
+                return false;
+            }
+            if (firstExpression == exp) {
+                return true;
+            }
+            if (furtherExpressions != null) {
+                return furtherExpressions.containsKey(exp);
+            }
+            return false;
+        }
 
     }
 
-    private Map<Expression, ExpInfo> expInfoMap = new IdentityHashMap<>();
+    private final Map<Expression, ExpInfo> expInfoMap = new IdentityHashMap<>();
 
     public LoopLifter(Expression root, Configuration config, boolean streaming) {
         this.root = root;
@@ -165,8 +217,13 @@ public class LoopLifter {
             parent = exp;
             while (parent != null && parent != variableSetter) {
                 try {
-                    expInfoMap.get(parent).dependees.put(variableSetter, true);
+                    ExpInfo parentInfo = expInfoMap.get(parent);
+                    if (parentInfo.dependees == null) {
+                        parentInfo.dependees = new ExpressionSet();
+                    }
+                    parentInfo.dependees.add(variableSetter);
                 } catch (NullPointerException e) {
+                    ExpressionTool.validateTree(parent);
                     e.printStackTrace();
                     throw e;
                 }
@@ -180,14 +237,14 @@ public class LoopLifter {
         ExpInfo info = expInfoMap.get(exp);
         if (!info.multiThreaded) {
             if (info.loopLevel > 0 && exp.getNetCost() > 0) {
-                if (info.dependees.isEmpty() && exp.isLiftable(streaming) && !mayReturnStreamedNodes(exp)) {
+                if (info.dependees == null && exp.isLiftable(streaming) && !mayReturnStreamedNodes(exp)) {
                     root = lift(exp, root);
                 } else {
                     Expression child = exp;
                     ExpInfo expInfo = expInfoMap.get(exp);
                     Expression parent = exp.getParentExpression();
                     while (parent != null) {
-                        if (expInfo.dependees.get(parent) != null) {
+                        if (expInfo.dependees != null && expInfo.dependees.contains(parent)) {
                             ExpInfo childInfo = expInfoMap.get(child);
                             if (expInfo.loopLevel != childInfo.loopLevel) {
                                 Operand o = ExpressionTool.findOperand(parent, child);
@@ -225,13 +282,15 @@ public class LoopLifter {
         assert oldOperand != null;
 
         LetExpression let = new LetExpression();
-        let.setVariableQName(new StructuredQName("vv", NamespaceConstant.SAXON_GENERATED_VARIABLE, "v" + sequence++));
+        let.setVariableQName(new StructuredQName("vv", NamespaceUri.SAXON_GENERATED_VARIABLE, "v" + sequence++));
         SequenceType type = SequenceType.makeSequenceType(child.getItemType(), child.getCardinality());
         let.setRequiredType(type);
         ExpressionTool.copyLocationInfo(child, let);
         let.setSequence(child);
         let.setNeedsLazyEvaluation(true);
-        let.setEvaluationMode(Cardinality.allowsMany(child.getCardinality()) ? EvaluationMode.MAKE_MEMO_CLOSURE : EvaluationMode.MAKE_SINGLETON_CLOSURE);
+//        let.setEvaluator(Cardinality.allowsMany(child.getCardinality())
+//                                 ? Evaluator.MemoClosureEvaluator.INSTANCE
+//                                 : Evaluator.SingletonClosure.INSTANCE);
         let.setAction(newAction);
         let.adoptChildExpression(newAction);
 //        if (indexed) {
@@ -242,7 +301,9 @@ public class LoopLifter {
         ExpInfo letInfo = new ExpInfo();
         letInfo.expression = let;
         letInfo.dependees = childInfo.dependees;
-        letInfo.dependees.putAll(actionInfo.dependees);
+        if (childInfo.dependees != null & actionInfo.dependees != null) {
+            letInfo.dependees.addAll(actionInfo.dependees);
+        }
         letInfo.loopLevel = actionInfo.loopLevel;
         expInfoMap.put(let, letInfo);
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,6 +19,7 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
@@ -43,6 +44,7 @@ public abstract class VariableReference extends Expression implements BindingRef
 
     /**
      * Create a Variable Reference
+     * @param name the name of the variable
      */
 
     public VariableReference(StructuredQName name) {
@@ -248,7 +250,7 @@ public abstract class VariableReference extends Expression implements BindingRef
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
         if (binding instanceof LetExpression &&
                 ((LetExpression)binding).getSequence() instanceof Literal &&
-                !((LetExpression) binding).isIndexedVariable) {
+                !((LetExpression) binding).indexedVariable) {
             Expression val = ((LetExpression) binding).getSequence();
             Optimizer.trace(visitor.getConfiguration(), "Replaced variable " + getDisplayName() + " by its value", val);
             binding = null;
@@ -395,7 +397,7 @@ public abstract class VariableReference extends Expression implements BindingRef
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         if (staticType == null) {
             if (binding == null) {
                 return StaticProperty.ALLOWS_ZERO_OR_MORE;
@@ -420,7 +422,7 @@ public abstract class VariableReference extends Expression implements BindingRef
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         if (binding == null || !binding.isAssignable()) {
             // if the variable reference is assignable, we mustn't move it, or any expression that contains it,
@@ -443,6 +445,19 @@ public abstract class VariableReference extends Expression implements BindingRef
     }
 
     /**
+     * Ask whether the expression supports lazy evaluation.
+     *
+     * @return false either if the expression cannot be evaluated lazily
+     * because it has dependencies that cannot be saved in the context, or
+     * because lazy evaluation is pointless (for example, for literals
+     * and variable references).
+     */
+    @Override
+    public boolean supportsLazyEvaluation() {
+        return false;
+    }
+
+    /**
      * Test if this expression is the same as another expression.
      * (Note, we only compare expressions that
      * have the same static and dynamic context).
@@ -459,7 +474,7 @@ public abstract class VariableReference extends Expression implements BindingRef
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return binding == null ? 73619830 : binding.hashCode();
     }
 
@@ -569,19 +584,18 @@ public abstract class VariableReference extends Expression implements BindingRef
             assert actual != null;
             return actual.iterate();
         } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            throw err;
+            throw err.maybeWithLocation(getLocation());
         } catch (NullPointerException err) {
-            err.printStackTrace();
+            //err.printStackTrace();
             String msg = "Internal error: no value for variable $" + getDisplayName() +
                     " at line " + getLocation().getLineNumber() + (getLocation().getSystemId() == null ? "" : " of " + getLocation().getSystemId());
-            new StandardDiagnostics().printStackTrace(c, c.getConfiguration().getLogger(), 2);
+            new StandardDiagnostics().logStackTrace(c, c.getConfiguration().getLogger(), 2);
             throw new AssertionError(msg);
         } catch (AssertionError err) {
-            err.printStackTrace();
+            //err.printStackTrace();
             String msg = err.getMessage() + ". Variable reference $" + getDisplayName() +
                     " at line " + getLocation().getLineNumber() + (getLocation().getSystemId() == null ? "" : " of " + getLocation().getSystemId());
-            new StandardDiagnostics().printStackTrace(c, c.getConfiguration().getLogger(), 2);
+            new StandardDiagnostics().logStackTrace(c, c.getConfiguration().getLogger(), 2);
             throw new AssertionError(msg);
         }
     }
@@ -593,8 +607,7 @@ public abstract class VariableReference extends Expression implements BindingRef
             assert actual != null;
             return actual.head();
         } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            throw err;
+            throw err.maybeWithLocation(getLocation()).maybeWithContext(c);
         }
     }
 
@@ -603,10 +616,14 @@ public abstract class VariableReference extends Expression implements BindingRef
         try {
             SequenceIterator iter = evaluateVariable(c).iterate();
             Location loc = getLocation();
-            iter.forEachOrFail(item -> output.append(item, loc, ReceiverOption.ALL_NAMESPACES));
+            SequenceTool.supply(iter, (ItemConsumer<? super Item>) item -> output.append(item, loc, ReceiverOption.ALL_NAMESPACES));
+        } catch (UncheckedXPathException uxe) {
+            throw uxe.getXPathException()
+                    .maybeWithLocation(getLocation())
+                    .maybeWithContext(c);
         } catch (XPathException err) {
-            err.maybeSetLocation(getLocation());
-            throw err;
+            throw err.maybeWithLocation(getLocation())
+                    .maybeWithContext(c);
         }
     }
 
@@ -666,7 +683,7 @@ public abstract class VariableReference extends Expression implements BindingRef
     public String getEQName() {
         if (binding != null) {
             StructuredQName q = binding.getVariableQName();
-            if (q.hasURI("")) {
+            if (q.hasURI(NamespaceUri.NULL)) {
                 return q.getLocalPart();
             } else {
                 return q.getEQName();

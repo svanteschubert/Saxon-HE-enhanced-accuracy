@@ -9,7 +9,7 @@ package net.sf.saxon.ma.map;
 
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.SequenceTool;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
@@ -25,9 +25,9 @@ import java.util.*;
  * for example when parsing JSON input, or when creating a fixed map to use in an options argument.
  */
 
-public class DictionaryMap implements MapItem {
+public class DictionaryMap extends MapItem {
 
-    private HashMap<String, GroundedValue> hashMap;
+    private final Map<String, GroundedValue> hashMap;
 
     /**
      * Create an empty dictionary, to which entries can be added using {@link #initialPut(String, GroundedValue)},
@@ -39,7 +39,19 @@ public class DictionaryMap implements MapItem {
     }
 
     /**
+     * Create an empty dictionary, to which entries can be added using {@link #initialPut(String, GroundedValue)},
+     * provided this is done before the map is exposed to the outside world.
+     * @param size estimated final size of the dictionary
+     */
+
+    public DictionaryMap(int size) {
+        hashMap = new HashMap<>(size);
+    }
+
+    /**
      * During initial construction of the map, add a key-value pair
+     * @param key the key
+     * @param value the corresponding value
      */
 
     public void initialPut(String key, GroundedValue value) {
@@ -48,6 +60,8 @@ public class DictionaryMap implements MapItem {
 
     /**
      * During initial construction of the map, append a value to a possibly existing key-value pair
+     * @param key the key
+     * @param value the corresponding value
      */
 
     public void initialAppend(String key, GroundedValue value) {
@@ -57,6 +71,15 @@ public class DictionaryMap implements MapItem {
         } else {
             hashMap.put(key, existingValue.concatenate(value));
         }
+    }
+
+    /**
+     * Ask whether a given string is present as a key in the map
+     * @param key the key being tested
+     * @return true if the key is present
+     */
+    public boolean containsStringKey(String key) {
+        return hashMap.containsKey(key);
     }
 
     /**
@@ -100,9 +123,8 @@ public class DictionaryMap implements MapItem {
      * @return a set containing all the key values present in the map, in unpredictable order
      */
     @Override
-    public AtomicIterator<StringValue> keys() {
-        Iterator<String> base = hashMap.keySet().iterator();
-        return () -> base.hasNext() ? new StringValue(base.next()) : null;
+    public AtomicIterator keys() {
+        return new KeyIterator(hashMap);
     }
 
     /**
@@ -113,7 +135,9 @@ public class DictionaryMap implements MapItem {
     @Override
     public Iterable<KeyValuePair> keyValuePairs() {
         List<KeyValuePair> pairs = new ArrayList<>();
-        hashMap.forEach((k, v) -> pairs.add(new KeyValuePair(new StringValue(k), v)));
+        for (Map.Entry<String, GroundedValue> entry : hashMap.entrySet()) {
+            pairs.add(new KeyValuePair(new StringValue(entry.getKey()), entry.getValue()));
+        }
         return pairs;
     }
 
@@ -152,7 +176,7 @@ public class DictionaryMap implements MapItem {
      * @return true if the map conforms to the required type
      */
     @Override
-    public boolean conforms(AtomicType keyType, SequenceType valueType, TypeHierarchy th) {
+    public boolean conforms(PlainType keyType, SequenceType valueType, TypeHierarchy th) {
         if (isEmpty()) {
             return true;
         }
@@ -163,12 +187,8 @@ public class DictionaryMap implements MapItem {
             return true;
         }
         for (GroundedValue val : hashMap.values()) {
-            try {
-                if (!valueType.matches(val, th)) {
-                    return false;
-                }
-            } catch (XPathException e) {
-                throw new AssertionError(e); // cannot happen when value is grounded
+            if (!valueType.matches(val, th)) {
+                return false;
             }
         }
         return true;
@@ -224,8 +244,27 @@ public class DictionaryMap implements MapItem {
     private HashTrieMap toHashTrieMap() {
         //System.err.println("Dictionary rewrite!!!!");
         HashTrieMap target = new HashTrieMap();
-        hashMap.forEach((k, v) -> target.initialPut(new StringValue(k), v));
+        for (Map.Entry<String, GroundedValue> entry : hashMap.entrySet()) {
+            target.initialPut(new StringValue(entry.getKey()), entry.getValue());
+        }
         return target;
+    }
+
+    private class KeyIterator implements AtomicIterator {
+        Iterator<String> keyIter;
+
+        public KeyIterator(Map<String, GroundedValue> hashMap) {
+            this.keyIter = hashMap.keySet().iterator();
+        }
+
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
+        public AtomicValue next() {
+            if (this.keyIter.hasNext()) {
+                return new StringValue(this.keyIter.next());
+            } else {
+                return null;
+            }
+        }
     }
 }
 

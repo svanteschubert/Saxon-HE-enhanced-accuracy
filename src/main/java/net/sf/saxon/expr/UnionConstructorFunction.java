@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -29,6 +29,7 @@ public class UnionConstructorFunction extends AbstractFunction {
     /**
      * Create a cast expression to a union type
      * @param targetType the union type that is the result of the cast
+     * @param resolver used for resolving namespace prefixes if the type is namespace-sensitive
      * @param allowEmpty true if an empty sequence may be supplied as input, converting to an empty sequence on output
      */
 
@@ -142,10 +143,9 @@ public class UnionConstructorFunction extends AbstractFunction {
 
         if (value instanceof StringValue && !(value instanceof AnyURIValue)) {
             try {
-                return targetType.getTypedValue(value.getStringValueCS(), resolver, rules);
+                return targetType.getTypedValue(value.getUnicodeStringValue(), resolver, rules);
             } catch (ValidationException e) {
-                e.setErrorCode("FORG0001");
-                throw e;
+                throw e.withErrorCode("FORG0001");
             }
         }
 
@@ -155,7 +155,7 @@ public class UnionConstructorFunction extends AbstractFunction {
         Iterable<? extends PlainType> memberTypes = ((UnionType)targetType).getPlainMemberTypes();
 
         // 2a. Is the type annotation itself a member type of the union, and of the union type itself?
-        if (((UnionType)targetType).isPlainType()) {
+        if (targetType.isPlainType()) {
             for (PlainType member : memberTypes) {
                 if (label.equals(member)) {
                     return value;
@@ -245,7 +245,7 @@ public class UnionConstructorFunction extends AbstractFunction {
 
         if (value instanceof StringValue && !(value instanceof AnyURIValue)) {
             try {
-                return targetType.getTypedValue(value.getStringValueCS(), nsResolver, rules);
+                return targetType.getTypedValue(value.getUnicodeStringValue(), nsResolver, rules);
             } catch (ValidationException e) {
                 e.setErrorCode("FORG0001");
                 throw e;
@@ -295,6 +295,6 @@ public class UnionConstructorFunction extends AbstractFunction {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 
 

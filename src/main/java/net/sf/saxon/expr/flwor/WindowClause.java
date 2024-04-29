@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,10 +11,10 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.functions.Count;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ListIterator;
@@ -27,8 +27,8 @@ import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.z.IntHashMap;
 
-import java.util.Iterator;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.WINDOW;
 
@@ -64,21 +64,42 @@ public class WindowClause extends Clause {
         return WINDOW;
     }
 
+    /**
+     * Say whether this is a sliding or tumbling window
+     * @param sliding true if this is a sliding window, false for a tumbling window
+     */
     public void setIsSlidingWindow(boolean sliding) {
         this.sliding = sliding;
     }
 
+    /**
+     * Ask whether this is a sliding or tumbling window
+     * @return true if this is a sliding window, false for a tumbling window
+     */
     public boolean isSlidingWindow() {
         return sliding;
     }
 
+    /**
+     * Ask whether this is a sliding or tumbling window
+     * @return false if this is a sliding window, true for a tumbling window
+     */
     public boolean isTumblingWindow() {
         return !sliding;
     }
 
+    /**
+     * Say whether windows that are unclosed at the end of the sequence should be included in the result
+     * @param include true if unclosed windows are to be included in the result
+     */
     public void setIncludeUnclosedWindows(boolean include) {
         this.includeUnclosedWindows = include;
     }
+
+    /**
+     * Ask whether windows that are unclosed at the end of the sequence should be included in the result
+     * @return true if unclosed windows are to be included in the result
+     */
 
     public boolean isIncludeUnclosedWindows() {
         return includeUnclosedWindows;
@@ -120,12 +141,11 @@ public class WindowClause extends Clause {
         return endConditionOp == null ? null : endConditionOp.getChildExpression();
     }
 
-
     public void setVariableBinding(int role, LocalVariableBinding binding) throws XPathException {
-        for (Iterator<LocalVariableBinding> iter = windowVars.valueIterator(); iter.hasNext(); ) {
-            if (iter.next().getVariableQName().equals(binding.getVariableQName())) {
+        for (LocalVariableBinding b : windowVars.valueSet()) {
+            if (b.getVariableQName().equals(binding.getVariableQName())) {
                 throw new XPathException("Two variables in a window clause cannot have the same name (" +
-                        binding.getVariableQName().getDisplayName() + ")", "XQST0103");
+                                                 binding.getVariableQName().getDisplayName() + ")", "XQST0103");
             }
         }
         windowVars.put(role, binding);
@@ -158,11 +178,10 @@ public class WindowClause extends Clause {
                 break;
             case OVERLAPS:
             case SUBSUMED_BY:
-                RoleDiagnostic role = new RoleDiagnostic(
-                        RoleDiagnostic.VARIABLE,
-                        getVariableBinding(WindowClause.WINDOW_VAR).getVariableQName().getDisplayName(), 0);
-                itemTypeChecker = new ItemTypeCheckingFunction(
-                        required, role, getLocation(), config);
+                Supplier<RoleDiagnostic> role =
+                        () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE,
+                            getVariableBinding(WindowClause.WINDOW_VAR).getVariableQName().getDisplayName(), 0);
+                itemTypeChecker = new ItemTypeCheckingFunction(required, role, getLocation(), config);
                 break;
             case DISJOINT:
                 String message = "The items in the window will always be instances of "
@@ -177,16 +196,17 @@ public class WindowClause extends Clause {
         }
     }
 
-    public void checkWindowContents(Window w) throws XPathException {
+    protected void checkWindowContents(Window w) throws XPathException {
         if (windowMustBeSingleton && w.contents.size() > 1) {
             throw new XPathException("Required type of window allows only a single item; window has length " + w.contents.size(),
                                      "XPTY0004", getLocation());
         }
         ItemTypeCheckingFunction checker = getItemTypeChecker();
         if (checker != null) {
+            @SuppressWarnings("Convert2Diamond")
             SequenceIterator check =
-                    new ItemMappingIterator(new ListIterator<>(w.contents), checker);
-            Count.count(check); // a convenient way to consume the iterator and thus perform the checking
+                    new ItemMappingIterator(new ListIterator.Of<Item>(w.contents), checker);
+            SequenceTool.supply(check, it -> {}); // a convenient way to consume the iterator and thus perform the checking
         }
     }
 
@@ -262,9 +282,8 @@ public class WindowClause extends Clause {
     public LocalVariableBinding[] getRangeVariables() {
         LocalVariableBinding[] vars = new LocalVariableBinding[windowVars.size()];
         int i = 0;
-        Iterator<LocalVariableBinding> iter = windowVars.valueIterator();
-        while (iter.hasNext()) {
-            vars[i++] = iter.next();
+        for (LocalVariableBinding binding : windowVars.valueSet()) {
+            vars[i++] = binding;
         }
         return vars;
     }
@@ -401,7 +420,7 @@ public class WindowClause extends Clause {
         public Item endPreviousItem;
         public Item endNextItem;
         public List<Item> contents;
-        public boolean isDespatched = false;
+        public boolean despatched = false;
 
         /**
          * Ask whether we have found the last item in the window
@@ -420,9 +439,9 @@ public class WindowClause extends Clause {
          * @return true if the tuple corresponding to this window has been despatched.
          */
         public boolean isDespatched() {
-            return isDespatched;
+            return despatched;
         }
     }
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

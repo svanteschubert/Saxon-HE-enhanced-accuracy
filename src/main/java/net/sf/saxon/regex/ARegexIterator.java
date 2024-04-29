@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,16 +9,19 @@ package net.sf.saxon.regex;
 
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.parser.Loc;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntHashMap;
 import net.sf.saxon.z.IntToIntHashMap;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Class ARegexIterator - provides an iterator over matched and unmatched substrings.
@@ -27,11 +30,11 @@ import java.util.List;
 
 public class ARegexIterator implements RegexIterator, LastPositionFinder {
 
-    private UnicodeString theString;   // the input string being matched
-    private UnicodeString regex;
-    private REMatcher matcher;    // the Matcher object that does the matching, and holds the state
+    private final UnicodeString theString;   // the input string being matched
+    private final UnicodeString _regex;
+    private final REMatcher _matcher;    // the Matcher object that does the matching, and holds the state
     private UnicodeString current;     // the string most recently returned by the iterator
-    private UnicodeString next;        // if the last string was a matching string, null; otherwise the next substring
+    private UnicodeString nextSubstring;        // if the last string was a matching string, null; otherwise the next substring
     //        matched by the regex
     private int prevEnd = 0;    // the position in the input string of the end of the last match or non-match
     private IntToIntHashMap nestingTable = null;
@@ -44,20 +47,28 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
      * to obtain each matching substring. But the iterator also returns non-matching substrings
      * if these appear between the matching substrings.
      *
-     * @param string  the string to be analysed
+     * @param str  the string to be analysed
      * @param matcher a matcher for the regular expression
      */
 
-    public ARegexIterator(UnicodeString string, UnicodeString regex, REMatcher matcher) {
-        theString = string;
-        this.regex = regex;
-        this.matcher = matcher;
-        next = null;
+    public ARegexIterator(UnicodeString str, UnicodeString regex, REMatcher matcher) {
+        Objects.requireNonNull(str);
+        Objects.requireNonNull(regex);
+        Objects.requireNonNull(matcher);
+        theString = str;
+        this._regex = regex;
+        this._matcher = matcher;
+        nextSubstring = null;
     }
 
     @Override
-    public int getLength() throws XPathException {
-        ARegexIterator another = new ARegexIterator(theString, regex, new REMatcher(matcher.getProgram()));
+    public boolean supportsGetLength() {
+        return true;
+    }
+
+    @Override
+    public int getLength() {
+        ARegexIterator another = new ARegexIterator(theString, _regex, new REMatcher(_matcher.getProgram()));
         int n = 0;
         while (another.next() != null) {
             n++;
@@ -72,18 +83,18 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
      */
 
     @Override
-    public StringValue next() throws XPathException {
+    public StringValue next() {
         try {
-            if (next == null && prevEnd >= 0) {
+            if (nextSubstring == null && prevEnd >= 0) {
                 // we've returned a match (or we're at the start), so find the next match
                 int searchStart = prevEnd;
                 if (skip) {
                     // previous match was zero-length
                     searchStart++;
-                    if (searchStart >= theString.uLength()) {
-                        if (prevEnd < theString.uLength()) {
-                            current = theString.uSubstring(prevEnd, theString.uLength());
-                            next = null;
+                    if (searchStart >= theString.length()) {
+                        if (prevEnd < theString.length()) {
+                            current = theString.substring(prevEnd);
+                            nextSubstring = null;
                         } else {
                             current = null;
                             prevEnd = -1;
@@ -91,25 +102,25 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
                         }
                     }
                 }
-                if (matcher.match(theString, searchStart)) {
-                    int start = matcher.getParenStart(0);
-                    int end = matcher.getParenEnd(0);
+                if (_matcher.match(theString, searchStart)) {
+                    int start = _matcher.getParenStart(0);
+                    int end = _matcher.getParenEnd(0);
                     skip = start == end;
                     if (prevEnd == start) {
                         // there's no intervening non-matching string to return
-                        next = null;
-                        current = theString.uSubstring(start, end);
+                        nextSubstring = null;
+                        current = theString.substring(start, end);
                         prevEnd = end;
                     } else {
                         // return the non-matching substring first
-                        current = theString.uSubstring(prevEnd, start);
-                        next = theString.uSubstring(start, end);
+                        current = theString.substring(prevEnd, start);
+                        nextSubstring = theString.substring(start, end);
                     }
                 } else {
                     // there are no more regex matches, we must return the final non-matching text if any
-                    if (prevEnd < theString.uLength()) {
-                        current = theString.uSubstring(prevEnd, theString.uLength());
-                        next = null;
+                    if (prevEnd < theString.length()) {
+                        current = theString.substring(prevEnd);
+                        nextSubstring = null;
                     } else {
                         // this really is the end...
                         current = null;
@@ -121,9 +132,9 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
             } else {
                 // we've returned a non-match, so now return the match that follows it, if there is one
                 if (prevEnd >= 0) {
-                    current = next;
-                    next = null;
-                    prevEnd = matcher.getParenEnd(0);
+                    current = nextSubstring;
+                    nextSubstring = null;
+                    prevEnd = _matcher.getParenEnd(0);
                 } else {
                     current = null;
                     return null;
@@ -131,31 +142,17 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
             }
             return currentStringValue();
         } catch (StackOverflowError e) {
-            throw new XPathException.StackOverflow(
+            XPathException err = new XPathException.StackOverflow(
                     "Stack overflow (excessive recursion) during regular expression evaluation",
                     SaxonErrorCode.SXRE0001, Loc.NONE);
+            throw new UncheckedXPathException(err);
         }
     }
 
     private StringValue currentStringValue() {
-        return StringValue.makeStringValue(current);
+        return new StringValue(current);
     }
 
-
-    /**
-     * Get properties of this iterator, as a bit-significant integer.
-     *
-     * @return the properties of this iterator. This will be some combination of
-     *         properties such as {@link net.sf.saxon.om.SequenceIterator.Property#GROUNDED}, {@link net.sf.saxon.om.SequenceIterator.Property#LAST_POSITION_FINDER},
-     *         and {@link net.sf.saxon.om.SequenceIterator.Property#LOOKAHEAD}. It is always
-     *         acceptable to return the value zero, indicating that there are no known special properties.
-     *         It is acceptable for the properties of the iterator to change depending on its state.
-     */
-
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LAST_POSITION_FINDER);
-    }
 
     /**
      * Determine whether the current item is a matching item or a non-matching item
@@ -167,7 +164,7 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
 
     @Override
     public boolean isMatching() {
-        return next == null && prevEnd >= 0;
+        return nextSubstring == null && prevEnd >= 0;
     }
 
     /**
@@ -179,13 +176,16 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
      */
 
     @Override
-    public String getRegexGroup(int number) {
+
+    public UnicodeString getRegexGroup(int number) {
         if (!isMatching()) {
             return null;
         }
-        if (number >= matcher.getParenCount() || number < 0) return "";
-        UnicodeString us = matcher.getParen(number);
-        return (us == null ? "" : us.toString());
+        if (number >= _matcher.getParenCount() || number < 0) {
+            return EmptyUnicodeString.getInstance();
+        }
+        UnicodeString us = _matcher.getParen(number);
+        return (us == null ? EmptyUnicodeString.getInstance() : us);
     }
 
     /**
@@ -193,43 +193,43 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
      */
     @Override
     public int getNumberOfGroups() {
-        return matcher.getParenCount();
+        return _matcher.getParenCount();
     }
 
     /**
      * Process a matching substring, performing specified actions at the start and end of each captured
      * subgroup. This method will always be called when operating in "push" mode; it writes its
      * result to context.getReceiver(). The matching substring text is all written to the receiver,
-     * interspersed with calls to the {@link net.sf.saxon.regex.RegexIterator.MatchHandler} methods onGroupStart() and onGroupEnd().
+     * interspersed with calls to the {@link RegexMatchHandler} methods onGroupStart() and onGroupEnd().
      *
      * @param action  defines the processing to be performed at the start and end of a group
      */
 
     @Override
-    public void processMatchingSubstring(MatchHandler action) throws XPathException {
-        int c = matcher.getParenCount() - 1;
+    public void processMatchingSubstring(RegexMatchHandler action) throws XPathException {
+        int c = _matcher.getParenCount() - 1;
         if (c == 0) {
-            action.characters(current.toString());
+            action.characters(current);
         } else {
             // Create a map from positions in the string to lists of actions.
             // The "actions" in each list are: +N: start group N; -N: end group N.
-            IntHashMap<List<Integer>> actions = new IntHashMap<List<Integer>>(c);
+            IntHashMap<List<Integer>> actions = new IntHashMap<>(c);
             for (int i = 1; i <= c; i++) {
-                int start = matcher.getParenStart(i) - matcher.getParenStart(0);
+                int start = _matcher.getParenStart(i) - _matcher.getParenStart(0);
                 if (start != -1) {
-                    int end = matcher.getParenEnd(i) - matcher.getParenStart(0);
+                    int end = _matcher.getParenEnd(i) - _matcher.getParenStart(0);
                     if (start < end) {
                         // Add the start action after all other actions on the list for the same position
                         List<Integer> s = actions.get(start);
                         if (s == null) {
-                            s = new ArrayList<Integer>(4);
+                            s = new ArrayList<>(4);
                             actions.put(start, s);
                         }
                         s.add(i);
                         // Add the end action before all other actions on the list for the same position
                         List<Integer> e = actions.get(end);
                         if (e == null) {
-                            e = new ArrayList<Integer>(4);
+                            e = new ArrayList<>(4);
                             actions.put(end, e);
                         }
                         e.add(0, -i);
@@ -239,7 +239,7 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
                         // and match("a", "(a)(b?)") will both give the same result for group 2 (start=1, end=1).
                         // So we need to go back to the original regex to determine the group nesting
                         if (nestingTable == null) {
-                            nestingTable = computeNestingTable(regex);
+                            nestingTable = computeNestingTable(_regex);
                         }
                         int parentGroup = nestingTable.get(i);
                         // insert the start and end events immediately before the end event for the parent group,
@@ -266,13 +266,13 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
                 }
 
             }
-            FastStringBuffer buff = new FastStringBuffer(current.uLength());
-            for (int i = 0; i < current.uLength() + 1; i++) {
+            UnicodeBuilder buff = new UnicodeBuilder();
+            for (int i = 0; i < current.length() + 1; i++) {
                 List<Integer> events = actions.get(i);
                 if (events != null) {
-                    if (buff.length() > 0) {
-                        action.characters(buff);
-                        buff.setLength(0);
+                    if (!buff.isEmpty()) {
+                        action.characters(buff.toUnicodeString());
+                        buff.clear();
                     }
                     for (Integer group : events) {
                         if (group > 0) {
@@ -282,12 +282,12 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
                         }
                     }
                 }
-                if (i < current.uLength()) {
-                    buff.appendWideChar(current.uCharAt(i));
+                if (i < current.length()) {
+                    buff.append(current.codePointAt(i));
                 }
             }
-            if (buff.length() > 0) {
-                action.characters(buff);
+            if (!buff.isEmpty()) {
+                action.characters(buff.toUnicodeString());
             }
         }
 
@@ -303,15 +303,15 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
     public static IntToIntHashMap computeNestingTable(UnicodeString regex) {
         // See bug 3211
         IntToIntHashMap nestingTable = new IntToIntHashMap(16);
-        int[] stack = new int[regex.uLength()];
+        int[] stack = new int[regex.length32()];
         int tos = 0;
-        boolean[] captureStack = new boolean[regex.uLength()];
+        boolean[] captureStack = new boolean[regex.length32()];
         int captureTos = 0;
         int group = 1;
         int inBrackets = 0;
         stack[tos++] = 0;
-        for (int i = 0; i < regex.uLength(); i++) {
-            int ch = regex.uCharAt(i);
+        for (int i = 0; i < regex.length(); i++) {
+            int ch = regex.codePointAt(i);
             if (ch == '\\') {
                 i++;
             } else if (ch == '[') {
@@ -319,7 +319,7 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
             } else if (ch == ']') {
                 inBrackets--;
             } else if (ch == '(' && inBrackets == 0) {
-                boolean capture = regex.uCharAt(i + 1) != '?';
+                boolean capture = regex.codePointAt(i + 1) != '?';
                 captureStack[captureTos++] = capture;
                 if (capture) {
                     nestingTable.put(group, stack[tos - 1]);

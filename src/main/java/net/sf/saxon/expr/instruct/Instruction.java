@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,14 +12,16 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Operand;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.FallbackElaborator;
 import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 
@@ -33,7 +35,7 @@ import javax.xml.transform.SourceLocator;
  * the source instruction was located.
  */
 
-public abstract class Instruction extends Expression implements TailCallReturner {
+public abstract class Instruction extends Expression /*implements TailCallReturner*/ {
 
     /**
      * Constructor
@@ -44,7 +46,7 @@ public abstract class Instruction extends Expression implements TailCallReturner
 
     /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
-     * This method indicates which of these methods is prefered. For instructions this is the process() method.
+     * This method indicates which of these methods is preferred. For instructions this is the process() method.
      */
 
     @Override
@@ -105,48 +107,44 @@ public abstract class Instruction extends Expression implements TailCallReturner
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
     @Override
     public abstract Iterable<Operand> operands();
 
-    /**
-     * ProcessLeavingTail: called to do the real work of this instruction. This method
-     * must be implemented in each subclass. The results of the instruction are written
-     * to the current Receiver, which can be obtained via the Controller.
-     *
-     *
-     * @param output the destination for the result
-     * @param context The dynamic context of the transformation, giving access to the current node,
-     *                the current variables, etc.
-     * @return null if the instruction has completed execution; or a TailCall indicating
-     *         a function call or template call that is delegated to the caller, to be made after the stack has
-     *         been unwound so as to save stack space.
-     */
-
-    @Override
-    public abstract TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException;
+//    /**
+//     * ProcessLeavingTail: called to do the real work of this instruction. This method
+//     * must be implemented in each subclass. The results of the instruction are written
+//     * to the current Receiver, which can be obtained via the Controller.
+//     *
+//     *
+//     * @param output the destination for the result
+//     * @param context The dynamic context of the transformation, giving access to the current node,
+//     *                the current variables, etc.
+//     * @return null if the instruction has completed execution; or a TailCall indicating
+//     *         a function call or template call that is delegated to the caller, to be made after the stack has
+//     *         been unwound so as to save stack space.
+//     */
+//
+//    @Override
+//    public abstract TailCall processLeavingTail(Outputter output, XPathContext context) throws XPathException;
 
     /**
      * Process the instruction, without returning any tail calls
      *
      * @param output the destination for the result
-     * @param context The dynamic context, giving access to the current node,
+     * @param context The dynamic context, giving access to the current node
      */
 
     @Override
     public void process(Outputter output, XPathContext context) throws XPathException {
         try {
-            TailCall tc = processLeavingTail(output, context);
-            while (tc != null) {
-                tc = tc.processLeavingTail();
-            }
+            TailCall tc = makeElaborator().elaborateForPush().processLeavingTail(output, context);
+            dispatchTailCall(tc);
         } catch (XPathException err) {
-            err.maybeSetFailingExpression(this);
-            err.maybeSetContext(context);
-            throw err;
+            throw err.maybeWithFailingExpression(this).maybeWithContext(context);
         }
     }
 
@@ -175,9 +173,7 @@ public abstract class Instruction extends Expression implements TailCallReturner
         if (error instanceof TerminationException) {
             return error;
         }
-        error.maybeSetLocation(loc);
-        error.maybeSetContext(context);
-        return error;
+        return error.maybeWithLocation(loc).maybeWithContext(context);
     }
 
     /**
@@ -248,7 +244,7 @@ public abstract class Instruction extends Expression implements TailCallReturner
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         if (alwaysCreatesNewNodes()) {
             p |= StaticProperty.ALL_NODES_NEWLY_CREATED;
@@ -332,15 +328,16 @@ public abstract class Instruction extends Expression implements TailCallReturner
 
     @Override
     public Item evaluateItem(XPathContext context) throws XPathException {
-        int m = getImplementationMethod();
-        if ((m & EVALUATE_METHOD) != 0) {
-            throw new AssertionError(
-                    "evaluateItem() is not implemented in the subclass " + getClass());
-        } else if ((m & ITERATE_METHOD) != 0) {
-            return iterate(context).next();
-        } else {
-            return ExpressionTool.getItemFromProcessMethod(this, context);
-        }
+        return makeElaborator().elaborateForItem().eval(context);
+//        int m = getImplementationMethod();
+//        if ((m & EVALUATE_METHOD) != 0) {
+//            throw new AssertionError(
+//                    "evaluateItem() is not implemented in the subclass " + getClass());
+//        } else if ((m & ITERATE_METHOD) != 0) {
+//            return iterate(context).next();
+//        } else {
+//            return ExpressionTool.getItemFromProcessMethod(this, context);
+//        }
     }
 
     /**
@@ -360,19 +357,27 @@ public abstract class Instruction extends Expression implements TailCallReturner
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
-        int m = getImplementationMethod();
-        if ((m & EVALUATE_METHOD) != 0) {
-            Item item = evaluateItem(context);
-            if (item == null) {
-                return EmptyIterator.emptyIterator();
-            } else {
-                return SingletonIterator.makeIterator(item);
+        Elaborator elaborator = makeElaborator();
+        if (elaborator instanceof FallbackElaborator) {
+            if ((getImplementationMethod() & PROCESS_METHOD) != 0) {
+                return ExpressionTool.getIteratorFromProcessMethod(this, context);
             }
-        } else if ((m & ITERATE_METHOD) != 0) {
-            throw new AssertionError("iterate() is not implemented in the subclass " + getClass());
-        } else {
-            return ExpressionTool.getIteratorFromProcessMethod(this, context);
+            throw new IllegalStateException("No iterate() method available for expression " + toShortString());
         }
+        return elaborator.elaborateForPull().iterate(context);
+//        int m = getImplementationMethod();
+//        if ((m & EVALUATE_METHOD) != 0) {
+//            Item item = evaluateItem(context);
+//            if (item == null) {
+//                return EmptyIterator.emptyIterator();
+//            } else {
+//                return SingletonIterator.makeIterator(item);
+//            }
+//        } else if ((m & ITERATE_METHOD) != 0) {
+//            throw new AssertionError("iterate() is not implemented in the subclass " + getClass());
+//        } else {
+//            return ExpressionTool.getIteratorFromProcessMethod(this, context);
+//        }
     }
 
     /**
@@ -394,12 +399,12 @@ public abstract class Instruction extends Expression implements TailCallReturner
      */
 
     @Override
-    public final CharSequence evaluateAsString(XPathContext context) throws XPathException {
+    public final UnicodeString evaluateAsString(XPathContext context) throws XPathException {
         Item item = evaluateItem(context);
         if (item == null) {
-            return "";
+            return EmptyUnicodeString.getInstance();
         } else {
-            return item.getStringValue();
+            return item.getUnicodeStringValue();
         }
     }
 

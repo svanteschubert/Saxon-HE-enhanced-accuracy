@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,9 +9,10 @@ package net.sf.saxon.tree.linked;
 
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.Whitespace;
@@ -25,24 +26,17 @@ import java.util.Stack;
  * The LinkedTreeBuilder class is responsible for taking a stream of Receiver events and constructing
  * a Document tree using the linked tree implementation.
  *
- * @author Michael H. Kay
  */
 
-public class LinkedTreeBuilder extends Builder
-
-{
-//    private static AttributeCollectionImpl emptyAttributeCollection =
-//    				new AttributeCollectionImpl((Configuration)null);
-
+public class LinkedTreeBuilder extends Builder {
     /*@Nullable*/ private ParentNodeImpl currentNode;
     private NodeFactory nodeFactory;
     /*@NotNull*/ private int[] size = new int[100];          // stack of number of children for each open node
     private int depth = 0;
     private ArrayList<NodeImpl[]> arrays = new ArrayList<>(20);       // reusable arrays for creating nodes
-    private Stack<NamespaceMap> namespaceStack = new Stack<>();
+    private final Stack<NamespaceMap> namespaceStack = new Stack<>();
     private boolean allocateSequenceNumbers = true;
     private int nextNodeNumber = 1;
-    private boolean mutable;
 
     /**
      * Create a Builder and initialise variables
@@ -53,23 +47,26 @@ public class LinkedTreeBuilder extends Builder
     public LinkedTreeBuilder(PipelineConfiguration pipe) {
         super(pipe);
         nodeFactory = DefaultNodeFactory.THE_INSTANCE;
-        // System.err.println("new TreeBuilder " + this);
     }
 
     /**
      * Create a Builder and initialise variables
      *
      * @param pipe the pipeline configuration
-     * @param mutable set to true if the tree is to be mutable
+     * @param durability the durability of the tree to be constructed
      */
 
-    public LinkedTreeBuilder(PipelineConfiguration pipe, boolean mutable) {
+    public LinkedTreeBuilder(PipelineConfiguration pipe, Durability durability) {
         super(pipe);
-        this.mutable = mutable;
+        this.durability = durability;
         nodeFactory = DefaultNodeFactory.THE_INSTANCE;
-        // System.err.println("new TreeBuilder " + this);
     }
 
+    public void setDurability(Durability durability) {
+        if (this.durability != Durability.MUTABLE) {
+            this.durability = durability;   // TODO: mutability and durability should be orthogonal
+        }
+    }
 
     /**
      * Get the current root node. This will normally be a document node, but if the root of the tree
@@ -133,15 +130,15 @@ public class LinkedTreeBuilder extends Builder
         depth = 0;
         size[depth] = 0;
         if (arrays == null) {
-            arrays = new ArrayList<NodeImpl[]>(20);
+            arrays = new ArrayList<>(20);
         }
-        super.open();
         if (useEventLocation) {
             Object copier = getPipelineConfiguration().getComponent(CopyInformee.class.getName());
             if (copier instanceof LocationCopier) {
                 setSystemId(((LocationCopier) copier).getSystemId());
             }
         }
+        super.open();
     }
 
 
@@ -154,7 +151,7 @@ public class LinkedTreeBuilder extends Builder
     @Override
     public void startDocument(int properties) throws XPathException {
         DocumentImpl doc = new DocumentImpl();
-        doc.setMutable(mutable);
+        doc.setMutable(durability == Durability.MUTABLE);
         currentRoot = doc;
         doc.setSystemId(getSystemId());
         doc.setBaseURI(getBaseURI());
@@ -177,7 +174,6 @@ public class LinkedTreeBuilder extends Builder
 
     @Override
     public void endDocument() throws XPathException {
-        //System.err.println("End document depth=" + depth);
         currentNode.compact(size[depth]);
     }
 
@@ -187,7 +183,6 @@ public class LinkedTreeBuilder extends Builder
 
     @Override
     public void close() throws XPathException {
-        // System.err.println("TreeBuilder: " + this + " End document");
         if (currentNode == null) {
             return;    // can be called twice on an error path
         }
@@ -219,11 +214,12 @@ public class LinkedTreeBuilder extends Builder
 
         namespaceStack.push(namespaces);
 
-        boolean isTopWithinEntity = location instanceof ReceivingContentHandler.LocalLocator &&
-                ((ReceivingContentHandler.LocalLocator) location).levelInEntity == 0;
+        boolean isTopWithinEntity = false;
+        isTopWithinEntity = location instanceof ReceivingContentHandler.LocalLocator &&
+                      ((ReceivingContentHandler.LocalLocator) location).levelInEntity == 0;
 
-        AttributeInfo xmlId = suppliedAttributes.get(NamespaceConstant.XML, "id");
-        if (xmlId != null && Whitespace.containsWhitespace(xmlId.getValue())) {
+        AttributeInfo xmlId = suppliedAttributes.get(NamespaceUri.XML, "id");
+        if (xmlId != null && Whitespace.containsWhitespace(StringTool.codePoints(xmlId.getValue()))) {
             suppliedAttributes = suppliedAttributes.put(new AttributeInfo(
                     xmlId.getNodeName(), xmlId.getType(), Whitespace.trim(xmlId.getValue()), xmlId.getLocation(), xmlId.getProperties()));
         }
@@ -283,14 +279,15 @@ public class LinkedTreeBuilder extends Builder
      */
 
     @Override
-    public void characters(/*@NotNull*/ CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void characters(/*@NotNull*/ UnicodeString chars, Location locationId, int properties) throws XPathException {
         // System.err.println("Characters: " + chars.toString() + " depth=" + depth);
-        if (chars.length() > 0) {
+        if (!chars.isEmpty()) {
+            UnicodeString t = chars.tidy();
             NodeInfo prev = currentNode.getNthChild(size[depth] - 1);
             if (prev instanceof TextImpl) {
-                ((TextImpl) prev).appendStringValue(chars.toString());
+                ((TextImpl) prev).appendStringValue(t);
             } else {
-                TextImpl n = nodeFactory.makeTextNode(currentNode, chars);
+                TextImpl n = nodeFactory.makeTextNode(currentNode, t);
                 //TextImpl n = new TextImpl(chars.toString());
                 currentNode.addChild(n, size[depth]++);
             }
@@ -302,8 +299,8 @@ public class LinkedTreeBuilder extends Builder
      */
 
     @Override
-    public void processingInstruction(String name, /*@NotNull*/ CharSequence remainder, Location locationId, int properties) {
-        ProcInstImpl pi = new ProcInstImpl(name, remainder.toString());
+    public void processingInstruction(String name, /*@NotNull*/ UnicodeString remainder, Location locationId, int properties) {
+        ProcInstImpl pi = new ProcInstImpl(name, remainder.tidy());
         currentNode.addChild(pi, size[depth]++);
         pi.setLocation(locationId.getSystemId(), locationId.getLineNumber(), locationId.getColumnNumber());
     }
@@ -313,8 +310,8 @@ public class LinkedTreeBuilder extends Builder
      */
 
     @Override
-    public void comment(/*@NotNull*/ CharSequence chars, Location locationId, int properties) throws XPathException {
-        CommentImpl comment = new CommentImpl(chars.toString());
+    public void comment(/*@NotNull*/ UnicodeString chars, Location locationId, int properties) throws XPathException {
+        CommentImpl comment = new CommentImpl(chars.tidy());
         currentNode.addChild(comment, size[depth]++);
         comment.setLocation(locationId.getSystemId(), locationId.getLineNumber(), locationId.getColumnNumber());
     }
@@ -430,8 +427,8 @@ public class LinkedTreeBuilder extends Builder
          * @return the constructed text node
          */
         @Override
-        public TextImpl makeTextNode(NodeInfo parent, CharSequence content) {
-            return new TextImpl(content.toString());
+        public TextImpl makeTextNode(NodeInfo parent, UnicodeString content) {
+            return new TextImpl(content);
         }
     }
 

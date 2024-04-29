@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.pattern;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.BooleanEvaluator;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
@@ -25,14 +26,12 @@ import net.sf.saxon.type.UType;
  * A BooleanExpressionPattern is a pattern of the form .[ Expr ] introduced in XSLT 3.0. It matches
  * an item if the expression has an effective boolean value of true() when evaluated with that item
  * as the singleton focus.
- *
- * @author Michael H. Kay
  */
 
 public class BooleanExpressionPattern extends Pattern implements PatternWithPredicate {
 
-    private Operand expressionOp;
-    //private Expression expression;
+    private final Operand expressionOp;
+    BooleanEvaluator predicateEvaluator;
 
     /**
      * Create a BooleanExpressionPattern
@@ -126,12 +125,15 @@ public class BooleanExpressionPattern extends Pattern implements PatternWithPred
 
     @Override
     public boolean matches(Item item, XPathContext context) {
+        if (predicateEvaluator == null) {
+            predicateEvaluator = getPredicate().makeElaborator().elaborateForBoolean();
+        }
         XPathContext c2 = context.newMinorContext();
         ManualIterator iter = new ManualIterator(item);
         c2.setCurrentIterator(iter);
         c2.setCurrentOutputUri(null);
         try {
-            return getPredicate().effectiveBooleanValue(c2);
+            return predicateEvaluator.eval(c2);
         } catch (XPathException e) {
             return false;
         }
@@ -189,7 +191,7 @@ public class BooleanExpressionPattern extends Pattern implements PatternWithPred
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return 0x7aeffea9 ^ getPredicate().hashCode();
     }
 

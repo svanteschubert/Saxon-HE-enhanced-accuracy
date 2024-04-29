@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,7 +26,7 @@ import net.sf.saxon.type.UType;
  */
 public class StreamingFunctionArgumentPattern extends Pattern {
 
-    private static StreamingFunctionArgumentPattern THE_INSTANCE = new StreamingFunctionArgumentPattern();
+    private static final StreamingFunctionArgumentPattern THE_INSTANCE = new StreamingFunctionArgumentPattern();
 
     public static StreamingFunctionArgumentPattern getInstance() {
         return THE_INSTANCE;
@@ -105,7 +105,7 @@ public class StreamingFunctionArgumentPattern extends Pattern {
     }
 
     /**
-     * Copy an AnchorPattern.
+     * Copy the pattern.
      * Since there is only one, return the same.
      *
      * @param rebindings variables that need to be rebound

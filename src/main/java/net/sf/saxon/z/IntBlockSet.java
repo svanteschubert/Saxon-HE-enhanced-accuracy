@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,15 +11,14 @@ package net.sf.saxon.z;
  * Set of int values. This immutable implementation of IntSet represents a dense monotonic
  * range of integers from A to B.
  *
- * @author Michael Kay
  */
-public class IntBlockSet implements IntSet {
+public class IntBlockSet extends IntSet {
 
-    private int startPoint;
-    private int endPoint;
+    private final int startPoint;
+    private final int endPoint;
 
     // Hashcode, evaluated lazily
-    private int hashCode = -1;
+    private int cachedHashCode = -1;
 
     /**
      * Create an IntRangeSet given the start point and end point of the integer range.
@@ -121,14 +120,16 @@ public class IntBlockSet implements IntSet {
 
     public int hashCode() {
         // Note, hashcodes are NOT the same as those used by IntHashSet and IntArraySet
-        if (hashCode == -1) {
-            hashCode = 0x836a89f1 ^ (startPoint + (endPoint << 3));
+        if (cachedHashCode == -1) {
+            cachedHashCode = 0x236a89f1 ^ (startPoint + (endPoint << 3));
         }
-        return hashCode;
+        return cachedHashCode;
     }
 
     /**
      * Get the start point of the range
+     *
+     * @return the start point
      */
 
     public int getStartPoint() {
@@ -137,6 +138,8 @@ public class IntBlockSet implements IntSet {
 
     /**
      * Get the end point of the range
+     *
+     * @return the end point
      */
 
     public int getEndPoint() {

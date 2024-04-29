@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -83,7 +83,7 @@ public class Optimizer {
 
     /**
      * Ask whether a particular optimizer option is set
-     * @param option the code identifying the option, e.g. {@link OptimizerOptions#BYTE_CODE}
+     * @param option the code identifying the option, e.g. {@link OptimizerOptions#LOOP_LIFTING}
      *            @return true if the option is set
      */
 
@@ -154,6 +154,7 @@ public class Optimizer {
      * @param visitor             the expression visitor
      * @param gc                  the GeneralComparison to be simplified
      * @param backwardsCompatible true if in 1.0 compatibility mode
+     * @param contextItemType     the static type of the context item
      * @return the simplified expression
      */
 
@@ -165,9 +166,12 @@ public class Optimizer {
     /**
      * Attempt to optimize a call on saxon:stream(). Return null if no optimization is possible.
      *
-     * @param select the expression that selects the items to be copied
+     * @param visitor the expression visitor
+     * @param cisi Static information about the context item
+     * @param select  the expression that selects the items to be copied
      * @return null if no optimization is possible, or an expression that does an optimized
      * copy of these items otherwise
+     * @throws XPathException if any error occurs
      */
 
     /*@Nullable*/
@@ -188,8 +192,7 @@ public class Optimizer {
      * @return the optimized expression, or null if no optimization is possible
      */
 
-    public Expression convertPathExpressionToKey(SlashExpression pathExp, ExpressionVisitor visitor)
-            throws XPathException {
+    public Expression convertPathExpressionToKey(SlashExpression pathExp, ExpressionVisitor visitor) {
         return null;
     }
 
@@ -232,11 +235,10 @@ public class Optimizer {
      *
      * @param pathExp the path expression to be converted
      * @param th      the type hierarchy cache
-     * @return the resulting filterexpression if conversion is possible, or null if not
+     * @return the resulting filter expression if conversion is possible, or null if not
      */
 
-    public FilterExpression convertToFilterExpression(SlashExpression pathExp, TypeHierarchy th)
-            throws XPathException {
+    public FilterExpression convertToFilterExpression(SlashExpression pathExp, TypeHierarchy th) {
         return null;
     }
 
@@ -258,9 +260,10 @@ public class Optimizer {
      * @param iter the iterator that delivers the sequence of values to be indexed
      * @return the indexed value
      * @throws UnsupportedOperationException this method should not be called in Saxon-HE
+     * @throws XPathException if an error occurs
      */
 
-    public GroundedValue makeIndexedValue(SequenceIterator iter) throws XPathException {
+    public GroundedValue makeIndexedValue(SequenceIterator iter) throws UnsupportedOperationException, XPathException {
         throw new UnsupportedOperationException("Indexing requires Saxon-EE");
     }
 
@@ -271,6 +274,7 @@ public class Optimizer {
     /**
      * Prepare an expression for streaming
      * @param exp the expression to be prepared
+     * @throws XPathException if any error occurs
      */
 
     public void prepareForStreaming(Expression exp) throws XPathException {
@@ -283,6 +287,7 @@ public class Optimizer {
      * @param expr    the expression supplied for the value of the streaming argument
      * @param context the XPath evaluation context of the caller
      * @return the (nominal) result of the evaluation
+     * @throws XPathException if any error occurs
      */
 
     public Sequence evaluateStreamingArgument(Expression expr, XPathContext context) throws XPathException {
@@ -328,6 +333,7 @@ public class Optimizer {
      * @param path   the path expression
      * @return the original sorter unchanged when no optimization is possible, which is always the
      * case in Saxon-HE
+     * @throws XPathException if any error occurs
      */
 
     public Expression makeConditionalDocumentSorter(DocumentSorter sorter, SlashExpression path) throws XPathException {
@@ -355,10 +361,12 @@ public class Optimizer {
      * Identify expressions within a function or template body that can be promoted to be
      * evaluated as global variables.
      *
-     * @param body    the body of the template or function
-     * @param visitor the expression visitor
+     * @param body      the body of the template or function
+     * @param gvManager the global variable manager
+     * @param visitor   the expression visitor
      * @return the expression after subexpressions have been promoted to global variables; or null if
      * nothing has changed
+     * @throws XPathException if any error occurs
      */
 
     public Expression promoteExpressionsToGlobal(Expression body, GlobalVariableManager gvManager, ExpressionVisitor visitor)
@@ -381,7 +389,8 @@ public class Optimizer {
     /**
      * Try to convert a Choose expression into a switch
      *
-     * @param choose the Choose expression
+     * @param choose  the Choose expression
+     * @param visitor the expression visitor
      * @return the result of optimizing this (the original expression if no optimization was possible)
      */
 
@@ -400,6 +409,7 @@ public class Optimizer {
      *                        {@link net.sf.saxon.type.Type#ITEM_TYPE}
      * @param orExpr          the expression to be converted
      * @return the result of optimizing the Or expression (the original expression if no optimization was possible)
+     * @throws XPathException if any error occurs
      */
 
     public Expression tryGeneralComparison(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType, OrExpression orExpr) throws XPathException {
@@ -407,25 +417,13 @@ public class Optimizer {
     }
 
     /**
-     * Extract subexpressions from the body of a function that can be evaluated
-     * as global variables
-     *
-     * @param body  the body of the function
-     * @param offer The PromotionOffer. Will be marked to indicate whether any action was taken
-     * @return a reference to the new global variable if a variable has been created, or null if not
-     */
-
-//    public Expression extractGlobalVariables(Expression body, ExpressionVisitor visitor, PromotionOffer offer)
-//            throws XPathException {
-//        return null;
-//    }
-
-    /**
      * Generate the inversion of the expression comprising the body of a template rules.
      * Supported in Saxon-EE only
      *
      * @param pattern  the match pattern of this template rule
      * @param template the template to be inverted
+     * @return the inversion of the expression
+     * @throws XPathException if any error occurs
      */
 
     public RuleTarget makeInversion(Pattern pattern, NamedTemplate template) throws XPathException {
@@ -435,9 +433,12 @@ public class Optimizer {
     /**
      * In streaming mode, make the copy operation applied to subexpressions of a complex-content
      * sequence constructor into explicit copy-of operations.
+     *
+     * @param parent the parent expression
+     * @param child  the operand
      */
 
-    public void makeCopyOperationsExplicit(Expression parent, Operand child) throws XPathException {
+    public void makeCopyOperationsExplicit(Expression parent, Operand child) {
         // no action unless streaming
     }
 
@@ -460,6 +461,7 @@ public class Optimizer {
      *
      * @param expr the expression to be optimized
      * @return the optimized expression
+     * @throws XPathException if any error occurs
      */
 
     public Expression optimizeQuantifiedExpressionForStreaming(QuantifiedExpression expr) throws XPathException {
@@ -479,41 +481,6 @@ public class Optimizer {
         return instruction;
     }
 
-    /**
-     * Generate Java byte code for an expression
-     *
-     * @param compilerService
-     * @param expr              the expression to be compiled
-     * @param objectName        the name of the object (e.g. function) being compiled
-     * @param evaluationMethods The evaluation modes for which code is generated. Currently a subset of
-     *                          {@link Expression#PROCESS_METHOD}, {@link Expression#ITERATE_METHOD}. If no code is generated for
-     */
-
-    public Expression compileToByteCode(ICompilerService compilerService, Expression expr, String objectName, int evaluationMethods) {
-        return null;
-    }
-
-    /**
-     * Insert a ByteCodeCandidate into the expression tree. A ByteCodeCandidate monitors how many
-     * times it is executed, and after reaching a certain threshold, generates bytecode for faster
-     * evaluation of its target expression
-     *
-     * @param owner                   the owning construct in the expression tree
-     * @param expr                    the child (target) expression
-     * @param objectName              name to be used in forming the name of the bytecode class
-     * @param requiredEvaluationModes the evaluation modes for which code should be generated
-     * @return a new ByteCodeCandidate if the expression is suitable for bytecode generation,
-     * or the supplied target expression otherwise.
-     */
-
-
-    public Expression makeByteCodeCandidate(ExpressionOwner owner, Expression expr, String objectName, int requiredEvaluationModes) {
-        return expr;
-    }
-
-    public void injectByteCodeCandidates(Expression exp) throws XPathException {
-
-    }
 
     public Expression optimizeNumberInstruction(NumberInstruction ni, ContextItemStaticInfo contextInfo) {
         return null;
@@ -535,7 +502,7 @@ public class Optimizer {
             Logger err = getConfiguration().getLogger();
             err.info("OPT : At line " + exp.getLocation().getLineNumber() + " of " + exp.getLocation().getSystemId());
             err.info("OPT : " + message);
-            err.info("OPT : Expression after rewrite: " + exp.toString());
+            err.info("OPT : Expression after rewrite: " + exp);
             exp.verifyParentPointers();
         }
     }
@@ -545,7 +512,7 @@ public class Optimizer {
             Logger err = config.getLogger();
             err.info("OPT : At line " + exp.getLocation().getLineNumber() + " of " + exp.getLocation().getSystemId());
             err.info("OPT : " + message);
-            err.info("OPT : Expression after rewrite: " + exp.toString());
+            err.info("OPT : Expression after rewrite: " + exp);
             exp.verifyParentPointers();
         }
     }

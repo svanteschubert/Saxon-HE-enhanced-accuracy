@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,15 @@ import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.CodepointCollator;
+import net.sf.saxon.expr.sort.SimpleTypeComparison;
+import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.om.Genre;
+import net.sf.saxon.om.IdentityComparable;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
@@ -22,6 +28,7 @@ import net.sf.saxon.tree.jiter.MonoIterator;
 import net.sf.saxon.type.*;
 
 import java.util.Iterator;
+import java.util.Objects;
 
 
 /**
@@ -29,18 +36,26 @@ import java.util.Iterator;
  * XPath 2.0 data model. Atomic values belong to one of the 19 primitive types
  * defined in XML Schema; or they are of type xs:untypedAtomic; or they are
  * "external objects", representing a Saxon extension to the XPath 2.0 type system.
+ *
  * <p>The AtomicValue class contains some methods that are suitable for applications
  * to use, and many others that are designed for internal use by Saxon itself.
  * These have not been fully classified. At present, therefore, none of the methods on this
  * class should be considered to be part of the public Saxon API.</p>
  *
- * @author Michael H. Kay
+ * <p>The AtomicValue class and its subclasses are essentially immutable (since 12.x).
+ * There is an exception, in that {@link DecimalValue} caches the result of converting
+ * its value to a double internally.</p>
  */
 
 public abstract class AtomicValue
         implements Item, AtomicSequence, ConversionResult, IdentityComparable {
 
-    protected AtomicType typeLabel;
+    protected final AtomicType typeLabel;
+
+    public AtomicValue(AtomicType typeLabel) {
+        Objects.requireNonNull(typeLabel);
+        this.typeLabel = typeLabel;
+    }
 
     /**
      * Atomize the item.
@@ -77,55 +92,23 @@ public abstract class AtomicValue
         return 1;
     }
 
-//    /**
-//     * To implement {@link net.sf.saxon.om.Sequence}, this method returns a singleton iterator
-//     * that delivers this item in the form of a sequence
-//     *
-//     * @return a singleton iterator that returns this item
-//     */
-//
-//    public final SingleAtomicIterator iterate() {
-//        return new SingleAtomicIterator(this);
-//    }
-
     /**
-     * Set the type label on this atomic value. Note that this modifies the value, so it must only called
-     * if the caller is confident that the value is not shared. In other cases,
-     * use {@link #copyAsSubType(net.sf.saxon.type.AtomicType)}
-     *
-     * @param type the type label to be set
+     * Ask whether the value is of type xs:untypedAtomic
+     * @return true if the value is untyped atomic
      */
 
-    public void setTypeLabel(AtomicType type) {
-        typeLabel = type;
+    public boolean isUntypedAtomic() {
+        return typeLabel == BuiltInAtomicType.UNTYPED_ATOMIC;
     }
 
     /**
-     * Get a Comparable value that implements the XML Schema ordering comparison semantics for this value.
-     * An implementation must be provided for all atomic types.
-     * <p>In the case of data types that are partially ordered, the returned Comparable extends the standard
-     * semantics of the compareTo() method by returning the value {@link SequenceTool#INDETERMINATE_ORDERING} when there
-     * is no defined order relationship between two given values. This value is also returned when two values
-     * of different types are compared.</p>
-     *
-     * @return a Comparable that follows XML Schema comparison rules
-     */
-
-    @Override
-    public abstract Comparable getSchemaComparable();
-
-    /**
-     * Get an object value that implements the XPath equality and ordering comparison semantics for this value.
-     * If the ordered parameter is set to true, the result will be a Comparable and will support a compareTo()
-     * method with the semantics of the XPath lt/gt operator, provided that the other operand is also obtained
-     * using the getXPathComparable() method. In all cases the result will support equals() and hashCode() methods
-     * that support the semantics of the XPath eq operator, again provided that the other operand is also obtained
-     * using the getXPathComparable() method. A collation is supplied for comparing strings, and an implicit timezone
-     * for comparing date/time values that have no saved timezone.
+     * Get an object value that implements the XPath equality comparison semantics for this value.
+     * A collation is supplied for comparing strings, and an implicit timezone
+     * for comparing date/time values that have no saved timezone. The returned object supports
+     * equality matching only, not ordering. An atomic value may return itself as its own
+     * {@code AtomicMatchKey} provided that its equality semantics are context-free.
      *
      *
-     * @param ordered  true if an ordered comparison is required. In this case the result is null if the
-     *                 type is unordered; in other cases the returned value will be a Comparable.
      * @param collator the collation to be used when comparing strings
      * @param implicitTimezone  the implicit timezone in the dynamic context, used when comparing
      * dates/times with and without timezone
@@ -139,8 +122,33 @@ public abstract class AtomicValue
      * evaluated dynamically.
      */
 
-    public abstract AtomicMatchKey getXPathComparable(boolean ordered, StringCollator collator, int implicitTimezone)
+    public abstract AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone)
             throws NoDynamicContextException;
+
+    /**
+     * Get an object value that implements the XPath equality and ordering comparison semantics for this value.
+     * A collation is supplied for comparing strings, and an implicit timezone for comparing date/time values
+     * that have no saved timezone. An atomic value may return itself as the result, provided that its ordering
+     * rules are independent of the collation and timezone, and provided that it implements the XPathComparable
+     * interface: which means that its compareTo, equals, and hashCode methods must be compatible with the
+     * rules for XPath value comparisons.
+     *
+     * @param collator         the collation to be used when comparing strings
+     * @param implicitTimezone the implicit timezone in the dynamic context, used when comparing
+     *                         dates/times with and without timezone
+     * @return an Object that implements the XPath value comparison semantics
+     * with respect to this atomic value. For an atomic type that is not ordered (according to XPath
+     * rules), return null.
+     * @throws NoDynamicContextException if the supplied implicit timezone is "NO_TIMEZONE" (meaning
+     *                                   unknown), and the implicit timezone is actually required because the value in question is a date/time
+     *                                   value with no timezone. This can cause a failure to evaluate expressions statically (because the implicit
+     *                                   timezone is not known statically), and it will then be caught, meaning that the expression has to be
+     *                                   evaluated dynamically.
+     */
+
+    public abstract XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone)
+            throws NoDynamicContextException;
+
 
     /**
      * Get a value whose equals() method follows the "same key" rules for comparing the keys of a map.
@@ -150,7 +158,7 @@ public abstract class AtomicValue
 
     public AtomicMatchKey asMapKey() {
         try {
-            return getXPathComparable(false, CodepointCollator.getInstance(), CalendarValue.NO_TIMEZONE);
+            return getXPathMatchKey(CodepointCollator.getInstance(), CalendarValue.NO_TIMEZONE);
         } catch (NoDynamicContextException e) {
             // Should not happen
             throw new IllegalStateException("No implicit timezone available");
@@ -165,11 +173,21 @@ public abstract class AtomicValue
      * <p>The hashCode() method is consistent with equals().</p>
      *
      * @param o the other value
-     * @return true if the other operand is an atomic value and the two values are equal as defined
+     * @return true (in a subclass) if the other operand is an atomic value and the two values are equal as defined
      *         by the XPath eq operator
      */
 
-    public abstract boolean equals(Object o);
+    public boolean equals(Object o) {
+        throw new UnsupportedOperationException("equals() not implemented");
+    }
+
+    /**
+     * Returns a hash code value for the object.
+     */
+    @Override
+    public int hashCode() {
+        throw new UnsupportedOperationException("hashCode() not implemented");
+    }
 
     /**
      * Determine whether two atomic values are identical, as determined by XML Schema rules. This is a stronger
@@ -186,7 +204,7 @@ public abstract class AtomicValue
 
     public boolean isIdentical(/*@NotNull*/ AtomicValue v) {
         // default implementation
-        return getSchemaComparable().equals(v.getSchemaComparable());
+        return SimpleTypeComparison.getInstance().equal(this, v);
     }
 
     /**
@@ -215,13 +233,13 @@ public abstract class AtomicValue
     }
 
     /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
+     * Get the value of the item as a UnicodeString.
+     * @return the string value (the result of casting to string using the XPath casting rules)
      */
 
     @Override
-    public CharSequence getStringValueCS() {
-        CharSequence cs = getPrimitiveStringValue();
+    public UnicodeString getUnicodeStringValue() {
+        UnicodeString cs = getPrimitiveStringValue();
         try {
             return typeLabel.postprocess(cs);
         } catch (XPathException err) {
@@ -238,8 +256,8 @@ public abstract class AtomicValue
      *         of casting to string according to the XPath 2.0 rules
      */
     @Override
-    public CharSequence getCanonicalLexicalRepresentation() {
-        return getStringValueCS();
+    public UnicodeString getCanonicalLexicalRepresentation() {
+        return this.getUnicodeStringValue();
     }
 
     /**
@@ -323,18 +341,6 @@ public abstract class AtomicValue
     }
 
     /**
-     * Convert the value to a string, using the serialization rules.
-     * For atomic values this is the same as a cast; for sequence values
-     * it gives a space-separated list. This method is refined for AtomicValues
-     * so that it never throws an Exception.
-     */
-
-    @Override
-    public final String getStringValue() {
-        return getStringValueCS().toString();
-    }
-
-    /**
      * Convert the value to a string, using the serialization rules for the primitive type.
      * This is the result of conversion to a string except that postprocessing defined by the
      * saxon:preprocess facet is not (yet) applied.
@@ -342,7 +348,7 @@ public abstract class AtomicValue
      * @return the value converted to a string according to the rules for the primitive type
      */
 
-    protected abstract CharSequence getPrimitiveStringValue();
+    public abstract UnicodeString getPrimitiveStringValue();
 
 
     /**
@@ -354,11 +360,9 @@ public abstract class AtomicValue
      */
     @Override
     public boolean effectiveBooleanValue() throws XPathException {
-        XPathException err = new XPathException("Effective boolean value is not defined for an atomic value of type " +
-                Type.displayTypeName(this));
-        err.setIsTypeError(true);
-        err.setErrorCode("FORG0006");
-        throw err;
+        throw new XPathException("Effective boolean value is not defined for an atomic value of type " +
+                Type.displayTypeName(this))
+                .asTypeError().withErrorCode("FORG0006");
         // unless otherwise specified in a subclass
     }
 
@@ -400,7 +404,7 @@ public abstract class AtomicValue
             if (stype != null && !stype.isNamespaceSensitive()) {
                 // Can't validate namespace-sensitive content statically
                 ValidationFailure err = stype.validateContent(
-                        getStringValueCS(), null, env.getConfiguration().getConversionRules());
+                        this.getUnicodeStringValue(), null, env.getConfiguration().getConversionRules());
                 if (err != null) {
                     throw err.makeException();
                 }
@@ -410,18 +414,18 @@ public abstract class AtomicValue
         if (parentType instanceof ComplexType &&
                 !((ComplexType) parentType).isSimpleContent() &&
                 !((ComplexType) parentType).isMixedContent() &&
-                !Whitespace.isWhite(getStringValueCS())) {
+                !Whitespace.isAllWhite(this.getUnicodeStringValue())) {
             XPathException err = new XPathException("Complex type " + parentType.getDescription() +
                     " does not allow text content " +
-                    Err.wrap(getStringValueCS()));
+                    Err.wrap(this.getUnicodeStringValue()));
             err.setIsTypeError(true);
             throw err;
         }
     }
 
     /**
-     * Check that the value can be handled in Saxon-JS
-     * @throws XPathException if it can't be handled in Saxon-JS
+     * Check that the value can be handled in SaxonJS
+     * @throws XPathException if it can't be handled in SaxonJS
      */
 
     public void checkValidInJavascript() throws XPathException {
@@ -446,13 +450,29 @@ public abstract class AtomicValue
     }
 
     /**
-     * Get string value. In general toString() for an atomic value displays the value as it would be
-     * written in XPath: that is, as a literal if available, or as a call on a constructor function
-     * otherwise.
+     * Get string value.
      */
 
     public String toString() {
-        return typeLabel + "(\"" + getStringValueCS() + "\")";
+        return getStringValue();
+        //throw new UnsupportedOperationException();
+        //return typeLabel + "(\"" + getStringValueCS() + "\")";
+    }
+
+    @Override
+    public String toShortString() {
+        return show();
+    }
+
+    /**
+     * Display the value for diagnostics.  In general show() for an atomic value displays the value as it would be
+     * written in XPath: that is, as a literal if available, or as a call on a constructor function
+     * otherwise.
+     * @return a string representation of this value
+     */
+
+    public String show() {
+        return typeLabel + "(\"" + this.getUnicodeStringValue() + "\")";
     }
 
     /**
@@ -461,8 +481,8 @@ public abstract class AtomicValue
      * @return an iterator over all the items
      */
     @Override
-    public SingleAtomicIterator<? extends AtomicValue> iterate() {
-        return new SingleAtomicIterator<>(this);
+    public SingleAtomicIterator iterate() {
+        return (SingleAtomicIterator)SingleAtomicIterator.makeIterator(this);
     }
 
 

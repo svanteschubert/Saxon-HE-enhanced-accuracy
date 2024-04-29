@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,11 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.iter.ListIterator;
-import net.sf.saxon.tree.iter.UnfailingIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.EmptySequence;
 
@@ -29,10 +29,10 @@ import java.util.List;
  */
 public class AtomicArray implements AtomicSequence {
 
-    private static List<AtomicValue> emptyAtomicList = Collections.emptyList();
+    private static final List<AtomicValue> emptyAtomicList = Collections.emptyList();
     public static AtomicArray EMPTY_ATOMIC_ARRAY = new AtomicArray(emptyAtomicList);
 
-    private List<AtomicValue> content;
+    private final List<AtomicValue> content;
 
     /**
      * Create an AtomicArray over a supplied arrayList of atomic values
@@ -47,7 +47,7 @@ public class AtomicArray implements AtomicSequence {
     /**
      * Create an AtomicArray supplying the contents as an iterator
      *
-     * @param iter the iterator that supplies the atomic values (which must be position
+     * @param iter the iterator that supplies the atomic values (which must be positioned
      *             at the start of the sequence, and which will be consumed by the method).
      * @throws XPathException     if evaluation of the SequenceIterator fails
      * @throws ClassCastException if any of the items returned by the SequenceIterator is not atomic
@@ -55,7 +55,7 @@ public class AtomicArray implements AtomicSequence {
 
     public AtomicArray(SequenceIterator iter) throws XPathException {
         ArrayList<AtomicValue> list = new ArrayList<>(10);
-        iter.forEachOrFail(item -> list.add((AtomicValue)item));
+        SequenceTool.supply(iter, (ItemConsumer<? super Item>) item -> list.add((AtomicValue) item));
         content = list;
     }
 
@@ -66,7 +66,8 @@ public class AtomicArray implements AtomicSequence {
 
     @Override
     public AtomicIterator iterate() {
-        return new ListIterator.Atomic(content);
+        //noinspection Convert2Diamond
+        return new ListIterator.OfAtomic<AtomicValue>(content);
     }
 
     /**
@@ -129,112 +130,57 @@ public class AtomicArray implements AtomicSequence {
      */
 
     @Override
-    public CharSequence getCanonicalLexicalRepresentation() {
-        return getStringValueCS();
+    public UnicodeString getCanonicalLexicalRepresentation() {
+        return getUnicodeStringValue();
     }
 
     /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
+     * Get the value of the item as a UnicodeString. This is in some cases more efficient than
      * the version of the method that returns a String.
+     * @return the string value, as a UnicodeString
      */
 
     @Override
-    public CharSequence getStringValueCS() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
+    public UnicodeString getUnicodeStringValue() {
+        UnicodeBuilder ub = new UnicodeBuilder();
         boolean first = true;
         for (AtomicValue av : content) {
             if (!first) {
-                fsb.cat(' ');
+                ub.append(' ');
             } else {
                 first = false;
             }
-            fsb.cat(av.getStringValueCS());
+            ub.accept(av.getUnicodeStringValue());
         }
-        return fsb.condense();
+        return ub.toUnicodeString();
     }
+
+    /**
+     * Get the value of the item as a UnicodeString. This is in some cases more efficient than
+     * the version of the method that returns a String.
+     *
+     * @return the string value, as a UnicodeString
+     */
 
     @Override
     public String getStringValue() {
-        return getStringValueCS().toString();
+        StringBuilder sb = new StringBuilder(64);
+        boolean first = true;
+        for (AtomicValue av : content) {
+            if (!first) {
+                sb.append(' ');
+            } else {
+                first = false;
+            }
+            sb.append(av.getStringValue());
+        }
+        return sb.toString();
     }
+
 
     @Override
     public boolean effectiveBooleanValue() throws XPathException {
         return ExpressionTool.effectiveBooleanValue(iterate());
-    }
-
-    /**
-     * Get a Comparable value that implements the XML Schema ordering comparison semantics for this value.
-     * The default implementation is written to compare sequences of atomic values.
-     * This method is overridden for AtomicValue and its subclasses.
-     * <p>In the case of data types that are partially ordered, the returned Comparable extends the standard
-     * semantics of the compareTo() method by returning the value {@link SequenceTool#INDETERMINATE_ORDERING} when there
-     * is no defined order relationship between two given values.</p>
-     * <p>For comparing key/keyref values, XSD 1.1 defines that a singleton list is equal to its only member. To
-     * achieve this, this method returns the schema comparable of the singleton member if the list has length one.
-     * This won't give the correct ordering semantics, but we rely on lists never taking part in ordering comparisons.</p>
-     *
-     * @return a Comparable that follows XML Schema comparison rules
-     */
-
-    @Override
-    public Comparable getSchemaComparable() {
-        if (content.size() == 1) {
-            return content.get(0).getSchemaComparable();
-        } else {
-            return new ValueSchemaComparable();
-        }
-    }
-
-    private class ValueSchemaComparable implements Comparable<ValueSchemaComparable> {
-        public AtomicArray getValue() {
-            return AtomicArray.this;
-        }
-
-        @Override
-        public int compareTo(ValueSchemaComparable obj) {
-            UnfailingIterator iter1 = getValue().iterate();
-            UnfailingIterator iter2 = obj.getValue().iterate();
-            while (true) {
-                AtomicValue item1 = (AtomicValue) iter1.next();
-                AtomicValue item2 = (AtomicValue) iter2.next();
-                if (item1 == null && item2 == null) {
-                    return 0;
-                }
-                if (item1 == null) {
-                    return -1;
-                } else if (item2 == null) {
-                    return +1;
-                }
-                int c = item1.getSchemaComparable().compareTo(item2.getSchemaComparable());
-                if (c != 0) {
-                    return c;
-                }
-            }
-        }
-
-        public boolean equals(/*@NotNull*/ Object obj) {
-            return ValueSchemaComparable.class.isAssignableFrom(obj.getClass())
-                    && compareTo((ValueSchemaComparable) obj) == 0;
-        }
-
-        public int hashCode() {
-            try {
-                int hash = 0x06639662;  // arbitrary seed
-                SequenceIterator iter = getValue().iterate();
-                while (true) {
-                    Item item = iter.next();
-                    if (item == null) {
-                        return hash;
-                    }
-                    if (item instanceof AtomicValue) {
-                        hash ^= ((AtomicValue) item).getSchemaComparable().hashCode();
-                    }
-                }
-            } catch (XPathException e) {
-                return 0;
-            }
-        }
     }
 
     /**
@@ -251,7 +197,7 @@ public class AtomicArray implements AtomicSequence {
         if (len == 0) {
             return EmptySequence.getInstance();
         } else if (len == 1) {
-            return (AtomicValue)itemAt(0);
+            return itemAt(0);
         } else {
             return this;
         }

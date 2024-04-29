@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,26 +25,25 @@ public class XSLOutputCharacter extends StyleElement {
     private String replacementString = null;
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
 
         for (AttributeInfo att : attributes()) {
             NodeName attName = att.getNodeName();
             String f = attName.getDisplayName();
             String value = att.getValue();
             if (f.equals("character")) {
-                String s = value;
-                switch (s.length()) {
+                switch (value.length()) {
                     case 0:
                         compileError("character attribute must not be zero-length", "XTSE0020");
                         codepoint = 256; // for error recovery
                         break;
                     case 1:
-                        codepoint = s.charAt(0);
+                        codepoint = value.charAt(0);
                         break;
                     case 2:
-                        if (UTF16CharacterSet.isHighSurrogate(s.charAt(0)) &&
-                                UTF16CharacterSet.isLowSurrogate(s.charAt(1))) {
-                            codepoint = UTF16CharacterSet.combinePair(s.charAt(0), s.charAt(1));
+                        if (UTF16CharacterSet.isHighSurrogate(value.charAt(0)) &&
+                                UTF16CharacterSet.isLowSurrogate(value.charAt(1))) {
+                            codepoint = UTF16CharacterSet.combinePair(value.charAt(0), value.charAt(1));
                         } else {
                             compileError("character attribute must be a single XML character", "XTSE0020");
                             codepoint = 256; // for error recovery
@@ -53,6 +52,7 @@ public class XSLOutputCharacter extends StyleElement {
                     default:
                         compileError("character attribute must be a single XML character", "XTSE0020");
                         codepoint = 256; // for error recovery
+                        break;
                 }
             } else if (f.equals("string")) {
                 replacementString = value;
@@ -62,11 +62,13 @@ public class XSLOutputCharacter extends StyleElement {
         }
         if (codepoint == -1) {
             reportAbsence("character");
+            codepoint = 256; // for error recovery
             return;
         }
 
         if (replacementString == null) {
             reportAbsence("string");
+            replacementString = ""; // for error recovery
         }
 
     }

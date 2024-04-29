@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.str.StringView;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.StringConverter;
@@ -39,11 +40,6 @@ import java.util.Properties;
 // TODO: optimise also for the case where the attributes depend only on global variables
 // or parameters, in which case the same AtomicComparer can be used for the duration of a
 // transformation.
-
-// TODO: at present the SortKeyDefinition is evaluated to obtain a AtomicComparer, which can
-// be used to compare two sort keys. It would be more efficient to use a Collator to
-// obtain collation keys for all the items to be sorted, as these can be compared more
-// efficiently.
 
 
 public class SortKeyDefinition extends PseudoExpression {
@@ -439,8 +435,9 @@ public class SortKeyDefinition extends PseudoExpression {
             // Otherwise rely on the containing SortExpression to type-check the sort key
         }
         Expression lang = getLanguage();
-        if (lang instanceof StringLiteral && !((StringLiteral) lang).getStringValue().isEmpty()) {
-            ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(((StringLiteral) lang).getStringValue());
+        if (lang instanceof StringLiteral && !((StringLiteral) lang).getString().isEmpty()) {
+            ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(
+                    ((StringLiteral) lang).getGroundedValue().getUnicodeStringValue());
             if (vf != null) {
                 throw new XPathException("The lang attribute of xsl:sort must be a valid language code", "XTDE0030");
             }
@@ -530,7 +527,7 @@ public class SortKeyDefinition extends PseudoExpression {
             boolean firstParam = true;
             Properties props = new Properties();
             if (!languageX.isEmpty()) {
-                ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(languageX);
+                ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(StringView.of(languageX).tidy());
                 if (vf != null) {
                     throw new XPathException("The lang attribute of xsl:sort must be a valid language code", "XTDE0030");
                 }
@@ -567,9 +564,7 @@ public class SortKeyDefinition extends PseudoExpression {
                             : NumericComparer11.getInstance();
                     break;
                 default:
-                    XPathException err = new XPathException("data-type on xsl:sort must be 'text' or 'number'");
-                    err.setErrorCode("XTDE0030");
-                    throw err;
+                    throw new XPathException("data-type on xsl:sort must be 'text' or 'number'", "XTDE0030");
             }
         }
 
@@ -579,9 +574,7 @@ public class SortKeyDefinition extends PseudoExpression {
             if (s.equals("yes") || s.equals("no") || s.equals("true") || s.equals("false") || s.equals("1") || s.equals("0")) {
                 // no action
             } else {
-                XPathException err = new XPathException("Value of 'stable' on xsl:sort must be yes|no|true|false|1|0");
-                err.setErrorCode("XTDE0030");
-                throw err;
+                throw new XPathException("Value of 'stable' on xsl:sort must be yes|no|true|false|1|0", "XTDE0030");
             }
         }
 
@@ -591,9 +584,7 @@ public class SortKeyDefinition extends PseudoExpression {
             case "descending":
                 return new DescendingComparer(atomicComparer);
             default:
-                XPathException err1 = new XPathException("order must be 'ascending' or 'descending'");
-                err1.setErrorCode("XTDE0030");
-                throw err1;
+                throw new XPathException("order must be 'ascending' or 'descending'", "XTDE0030");
         }
     }
 
@@ -673,7 +664,7 @@ public class SortKeyDefinition extends PseudoExpression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         int h = 0;
         h ^= getOrder().hashCode();
         h ^= getCaseOrder().hashCode();

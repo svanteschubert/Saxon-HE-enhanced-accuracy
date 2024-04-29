@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.om.AxisInfo;
 /**
  * This is an enumeration class containing constants representing the thirteen XPath axes
  */
+
 public enum Axis {
     ANCESTOR(AxisInfo.ANCESTOR),
     ANCESTOR_OR_SELF(AxisInfo.ANCESTOR_OR_SELF),
@@ -27,16 +28,16 @@ public enum Axis {
     SELF(AxisInfo.SELF),
     NAMESPACE(AxisInfo.NAMESPACE);
 
-    private int number;
+    private final int axisNumber;
 
     /**
      * Create an Axis
      *
-     * @param number the internal axis number as defined in class {@link net.sf.saxon.om.AxisInfo}
+     * @param axisNumber the internal axis number as defined in class {@link net.sf.saxon.om.AxisInfo}
      */
 
-    private Axis(int number) {
-        this.number = number;
+    Axis(int axisNumber) {
+        this.axisNumber = axisNumber;
     }
 
     /**
@@ -45,7 +46,7 @@ public enum Axis {
      * @return the axis number
      */
     public int getAxisNumber() {
-        return number;
+        return axisNumber;
     }
 }
 

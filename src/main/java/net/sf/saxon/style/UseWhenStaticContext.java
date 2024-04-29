@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,13 +18,13 @@ import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.sxpath.AbstractStaticContext;
 import net.sf.saxon.trans.DecimalFormatManager;
-import net.sf.saxon.trans.SaxonErrorCode;
-import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.type.ItemType;
 
 import java.util.Collections;
@@ -41,9 +41,9 @@ import java.util.Set;
 
 public class UseWhenStaticContext extends AbstractStaticContext implements StaticContext {
 
-    private NamespaceResolver namespaceContext;
-    private FunctionLibrary functionLibrary;
-    private Compilation compilation;
+    private final NamespaceResolver namespaceContext;
+    private final FunctionLibrary functionLibrary;
+    private final Compilation compilation;
 
     /**
      * Create a static context for evaluating use-when expressions
@@ -58,11 +58,12 @@ public class UseWhenStaticContext extends AbstractStaticContext implements Stati
         this.compilation = compilation;
         setPackageData(compilation.getPackageData());
         this.namespaceContext = namespaceContext;
-        setXPathLanguageLevel(31);
+        int version = compilation.getCompilerInfo().getXsltVersion();
+        setXPathLanguageLevel(version == 40 ? 40 : 31);
 
         FunctionLibraryList lib = new FunctionLibraryList();
-        lib.addFunctionLibrary(config.getUseWhenFunctionSet());
-        lib.addFunctionLibrary(getConfiguration().getBuiltInExtensionLibraryList());
+        lib.addFunctionLibrary(getConfiguration().getUseWhenFunctionLibrary(version));
+        lib.addFunctionLibrary(getConfiguration().getBuiltInExtensionLibraryList(version));
         lib.addFunctionLibrary(new ConstructorFunctionLibrary(getConfiguration()));
         lib.addFunctionLibrary(config.getIntegratedFunctionLibrary());
         config.addExtensionBinders(lib);
@@ -92,9 +93,9 @@ public class UseWhenStaticContext extends AbstractStaticContext implements Stati
      */
 
     @Override
-    public void issueWarning(String s, Location locator) {
+    public void issueWarning(String s, String errorCode, Location locator) {
         compilation.getCompilerInfo().getErrorReporter().report(
-                new XmlProcessingIncident(s, SaxonErrorCode.SXWN9000, locator).asWarning());
+                new XmlProcessingIncident(s, errorCode, locator).asWarning());
     }
 
     /**
@@ -124,12 +125,10 @@ public class UseWhenStaticContext extends AbstractStaticContext implements Stati
         if (val != null) {
             return Literal.makeLiteral(val);
         } else {
-            XPathException err = new XPathException
-                    ("Variables (other than XSLT 3.0 static variables) cannot be used in a static expression: " +
-                            qName.getDisplayName());
-            err.setErrorCode("XPST0008");
-            err.setIsStaticError(true);
-            throw err;
+            throw new XPathException(
+                    "Variables (other than XSLT 3.0 static variables) cannot be used in a static expression: " +
+                            qName.getDisplayName())
+                    .withErrorCode("XPST0008").asStaticError();
         }
     }
 
@@ -160,8 +159,8 @@ public class UseWhenStaticContext extends AbstractStaticContext implements Stati
      */
 
     @Override
-    public String getDefaultFunctionNamespace() {
-        return NamespaceConstant.FN;
+    public NamespaceUri getDefaultFunctionNamespace() {
+        return NamespaceUri.FN;
     }
 
     /**
@@ -180,10 +179,13 @@ public class UseWhenStaticContext extends AbstractStaticContext implements Stati
      * in the static context as being an imported schema namespace. (A consequence of this is that
      * within a Configuration, there can only be one schema for any given namespace, including the
      * null namespace).
+     *
+     * @param namespace the target namespace in question
+     * @return true if the given namespace has been imported
      */
 
     @Override
-    public boolean isImportedSchema(String namespace) {
+    public boolean isImportedSchema(NamespaceUri namespace) {
         return false;
     }
 
@@ -194,7 +196,7 @@ public class UseWhenStaticContext extends AbstractStaticContext implements Stati
      */
 
     @Override
-    public Set<String> getImportedSchemaNamespaces() {
+    public Set<NamespaceUri> getImportedSchemaNamespaces() {
         return Collections.emptySet();
     }
 

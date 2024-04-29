@@ -1,11 +1,13 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.s9api;
+
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,11 +16,12 @@ import java.util.function.Consumer;
 /**
  * A helper class for implementing the {@link Destination} interface
  */
+@CSharpModifiers(code = {"internal"})
 public class DestinationHelper {
 
-    private Destination helpee;
+    private final Destination helpee;
 
-    private List<Action> listeners = new ArrayList<>();
+    private final List<Action> listeners = new ArrayList<>();
 
     public DestinationHelper(Destination helpee) {
         this.helpee = helpee;

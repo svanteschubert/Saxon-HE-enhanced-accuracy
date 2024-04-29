@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
@@ -25,18 +26,19 @@ public class UntypedNumericComparer implements AtomicComparer {
 
     private ConversionRules rules = ConversionRules.DEFAULT;
 
-    private static double[][] bounds = {
-            {1, 0e0, 0e1, 0e2, 0e3, 0e4, 0e5, 0e6, 0e7, 0e8, 0e9, 0e10},
-            {1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10},
-            {1, 2e0, 2e1, 2e2, 2e3, 2e4, 2e5, 2e6, 2e7, 2e8, 2e9, 2e10},
-            {1, 3e0, 3e1, 3e2, 3e3, 3e4, 3e5, 3e6, 3e7, 3e8, 3e9, 3e10},
-            {1, 4e0, 4e1, 4e2, 4e3, 4e4, 4e5, 4e6, 4e7, 4e8, 4e9, 4e10},
-            {1, 5e0, 5e1, 5e2, 5e3, 5e4, 5e5, 5e6, 5e7, 5e8, 5e9, 5e10},
-            {1, 6e0, 6e1, 6e2, 6e3, 6e4, 6e5, 6e6, 6e7, 6e8, 6e9, 6e10},
-            {1, 7e0, 7e1, 7e2, 7e3, 7e4, 7e5, 7e6, 7e7, 7e8, 7e9, 7e10},
-            {1, 8e0, 8e1, 8e2, 8e3, 8e4, 8e5, 8e6, 8e7, 8e8, 8e9, 8e10},
-            {1, 9e0, 9e1, 9e2, 9e3, 9e4, 9e5, 9e6, 9e7, 9e8, 9e9, 9e10},
-            {1, 10e0, 10e1, 10e2, 10e3, 10e4, 10e5, 10e6, 10e7, 10e8, 10e9, 10e10}
+    private static final double[][] bounds = new double[][] {
+            // Initialization syntax chosen to be compatible with C#
+            new double[] {1, 0e0, 0e1, 0e2, 0e3, 0e4, 0e5, 0e6, 0e7, 0e8, 0e9, 0e10},
+            new double[] {1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10},
+            new double[] {1, 2e0, 2e1, 2e2, 2e3, 2e4, 2e5, 2e6, 2e7, 2e8, 2e9, 2e10},
+            new double[] {1, 3e0, 3e1, 3e2, 3e3, 3e4, 3e5, 3e6, 3e7, 3e8, 3e9, 3e10},
+            new double[] {1, 4e0, 4e1, 4e2, 4e3, 4e4, 4e5, 4e6, 4e7, 4e8, 4e9, 4e10},
+            new double[] {1, 5e0, 5e1, 5e2, 5e3, 5e4, 5e5, 5e6, 5e7, 5e8, 5e9, 5e10},
+            new double[] {1, 6e0, 6e1, 6e2, 6e3, 6e4, 6e5, 6e6, 6e7, 6e8, 6e9, 6e10},
+            new double[] {1, 7e0, 7e1, 7e2, 7e3, 7e4, 7e5, 7e6, 7e7, 7e8, 7e9, 7e10},
+            new double[] {1, 8e0, 8e1, 8e2, 8e3, 8e4, 8e5, 8e6, 8e7, 8e8, 8e9, 8e10},
+            new double[] {1, 9e0, 9e1, 9e2, 9e3, 9e4, 9e5, 9e6, 9e7, 9e8, 9e9, 9e10},
+            new double[] {1, 10e0, 10e1, 10e2, 10e3, 10e4, 10e5, 10e6, 10e7, 10e8, 10e9, 10e10}
     };
 
     /**
@@ -52,7 +54,7 @@ public class UntypedNumericComparer implements AtomicComparer {
      */
 
     public static boolean quickCompare(
-            UntypedAtomicValue a0, NumericValue a1, int operator, ConversionRules rules)
+            StringValue a0, NumericValue a1, int operator, ConversionRules rules)
             throws XPathException {
         int comp = quickComparison(a0, a1, rules);
         switch (operator) {
@@ -85,19 +87,18 @@ public class UntypedNumericComparer implements AtomicComparer {
      */
 
     private static int quickComparison(
-            UntypedAtomicValue a0, NumericValue a1, ConversionRules rules)
+            StringValue a0, NumericValue a1, ConversionRules rules)
             throws XPathException {
         double d1 = a1.getDoubleValue();
-
-        CharSequence cs = Whitespace.trimWhitespace(a0.getStringValueCS());
+        UnicodeString cs = Whitespace.trim(a0.getUnicodeStringValue());
 
         boolean simple = true;
         int wholePartLength = 0;
         int firstDigit = -1;
         int decimalPoints = 0;
-        char sign = '?';
+        int sign = '?';
         for (int i = 0; i < cs.length(); i++) {
-            char c = cs.charAt(i);
+            int c = cs.codePointAt(i);
             if (c >= '0' && c <= '9') {
                 if (firstDigit < 0) {
                     firstDigit = c - '0';
@@ -149,7 +150,7 @@ public class UntypedNumericComparer implements AtomicComparer {
         } else {
             ConversionResult result;
             synchronized(a0) {
-                result = BuiltInAtomicType.DOUBLE.getStringConverter(rules).convertString(a0.getPrimitiveStringValue());
+                result = BuiltInAtomicType.DOUBLE.getStringConverter(rules).convertString(a0.getUnicodeStringValue());
             }
             AtomicValue av = result.asAtomic();
             return Double.compare(((DoubleValue)av).getDoubleValue(), d1);
@@ -175,7 +176,7 @@ public class UntypedNumericComparer implements AtomicComparer {
     @Override
     public int compareAtomicValues(AtomicValue a, AtomicValue b) {
         try {
-            return quickComparison((UntypedAtomicValue)a, (NumericValue)b, rules);
+            return quickComparison((StringValue)a, (NumericValue)b, rules);
         } catch (XPathException e) {
             throw new ComparisonException(e);
         }

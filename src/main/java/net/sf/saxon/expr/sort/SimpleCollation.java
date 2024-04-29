@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.Platform;
 import net.sf.saxon.Version;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.lib.SubstringMatcher;
+import net.sf.saxon.str.UnicodeString;
 
 import java.text.RuleBasedCollator;
 import java.util.Comparator;
@@ -21,9 +22,9 @@ import java.util.Comparator;
 
 public class SimpleCollation implements StringCollator {
 
-    private Comparator comparator;
-    private String uri;
-    /*@NotNull*/ private static Platform platform = Version.platform;
+    private Comparator<? super String> comparator;
+    private final String uri;
+    /*@NotNull*/ private static final Platform platform = Version.platform;
 
     /**
      * Create a SimpleCollation
@@ -32,7 +33,7 @@ public class SimpleCollation implements StringCollator {
      * @param comparator the Comparator that does the actual string comparison
      */
 
-    public SimpleCollation(String uri, Comparator comparator) {
+    public SimpleCollation(String uri, Comparator<? super String> comparator) {
         this.uri = uri;
         this.comparator = comparator;
     }
@@ -61,8 +62,8 @@ public class SimpleCollation implements StringCollator {
      *                            being compared by this Comparator.
      */
     @Override
-    public int compareStrings(CharSequence o1, CharSequence o2) {
-        return comparator.compare(o1, o2);
+    public int compareStrings(UnicodeString o1, UnicodeString o2) {
+        return comparator.compare(o1.toString(), o2.toString());
     }
 
     /**
@@ -75,8 +76,8 @@ public class SimpleCollation implements StringCollator {
      */
 
     @Override
-    public boolean comparesEqual(CharSequence s1, CharSequence s2) {
-        return comparator.compare(s1, s2) == 0;
+    public boolean comparesEqual(UnicodeString s1, UnicodeString s2) {
+        return comparator.compare(s1.toString(), s2.toString()) == 0;
     }
 
     /**
@@ -85,7 +86,7 @@ public class SimpleCollation implements StringCollator {
      * @return the underlying comparator
      */
 
-    public Comparator getComparator() {
+    public Comparator<? super String> getComparator() {
         return comparator;
     }
 
@@ -95,7 +96,7 @@ public class SimpleCollation implements StringCollator {
      * @param comparator the underlying comparator
      */
 
-    public void setComparator(Comparator comparator) {
+    public void setComparator(Comparator<? super String> comparator) {
         this.comparator = comparator;
     }
 
@@ -103,11 +104,11 @@ public class SimpleCollation implements StringCollator {
      * Get a collation key for a String. The essential property of collation keys
      * is that if two values are equal under the collation, then the collation keys are
      * compare correctly under the equals() method.
-     * @param s
+     * @param s the string whose collation key is required
      */
 
     @Override
-    public AtomicMatchKey getCollationKey(CharSequence s) {
+    public AtomicMatchKey getCollationKey(UnicodeString s) {
         return platform.getCollationKey(this, s.toString());
     }
 
@@ -124,11 +125,6 @@ public class SimpleCollation implements StringCollator {
         if (comparator instanceof RuleBasedCollator) {
             return new RuleBasedSubstringMatcher(uri, (RuleBasedCollator) comparator);
         }
-//        //#if EE==true
-//        if (comparator instanceof UCACollator) {
-//            return new ICUSubstringMatcher(uri, ((UCACollator) comparator).getRuleBasedCollator());
-//        }
-//        //#endif
         return null;
     }
 

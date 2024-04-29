@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,10 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.instruct.Choose;
 import net.sf.saxon.expr.instruct.TerminationException;
@@ -21,6 +25,7 @@ import net.sf.saxon.pattern.NameTest;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomizingIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
@@ -30,7 +35,8 @@ import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.EmptySequence;
 
-import java.util.EnumSet;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 
 /**
@@ -43,7 +49,7 @@ public final class Atomizer extends UnaryExpression {
     private boolean untyped = false;       //set to true if it is known that the nodes being atomized will be untyped
     private boolean singleValued = false; // set to true if all atomized nodes will atomize to a single atomic value
     private ItemType operandItemType = null;
-    private RoleDiagnostic roleDiagnostic = null;
+    private Supplier<RoleDiagnostic> roleSupplier = null;
 
     /**
      * Constructor
@@ -52,9 +58,9 @@ public final class Atomizer extends UnaryExpression {
      * @param role (may be null) additional information for use in diagnostics
      */
 
-    public Atomizer(Expression sequence, RoleDiagnostic role) {
+    public Atomizer(Expression sequence, Supplier<RoleDiagnostic> role) {
         super(sequence);
-        this.roleDiagnostic = role;
+        this.roleSupplier = role;
         sequence.setFlattened(true);
     }
 
@@ -62,15 +68,15 @@ public final class Atomizer extends UnaryExpression {
      * Make an atomizer with a given operand
      *
      * @param sequence the operand
-     * @param role (may be null) additional information for diagnostics
+     * @param roleSupplier (may be null) additional information for diagnostics
      * @return an Atomizer that atomizes the given operand, or another expression that returns the same result
      */
 
-    public static Expression makeAtomizer(Expression sequence, RoleDiagnostic role) {
-        if (sequence instanceof Literal && ((Literal) sequence).getValue() instanceof AtomicSequence) {
+    public static Expression makeAtomizer(Expression sequence, Supplier<RoleDiagnostic> roleSupplier) {
+        if (sequence instanceof Literal && ((Literal) sequence).getGroundedValue() instanceof AtomicSequence) {
             return sequence;
         } else {
-            return new Atomizer(sequence, role);
+            return new Atomizer(sequence, roleSupplier);
         }
     }
 
@@ -100,10 +106,6 @@ public final class Atomizer extends UnaryExpression {
         return operandItemType;
     }
 
-    public void setRoleDiagnostic(RoleDiagnostic role) {
-        this.roleDiagnostic = role;
-    }
-
     /**
      * Simplify an expression
      *
@@ -117,7 +119,7 @@ public final class Atomizer extends UnaryExpression {
         computeSingleValued(getConfiguration().getTypeHierarchy());
         Expression operand = getBaseExpression().simplify();
         if (operand instanceof Literal) {
-            GroundedValue val = ((Literal) operand).getValue();
+            GroundedValue val = ((Literal) operand).getGroundedValue();
 
             if (val instanceof AtomicValue) {
                 return operand;
@@ -128,21 +130,19 @@ public final class Atomizer extends UnaryExpression {
                 if (i instanceof NodeInfo) {
                     return this;
                 }
-                if (i instanceof Function) {
-                    if (((Function)i).isArray()) {
+                if (i instanceof FunctionItem) {
+                    if (((FunctionItem)i).isArray()) {
                         return this;
-                    } else if (((Function)i).isMap()) {
-                        XPathException err = new XPathException(
-                                expandMessage("Cannot atomize a map (" + i.toShortString() + ")"), "FOTY0013");
-                        err.setIsTypeError(true);
-                        err.setLocation(getLocation());
-                        throw err;
+                    } else if (((FunctionItem)i).isMap()) {
+                        throw new XPathException(expandMessage("Cannot atomize a map (" + i.toShortString() + ")"))
+                                .withErrorCode("FOTY0013")
+                                .asTypeError()
+                                .withLocation(getLocation());
                     } else {
-                        XPathException err = new XPathException(
-                                expandMessage("Cannot atomize a function item"), "FOTY0013");
-                        err.setIsTypeError(true);
-                        err.setLocation(getLocation());
-                        throw err;
+                        throw new XPathException(expandMessage("Cannot atomize a function item"))
+                                .withErrorCode("FOTY0013")
+                                .asTypeError()
+                                .withLocation(getLocation());
                     }
                 }
             }
@@ -156,12 +156,6 @@ public final class Atomizer extends UnaryExpression {
         }
         setBaseExpression(operand);
         return this;
-    }
-
-
-    @Override
-    public UType getStaticUType(UType contextItemType) {
-        return UType.ANY_ATOMIC.intersection(getItemType().getUType());
     }
 
     /**
@@ -186,15 +180,14 @@ public final class Atomizer extends UnaryExpression {
             XPathException err;
             if (operandType instanceof FunctionItemType) {
                 String thing = operandType instanceof MapType ? "map" : "function item";
-                err = new XPathException(
-                        expandMessage("Cannot atomize a " + thing), "FOTY0013");
+                err = new XPathException(expandMessage("Cannot atomize a " + thing))
+                        .withErrorCode("FOTY0013");
             } else {
                 err = new XPathException(
-                        expandMessage("Cannot atomize an element that is defined in the schema to have element-only content"), "FOTY0012");
+                        expandMessage("Cannot atomize an element that is defined in the schema to have element-only content"))
+                        .withErrorCode("FOTY0012");
             }
-            err.setIsTypeError(true);
-            err.setLocation(getLocation());
-            throw err;
+            throw err.asTypeError().withLocation(getLocation());
         }
         getBaseExpression().setFlattened(true);
         return this;
@@ -209,16 +202,45 @@ public final class Atomizer extends UnaryExpression {
             if (!singleValued) {
                 ItemType nodeType = getBaseExpression().getItemType();
                 if (nodeType instanceof NodeTest) {
-                    SchemaType st = ((NodeTest) nodeType).getContentType();
-                    if (st == Untyped.getInstance() || st.isAtomicType() || (st.isComplexType() && st != AnyType.getInstance())) {
-                        singleValued = true;
-                    }
                     if (!nodeType.getUType().overlaps(UType.ELEMENT.union(UType.ATTRIBUTE))) {
                         singleValued = true;
+                    } else {
+                        SchemaType st = ((NodeTest) nodeType).getContentType();
+                        if (isSingleValuedSchemaType(st)) {  // Bug 5803
+                            singleValued = true;
+                        }
                     }
+
                 }
             }
         }
+    }
+
+    private boolean isSingleValuedSchemaType(SchemaType st) {
+        if (st == Untyped.getInstance()) {
+            return true;
+        }
+        if (st.isSimpleType()) {
+            SimpleType sim = (SimpleType)st;
+            if (sim.isAtomicType()) {
+                return true;
+            } else if (sim.isListType()) {
+                return false;
+            } else if (sim.isUnionType()) {
+                return ((UnionType)sim).isPlainType();
+            } else {
+                return false; // can't happen? - fail safe
+            }
+        }
+        if (st.isComplexType()) {
+            if (st == AnyType.getInstance()) {
+                return false;
+            }
+            if (((ComplexType)st).isSimpleContent()) {
+                return isSingleValuedSchemaType(((ComplexType)st).getSimpleContentType());
+            }
+        }
+        return false; // play safe
     }
 
     /**
@@ -227,10 +249,11 @@ public final class Atomizer extends UnaryExpression {
      */
 
     private String expandMessage(String message) {
-        if (roleDiagnostic == null) {
+        if (roleSupplier == null) {
             return message;
         } else {
-            return message + ". Found while atomizing the " + roleDiagnostic.getMessage();
+            return message + ". Found while atomizing the " + roleSupplier.get().getMessage() +
+                    " in {" + toShortString() + "} on line " + getLocation().getLineNumber();
         }
     }
 
@@ -270,7 +293,7 @@ public final class Atomizer extends UnaryExpression {
             if (operand instanceof LetExpression || operand instanceof ForExpression) {
                 // replace data(let $x := y return z) by (let $x := y return data(z))
                 Expression action = ((Assignation) operand).getAction();
-                ((Assignation) operand).setAction(new Atomizer(action, roleDiagnostic));
+                ((Assignation) operand).setAction(new Atomizer(action, roleSupplier));
                 return operand.optimize(visitor, contextInfo);
             }
             if (operand instanceof Choose) {
@@ -284,7 +307,7 @@ public final class Atomizer extends UnaryExpression {
                 Operand[] children = ((Block) operand).getOperanda();
                 Expression[] atomizedChildren = new Expression[children.length];
                 for (int i = 0; i < children.length; i++) {
-                    atomizedChildren[i] = new Atomizer(children[i].getChildExpression(), roleDiagnostic);
+                    atomizedChildren[i] = new Atomizer(children[i].getChildExpression(), roleSupplier);
                 }
                 Block newBlock = new Block(atomizedChildren);
                 return newBlock.typeCheck(visitor, contextInfo).optimize(visitor, contextInfo);
@@ -296,13 +319,17 @@ public final class Atomizer extends UnaryExpression {
                 StructuredQName name = ((AxisExpression) operand).getNodeTest().getMatchingNodeName();
                 FingerprintedQName qName = new FingerprintedQName(name, visitor.getConfiguration().getNamePool());
                 AttributeGetter ag = new AttributeGetter(qName);
-                int checks = 0;
-                if (!(((AxisExpression) operand).getContextItemType() instanceof NodeTest)) {
-                    checks = AttributeGetter.CHECK_CONTEXT_ITEM_IS_NODE;
-                }
-                ag.setRequiredChecks(checks);
                 ExpressionTool.copyLocationInfo(this, ag);
                 return ag;
+            }
+            if (untyped && operand instanceof SimpleStepExpression &&
+                    ((SimpleStepExpression) operand).getAxisExpression().getAxis() == AxisInfo.ATTRIBUTE &&
+                    ((SimpleStepExpression) operand).getAxisExpression().getNodeTest() instanceof NameTest) {
+                StructuredQName name = ((SimpleStepExpression) operand).getAxisExpression().getNodeTest().getMatchingNodeName();
+                FingerprintedQName qName = new FingerprintedQName(name, visitor.getConfiguration().getNamePool());
+                AttributeGetter ag = new AttributeGetter(qName);
+                ExpressionTool.copyLocationInfo(this, ag);
+                return new SlashExpression(((SimpleStepExpression) operand).getStart(), ag);
             }
         }
         return exp;
@@ -325,9 +352,12 @@ public final class Atomizer extends UnaryExpression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         p &= ~StaticProperty.NODESET_PROPERTIES;
+//        if (!untyped) {
+//            p |= StaticProperty.NOT_UNTYPED_ATOMIC;
+//        }
         return p | StaticProperty.NO_NODES_NEWLY_CREATED;
     }
 
@@ -351,7 +381,7 @@ public final class Atomizer extends UnaryExpression {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        Atomizer copy = new Atomizer(getBaseExpression().copy(rebindings), roleDiagnostic);
+        Atomizer copy = new Atomizer(getBaseExpression().copy(rebindings), roleSupplier);
         copy.untyped = untyped;
         copy.singleValued = singleValued;
         ExpressionTool.copyLocationInfo(this, copy);
@@ -376,14 +406,15 @@ public final class Atomizer extends UnaryExpression {
         } catch (TerminationException | Error.UserDefinedXPathException e) {
             throw e;
         } catch (XPathException e) {
-            if (roleDiagnostic == null) {
+            if (roleSupplier == null) {
                 throw e;
             } else {
                 String message = expandMessage(e.getMessage());
-                XPathException e2 = new XPathException(message, e.getErrorCodeLocalPart(), e.getLocator());
-                e2.setXPathContext(context);
-                e2.maybeSetLocation(getLocation());
-                throw e2;
+                throw new XPathException(message)
+                        .withErrorCode(e.getErrorCodeQName())
+                        .withLocation(e.getLocator())
+                        .withXPathContext(context)
+                        .maybeWithLocation(getLocation());
             }
         }
     }
@@ -395,12 +426,7 @@ public final class Atomizer extends UnaryExpression {
 
     @Override
     public AtomicValue evaluateItem(XPathContext context) throws XPathException {
-        Item i = getBaseExpression().evaluateItem(context);
-        if (i == null) {
-            return null;
-        } else {
-            return i.atomize().head();
-        }
+        return (AtomicValue)makeElaborator().elaborateForItem().eval(context);
     }
 
     /**
@@ -416,6 +442,11 @@ public final class Atomizer extends UnaryExpression {
         operandItemType = getBaseExpression().getItemType();
         TypeHierarchy th = getConfiguration().getTypeHierarchy();
         return getAtomizedItemType(getBaseExpression(), untyped, th);
+    }
+
+    @Override
+    public UType getStaticUType(UType contextItemType) {
+        return UType.ANY_ATOMIC.intersection(getItemType().getUType());
     }
 
     /**
@@ -489,7 +520,7 @@ public final class Atomizer extends UnaryExpression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         ItemType in = getOperandItemType();
         Expression operand = getBaseExpression();
         if (singleValued) {
@@ -559,16 +590,16 @@ public final class Atomizer extends UnaryExpression {
      */
 
     public static SequenceIterator getAtomizingIterator(SequenceIterator base, boolean oneToOne) throws XPathException {
-        EnumSet<SequenceIterator.Property> properties = base.getProperties();
-        if (properties.contains(SequenceIterator.Property.LAST_POSITION_FINDER)) {
-            int count = ((LastPositionFinder) base).getLength();
+        if (SequenceTool.supportsGetLength(base)) {
+            int count = SequenceTool.getLength(base);
             if (count == 0) {
-                return EmptyIterator.emptyIterator();
+                return EmptyIterator.getInstance();
             } else if (count == 1) {
                 Item first = base.next();
+                Objects.requireNonNull(first);
                 return first.atomize().iterate();
             }
-        } else if (properties.contains(SequenceIterator.Property.ATOMIZING)) {
+        } else if (base instanceof AtomizedValueIterator) {
             return new AxisAtomizingIterator((AtomizedValueIterator)base);
         }
         if (oneToOne) {
@@ -616,8 +647,81 @@ public final class Atomizer extends UnaryExpression {
 
     @Override
     protected void emitExtraAttributes(ExpressionPresenter out) {
-        if (roleDiagnostic != null) {
-            out.emitAttribute("diag", roleDiagnostic.save());
+        if (roleSupplier != null) {
+            out.emitAttribute("diag", roleSupplier.get().save());
+        }
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new AtomizerElaborator();
+    }
+
+    /**
+     * Elaborator for an Atomizer
+     */
+
+    public static class AtomizerElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final Atomizer expr = (Atomizer) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            final boolean oneToOne = expr.isUntyped() && expr.getBaseExpression().getItemType() instanceof NodeTest;
+            return context -> {
+                try {
+                    SequenceIterator base = baseEval.iterate(context);
+                    return getAtomizingIterator(base, oneToOne);
+                } catch (TerminationException | Error.UserDefinedXPathException e) {
+                    throw e;
+                } catch (XPathException e) {
+                    if (expr.roleSupplier == null) {
+                        throw e;
+                    } else {
+                        String message = expr.expandMessage(e.getMessage());
+                        throw new XPathException(message)
+                                .withErrorCode(e.getErrorCodeQName())
+                                .withLocation(e.getLocator())
+                                .withXPathContext(context)
+                                .maybeWithLocation(expr.getLocation());
+                    }
+                } catch (UncheckedXPathException uxe) {
+                    XPathException e = uxe.getXPathException();
+                    if (expr.roleSupplier == null) {
+                        throw e;
+                    } else {
+                        String message = expr.expandMessage(e.getMessage());
+                        throw new XPathException(message)
+                                .withErrorCode(e.getErrorCodeQName())
+                                .withLocation(e.getLocator())
+                                .withXPathContext(context)
+                                .maybeWithLocation(expr.getLocation());
+                    }
+                }
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            final Atomizer expr = (Atomizer) getExpression();
+            final ItemEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForItem();
+            final boolean nullable = Cardinality.allowsZero(expr.getBaseExpression().getCardinality());
+            if (nullable) {
+                return context -> {
+                    Item it = baseEval.eval(context);
+                    if (it == null) {
+                        return null;
+                    }
+                    return it.atomize().head();
+                };
+            } else {
+                return context -> baseEval.eval(context).atomize().head();
+            }
         }
     }
 }

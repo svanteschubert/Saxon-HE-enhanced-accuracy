@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2017-2020 Saxonica Limited
+// Copyright (c) 2017-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,18 +22,15 @@ import java.util.List;
  * delivered in "raw" form, that is, without building a tree (equivalently, without performing
  * "sequence normalization"). Once output has been written to a RawResult, it is available to
  * the caller in the form of a {@link Sequence}.
- *
- * @author Michael H. Kay
  */
 
 public class RawResult implements Result {
 
     private String systemId;
-    private List<Item> content = new ArrayList<Item>();
+    private final List<Item> content = new ArrayList<Item>();
 
     /**
      * Set the system identifier for this Result.
-     * <p>
      * <p>If the Result is not to be written to a file, the system identifier is optional.
      * The application may still want to provide one, however, for use in error messages
      * and warnings, or to resolve relative output identifiers.</p>
@@ -69,7 +66,7 @@ public class RawResult implements Result {
      */
 
     public Sequence getResultSequence() {
-        return new SequenceExtent(content);
+        return new SequenceExtent.Of<>(content);
     }
 }
 

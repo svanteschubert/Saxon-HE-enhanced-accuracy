@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,7 +21,6 @@ import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceExtent;
 
@@ -118,14 +117,14 @@ public class GroupByClause extends Clause {
 
     @Override
     public void optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
-        ArrayList<LocalVariableBinding> list = new ArrayList<>(Arrays.asList(bindings));
-        ArrayList<LocalVariableReference> retainingExpr = new ArrayList<>();
+        List<LocalVariableBinding> list = new ArrayList<>(Arrays.asList(bindings));
+        List<LocalVariableReference> retainingExpr = new ArrayList<>();
         for (Operand o : getRetainedTupleExpression().operands()) {
             retainingExpr.add((LocalVariableReference)o.getChildExpression());
         }
 
         int groupingSize = getGroupingTupleExpression().getSize();
-        for (int i = list.size() - 1; i >= groupingSize; i--) {
+        for (int i = list.size()-1; i >= groupingSize; i--) {
             if (list.get(i).getNominalReferenceCount() == 0) {
                 list.remove(i);
                 retainingExpr.remove(i - groupingSize);
@@ -261,9 +260,7 @@ public class GroupByClause extends Clause {
     }
 
     public String toString() {
-        FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C64);
-        fsb.append("group by ... ");
-        return fsb.toString();
+        return "group by ... ";
     }
 
     /**
@@ -305,7 +302,7 @@ public class GroupByClause extends Clause {
                     concatenatedValue.add(it);
                 }
             }
-            SequenceExtent se = new SequenceExtent(concatenatedValue);
+            SequenceExtent se = new SequenceExtent.Of<>(concatenatedValue);
             context.setLocalVariable(bindings[j].getLocalSlotNumber(), se);
         }
     }
@@ -315,6 +312,7 @@ public class GroupByClause extends Clause {
      * Callback to get the comparison key for a tuple. Two tuples are equal if their comparison
      * keys compare equal using the equals() method.
      * @param t the tuple whose comparison key is required
+     * @param comparers array of comparers for comparing each component of the grouping key
      * @return a comparison key suitable for comparing with other tuples
      */
 
@@ -332,13 +330,13 @@ public class GroupByClause extends Clause {
      * methods can be used to test whether two tuples have equivalent grouping keys
      */
 
-    public class TupleComparisonKey {
+    public static class TupleComparisonKey {
 
         // Note: this is over-engineered. Each grouping value is required to be either a single atomic
         // value or an empty sequence.
 
-        private Sequence[] groupingValues;
-        private GenericAtomicComparer[] comparers;
+        private final Sequence[] groupingValues;
+        private final GenericAtomicComparer[] comparers;
 
         public TupleComparisonKey(Sequence[] groupingValues, GenericAtomicComparer[] comparers) {
             this.groupingValues = groupingValues;
@@ -357,7 +355,7 @@ public class GroupByClause extends Clause {
                         if (val == null) {
                             break;
                         }
-                        h ^= i + val.getXPathComparable(false, comparer.getCollator(), implicitTimezone).hashCode();
+                        h ^= i + val.getXPathMatchKey(comparer.getCollator(), implicitTimezone).hashCode();
                     }
                 } catch (XPathException e) {
                     // ignore any errors
@@ -391,4 +389,4 @@ public class GroupByClause extends Clause {
 
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,7 +18,7 @@ import net.sf.saxon.trans.XPathException;
 
 /**
  * This class implements extension functions in the
- * http://exslt.org/sets namespace. <p>
+ * http://exslt.org/sets namespace.
  */
 
 public abstract class Sets {
@@ -36,7 +36,7 @@ public abstract class Sets {
      */
 
     public static SequenceIterator intersection(SequenceIterator p1, SequenceIterator p2) throws XPathException {
-        return new IntersectionEnumeration(p1, p2, GlobalOrderComparer.getInstance());
+        return new IntersectionIterator(p1, p2, GlobalOrderComparer.getInstance());
     }
 
     /**
@@ -49,7 +49,7 @@ public abstract class Sets {
      */
 
     public static SequenceIterator difference(SequenceIterator p1, SequenceIterator p2) throws XPathException {
-        return new DifferenceEnumeration(p1, p2, GlobalOrderComparer.getInstance());
+        return new DifferenceIterator(p1, p2, GlobalOrderComparer.getInstance());
     }
 
     /**
@@ -64,7 +64,7 @@ public abstract class Sets {
 
     public static boolean hasSameNode(SequenceIterator p1, SequenceIterator p2) throws XPathException {
         SequenceIterator intersection =
-                new IntersectionEnumeration(p1, p2, GlobalOrderComparer.getInstance());
+                new IntersectionIterator(p1, p2, GlobalOrderComparer.getInstance());
         return intersection.next() != null;
     }
 
@@ -106,9 +106,8 @@ public abstract class Sets {
                     }
                 }
             } else {
-                XPathException e = new XPathException("Operand of leading() contains an item that is not a node");
-                e.setXPathContext(context);
-                throw e;
+                throw new XPathException("Operand of leading() contains an item that is not a node")
+                        .withXPathContext(context);
             }
         }
 
@@ -162,20 +161,16 @@ public abstract class Sets {
                     }
                 }
             } else {
-                XPathException e = new XPathException("Operand of trailing() contains an item that is not a node");
-                e.setXPathContext(context);
-                throw e;
+                throw new XPathException("Operand of trailing() contains an item that is not a node")
+                        .withXPathContext(context);
             }
         }
 
         // Filter ns1 to select nodes that come after this one
 
-        Expression filter = new IdentityComparison(
-                new ContextItemExpression(),
-                Token.FOLLOWS,
-                Literal.makeLiteral(new ZeroOrOne<>(first)));
-
-        return new FilterIterator(ns1, filter, context);
+        GlobalOrderComparer comp = GlobalOrderComparer.getInstance();
+        final NodeInfo firstNode = first;
+        return new ItemMappingIterator(ns1, ItemFilter.of(it -> comp.compare((NodeInfo)it, firstNode) > 0));
 
     }
 

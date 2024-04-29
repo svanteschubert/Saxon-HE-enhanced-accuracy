@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,6 @@
 package net.sf.saxon.trans.packages;
 
 import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.style.StylesheetPackage;
 
@@ -68,9 +67,10 @@ public class PackageDetails {
      * package. By default (if two versions have the same priority), the higher version
      * is used. This attribute allows (for example) version 2.0.10 to be marked as the preferred
      * release even if a version 3.0-beta is available, by giving the two versions different
-     * priority. A numerically higher value indicates a higher priority.
+     * priority. A numerically higher value indicates a higher priority. The value Integer.MIN_VALUE
+     * acts as a default if no explicit priority is specified.
      */
-    public Integer priority;
+    public int priority = Integer.MIN_VALUE;
     /**
      * The values of static stylesheet parameters for this package instance. In a function
      * library, two instances of the same package may exist with different settings for
@@ -85,5 +85,6 @@ public class PackageDetails {
      * is null. This field is used when checking for cycles of package dependencies.
      */
     public Thread beingProcessed;
+
 }
 

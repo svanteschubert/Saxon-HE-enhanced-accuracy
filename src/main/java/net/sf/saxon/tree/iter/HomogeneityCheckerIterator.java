@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,13 @@
 
 package net.sf.saxon.tree.iter;
 
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.expr.sort.DocumentOrderIterator;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.ArrayList;
@@ -44,17 +45,17 @@ public class HomogeneityCheckerIterator implements SequenceIterator {
     }
 
     /*@NotNull*/
-    private XPathException reportMixedItems() {
-        XPathException err = new XPathException("Cannot mix nodes and atomic values in the result of a path expression");
-        err.setErrorCode("XPTY0018");
-        err.setLocator(loc);
-        return err;
+    private UncheckedXPathException reportMixedItems() {
+        return new UncheckedXPathException(
+                new XPathException("Cannot mix nodes and atomic values in the result of a path expression")
+                        .withErrorCode("XPTY0018")
+                        .withLocation(loc));
     }
 
 
     /*@Nullable*/
     @Override
-    public Item next() throws XPathException {
+    public Item next() {
         Item item = base.next();
         if (item == null) {
             return null;
@@ -71,7 +72,7 @@ public class HomogeneityCheckerIterator implements SequenceIterator {
                         nodes.add(item);
                     }
                 }
-                base = new DocumentOrderIterator(new ListIterator<>(nodes), GlobalOrderComparer.getInstance());
+                base = new DocumentOrderIterator(new ListIterator.Of<>(nodes), GlobalOrderComparer.getInstance());
                 state = 1; // first item is a node
                 return base.next();
             } else {

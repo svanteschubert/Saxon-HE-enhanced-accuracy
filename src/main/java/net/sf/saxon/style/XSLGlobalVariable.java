@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,6 @@ import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.AnyItemType;
-import net.sf.saxon.type.Type;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.SequenceType;
 
@@ -34,8 +33,13 @@ import java.util.EnumSet;
 public class XSLGlobalVariable extends StyleElement implements StylesheetComponent {
 
     private SlotManager slotManager; // used to manage local variables declared inside this global variable
-    protected SourceBinding sourceBinding = new SourceBinding(this);
+    protected SourceBinding sourceBinding;
     protected GlobalVariable compiledVariable = null;
+
+    public XSLGlobalVariable() {
+        sourceBinding = new SourceBinding(this);
+        sourceBinding.setProperty(SourceBinding.BindingProperty.GLOBAL, true);
+    }
 
     /**
      * Get the source binding object that holds information about the declared variable.
@@ -62,7 +66,7 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
      */
 
     @Override
-    public boolean mayContainSequenceConstructor() {
+    protected boolean mayContainSequenceConstructor() {
         return true;
     }
 
@@ -93,9 +97,6 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
 
 
 
-    public XSLGlobalVariable() {
-        sourceBinding.setProperty(SourceBinding.BindingProperty.GLOBAL, true);
-    }
 
     protected EnumSet<SourceBinding.BindingProperty> getPermittedAttributes() {
         return EnumSet.of(SourceBinding.BindingProperty.ASSIGNABLE,
@@ -179,7 +180,7 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
     }
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         if (state == 2) {
             return;
         }
@@ -404,14 +405,6 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
         this.redundant = redundant;
     }
 
-    /**
-     * Generate byte code if appropriate
-     *
-     * @param opt the optimizer
-     *
-     */
-    @Override
-    public void generateByteCode(Optimizer opt) {}
 
 
 }

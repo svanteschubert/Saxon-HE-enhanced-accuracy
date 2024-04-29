@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.Destination;
 import net.sf.saxon.s9api.SaxonApiException;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.type.SchemaType;
@@ -36,10 +37,10 @@ import net.sf.saxon.type.SchemaType;
 
 public class PrincipalOutputGatekeeper extends ProxyReceiver {
 
-    private XsltController controller;
+    private final XsltController controller;
     private boolean usedAsPrimaryResult = false;
     private boolean usedAsSecondaryResult = false;
-    private boolean open = false;
+    private boolean opened = false;
     private boolean closed = false;
 
 
@@ -52,18 +53,16 @@ public class PrincipalOutputGatekeeper extends ProxyReceiver {
     public void open() throws XPathException {
         if (closed) {
             String uri = getSystemId().equals(XsltController.ANONYMOUS_PRINCIPAL_OUTPUT_URI) ? "(no URI supplied)" : getSystemId();
-            XPathException err = new XPathException(
-                        "Cannot write more than one result document to the principal output destination: " + uri);
-            err.setErrorCode("XTDE1490");
-            throw err;
+            throw new XPathException(
+                        "Cannot write more than one result document to the principal output destination: " + uri, "XTDE1490");
         }
         super.open();
-        open = true;
+        opened = true;
     }
 
     @Override
     public synchronized void startDocument(int properties) throws XPathException {
-        if (!open) {
+        if (!opened) {
             open();
         }
         //checkNotClosed();
@@ -79,19 +78,19 @@ public class PrincipalOutputGatekeeper extends ProxyReceiver {
     }
 
     @Override
-    public synchronized void characters(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public synchronized void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         useAsPrimary();
         nextReceiver.characters(chars, locationId, properties);
     }
 
     @Override
-    public void processingInstruction(String target, CharSequence data, Location locationId, int properties) throws XPathException {
+    public void processingInstruction(String target, UnicodeString data, Location locationId, int properties) throws XPathException {
         useAsPrimary();
         nextReceiver.processingInstruction(target, data, locationId, properties);
     }
 
     @Override
-    public void comment(CharSequence chars, Location locationId, int properties) throws XPathException {
+    public void comment(UnicodeString chars, Location locationId, int properties) throws XPathException {
         useAsPrimary();
         nextReceiver.comment(chars, locationId, properties);
     }
@@ -104,32 +103,28 @@ public class PrincipalOutputGatekeeper extends ProxyReceiver {
 
     private synchronized void useAsPrimary() throws XPathException {
         if (closed) {
-            XPathException err = new XPathException(
-                    "Cannot write to the principal output destination as it has already been closed: " + identifySystemId());
-            err.setErrorCode("XTDE1490");
-            throw err;
+            throw new XPathException(
+                    "Cannot write to the principal output destination as it has already been closed: " + identifySystemId())
+                    .withErrorCode("XTDE1490");
         }
         if (usedAsSecondaryResult) {
-            XPathException err = new XPathException(
-                    "Cannot write to the principal output destination as it has already been used by xsl:result-document: " + identifySystemId());
-            err.setErrorCode("XTDE1490");
-            throw err;
+            throw new XPathException(
+                    "Cannot write to the principal output destination as it has already been used by xsl:result-document: " + identifySystemId())
+                    .withErrorCode("XTDE1490");
         }
         usedAsPrimaryResult = true;
     }
 
     public synchronized void useAsSecondary() throws XPathException {
         if (usedAsPrimaryResult) {
-            XPathException err = new XPathException(
-                    "Cannot use xsl:result-document to write to a destination already used for the principal output: " + identifySystemId());
-            err.setErrorCode("XTDE1490");
-            throw err;
+            throw new XPathException(
+                    "Cannot use xsl:result-document to write to a destination already used for the principal output: " + identifySystemId())
+                    .withErrorCode("XTDE1490");
         }
         if (usedAsSecondaryResult) {
-            XPathException err = new XPathException(
-                    "Cannot write more than one xsl:result-document to the principal output destination: " + identifySystemId());
-            err.setErrorCode("XTDE1490");
-            throw err;
+            throw new XPathException(
+                    "Cannot write more than one xsl:result-document to the principal output destination: " + identifySystemId())
+                    .withErrorCode("XTDE1490");
         }
         usedAsSecondaryResult = true;
     }

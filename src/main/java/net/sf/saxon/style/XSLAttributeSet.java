@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,6 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.AttributeSet;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.instruct.UseAttributeSet;
-import net.sf.saxon.expr.parser.Optimizer;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.trans.SymbolicName;
@@ -42,12 +41,12 @@ public class XSLAttributeSet extends StyleElement implements StylesheetComponent
     private SlotManager stackFrameMap;
     // needed if variables are used
 
-    private List<ComponentDeclaration> attributeSetElements = new ArrayList<ComponentDeclaration>();
+    private final List<ComponentDeclaration> attributeSetElements = new ArrayList<ComponentDeclaration>();
     // list of Declarations of XSLAttributeSet objects referenced by this one, within the same package
 
     private StructuredQName[] useAttributeSetNames;
 
-    private List<Expression> containedInstructions = new ArrayList<Expression>();
+    private final List<Expression> containedInstructions = new ArrayList<Expression>();
     // the compiled form of this attribute set
 
     private boolean validated = false;
@@ -117,7 +116,7 @@ public class XSLAttributeSet extends StyleElement implements StylesheetComponent
 
 
     @Override
-    public void prepareAttributes() {
+    protected void prepareAttributes() {
         useAtt = null;
         String streamableAtt = null;
 
@@ -146,7 +145,7 @@ public class XSLAttributeSet extends StyleElement implements StylesheetComponent
 
         if (nameAtt == null) {
             reportAbsence("name");
-            setObjectName(new StructuredQName("", "", "attribute-set-error-name"));
+            setObjectName(new StructuredQName("", NamespaceUri.NULL, "attribute-set-error-name"));
             return;
         }
 
@@ -346,26 +345,6 @@ public class XSLAttributeSet extends StyleElement implements StylesheetComponent
         // Already done earlier
     }
 
-
-    /**
-     * Generate byte code if appropriate
-     *
-     * @param opt the optimizer
-     */
-    @Override
-    public void generateByteCode(Optimizer opt) {}
-
-//    private void checkStreamability() throws XPathException {
-////#ifdefined STREAM
-//         if (streamable) {
-//             ContextItemStaticInfo info = new ContextItemStaticInfo(AnyItemType.getInstance(), false, true);
-//             procedure.getBody().getStreamability(false, info, null);
-//             if (procedure.getBody().getSweep() != Sweep.MOTIONLESS) {
-//                 compileError("The attribute set is declared streamable but it is not motionless", "XTSE3430");
-//             }
-//         }
-////#endif
-//     }
 
 
 

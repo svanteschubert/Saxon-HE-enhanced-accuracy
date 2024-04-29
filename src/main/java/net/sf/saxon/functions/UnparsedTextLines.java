@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.Feature;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.SequenceTool;
@@ -37,12 +38,19 @@ public class UnparsedTextLines extends UnparsedTextFunction implements Callable 
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         StringValue hrefVal = (StringValue) arguments[0].head();
-        String encoding = getArity() == 2 ? arguments[1].head().getStringValue() : null;
+        String encoding;
+        if (getArity() == 2) {
+            Item enc = arguments[1].head();
+            encoding = enc == null ? null : enc.getStringValue();
+        } else {
+            encoding = null;
+        }
         try {
             return SequenceTool.toLazySequence(evalUnparsedTextLines(hrefVal, encoding, context));
         } catch (XPathException e) {
-            if (getArity() == 2 && e.getErrorCodeLocalPart().equals("FOUT1200")) {
-                e.setErrorCode("FOUT1190");
+            e.maybeSetErrorCode("FOUT1170");
+            if (getArity() == 2) {
+                throw e.replacingErrorCode("FOUT1200", "FOUT1190");
             }
             throw e;
         }
@@ -70,4 +78,4 @@ public class UnparsedTextLines extends UnparsedTextFunction implements Callable 
 
 }
 
-// Copyright (c) 2012-2020 Saxonica Limited
+// Copyright (c) 2012-2023 Saxonica Limited

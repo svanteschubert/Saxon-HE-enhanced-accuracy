@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,9 +19,10 @@ import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
+import net.sf.saxon.str.*;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.type.Untyped;
@@ -45,12 +46,12 @@ public class ExpressionPresenter {
     private int depth = 0;
     private boolean inStartTag = false;
     private String nextRole = null;
-    private Stack<Expression> expressionStack = new Stack<>();
-    private Stack<String> nameStack = new Stack<>();
+    private final Stack<Expression> expressionStack = new Stack<>();
+    private final Stack<String> nameStack = new Stack<>();
     private NamespaceMap namespaceMap = NamespaceMap.emptyMap();
-    private String defaultNamespace;
-    private Options options = new ExportOptions();
-    private boolean relocatable = false;
+    private NamespaceUri defaultNamespace;
+    private ExportOptions options = new ExportOptions();
+
 
     /**
      * Make an uncommitted ExpressionPresenter. This must be followed by a call on init()
@@ -81,8 +82,20 @@ public class ExpressionPresenter {
     }
 
     /**
+     * Make an ExpressionPresenter that writes to a specified tree builder
+     *
+     * @param builder the tree builder
+     */
+
+    public ExpressionPresenter(Builder builder) {
+        this();
+        init(builder.getConfiguration(), builder, false);
+    }
+
+
+    /**
      * Make an ExpressionPresenter that writes indented output to a specified output stream,
-     * with checksumming
+     * with optional checksum
      *
      * @param config   the Saxon configuration
      * @param out      the output destination
@@ -105,11 +118,7 @@ public class ExpressionPresenter {
     public void init(Configuration config, StreamResult out, boolean checksum) {
         SerializationProperties props = makeDefaultProperties(config);
         if (config.getXMLVersion() == Configuration.XML11) {
-            if ("JS".equals(((ExportOptions) getOptions()).target)) {
-                config.getLogger().warning("For target=JS, the SEF file will use XML 1.0, which disallows control characters");
-            } else {
-                props.setProperty(OutputKeys.VERSION, "1.1");
-            }
+            props.setProperty(OutputKeys.VERSION, "1.1");
         }
         try {
             receiver = config.getSerializerFactory().getReceiver(out, props);
@@ -199,16 +208,18 @@ public class ExpressionPresenter {
      * @param namespace the default namespace
      */
 
-    public void setDefaultNamespace(String namespace) {
+    public void setDefaultNamespace(NamespaceUri namespace) {
         defaultNamespace = namespace;
         namespaceMap = namespaceMap.put("", namespace);
     }
 
     /**
      * Set the options
+     *
+     * @param options the options
      */
 
-    public void setOptions(Options options) {
+    public void setOptions(ExportOptions options) {
         this.options = options;
     }
 
@@ -218,19 +229,8 @@ public class ExpressionPresenter {
      * @return the options, or null if none have been set
      */
 
-    public Options getOptions() {
+    public ExportOptions getOptions() {
         return options;
-    }
-
-    /**
-     * Ask whether the package can be deployed to a different location, with a different base URI
-     *
-     * @return if true then static-base-uri() represents the deployed location of the package,
-     * rather than its compile time location
-     */
-
-    public boolean isRelocatable() {
-        return relocatable;
     }
 
     /**
@@ -241,7 +241,7 @@ public class ExpressionPresenter {
      */
 
     public void setRelocatable(boolean relocatable) {
-        this.relocatable = relocatable;
+        this.options.relocatable = relocatable;
     }
 
 
@@ -252,7 +252,7 @@ public class ExpressionPresenter {
      * @param config the Configuration
      * @param out    the OutputStream
      * @return a Receiver that directs serialized output to this output stream
-     * @throws XPathException
+     * @throws XPathException if a serializer cannot be created
      */
 
     /*@Nullable*/
@@ -265,6 +265,7 @@ public class ExpressionPresenter {
     /**
      * Make a Properties object containing defaulted serialization attributes for the expression tree
      *
+     * @param config the Configuration
      * @return a default set of properties
      */
 
@@ -317,23 +318,21 @@ public class ExpressionPresenter {
     }
 
     private String truncatedModuleName(String module) {
-        if (!relocatable) {
-            return module;
-        } else {
+        if (options.relocatable) {
             // If not exporting the base URI, cut the filename used for diagnostic location of errors down to its last component
-            String parts[] = module.split("/");
+            String[] parts = module.split("/");
             for (int p = parts.length - 1; p >= 0; p--) {
                 if (!parts[p].isEmpty()) {
                     return parts[p];
                 }
             }
-            return module;
         }
+        return module;
     }
 
     public void emitRetainedStaticContext(RetainedStaticContext sc, RetainedStaticContext parentSC) {
         try {
-            if (!((ExportOptions) options).suppressStaticContext && !relocatable && sc.getStaticBaseUri() != null && (parentSC == null || !sc.getStaticBaseUri().equals(parentSC.getStaticBaseUri()))) {
+            if (!options.suppressStaticContext && !options.relocatable && sc.getStaticBaseUri() != null && (parentSC == null || !sc.getStaticBaseUri().equals(parentSC.getStaticBaseUri()))) {
                 emitAttribute("baseUri", sc.getStaticBaseUriString());
             }
             if (!sc.getDefaultCollationName().equals(NamespaceConstant.CODEPOINT_COLLATION_URI) &&
@@ -342,35 +341,55 @@ public class ExpressionPresenter {
             }
             if (!sc.getDefaultElementNamespace().isEmpty() &&
                     (parentSC == null || !sc.getDefaultElementNamespace().equals(parentSC.getDefaultElementNamespace()))) {
-                emitAttribute("defaultElementNS", sc.getDefaultElementNamespace());
+                emitAttribute("defaultElementNS", sc.getDefaultElementNamespace().toString());
             }
-            if (!NamespaceConstant.FN.equals(sc.getDefaultFunctionNamespace())) {
-                emitAttribute("defaultFunctionNS", sc.getDefaultFunctionNamespace());
+            String defaultFnNs = sc.getDefaultFunctionNamespace().toString();
+            if (!NamespaceConstant.FN.equals(defaultFnNs)) {
+                emitAttribute("defaultFunctionNS", defaultFnNs);
             }
-            if (!((ExportOptions)options).suppressStaticContext && (parentSC == null || !sc.declaresSameNamespaces(parentSC))) {
-                FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
-                for (Iterator<String> iter = sc.iteratePrefixes(); iter.hasNext(); ) {
-                    String p = iter.next();
-
-                    String uri = sc.getURIForPrefix(p, true);
-                    fsb.append(p);
-                    fsb.append("=");
-
-                    if (Whitespace.containsWhitespace(uri)) {
-                        throw new XPathException("Cannot export a stylesheet if namespaces contain whitespace: '" + uri + "'");
-                    }
-                    if (uri.equals(NamespaceConstant.getUriForConventionalPrefix(p))) {
-                        uri = "~";
-                    }
-                    fsb.append(uri);
-                    fsb.append(" ");
-
-                }
-                emitAttribute("ns", Whitespace.trim(fsb));
+            if (!options.suppressStaticContext && (parentSC == null || !sc.declaresSameNamespaces(parentSC))) {
+                boolean includeXmlNamespace = "JS".equals(getOptions().target) && getOptions().targetVersion == 2;
+                emitAttribute("ns", getNamespacesAsString(sc.getNamespaceMap(), includeXmlNamespace));
             }
         } catch (XPathException e) {
             throw new AssertionError(e);
         }
+    }
+
+    /**
+     * From a NamespaceMap, produce the SEF concise representation, for example "xs=~ xsl=~ example=file://example.com/"
+     * @param sc the namespace map
+     * @param includeXmlNamespace for compatibility with SaxonJS 2.x, indicate that any explicit binding for the
+     *                            XML namespace should be included in the list
+     * @return the concise string representation of the namespace map
+     * @throws XPathException if the namespace map contains unsuitable namespaces, for example namespace URIs containing
+     * whitespace.
+     */
+    public static String getNamespacesAsString(NamespaceMap sc, boolean includeXmlNamespace) throws XPathException {
+        // Note that this will throw an UnsupportedOperationException if the context does
+        // not allow namespace prefixes to be enumerated: that is, if it is a JAXP static context.
+        // Fortunately we don't need to serialize XPath expressions in that scenario.
+        UnicodeBuilder ub = new UnicodeBuilder();
+        for (Iterator<String> iter = sc.iteratePrefixes(); iter.hasNext(); ) {
+            String p = iter.next();
+            if (includeXmlNamespace || !p.equals("xml")) { //Bugs 6198, 6274
+                NamespaceUri uri = sc.getURIForPrefix(p, true);
+                ub.append(p);
+                ub.append("=");
+
+                if (uri.equals(NamespaceUri.getUriForConventionalPrefix(p))) {
+                    ub.append("~");
+                } else {
+                    UnicodeString uUri = uri.toUnicodeString();
+                    if (Whitespace.containsWhitespace(uUri.codePoints())) {
+                        throw new XPathException("Cannot export a stylesheet if namespaces contain whitespace: '" + uri + "'");
+                    }
+                    ub.append(uUri);
+                }
+                ub.append(" ");
+            }
+        }
+        return ub.toString().trim();
     }
 
     /**
@@ -469,7 +488,7 @@ public class ExpressionPresenter {
      * @param uri    the namespace URI
      */
 
-    public void namespace(String prefix, String uri) {
+    public void namespace(String prefix, NamespaceUri uri) {
         try {
             cco.namespace(prefix, uri, ReceiverOption.NONE);
         } catch (XPathException e) {
@@ -530,7 +549,7 @@ public class ExpressionPresenter {
         try {
             if (receiver instanceof CheckSumFilter) {
                 int c = ((CheckSumFilter) receiver).getChecksum();
-                cco.processingInstruction(CheckSumFilter.SIGMA, Integer.toHexString(c),
+                cco.processingInstruction(CheckSumFilter.SIGMA, BMPString.of(Integer.toHexString(c)),
                                           Loc.NONE, ReceiverOption.NONE);
             }
             cco.endDocument();
@@ -574,10 +593,11 @@ public class ExpressionPresenter {
     /**
      * Static method to escape a string using Javascript escaping conventions
      * @param in the string to be escaped
+     * @return the escaped string
      */
 
     public static String jsEscape(String in) {
-        FastStringBuffer out = new FastStringBuffer(in.length());
+        StringBuilder out = new StringBuilder(in.length());
         for (int i = 0; i < in.length(); i++) {
             char c = in.charAt(i);
             switch (c) {
@@ -612,26 +632,25 @@ public class ExpressionPresenter {
                         while (hex.length() < 4) {
                             hex.insert(0, "0");
                         }
-                        out.append(hex.toString());
+                        out.append(hex);
                     } else {
-                        out.cat(c);
+                        out.append(c);
                     }
+                    break;
             }
         }
         return out.toString();
     }
 
-    public interface Options {};
-
-    public static class ExportOptions implements Options {
+    public static class ExportOptions {
         public String target = "";
         public int targetVersion = 0;
+        public boolean relocatable = false;
         public StylesheetPackage rootPackage;
         public Map<Component, Integer> componentMap;
         public Map<StylesheetPackage, Integer> packageMap;
         public boolean explaining;
         public boolean suppressStaticContext;
-        public boolean addStaticType;
     }
 }
 

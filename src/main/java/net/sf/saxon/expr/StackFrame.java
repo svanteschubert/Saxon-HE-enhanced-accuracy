@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,8 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 import java.util.Arrays;
 import java.util.Stack;
@@ -24,11 +24,12 @@ public class StackFrame {
     protected Sequence[] slots;
     protected Stack<Sequence> dynamicStack;
 
-    public static final StackFrame EMPTY = new StackFrame(SlotManager.EMPTY, new Sequence[0]);
+    public static final Sequence[] EMPTY_ARRAY_OF_SEQUENCE = new Sequence[0];
+    public static final StackFrame EMPTY = new StackFrame(SlotManager.EMPTY, EMPTY_ARRAY_OF_SEQUENCE);
 
     public StackFrame(SlotManager map, Sequence[] slots) {
         this.map = map;
-        this.slots = (Sequence[])slots;
+        this.slots = slots;
     }
 
     public SlotManager getStackFrameMap() {
@@ -40,15 +41,14 @@ public class StackFrame {
     }
 
     public void setStackFrameValues(Sequence[] values) {
-        slots = (Sequence[])values;
+        slots = values;
     }
 
     public StackFrame copy() {
         Sequence[] v2 = Arrays.copyOf(slots, slots.length);
         StackFrame s = new StackFrame(map, v2);
         if (dynamicStack != null) {
-            s.dynamicStack = new Stack<>();
-            s.dynamicStack.addAll(dynamicStack);
+            s.dynamicStack = shallowCopy(dynamicStack);
         }
         return s;
     }
@@ -58,9 +58,22 @@ public class StackFrame {
             throw new IllegalStateException("Immutable stack frame");
         }
         if (dynamicStack == null) {
-            dynamicStack = new Stack<>();
+            dynamicStack = newStack();
         }
         dynamicStack.push(value);
+    }
+
+    private Stack<Sequence> newStack() {
+        // Separate method for the benefit of C#
+        return new Stack<>();
+    }
+
+    // Shallow-copy of a stack is tricky in C# because iteration reverses the order
+    @CSharpReplaceBody(code="return new Stack<Saxon.Hej.om.Sequence>(new Stack<Saxon.Hej.om.Sequence>(old));")
+    private Stack<Sequence> shallowCopy(Stack<Sequence> old) {
+        Stack<Sequence> s2 = newStack();
+        s2.addAll(old);
+        return s2;
     }
 
     public Sequence popDynamicValue() {

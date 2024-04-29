@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.CompilerInfo;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -28,10 +29,11 @@ import java.io.IOException;
  * @since 9.6
  */
 
+@CSharpModifiers(code = {"internal"})
 public class XsltPackage {
 
-    private XsltCompiler compiler;
-    private StylesheetPackage stylesheetPackage;
+    private final XsltCompiler compiler;
+    private final StylesheetPackage stylesheetPackage;
 
     protected XsltPackage(XsltCompiler compiler, StylesheetPackage pp) {
         this.compiler = compiler;
@@ -91,7 +93,6 @@ public class XsltPackage {
         return new WhitespaceStrippingPolicy(stylesheetPackage);
     }
 
-
     /**
      * Link this package with the packages it uses, to form an executable stylesheet. This process fixes
      * up any cross-package references to files, templates, and other components, and checks to ensure
@@ -142,20 +143,20 @@ public class XsltPackage {
      *
      * @param file the file to which the compiled package should be saved
      * @param target the target environment. The only value currently recognized is "JS",
-     *               which exports the package for running under Saxon-JS 2.0.
+     *               which exports the package for running under SaxonJS 2.
      * @throws SaxonApiException if the compiled package cannot be saved to the specified
      *                           location, or if the package was compiled with just-in-time
      *                           compilation enabled.
      * @since 9.7.0.5
      * @deprecated since 9.9.1.3. Use XsltCompiler.setTargetEdition() to define the target environment.
      */
-
+    @Deprecated
     public void save(File file, String target) throws SaxonApiException {
         try {
             Query.createFileIfNecessary(file);
             ExpressionPresenter presenter = getProcessor().getUnderlyingConfiguration()
                     .newExpressionExporter(target, new FileOutputStream(file), stylesheetPackage);
-            presenter.setRelocatable(stylesheetPackage.isRelocatable());
+            presenter.getOptions().relocatable = stylesheetPackage.isRelocatable();
             stylesheetPackage.export(presenter);
         } catch (XPathException | IOException e) {
             throw new SaxonApiException(e);

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,21 +11,18 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.functions.Count;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.functions.DeepEqual40;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.regex.UnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.type.AtomicType;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.type.UType;
+import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
 
-import java.util.Iterator;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeMap;
 
@@ -35,15 +32,15 @@ import java.util.TreeMap;
  * <p>At present range keys are only available for string-valued keys using the Unicode codepoint collating sequence.</p>
  */
 
-public class RangeKey implements MapItem {
+public class RangeKey extends MapItem {
 
-    private UnicodeString min;
-    private UnicodeString max;
-    private TreeMap<AtomicMatchKey, Object> index;
+    private final UnicodeString min;
+    private final UnicodeString max;
+    private final TreeMap<AtomicMatchKey, Object> index;
 
-    public RangeKey(String min, String max, TreeMap<AtomicMatchKey, Object> index) {
-        this.min = min == null ? null : UnicodeString.makeUnicodeString(min);
-        this.max = max == null ? null : UnicodeString.makeUnicodeString(max);
+    public RangeKey(UnicodeString min, UnicodeString max, TreeMap<AtomicMatchKey, Object> index) {
+        this.min = min;  // null allowed
+        this.max = max;  // null allowed
         this.index = index;
     }
 
@@ -54,7 +51,7 @@ public class RangeKey implements MapItem {
      */
     @Override
     public GroundedValue get(AtomicValue key)  {
-        UnicodeString k = UnicodeString.makeUnicodeString(key.getStringValueCS());
+        UnicodeString k = key.getUnicodeStringValue();
         if ((min == null || min.compareTo(k) <= 0) &&
                 (max == null || max.compareTo(k) >= 0)) {
             Object value = index.get(k);
@@ -64,7 +61,7 @@ public class RangeKey implements MapItem {
                 return ((NodeInfo)value);
             } else {
                 List<NodeInfo> nodes = (List<NodeInfo>)value;
-                return nodes.isEmpty() ? null : SequenceExtent.makeSequenceExtent(nodes);
+                return nodes.isEmpty() ? null : new SequenceExtent.Of<>(nodes);
             }
         }
         return null;
@@ -101,7 +98,7 @@ public class RangeKey implements MapItem {
      */
     @Override
     public AtomicIterator keys() {
-        return new RangeKeyIterator();
+        return new RangeKeyIterator(min, max, index);
     }
 
     /**
@@ -111,32 +108,13 @@ public class RangeKey implements MapItem {
      */
     @Override
     public Iterable<KeyValuePair> keyValuePairs() {
-        // For .NEU - don't use a lambda expression here
-        return new Iterable<KeyValuePair>() {
-            @Override
-            public Iterator<KeyValuePair> iterator() {
-                return new Iterator<KeyValuePair>() {
-                    AtomicIterator keys = keys();
-                    AtomicValue next = keys.next();
-
-                    @Override
-                    public boolean hasNext() {
-                        return next != null;
-                    }
-
-                    @Override
-                    public KeyValuePair next() {
-                        if (next == null) {
-                            return null;
-                        } else {
-                            KeyValuePair kvp = new KeyValuePair(next, get(next));
-                            next = keys.next();
-                            return kvp;
-                        }
-                    }
-                };
-            }
-        };
+        List<KeyValuePair> kvpList = new ArrayList<>();
+        final AtomicIterator keyIter = keys();
+        AtomicValue key;
+        while ((key = keyIter.next()) != null) {
+            kvpList.add(new KeyValuePair(key, get(key)));
+        }
+        return kvpList;
     }
 
     /**
@@ -185,17 +163,13 @@ public class RangeKey implements MapItem {
      * @return true if the map conforms to the required type
      */
     @Override
-    public boolean conforms(AtomicType keyType, SequenceType valueType, TypeHierarchy th) {
+    public boolean conforms(PlainType keyType, SequenceType valueType, TypeHierarchy th) {
         AtomicIterator keyIter = keys();
         AtomicValue key;
         while ((key = keyIter.next()) != null) {
-            Sequence value = get(key);
-            try {
-                if (!valueType.matches(value, th)) {
-                    return false;
-                }
-            } catch (XPathException e) {
-                throw new AssertionError(e);
+            GroundedValue value = get(key);
+            if (!valueType.matches(value, th)) {
+                return false;
             }
         }
         return true;
@@ -246,7 +220,17 @@ public class RangeKey implements MapItem {
      * @return true if the two function items are deep-equal
      */
     @Override
-    public boolean deepEquals(Function other, XPathContext context, AtomicComparer comparer, int flags)  {
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags)  {
+        if (other instanceof RangeKey) {
+            RangeKey rk = (RangeKey) other;
+            return min.equals(rk.min) && max.equals(rk.max) && index.equals(rk.index);
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) {
         if (other instanceof RangeKey) {
             RangeKey rk = (RangeKey) other;
             return min.equals(rk.min) && max.equals(rk.max) && index.equals(rk.index);
@@ -274,14 +258,21 @@ public class RangeKey implements MapItem {
         return MapItem.mapToString(this);
     }
 
-    private class RangeKeyIterator implements AtomicIterator {
+    private static class RangeKeyIterator implements AtomicIterator {
 
-        int pos = 0;
-        UnicodeString curr = null;
-        UnicodeString top;
+        private int pos = 0;
+        private StringValue curr = null;
+        private final StringValue top;
+        private final UnicodeString min;
+        private final UnicodeString max;
+        private final TreeMap<AtomicMatchKey, Object> index;
 
-        public RangeKeyIterator() {
-            top = (UnicodeString) (max == null ? index.lastKey() : index.floorKey(max));
+        public RangeKeyIterator(UnicodeString min, UnicodeString max, TreeMap<AtomicMatchKey, Object> index) {
+            top = new StringValue((UnicodeString) (max == null ? index.lastKey() : index.floorKey(max)));
+            this.min = min;
+            this.max = max;
+            this.index = index;
+
         }
 
         /**
@@ -296,28 +287,30 @@ public class RangeKey implements MapItem {
                     return null;
                 }
                 if (min == null) {
-                    curr = (UnicodeString) index.firstKey();
+                    curr = new StringValue((UnicodeString) index.firstKey());
                 } else {
-                    curr = (UnicodeString) index.ceilingKey(min);
-                    if(curr != null && max != null && curr.compareTo(max) > 0) {
+                    UnicodeString c = (UnicodeString) index.ceilingKey(min);
+                    if (c == null || (max != null && c.compareTo(max) > 0)) {
                         curr = null;
+                    } else {
+                        curr = new StringValue(c);
                     }
                 }
             } else if (curr.equals(top)) {
                 curr = null;
             } else {
-                curr = (UnicodeString) index.higherKey(curr);
+                curr = new StringValue((UnicodeString) index.higherKey(curr.getUnicodeStringValue()));
             }
             if (curr == null) {
                 pos = -1;
                 return null;
             } else {
                 pos++;
-                return new StringValue(curr);
+                return curr;
             }
         }
 
     }
 }
 
-// Copyright (c) 2012-2020 Saxonica Limited
+// Copyright (c) 2012-2021 Saxonica Limited

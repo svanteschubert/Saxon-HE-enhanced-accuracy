@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.style;
 
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 
 import java.util.ArrayList;
 
@@ -28,16 +28,16 @@ import java.util.ArrayList;
  */
 public class PackageVersionRanges {
 
-    ArrayList<PackageVersionRange> ranges;
+    private final ArrayList<PackageVersionRange> ranges;
 
-    private class PackageVersionRange {
-        String display;
-        PackageVersion low;
-        PackageVersion high;
-        boolean all = false;
-        boolean prefix = false;
+    private static class PackageVersionRange {
+        private final String display;
+        private PackageVersion low;
+        private PackageVersion high;
+        private boolean all = false;
+        private boolean prefix = false;
 
-        PackageVersionRange(String s) throws XPathException {
+        public PackageVersionRange(String s) throws XPathException {
             display = s;
             if ("*".equals(s)) {
                 all = true;
@@ -48,7 +48,7 @@ public class PackageVersionRanges {
                 prefix = true;
                 low = new PackageVersion(s.replace(".*", ""));
             } else if (s.matches(".*\\s*to\\s+.*")) {
-                String range[] = s.split("\\s*to\\s+");
+                String[] range = s.split("\\s*to\\s+");
                 if (range.length > 2) {
                     throw new XPathException("Invalid version range:" + s, "XTSE0020");
                 }
@@ -81,7 +81,7 @@ public class PackageVersionRanges {
      *
      * @param s Input string describing the ranges in the grammar described in
      *          <a href="http://www.w3.org/TR/xslt-30/#package-versions">http://www.w3.org/TR/xslt-30/#package-versions</a>
-     * @throws XPathException
+     * @throws XPathException if any version range is invalid
      */
     public PackageVersionRanges(String s) throws XPathException {
         ranges = new ArrayList<PackageVersionRange>();
@@ -107,12 +107,11 @@ public class PackageVersionRanges {
     @Override
     public String toString() {
         if (ranges.size() == 1) {
-            return ranges.get(0).display;
+            return ranges.get(0).toString();
         } else {
-            FastStringBuffer buffer = new FastStringBuffer(256);
+            StringBuilder buffer = new StringBuilder(256);
             for (PackageVersionRange r : ranges) {
-                buffer.append(r.display);
-                buffer.append(",");
+                buffer.append(r.toString()).append(",");
             }
             buffer.setLength(buffer.length()-1);
             return buffer.toString();

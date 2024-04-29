@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,8 +9,8 @@ package net.sf.saxon.functions.registry;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.pattern.AnyNodeTest;
@@ -24,7 +24,7 @@ import net.sf.saxon.value.StringValue;
  */
 public class ExsltCommonFunctionSet extends BuiltInFunctionSet {
 
-    private static ExsltCommonFunctionSet THE_INSTANCE = new ExsltCommonFunctionSet();
+    private static final ExsltCommonFunctionSet THE_INSTANCE = new ExsltCommonFunctionSet();
 
     public static ExsltCommonFunctionSet getInstance() {
         return THE_INSTANCE;
@@ -36,17 +36,17 @@ public class ExsltCommonFunctionSet extends BuiltInFunctionSet {
 
     private void init() {
 
-        register("node-set", 1, NodeSetFn.class, AnyItemType.getInstance(), OPT, 0)
-                .arg(0, AnyItemType.getInstance(), OPT, EMPTY);
+        register("node-set", 1, e -> e.populate(NodeSetFn::new, AnyItemType.getInstance(), OPT, 0)
+                .arg(0, AnyItemType.getInstance(), OPT, EMPTY));
 
-        register("object-type", 1, ObjectTypeFn.class, BuiltInAtomicType.STRING, ONE, 0)
-                .arg(0, AnyItemType.getInstance(), ONE, null);
+        register("object-type", 1, e -> e.populate(ObjectTypeFn::new, BuiltInAtomicType.STRING, ONE, 0)
+                .arg(0, AnyItemType.getInstance(), ONE, null));
 
     }
 
     @Override
-    public String getNamespace() {
-        return NamespaceConstant.EXSLT_COMMON;
+    public NamespaceUri getNamespace() {
+        return NamespaceUri.EXSLT_COMMON;
     }
 
     @Override
@@ -76,13 +76,13 @@ public class ExsltCommonFunctionSet extends BuiltInFunctionSet {
             Item value = arguments[0].head();
             ItemType type = SequenceTool.getItemType(value, th);
             if (th.isSubType(type, AnyNodeTest.getInstance())) {
-                return new StringValue("node-set");
+                return StringValue.bmp("node-set");
             } else if (th.isSubType(type, BuiltInAtomicType.STRING)) {
-                return new StringValue("string");
+                return StringValue.bmp("string");
             } else if (NumericType.isNumericType(type)) {
-                return new StringValue("number");
+                return StringValue.bmp("number");
             } else if (th.isSubType(type, BuiltInAtomicType.BOOLEAN)) {
-                return new StringValue("boolean");
+                return StringValue.bmp("boolean");
             } else {
                 return new StringValue(type.toString());
             }
@@ -93,4 +93,4 @@ public class ExsltCommonFunctionSet extends BuiltInFunctionSet {
 
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

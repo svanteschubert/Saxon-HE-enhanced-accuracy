@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,12 @@ package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.lib.FeatureKeys;
-import net.sf.saxon.om.AtomicSequence;
-import net.sf.saxon.om.NamePool;
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
+
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -24,7 +24,6 @@ import net.sf.saxon.type.Type;
  * A node in the XML parse tree representing an attribute. Note that this is
  * generated only "on demand", when the attribute is selected by a select pattern.
  *
- * @author Michael H. Kay
  */
 
 final public class TinyAttributeImpl extends TinyNodeImpl {
@@ -81,9 +80,7 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
 
     @Override
     protected long getSequenceNumber() {
-        //noinspection ConstantConditions
-        return
-                ((TinyNodeImpl) getParent()).getSequenceNumber()
+        return getParent().getSequenceNumber()
                         + 0x8000 +
                         (nodeNr - tree.alpha[tree.attParent[nodeNr]]);
         // note the 0x8000 is to leave room for namespace nodes
@@ -96,7 +93,7 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
      */
 
     @Override
-    public final int getNodeKind() {
+    public int getNodeKind() {
         return Type.ATTRIBUTE;
     }
 
@@ -107,19 +104,8 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
      */
 
     @Override
-    public CharSequence getStringValueCS() {
-        return tree.attValue[nodeNr];
-    }
-
-    /**
-     * Return the string value of the node.
-     *
-     * @return the attribute value
-     */
-
-    @Override
-    public String getStringValue() {
-        return tree.attValue[nodeNr].toString();
+    public UnicodeString getUnicodeStringValue() {
+        return StringView.of(tree.attValue[nodeNr]).tidy();
     }
 
     /**
@@ -133,6 +119,8 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
 
     /**
      * Get the name code of the node, used for finding names in the name pool
+     *
+     * @return the name code
      */
 
     public int getNameCode() {
@@ -155,7 +143,7 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
     }
 
     /**
-     * Get the display name of this node. For elements and attributes this is [prefix:]localname.
+     * Get the display name of this node. For elements and attributes this is {@code [prefix:]localname}.
      * For unnamed nodes, it is an empty string.
      *
      * @return The display name of this node.
@@ -196,12 +184,21 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
      */
 
     @Override
-    public final String getURI() {
+    public NamespaceUri getNamespaceUri() {
         int code = tree.attCode[nodeNr];
         if (!NamePool.isPrefixed(code)) {
-            return "";
+            return NamespaceUri.NULL;
         }
         return tree.getNamePool().getURI(code);
+    }
+
+    @Override
+    public boolean hasURI(NamespaceUri ns) {
+        int code = tree.attCode[nodeNr];
+        if (!NamePool.isPrefixed(code)) {
+            return ns.isEmpty();
+        }
+        return getNamePool().getStructuredQName(code).hasURI(ns);
     }
 
     /**
@@ -238,23 +235,23 @@ final public class TinyAttributeImpl extends TinyNodeImpl {
     }
 
     /**
-     * Generate id. Returns key of owning element with the attribute namecode as a suffix
+     * Generate id. Returns key of owning element with the attribute nameCode as a suffix
      *
      * @param buffer Buffer to contain the generated ID value
      */
 
     @Override
-    public void generateId(FastStringBuffer buffer) {
+    public void generateId(StringBuilder buffer) {
         getParent().generateId(buffer);
         buffer.append("a");
-        buffer.append(Integer.toString(tree.attCode[nodeNr]));
+        buffer.append(tree.attCode[nodeNr]);
         // we previously used the attribute name. But this breaks the requirement
         // that the result of generate-id consists entirely of alphanumeric ASCII
         // characters
     }
 
     /**
-     * Copy this node to a given outputter
+     * Copy this node to a given {@code Receiver}
      */
 
     @Override

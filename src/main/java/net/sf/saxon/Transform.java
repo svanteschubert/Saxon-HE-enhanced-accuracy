@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,18 +11,17 @@ import net.sf.saxon.expr.instruct.GlobalContextRequirement;
 import net.sf.saxon.expr.instruct.TerminationException;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.s9api.*;
+import net.sf.saxon.str.BMPString;
 import net.sf.saxon.style.Compilation;
 import net.sf.saxon.style.StylesheetPackage;
-import net.sf.saxon.trace.AbstractTraceListener;
-import net.sf.saxon.trace.Instrumentation;
-import net.sf.saxon.trace.TimingCodeInjector;
-import net.sf.saxon.trace.TimingTraceListener;
-import net.sf.saxon.trans.CommandLineOptions;
-import net.sf.saxon.trans.CompilerInfo;
-import net.sf.saxon.trans.LicenseException;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trace.*;
+import net.sf.saxon.trans.Timer;
+import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.packages.PackageDetails;
 import net.sf.saxon.trans.packages.PackageLibrary;
+import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.DateTimeValue;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
@@ -33,10 +32,12 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactoryConfigurationError;
 import javax.xml.transform.sax.SAXSource;
 import javax.xml.transform.stream.StreamSource;
-import java.io.File;
-import java.io.FileOutputStream;
+import java.io.*;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -54,12 +55,12 @@ import java.util.*;
 
 public class Transform {
 
-    protected Processor processor;
-    protected XsltCompiler compiler;
+    private Processor processor;
+    private XsltCompiler compiler;
     protected boolean useURLs = false;
     protected boolean showTime = false;
     protected int repeat = 1;
-    /*@Nullable*/ protected String sourceParserName = null;
+    protected String sourceParserName = null;
     protected boolean schemaAware = false;
     protected boolean allowExit = true;
     protected boolean run = true;
@@ -79,7 +80,7 @@ public class Transform {
 
     public static void main(String[] args) {
         // the real work is delegated to another routine so that it can be used in a subclass
-        new Transform().doTransform(args, "java net.sf.saxon.Transform");
+        new Transform().doTransform(args);
     }
 
     /**
@@ -89,6 +90,7 @@ public class Transform {
      * @param options the CommandLineOptions in which the recognized options are to be registered.
      */
 
+    @CSharpModifiers(code = {"internal"})
     public void setPermittedOptions(CommandLineOptions options) {
         options.addRecognizedOption("a", CommandLineOptions.TYPE_BOOLEAN,
                                     "Use <?xml-stylesheet?> processing instruction to identify stylesheet");
@@ -110,25 +112,27 @@ public class Transform {
         options.addRecognizedOption("explain", CommandLineOptions.TYPE_FILENAME,
                                     "Display compiled expression tree and optimization decisions in human-readable form");
         options.addRecognizedOption("export", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
-                                    "Display compiled expression tree and optimization decisions for exportation");
+                                    "Export compiled stylesheet to specified SEF file");
         options.addRecognizedOption("ext", CommandLineOptions.TYPE_BOOLEAN,
                                     "Allow calls to Java extension functions and xsl:result-document");
         options.addRecognizedOption("im", CommandLineOptions.TYPE_QNAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Name of initial mode");
         options.addRecognizedOption("init", CommandLineOptions.TYPE_CLASSNAME,
-                                    "User-supplied net.sf.saxon.lib.Initializer class to initialize the Saxon Configuration");
+                                    "User-supplied code to initialize the Saxon Configuration");
         options.addRecognizedOption("it", CommandLineOptions.TYPE_QNAME,
                                     "Name of initial template");
         options.addRecognizedOption("jit", CommandLineOptions.TYPE_BOOLEAN,
-                                    "Just-in-time compilation");
+                                    "Enable just-in-time compilation");
+        options.addRecognizedOption("json", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
+                                    "Source JSON file for primary input");
         options.addRecognizedOption("l", CommandLineOptions.TYPE_BOOLEAN,
                                     "Maintain line numbers for source documents");
         options.addRecognizedOption("lib", CommandLineOptions.TYPE_FILENAME_LIST | CommandLineOptions.VALUE_REQUIRED,
                                     "List of file names of library packages used by the stylesheet");
         options.addRecognizedOption("license", CommandLineOptions.TYPE_BOOLEAN,
                                     "Check for local license file");
-        options.addRecognizedOption("m", CommandLineOptions.TYPE_CLASSNAME,
-                                    "Use named class to handle xsl:message output");
+//        options.addRecognizedOption("m", CommandLineOptions.TYPE_CLASSNAME,
+//                                    "Use named class to handle xsl:message output");
         options.addRecognizedOption("nogo", CommandLineOptions.TYPE_BOOLEAN,
                                     "Compile only, no evaluation");
         options.addRecognizedOption("now", CommandLineOptions.TYPE_DATETIME | CommandLineOptions.VALUE_REQUIRED,
@@ -146,7 +150,6 @@ public class Transform {
         options.setPermittedValues("outval", new String[]{"recover", "fatal"}, null);
         options.addRecognizedOption("p", CommandLineOptions.TYPE_BOOLEAN,
                                     "Recognize query parameters in URI passed to doc()");
-
         options.addRecognizedOption("quit", CommandLineOptions.TYPE_BOOLEAN | CommandLineOptions.VALUE_REQUIRED,
                                     "Quit JVM if transformation fails");
         options.addRecognizedOption("r", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
@@ -156,7 +159,7 @@ public class Transform {
         options.addRecognizedOption("repeat", CommandLineOptions.TYPE_INTEGER | CommandLineOptions.VALUE_REQUIRED,
                                     "Run N times for performance measurement");
         options.addRecognizedOption("s", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
-                                    "Source file for primary input");
+                                    "Source XML file for primary input");
         options.addRecognizedOption("sa", CommandLineOptions.TYPE_BOOLEAN,
                                     "Run in schema-aware mode");
         options.addRecognizedOption("scmin", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
@@ -168,11 +171,9 @@ public class Transform {
                                     "Display version and timing information, and names of output files");
         options.addRecognizedOption("target", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
                                     "Target Saxon edition for execution via -export");
-        options.setPermittedValues("target", new String[]{"EE", "PE", "HE", "JS"}, null);
+        options.setPermittedValues("target", new String[]{"EE", "PE", "HE", "JS", "JS2", "JS3"}, null);
         options.addRecognizedOption("T", CommandLineOptions.TYPE_CLASSNAME,
                                     "Use named TraceListener class, or standard TraceListener");
-        options.addRecognizedOption("TB", CommandLineOptions.TYPE_FILENAME,
-                                    "Trace hotspot bytecode generation to specified XML file");
         options.addRecognizedOption("TJ", CommandLineOptions.TYPE_BOOLEAN,
                                     "Debug binding and execution of extension functions");
         options.setPermittedValues("TJ", new String[]{"on", "off"}, "on");
@@ -183,6 +184,8 @@ public class Transform {
                                     "File for trace listener output");
         options.addRecognizedOption("TP", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use profiling trace listener, with specified output file");
+        options.addRecognizedOption("TPxsl", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
+                                    "Stylesheet for formatting -TP output");
         options.addRecognizedOption("threads", CommandLineOptions.TYPE_INTEGER | CommandLineOptions.VALUE_REQUIRED,
                                     "Run stylesheet on directory of files divided in N threads");
         options.addRecognizedOption("tree", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
@@ -201,6 +204,7 @@ public class Transform {
         options.addRecognizedOption("warnings", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
                                     "No longer used");
         options.setPermittedValues("warnings", new String[]{"silent", "recover", "fatal"}, null);
+
         options.addRecognizedOption("x", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use named XMLReader class for parsing source documents");
         options.addRecognizedOption("xi", CommandLineOptions.TYPE_BOOLEAN,
@@ -224,15 +228,16 @@ public class Transform {
 
     }
 
+    private static class TransformThread extends Thread {
+        private final Transform transform;
+        private final File outputDir;
+        private final XsltExecutable sheet;
+        private final CommandLineOptions options;
+        private final List<Source> sources;
+        private final int start;
 
-    class TransformThread extends Thread {
-        private File outputDir;
-        private XsltExecutable sheet;
-        private CommandLineOptions options;
-        private List<Source> sources;
-        private int start;
-
-        TransformThread(int i, XsltExecutable st, List<Source> s, File out, CommandLineOptions opt) {
+        TransformThread(Transform t, int i, XsltExecutable st, List<Source> s, File out, CommandLineOptions opt) {
+            transform = t;
             start = i;
             sheet = st;
             sources = s;
@@ -247,7 +252,7 @@ public class Transform {
         @Override
         public void run() {
             try {
-                processDirectory(sources, sheet, outputDir, options);
+                processDirectory(transform, sources, sheet, outputDir, options);
             } catch (Exception err) {
                 err.printStackTrace();
             }
@@ -255,23 +260,22 @@ public class Transform {
 
     }
 
-
     /**
      * Support method for main program. This support method can also be invoked from subclasses
      * that support the same command line interface
      *
      * @param args    the command-line arguments
-     * @param command the form of the command as written by the user. Not used, retained for backwards compatibility
      */
 
-    public void doTransform(String args[], String command) {
+    public void doTransform(String[] args) {
 
         Configuration config;
-        String sourceFileName = null;
+        String sourceXmlFileName = null;
+        String sourceJsonFileName = null;
         String styleFileName = null;
         File outputFile = null;
         String outputFileName = null;
-        boolean useAssociatedStylesheet;
+        boolean useAssociatedStylesheet = false;
         boolean wholeDirectory = false;
         boolean dtdValidation = false;
         String styleParserName = null;
@@ -295,10 +299,14 @@ public class Transform {
 
 
         schemaAware = false;
-        String configFile = options.getOptionValue("config");
-        if (configFile != null) {
+        String configFileName = options.getOptionValue("config");
+        if (configFileName != null) {
+            File configFile = new File(configFileName);
+            if (!configFile.exists()) {
+                quit("Configuration file " + configFileName + " does not exist", 2);
+            }
             try {
-                config = Configuration.readConfiguration(new StreamSource(configFile));
+                config = Configuration.readConfiguration(new StreamSource(configFile.toURI().toString()));
                 initializeConfiguration(config);
                 processor = new Processor(config);
                 schemaAware = config.isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT);
@@ -319,11 +327,7 @@ public class Transform {
             try {
                 setFactoryConfiguration(schemaAware, null);
                 CompilerInfo defaultCompilerInfo = config.getDefaultXsltCompilerInfo();
-                if (schemaAware) {
-                    defaultCompilerInfo.setSchemaAware(true);
-                } else {
-                    defaultCompilerInfo.setSchemaAware(false);
-                }
+                defaultCompilerInfo.setSchemaAware(schemaAware);
             } catch (Exception err) {
                 err.printStackTrace();
                 quit(err.getMessage(), 2);
@@ -357,7 +361,7 @@ public class Transform {
                 jit = false;
                 compiler.setJustInTimeCompilation(jit);
                 if (!"".equals(value)) {
-                    explainOutputFileName = value;
+                    explainOutputFileName = CommandLineOptions.coerceImplicitOutputURI(value);
                 }
             }
             value = options.getOptionValue("export");
@@ -366,7 +370,7 @@ public class Transform {
                 jit = false;
                 compiler.setJustInTimeCompilation(jit);
                 if (!"".equals(value)) {
-                    exportOutputFileName = value;
+                    exportOutputFileName = CommandLineOptions.coerceImplicitOutputURI(value);
                 }
             }
 
@@ -384,7 +388,7 @@ public class Transform {
                 if ("on".equals(value) && exportOutputFileName == null && run) {
                     if (export) {
                         jit = false;
-                        System.err.println("Warning: -jit:on is ignored when -export:on is set");
+                        config.getLogger().warning("Warning: -jit:on is ignored when -export:on is set");
                     } else {
                         jit = true;
                     }
@@ -426,13 +430,13 @@ public class Transform {
 
             value = options.getOptionValue("o");
             if (value != null) {
-                outputFileName = value;
+                outputFileName = CommandLineOptions.coerceImplicitOutputURI(value);
             }
 
             value = options.getOptionValue("nogo");
             if (value != null) {
-                if ("on".equals(options.getOptionValue("jit"))) {
-                    System.err.println("Warning: -jit:on is ignored when -nogo is set");
+                if (jit) {
+                    config.getLogger().warning("Warning: -jit:on is ignored when -nogo is set");
                 }
                 run = false;
                 compiler.setJustInTimeCompilation(false);
@@ -440,7 +444,7 @@ public class Transform {
 
             value = options.getOptionValue("p");
             if ("on".equals(value)) {
-                config.setParameterizedURIResolver();
+                config.setBooleanProperty(Feature.RECOGNIZE_URI_QUERY_PARAMETERS, true);
                 useURLs = true;
             }
 
@@ -455,7 +459,12 @@ public class Transform {
 
             value = options.getOptionValue("s");
             if (value != null) {
-                sourceFileName = value;
+                sourceXmlFileName = value;
+            }
+
+            value = options.getOptionValue("json");
+            if (value != null) {
+                sourceJsonFileName = value;
             }
 
             value = options.getOptionValue("threads");
@@ -465,8 +474,8 @@ public class Transform {
 
             value = options.getOptionValue("t");
             if (value != null) {
-                System.err.println(config.getProductTitle());
-                System.err.println(Version.platform.getPlatformVersion());
+                config.getLogger().info(config.getProductTitle());
+                config.getLogger().info(Version.platform.getPlatformVersion());
                 processor.setConfigurationProperty(Feature.TIMING, true);
                 showTime = true;
             }
@@ -480,9 +489,10 @@ public class Transform {
                 }
 
                 if ("".equals(value)) {
-                    value = "net.sf.saxon.trace.XSLTTraceListener";
+                    traceListener = new XSLTTraceListener();
+                } else {
+                    traceListener = config.makeTraceListener(value);
                 }
-                traceListener = config.makeTraceListener(value);
                 processor.setConfigurationProperty(Feature.TRACE_LISTENER, traceListener);
                 processor.setConfigurationProperty(Feature.LINE_NUMBERING, true);
 
@@ -520,6 +530,18 @@ public class Transform {
                 if (!value.isEmpty()) {
                     traceListener.setOutputDestination(
                             new StandardLogger(new File(value)));
+                }
+                String formatter = options.getOptionValue("TPxsl");
+                if (formatter != null) {
+                    try {
+                        if (useURLs) {
+                            ((TimingTraceListener) traceListener).setStylesheet(new URL(formatter));
+                        } else {
+                            ((TimingTraceListener) traceListener).setStylesheet(new File(formatter).toURI().toURL());
+                        }
+                    } catch (MalformedURLException e) {
+                        System.err.println("Invalid URL " + formatter + " - ignored");
+                    }
                 }
             }
 
@@ -595,7 +617,6 @@ public class Transform {
                 }
             }
 
-
             //compilerInfo.setRecoveryPolicy(config.getRecoveryPolicy());
 
             // Apply options defined locally in a subclass
@@ -604,26 +625,34 @@ public class Transform {
 
             // Check consistency of selected options
 
+            if (sourceXmlFileName != null && sourceJsonFileName != null) {
+                badUsage("-s and -json options cannot be used together");
+            }
+
             if (options.getOptionValue("it") != null && useAssociatedStylesheet) {
                 badUsage("-it and -a options cannot be used together");
             }
 
+            if (sourceJsonFileName != null && useAssociatedStylesheet) {
+                badUsage("-json and -a options cannot be used together");
+            }
+
             if (options.getOptionValue("xsiloc") != null && options.getOptionValue("val") == null) {
-                System.err.println("-xsiloc is ignored when -val is absent");
+                config.getLogger().warning("-xsiloc is ignored when -val is absent");
             }
 
             List<String> positional = options.getPositionalOptions();
             int currentPositionalOption = 0;
 
-            if (run && options.getOptionValue("it") == null && sourceFileName == null) {
+            if (run && options.getOptionValue("it") == null && sourceXmlFileName == null && sourceJsonFileName == null) {
                 if (positional.size() == currentPositionalOption) {
                     badUsage("No source file name");
                 }
-                sourceFileName = positional.get(currentPositionalOption++);
+                sourceXmlFileName = positional.get(currentPositionalOption++);
             }
 
             if (!useAssociatedStylesheet && styleFileName == null) {
-                if (positional.size() == currentPositionalOption) {
+                if (positional.size() <= currentPositionalOption) {
                     badUsage("No stylesheet file name");
                 }
                 styleFileName = positional.get(currentPositionalOption++);
@@ -645,15 +674,15 @@ public class Transform {
             options.applyStaticParams(compiler);
 
             List<Source> sources = new ArrayList<>();
-            if (sourceFileName != null) {
+            if (sourceXmlFileName != null) {
                 boolean useSAXSource = sourceParserName != null || dtdValidation;
-                wholeDirectory = CommandLineOptions.loadDocuments(sourceFileName, useURLs, processor, useSAXSource, sources);
+                wholeDirectory = CommandLineOptions.loadDocuments(sourceXmlFileName, useURLs, processor, useSAXSource, sources);
 
                 sources = preprocess(sources);
                 if (wholeDirectory) {
                     if (outputFileName == null) {
                         quit("To process a directory, -o must be specified", 2);
-                    } else if (outputFileName.equals(sourceFileName)) {
+                    } else if (outputFileName.equals(sourceXmlFileName)) {
                         quit("Output directory must be different from input", 2);
                     } else {
                         outputFile = new File(outputFileName);
@@ -685,20 +714,21 @@ public class Transform {
                 XsltExecutable sheet = null;
 
                 Source styleSource = null;
-                XMLReader styleParser;
 
                 if (isURI) {
-                    styleSource = config.getURIResolver().resolve(styleFileName, null);
-                    if (styleSource == null) {
-                        styleSource = config.getSystemURIResolver().resolve(styleFileName, null);
-                    }
+                    ResourceRequest request = new ResourceRequest();
+                    request.relativeUri = styleFileName;
+                    URI cwd = CommandLineOptions.getCurrentWorkingDirectory();
+                    request.baseUri = cwd.toASCIIString();
+                    request.uri = cwd.resolve(styleFileName).toString();
+                    request.nature = ResourceRequest.XSLT_NATURE;
+                    request.purpose = ResourceRequest.ANY_PURPOSE;
+                    styleSource = request.resolve(config.getResourceResolver(), new DirectResourceResolver(config));
                 } else if (styleFileName.equals("-")) {
                     // take input from stdin
-                    String sysId = new File(System.getProperty("user.dir")).toURI().toASCIIString();
-                    if (styleParserName == null) {
-                        styleSource = new StreamSource(System.in, sysId);
-                    } else if (Version.platform.isJava()) {
-                        styleParser = config.getStyleParser();
+                    String sysId = CommandLineOptions.getCurrentWorkingDirectory().toASCIIString();
+                    if (styleParserName != null && Version.platform.isJava()) {
+                        XMLReader styleParser = config.getStyleParser();
                         final InputSource inputSource = new InputSource(System.in);
                         inputSource.setSystemId(sysId);
                         styleSource = new SAXSource(styleParser, inputSource);
@@ -716,13 +746,7 @@ public class Transform {
                         if (!sheetFile.exists()) {
                             quit("Stylesheet file " + sheetFile + " does not exist", 2);
                         }
-                        if (styleParserName == null) {
-                            styleSource = new StreamSource(sheetFile.toURI().toString());
-                        } else {
-                            InputSource eis = new InputSource(sheetFile.toURI().toString());
-                            styleParser = config.getStyleParser();
-                            styleSource = new SAXSource(styleParser, eis);
-                        }
+                        styleSource = new StreamSource(sheetFile.toURI().toString());
                     }
                 }
 
@@ -738,7 +762,7 @@ public class Transform {
                             XsltPackage pack = compiler.compilePackage(styleSource);
                             pack.save(new File(exportOutputFileName));
                             if (showTime) {
-                                System.err.println("Stylesheet exported to: " + new File(exportOutputFileName).getAbsolutePath());
+                                config.getLogger().info("Stylesheet exported to: " + new File(exportOutputFileName).getAbsolutePath());
                             }
                             return;
                         } catch (SaxonApiException err) {
@@ -753,7 +777,7 @@ public class Transform {
                         sheet = compiler.compile(styleSource);
                         if (showTime) {
                             long endTime = now();
-                            System.err.println("Stylesheet compilation time: " + CommandLineOptions.showExecutionTimeNano(endTime - startTime));
+                            config.getLogger().info("Stylesheet compilation time: " + Timer.showExecutionTimeNano(endTime - startTime));
                         }
                     } else {
                         startTime = now();
@@ -768,7 +792,7 @@ public class Transform {
                                     ((StandardLogger) logger).setThreshold(threshold);
                                 }
                                 Compilation.TIMING = true;
-                            } else {
+                            } else if (j < 0) {
                                 if (logger instanceof StandardLogger) {
                                     ((StandardLogger) logger).setThreshold(Logger.ERROR);
                                 }
@@ -778,13 +802,13 @@ public class Transform {
                             if (showTime && j >= 0) {
                                 long endTime = now();
                                 long elapsed = endTime - startTime;
-                                System.err.println("Stylesheet compilation time: " + CommandLineOptions.showExecutionTimeNano(elapsed));
+                                config.getLogger().info("Stylesheet compilation time: " + Timer.showExecutionTimeNano(elapsed));
                                 startTime = endTime;
                                 totalTime += elapsed;
                             }
                         }
                         if (showTime) {
-                            System.err.println("Average compilation time: " + CommandLineOptions.showExecutionTimeNano(totalTime / repeatComp));
+                            config.getLogger().info("Average compilation time: " + Timer.showExecutionTimeNano(totalTime / repeatComp));
                         }
                     }
                     if (schemaAware) {
@@ -811,9 +835,11 @@ public class Transform {
                     sheet.explain(out);
                 }
                 if (export) {
-                    sheet.export(new FileOutputStream(exportOutputFileName));
+                    File sef = new File(exportOutputFileName);
+                    Query.createFileIfNecessary(sef);
+                    sheet.export(new FileOutputStream(sef));
                     if (showTime) {
-                        System.err.println("Stylesheet exported to: " + new File(exportOutputFileName).getAbsolutePath());
+                        config.getLogger().info("Stylesheet exported to: " + new File(exportOutputFileName).getAbsolutePath());
                     }
                 }
 
@@ -835,7 +861,7 @@ public class Transform {
                                 // long elapsedTime = System.nanoTime();
                                 for (int i = 0, j = 0, z = 0; i < sources.size(); j++, i += sourcesPerThread + z) {
                                     z = j < rem ? 1 : 0;  //split remainder of sources amongst rem threads
-                                    th[j] = new TransformThread(i, sheet, sources.subList(i, i + sourcesPerThread + z), outputFile, options);
+                                    th[j] = new TransformThread(this, i, sheet, sources.subList(i, i + sourcesPerThread + z), outputFile, options);
                                     th[j].start();
                                 }
                                 for (TransformThread aTh : th) {
@@ -846,7 +872,7 @@ public class Transform {
 
 
                             } else {
-                                processDirectory(sources, sheet, outputFile, options);
+                                processDirectory(this, sources, sheet, outputFile, options);
                             }
                         } else {
                             Source source = sources == null || sources.isEmpty() ? null : sources.get(0);
@@ -859,9 +885,9 @@ public class Transform {
                     }
 
                 }
-                if (options.getOptionValue("TB")!=null) {
-                    // report on hotspot bytecode generation
-                    config.createByteCodeReport(options.getOptionValue("TB"));
+                if (Instrumentation.ACTIVE && !run) {
+                    Instrumentation.report();
+                    Instrumentation.reset();
                 }
             }
         } catch (TerminationException err) {
@@ -869,14 +895,32 @@ public class Transform {
         } catch (SaxonApiException err) {
             //err.printStackTrace();
             quit(err.getMessage(), 2);
-        } catch (TransformerException | LicenseException | TransformerFactoryConfigurationError err) {
+        } catch (TransformerException err) {
             //err.printStackTrace();
             quit("Transformation failed: " + err.getMessage(), 2);
+        } catch (LicenseException err) {
+            //err.printStackTrace();
+            quit("Transformation failed with license problem: " + err.getMessage(), 2);
+        } catch (TransformerFactoryConfigurationError err) {
+            //err.printStackTrace();
+            quit("Transformation failed with configuration problem: " + err.getMessage(), 2);
         } catch (Exception err2) {
             err2.printStackTrace();
             quit("Fatal error during transformation: " + err2.getClass().getName() + ": " +
                          (err2.getMessage() == null ? " (no message)" : err2.getMessage()), 2);
         }
+    }
+
+    /**
+     * Support method for main program. This support method can also be invoked from subclasses
+     * that support the same command line interface
+     *
+     * @param args the command-line arguments
+     * @param command not used, retained for backwards compatibility
+     */
+
+    public void doTransform(String[] args, String command) {
+        doTransform(args);
     }
 
 
@@ -928,6 +972,7 @@ public class Transform {
      * @param config  the Saxon Configuration
      */
 
+    @CSharpModifiers(code = {"internal"})
     protected void applyLocalOptions(CommandLineOptions options, Configuration config) {
         // no action: provided for subclasses to override
     }
@@ -966,7 +1011,11 @@ public class Transform {
      */
 
     protected void quit(String message, int code) {
-        System.err.println(message);
+        try {
+            getConfiguration().getLogger().warning(message);
+        } catch (Exception err) {
+            System.err.println(message);
+        }
         if (allowExit) {
             System.exit(code);
         } else {
@@ -995,7 +1044,7 @@ public class Transform {
                 processFileAssoc(source, localName, outputDir, options);
             } catch (SaxonApiException err) {
                 failures++;
-                System.err.println("While processing " + localName +
+                getConfiguration().getLogger().warning("While processing " + localName +
                                            ": " + err.getMessage() + '\n');
             }
         }
@@ -1033,7 +1082,6 @@ public class Transform {
         return new File(directory, prefix + suffix);
     }
 
-
     /**
      * Process a single source file using its associated stylesheet(s)
      *
@@ -1050,17 +1098,17 @@ public class Transform {
                                   CommandLineOptions options)
             throws SaxonApiException {
         if (showTime) {
-            System.err.println("Processing " + sourceInput.getSystemId() + " using associated stylesheet");
+            getConfiguration().getLogger().info("Processing " + sourceInput.getSystemId() + " using associated stylesheet");
         }
         long startTime = now();
 
         XdmNode sourceDoc = processor.newDocumentBuilder().build(sourceInput);
 
-        Source style = compiler.getAssociatedStylesheet(sourceDoc.asSource(), null, null, null);
+        Source style = compiler.getAssociatedStylesheet(xdmNodeAsSource(sourceDoc), null, null, null);
         XsltExecutable sheet = compiler.compile(style);
 
         if (showTime) {
-            System.err.println("Prepared associated stylesheet " + style.getSystemId());
+            getConfiguration().getLogger().info("Prepared associated stylesheet " + style.getSystemId());
         }
 
         Xslt30Transformer transformer = newTransformer(sheet, options);
@@ -1086,7 +1134,7 @@ public class Transform {
 
         if (showTime) {
             long endTime = now();
-            System.err.println("Execution time: " + CommandLineOptions.showExecutionTimeNano(endTime - startTime));
+            getConfiguration().getLogger().info("Execution time: " + Timer.showExecutionTimeNano(endTime - startTime));
         }
     }
 
@@ -1100,10 +1148,12 @@ public class Transform {
      * @throws SaxonApiException if any error occurs
      */
 
+    @CSharpModifiers(code={"internal"})
     protected Xslt30Transformer newTransformer(
             XsltExecutable sheet, CommandLineOptions options) throws SaxonApiException {
         Configuration config = getConfiguration();
         final Xslt30Transformer transformer = sheet.load30();
+
         transformer.setTraceFunctionDestination(traceDestination);
         String initialMode = options.getOptionValue("im");
         if (initialMode != null) {
@@ -1114,7 +1164,7 @@ public class Transform {
         if (now != null) {
             try {
                 DateTimeValue currentDateTime = (DateTimeValue)DateTimeValue.makeDateTimeValue(
-                        now, config.getConversionRules()).asAtomic();
+                        BMPString.of(now), config.getConversionRules()).asAtomic();
                 transformer.getUnderlyingController().setCurrentDateTime(currentDateTime);
             } catch (XPathException e) {
                 throw new SaxonApiException("Failed to set current time: " + e.getMessage(), e);
@@ -1126,6 +1176,7 @@ public class Transform {
         } else if ("off".equals(options.getOptionValue("ea"))) {
             transformer.getUnderlyingController().setAssertionsEnabled(true);
         }
+
         return transformer;
     }
 
@@ -1151,17 +1202,17 @@ public class Transform {
      *                           transformation
      */
 
-    private void processDirectory(List<Source> sources, XsltExecutable sheet, File outputDir, CommandLineOptions options)
+    private static void processDirectory(Transform t, List<Source> sources, XsltExecutable sheet, File outputDir, CommandLineOptions options)
             throws SaxonApiException {
         int failures = 0;
         for (Source source : sources) {
             String localName = getLocalFileName(source);
             try {
-                File outputFile = makeOutputFile(outputDir, localName, sheet);
-                processFile(source, sheet, outputFile, options);
+                File outputFile = t.makeOutputFile(outputDir, localName, sheet);
+                t.processFile(source, sheet, outputFile, options);
             } catch (SaxonApiException err) {
                 failures++;
-                System.err.println("While processing " + localName + ": " + err.getMessage() + '\n');
+                t.getConfiguration().getLogger().info("While processing " + localName + ": " + err.getMessage() + '\n');
             }
         }
         if (failures > 0) {
@@ -1198,17 +1249,22 @@ public class Transform {
      * @throws SaxonApiException If the transformation fails
      */
 
+    @CSharpModifiers(code={"internal"})
     protected void processFile(Source source, XsltExecutable sheet, File outputFile, CommandLineOptions options)
             throws SaxonApiException {
 
         long totalTime = 0;
         int runs = 0;
         int halfway = repeat / 2 - 1;
+        String jsonSource = options.getOptionValue("json");
+
         for (int r = 0; r < repeat; r++) {      // repeat is for internal testing/timing
             if (showTime) {
                 String msg = "Processing ";
                 if (source != null) {
                     msg += source.getSystemId();
+                } else if (jsonSource != null) {
+                    msg += "JSON from " + jsonSource;
                 } else {
                     msg += " (no source document)";
                 }
@@ -1216,11 +1272,11 @@ public class Transform {
                 if (initialMode != null) {
                     msg += " initial mode = " + initialMode;
                 }
-                String initialTemplate = options.getOptionValue("it");
-                if (initialTemplate != null) {
-                    msg += " initial template = " + (initialTemplate.isEmpty() ? "xsl:initial-template" : initialTemplate);
+                String initialTemplateOption = options.getOptionValue("it");
+                if (initialTemplateOption != null) {
+                    msg += " initial template = " + (initialTemplateOption.isEmpty() ? "xsl:initial-template" : initialTemplateOption);
                 }
-                System.err.println(msg);
+                getConfiguration().getLogger().info(msg);
             }
             long startTime = now();
             if (r == halfway) {
@@ -1232,12 +1288,14 @@ public class Transform {
             if (r < halfway) {
                 traceDestination = null;
             }
+
             Xslt30Transformer transformer = newTransformer(sheet, options);
+
             Serializer serializer;
             if (outputFile == null) {
-                transformer.setBaseOutputURI(new File(System.getProperty("user.dir")).toURI().toASCIIString());
+                transformer.setBaseOutputURI(CommandLineOptions.getCurrentWorkingDirectory().toASCIIString());
                 serializer = processor.newSerializer(System.out);
-            }else {
+            } else {
                 serializer = processor.newSerializer(outputFile);
             }
             try {
@@ -1271,30 +1329,36 @@ public class Transform {
                 }
                 if (buildSourceTree) {
                     DocumentBuilder builder = processor.newDocumentBuilder();
-                    StylesheetPackage top = pss.getTopLevelPackage();
-                    if (!top.isStripsTypeAnnotations()) {
-                        int validationMode = getConfiguration().getSchemaValidationMode();
-                        if (validationMode == Validation.STRICT) {
-                            builder.setSchemaValidator(processor.getSchemaManager().newSchemaValidator());
-                        } else if (validationMode == Validation.LAX) {
-                            SchemaValidator validator = processor.getSchemaManager().newSchemaValidator();
-                            validator.setLax(true);
-                            builder.setSchemaValidator(validator);
-                        }
-                    }
                     builder.setDTDValidation(getConfiguration().getBooleanProperty(Feature.DTD_VALIDATION));
                     builder.setWhitespaceStrippingPolicy(sheet.getWhitespaceStrippingPolicy());
                     if (getConfiguration().getBooleanProperty(Feature.DTD_VALIDATION_RECOVERABLE)) {
                         source = new AugmentedSource(source, getConfiguration().getParseOptions());
                     }
+                    StylesheetPackage top = pss.getTopLevelPackage();
                     if (top.isStripsTypeAnnotations()) {
-                        source = AugmentedSource.makeAugmentedSource(source);
-                        ((AugmentedSource)source).getParseOptions().addFilter(
+                        ParseOptions opt = source instanceof AugmentedSource ? ((AugmentedSource)source).getParseOptions() : new ParseOptions();
+                        opt = opt.withFilter(
                                 receiver -> getConfiguration().getAnnotationStripper(receiver));
+                        source = AugmentedSource.makeAugmentedSource(source);
+                        ((AugmentedSource)source).setParseOptions(opt);
                     }
                     XdmNode node = builder.build(source);
                     transformer.setGlobalContextItem(node, true);
-                    source = node.asSource();
+                    source = xdmNodeAsSource(node);
+                }
+            }
+
+            XdmItem jsonContextItem = null;
+            if (jsonSource != null) {
+                try {
+                    Reader jsonReader = new BufferedReader(
+                            new InputStreamReader(new FileInputStream(jsonSource), StandardCharsets.UTF_8));
+                    XdmValue jsonTree = Query.parseJson(processor, jsonReader);
+                    if (!jsonTree.isEmpty()) {
+                        transformer.setGlobalContextItem(jsonContextItem = jsonTree.itemAt(0));
+                    }
+                } catch (IOException e) {
+                    throw new SaxonApiException("Cannot read JSON input: " + e.getMessage());
                 }
             }
 
@@ -1313,6 +1377,13 @@ public class Transform {
                     XdmValue result = transformer.callTemplate(initialTemplateName);
                     serializer.serializeXdmValue(result);
                 }
+            } else if (jsonContextItem != null) {
+                if (buildResultTree) {
+                    transformer.applyTemplates(jsonContextItem, serializer);
+                } else {
+                    XdmValue result = transformer.applyTemplates(jsonContextItem);
+                    serializer.serializeXdmValue(result);
+                }
             } else {
                 if (buildResultTree) {
                     transformer.applyTemplates(source, serializer);
@@ -1325,15 +1396,17 @@ public class Transform {
             long endTime = now();
             totalTime += endTime - startTime;
             if (showTime) {
-                System.err.println("Execution time: " + CommandLineOptions.showExecutionTimeNano(endTime - startTime));
-                CommandLineOptions.showMemoryUsed();
+                getConfiguration().getLogger().info("Execution time: " + Timer.showExecutionTimeNano(endTime - startTime));
+                getConfiguration().getLogger().info(Timer.showMemoryUsed());
                 if (repeat > 1) {
-                    System.err.println("-------------------------------");
+                    getConfiguration().getLogger().info("-------------------------------");
                     Runtime.getRuntime().gc();
                 }
                 if (Instrumentation.ACTIVE) {
+                    CSharp.emitCode("#pragma warning disable 0162");  // Get rid of "unreachable code" warnings
                     Instrumentation.report();
                     Instrumentation.reset();
+                    CSharp.emitCode("#pragma warning restore 0162");
                 }
             }
             if (repeat == 999999 && totalTime > 60000) {
@@ -1341,9 +1414,14 @@ public class Transform {
             }
         }
         if (repeat > 1) {
-            System.err.println("*** Average execution time over last " + runs + " runs: " +
-                                       CommandLineOptions.showExecutionTimeNano(totalTime / runs));
+            getConfiguration().getLogger().info("*** Average execution time over last " + runs + " runs: " +
+                                       Timer.showExecutionTimeNano(totalTime / runs));
         }
+    }
+
+    @CSharpReplaceBody(code="return node.Implementation.asActiveSource();")
+    private Source xdmNodeAsSource(XdmNode node) {
+        return node.asSource();
     }
 
 
@@ -1353,23 +1431,24 @@ public class Transform {
      * @param message The error message
      */
     protected void badUsage(String message) {
+        Logger logger = getConfiguration().getLogger();
         if (!"".equals(message)) {
-            System.err.println(message);
+            logger.error(message);
         }
         if (!showTime) {
-            System.err.println(getConfiguration().getProductTitle());
+            logger.info(getConfiguration().getProductTitle());
         }
-        System.err.println("Usage: see http://www.saxonica.com/documentation/index.html#!using-xsl/commandline");
-        System.err.println("Format: " + CommandLineOptions.getCommandName(this) + " options params");
+        logger.info("Usage: see http://www.saxonica.com/documentation/index.html#!using-xsl/commandline");
+        logger.info("Format: " + CommandLineOptions.getCommandName(this) + " options params");
         CommandLineOptions options = new CommandLineOptions();
         setPermittedOptions(options);
-        System.err.println("Options available:" + options.displayPermittedOptions());
-        System.err.println("Use -XYZ:? for details of option XYZ");
-        System.err.println("Params: ");
-        System.err.println("  param=value           Set stylesheet string parameter");
-        System.err.println("  +param=filename       Set stylesheet document parameter");
-        System.err.println("  ?param=expression     Set stylesheet parameter using XPath");
-        System.err.println("  !param=value          Set serialization parameter");
+        logger.info("Options available:" + options.displayPermittedOptions());
+        logger.info("Use -XYZ:? for details of option XYZ");
+        logger.info("Params: ");
+        logger.info("  param=value           Set stylesheet string parameter");
+        logger.info("  +param=filename       Set stylesheet document parameter");
+        logger.info("  ?param=expression     Set stylesheet parameter using XPath");
+        logger.info("  !param=value          Set serialization parameter");
         if (allowExit) {
             if ("".equals(message)) {
                 System.exit(0);
@@ -1382,13 +1461,6 @@ public class Transform {
     }
 
 
-    private String getCommandName() {
-        String s = getClass().getName();
-        if (s.equals("cli.Saxon.Cmd.DotNetTransform")) {
-            s = "Transform";
-        }
-        return s;
-    }
 
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,10 @@
 package net.sf.saxon.event;
 
 import net.sf.saxon.om.AttributeMap;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.NamespaceMap;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeName;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 
@@ -25,8 +26,8 @@ import net.sf.saxon.type.SchemaType;
 public class Valve extends ProxyReceiver {
 
     private boolean started = false;
-    private String testNamespace;
-    private Receiver alternativeReceiver;
+    private final NamespaceUri testNamespace;
+    private final Receiver alternativeReceiver;
 
     /**
      * Create a {@code Valve}. Events sent to this {@code Valve} will be forwarded
@@ -37,7 +38,7 @@ public class Valve extends ProxyReceiver {
      * @param secondary the secondary Receiver
      */
 
-    public Valve(String testNamespace, Receiver primary, Receiver secondary) {
+    public Valve(NamespaceUri testNamespace, Receiver primary, Receiver secondary) {
         super(primary);
         this.testNamespace = testNamespace;
         this.alternativeReceiver = secondary;
@@ -49,7 +50,7 @@ public class Valve extends ProxyReceiver {
                              Location location, int properties) throws XPathException {
         if (!started) {
             started = true;
-            if (elemName.getURI().equals(testNamespace)) {
+            if (elemName.getNamespaceUri().equals(testNamespace)) {
                 alternativeReceiver.open();
                 alternativeReceiver.startDocument(ReceiverOption.NONE);
                 try {

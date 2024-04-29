@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,15 @@ package net.sf.saxon.sapling;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.*;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.ma.trie.ImmutableList;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.TreeModel;
+import net.sf.saxon.lib.ActiveSource;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
 import net.sf.saxon.type.Type;
 
 import javax.xml.transform.Source;
@@ -34,17 +37,37 @@ import javax.xml.transform.Source;
  * stated to the contrary.</p>
  */
 
-public class SaplingDocument extends SaplingNode implements Source {
+@CSharpInjectMembers(code={
+          "public Saxon.Api.XdmNode ToXdmNode(Saxon.Api.Processor processor) {"
+        + "            try {"
+        + "                return (Saxon.Api.XdmNode)(Saxon.Api.XdmValue.Wrap(toNodeInfo(processor.Implementation)));"
+        + "            } catch (Saxon.Hej.trans.XPathException e) {"
+        + "                throw new Saxon.Api.SaxonApiException(e);"
+        + "            }"
+        + "        }",
+          "        public void Serialize(Saxon.Api.Serializer serializer) {"
+        + "            Saxon.Api.Processor proc = serializer.Processor;"
+        + "            Send(proc, serializer);"
+        + "        }\n",
+          "        public void Send(Saxon.Api.Processor processor, Saxon.Api.IDestination destination) {"
+        + "            try {"
+        + "                Saxon.Hej.@event.PipelineConfiguration pipe = processor.Implementation.makePipelineConfiguration();"
+        + "                deliver(destination.GetUnderlyingDestination().getReceiver(pipe, new Saxon.Hej.serialize.SerializationProperties()), null);"
+        + "            } catch (Saxon.Hej.trans.XPathException e) {"
+        + "                throw new Saxon.Api.SaxonApiException(e);"
+        + "            }"
+        + "        }"})
+public class SaplingDocument extends SaplingNode implements ActiveSource {
 
     private String baseUri;
-    private ImmutableList<SaplingNode> reversedChildren = ImmutableList.empty();
+    private ImmutableList<SaplingNode> reversedChildren;
 
     /**
      * Create a sapling document node with no children and no base URI
      */
 
     public SaplingDocument() {
-
+        this.reversedChildren = emptyNodeList();
     }
 
     /**
@@ -53,6 +76,7 @@ public class SaplingDocument extends SaplingNode implements Source {
      */
 
     public SaplingDocument(String baseUri) {
+        this.reversedChildren = emptyNodeList();
         this.baseUri = baseUri;
     }
 
@@ -120,14 +144,14 @@ public class SaplingDocument extends SaplingNode implements Source {
     }
 
     @Override
-    public void sendTo(Receiver receiver) throws XPathException {
+    public void deliver(Receiver receiver, ParseOptions options) throws XPathException {
         receiver = new NamespaceReducer(receiver);
         receiver.open();
         receiver.setSystemId(baseUri);
         receiver.startDocument(ReceiverOption.NONE);
         ImmutableList<SaplingNode> children = reversedChildren.reverse();
         for (SaplingNode node : children) {
-            node.sendTo(receiver);
+            node.deliver(receiver, options);
         }
         receiver.endDocument();
         receiver.close();
@@ -147,11 +171,10 @@ public class SaplingDocument extends SaplingNode implements Source {
         TreeModel treeModel = config.getParseOptions().getModel();
         Builder builder = treeModel.makeBuilder(pipe);
         builder.open();
-        sendTo(builder);
+        deliver(builder, config.getParseOptions());
         builder.close();
         return builder.getCurrentRoot();
     }
-
     /**
      * Convert the sapling document to a regular document, returning the {@link XdmNode} object
      * representing the document node of the resulting tree
@@ -192,11 +215,12 @@ public class SaplingDocument extends SaplingNode implements Source {
     public void send(Processor processor, Destination destination) throws SaxonApiException {
         try {
             PipelineConfiguration pipe = processor.getUnderlyingConfiguration().makePipelineConfiguration();
-            sendTo(destination.getReceiver(pipe, new SerializationProperties()));
+            deliver(destination.getReceiver(pipe, new SerializationProperties()), null);
         } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
     }
+
 
 }
 

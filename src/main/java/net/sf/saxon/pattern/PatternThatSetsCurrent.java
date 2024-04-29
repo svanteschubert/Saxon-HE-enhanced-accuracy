@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -28,7 +28,7 @@ import net.sf.saxon.value.SequenceType;
  */
 public class PatternThatSetsCurrent extends Pattern {
 
-    private LocalVariableBinding binding;
+    private final LocalVariableBinding binding;
     private Pattern wrappedPattern;
 
     public PatternThatSetsCurrent(Pattern wrappedPattern) {
@@ -91,7 +91,7 @@ public class PatternThatSetsCurrent extends Pattern {
      */
     @Override
     public int allocateSlots(SlotManager slotManager, int nextFree) {
-        slotManager.allocateSlotNumber(Current.FN_CURRENT);
+        slotManager.allocateSlotNumber(Current.FN_CURRENT, null);
         binding.setSlotNumber(nextFree++);
         return wrappedPattern.allocateSlots(slotManager, nextFree);
     }

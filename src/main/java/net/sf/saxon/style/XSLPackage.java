@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,6 @@
 
 package net.sf.saxon.style;
 
-import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.packages.VersionedPackageName;
@@ -30,7 +29,7 @@ public class XSLPackage extends XSLModuleRoot {
 
     /**
      * Initialise a new ElementImpl with an element name
-     *  @param elemName       Integer representing the element name, with namespaces resolved
+     * @param elemName       Integer representing the element name, with namespaces resolved
      * @param elementType    the schema type of the element node
      * @param atts           The attribute list: always null
      * @param parent         The parent node
@@ -39,7 +38,7 @@ public class XSLPackage extends XSLModuleRoot {
     @Override
     public void initialise(NodeName elemName, SchemaType elementType, AttributeMap atts, NodeInfo parent, int sequenceNumber) {
         super.initialise(elemName, elementType, atts, parent, sequenceNumber);
-        processDefaultCollationAttribute();
+        processDefaultCollationAttribute();    // Bug #5636
         declaredModes = getLocalPart().equals("package");
     }
 
@@ -104,7 +103,7 @@ public class XSLPackage extends XSLModuleRoot {
                 // no action
             } else if (lexicalName.equals("version")) {
                 if (version == -1) {
-                    processVersionAttribute("");
+                    processVersionAttribute(NamespaceUri.NULL);
                 }
             } else if (lexicalName.equals("package-version") && getLocalPart().equals("package")) {
                 packageVersionAtt = Whitespace.trim(value);
@@ -125,7 +124,7 @@ public class XSLPackage extends XSLModuleRoot {
             try {
                 packageVersion = new PackageVersion(packageVersionAtt);
             } catch (XPathException ex) {
-                compileErrorInAttribute(ex.getMessage(), ex.getErrorCodeLocalPart(), "package-version");
+                compileErrorInAttribute(ex, "package-version");
             }
         }
 
@@ -185,11 +184,11 @@ public class XSLPackage extends XSLModuleRoot {
                 if (getLocalPart().equals("package") &&
                         (fp == StandardNames.XSL_USE_PACKAGE || fp == StandardNames.XSL_EXPOSE)) {
                     // all is well
-                } else if (!NamespaceConstant.XSLT.equals(child.getURI()) && !"".equals(child.getURI())) {
+                } else if (!((StyleElement) child).isInXsltNamespace() && !"".equals(child.getNamespaceUri())) {
                     // elements in other namespaces are allowed and ignored
                 } else if (child instanceof AbsentExtensionElement && ((StyleElement) child).forwardsCompatibleModeIsEnabled()) {
                     // this is OK: an unknown XSLT element is allowed in forwards compatibility mode
-                } else if (NamespaceConstant.XSLT.equals(child.getURI())) {
+                } else if (((StyleElement) child).isInXsltNamespace()) {
                     if (child instanceof AbsentExtensionElement) {
                         // then the error will be reported later
                     } else {

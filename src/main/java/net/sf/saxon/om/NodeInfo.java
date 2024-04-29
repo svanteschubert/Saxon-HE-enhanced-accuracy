@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,22 +10,22 @@ package net.sf.saxon.om;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
+import net.sf.saxon.event.Sender;
 import net.sf.saxon.expr.parser.Loc;
+import net.sf.saxon.lib.ActiveSource;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.*;
 import org.xml.sax.Locator;
 
-import javax.xml.transform.Source;
 import javax.xml.transform.SourceLocator;
-import java.util.Collections;
-import java.util.function.Predicate;
 
 /**
  * The NodeInfo interface represents a node in Saxon's implementation of the XPath 2.0 data model.
@@ -56,7 +56,11 @@ import java.util.function.Predicate;
  * a new implementation of this interface.
  */
 
-public interface NodeInfo extends Source, Item, Location {
+public interface NodeInfo extends Item, Location
+    // On SaxonCS, NodeInfo doesn't implement Source because of multiple-inheritance problems
+    // Instead, use the asActiveSource() method to get a Source (this also works on Java)
+    , ActiveSource
+{
 
     /**
      * Get information about the tree to which this NodeInfo belongs
@@ -160,7 +164,6 @@ public interface NodeInfo extends Source, Item, Location {
     /*@Nullable*/
     @Override
     String getSystemId();
-
     /**
      * Get the Public ID of the entity containing the node. This method
      * is provided largely so that NodeInfo can act as a {@link Locator}
@@ -258,23 +261,6 @@ public interface NodeInfo extends Source, Item, Location {
     int compareOrder(NodeInfo other);
 
     /**
-     * Return the string value of the node as defined in the XPath data model.
-     * <p>The interpretation of this depends on the type
-     * of node. For an element it is the accumulated character content of the element,
-     * including descendant elements.</p>
-     * <p>This method returns the string value as if the node were untyped. Unlike the string value
-     * accessor in the XPath 2.0 data model, it does not report an error if the element has a complex
-     * type, instead it returns the concatenation of the descendant text nodes as it would if the element
-     * were untyped.</p>
-     *
-     * @return the string value of the node
-     * @since 8.4
-     */
-
-    @Override
-    String getStringValue();
-
-    /**
      * Ask whether this NodeInfo implementation holds a fingerprint identifying the name of the
      * node in the NamePool. If the answer is true, then the {@link #getFingerprint} method must
      * return the fingerprint of the node. If the answer is false, then the {@link #getFingerprint}
@@ -320,11 +306,26 @@ public interface NodeInfo extends Source, Item, Location {
      *
      * @return The URI of the namespace of this node. For an unnamed node,
      *         or for an element or attribute that is not in a namespace, or for a processing
-     *         instruction, returns an empty string.
-     * @since 8.4
+     *         instruction, returns {@link NamespaceUri#NULL}.
+     * @since 12.0; replaces getURI() which returned a string.
      */
 
-    String getURI();
+    NamespaceUri getNamespaceUri();
+
+    /**
+     * Get the URI part of the name of this node, as a string. This is the URI corresponding to the
+     * prefix, or the URI of the default namespace if appropriate.
+     *
+     * <p>This method is retained for backwards compatibility, but {@link #getNamespaceUri()} is preferred.</p>
+     *
+     * @return The URI of the namespace of this node, as a string. For an unnamed node,
+     * or for an element or attribute that is not in a namespace, or for a processing
+     * instruction, returns an empty string.
+     */
+
+    default String getURI() {
+        return getNamespaceUri().toString();
+    }
 
     /**
      * Get the display name of this node, in the form of a lexical QName.
@@ -376,19 +377,6 @@ public interface NodeInfo extends Source, Item, Location {
     }
 
     /**
-     * Bit setting in the returned type annotation indicating a DTD_derived type on an attribute node
-     */
-
-    int IS_DTD_TYPE = 1 << 30;
-
-    /**
-     * Bit setting for use alongside a type annotation indicating that the is-nilled property is set
-     */
-
-    int IS_NILLED = 1 << 29;
-
-
-    /**
      * Get the typed value. This will either be a single AtomicValue or a value whose items are
      * atomic values.
      * @return the typed value of the node
@@ -429,14 +417,13 @@ public interface NodeInfo extends Source, Item, Location {
         return iterateAxis(axisNumber, AnyNodeTest.getInstance());
     }
 
-
     /**
      * Return an iteration over all the nodes reached by the given axis from this node
      * that match a given NodeTest
      *
      * @param axisNumber an integer identifying the axis; one of the constants
      *                   defined in class {@link AxisInfo}
-     * @param nodeTest   A condition to be satisfied by the returned nodes; nodes
+     * @param predicate  A condition to be satisfied by the returned nodes; nodes
      *                   that do not satisfy this condition are not included in the result
      * @return an AxisIterator that delivers the nodes reached by the axis in
      *         turn.  The nodes are returned in axis order (document order for a forwards
@@ -445,24 +432,42 @@ public interface NodeInfo extends Source, Item, Location {
      *                                       requested and this axis is not supported for this implementation.
      * @see AxisInfo
      * @since 8.4. Changed in 10.0 to accept any {@code Predicate<NodeInfo>} as the second argument. It is still
-     * possible to supply an {@link NodeTest}, because {@code NodeTest} implements {@code Predicate<NodeInfo>}.
+     * possible to supply a {@link NodeTest}, because {@code NodeTest} implements {@code Predicate<NodeInfo>}.
      */
+     AxisIterator iterateAxis(int axisNumber, NodePredicate predicate);
 
-    AxisIterator iterateAxis(int axisNumber, Predicate<? super NodeInfo> nodeTest);
 
     /**
      * Get the string value of a given attribute of this node
      *
-     * @param uri   the namespace URI of the attribute name. Supply the empty string for an attribute
+     * @param uri   the namespace URI of the attribute name. Supply {@link NamespaceUri#NULL} for an attribute
      *              that is in no namespace
      * @param local the local part of the attribute name.
      * @return the attribute value if it exists, or null if it does not exist. Always returns null
      *         if this node is not an element.
+     * @since 12.0
+     */
+
+    /*@Nullable*/
+    String getAttributeValue(NamespaceUri uri, String local);
+
+    /**
+     * Get the string value of a given attribute of this node
+     *
+     * <p>This method is retained for compatibility, but {@link #getAttributeValue(NamespaceUri, String)} is preferred.</p>
+     *
+     * @param uri   the namespace URI of the attribute name, as a string. Supply the empty string for an attribute
+     *              that is in no namespace
+     * @param local the local part of the attribute name.
+     * @return the attribute value if it exists, or null if it does not exist. Always returns null
+     * if this node is not an element.
      * @since 9.4
      */
 
     /*@Nullable*/
-    String getAttributeValue(/*@NotNull*/ String uri, /*@NotNull*/ String local);
+    default String getAttributeValue(String uri, String local) {
+        return getAttributeValue(uri.isEmpty() ? NamespaceUri.NULL : NamespaceUri.of(uri), local);
+    }
 
     /**
      * Get the root node of the tree containing this node
@@ -494,30 +499,12 @@ public interface NodeInfo extends Source, Item, Location {
      */
 
     default Iterable<? extends NodeInfo> children() {
-        if (hasChildNodes()) {
-            NodeInfo parent = this;
-            return () -> parent.iterateAxis(AxisInfo.CHILD).asIterator();
-        } else {
-            return Collections.emptyList();
-        }
+        return new Navigator.ChildrenAsIterable(this);
     }
 
-    /**
-     * Return the sequence of children of this node, filtered by a supplied predicate,
-     * as an {@code Iterable}.
-     * @param filter a condition that the selected children must satisfy
-     * @return the children of the node, as an {@code Iterable}.
-     */
-
-    default Iterable<? extends NodeInfo> children(Predicate<? super NodeInfo> filter) {
-        if (hasChildNodes()) {
-            NodeInfo parent = this;
-            return () -> parent.iterateAxis(AxisInfo.CHILD, filter).asIterator();
-        } else {
-            return Collections.emptyList();
-        }
+    default Iterable<? extends NodeInfo> children(NodePredicate filter) {
+        return new Navigator.ChildrenAsIterable(this, filter);
     }
-
 
     default AttributeMap attributes() {
         AttributeMap atts = EmptyAttributeMap.getInstance();
@@ -544,7 +531,7 @@ public interface NodeInfo extends Source, Item, Location {
      *        <p>Changed in Saxon 8.7 to generate the ID value in a client-supplied buffer</p>
      */
 
-    void generateId(FastStringBuffer buffer);
+    void generateId(StringBuilder buffer);
 
     /**
      * Copy this node to a given Receiver.
@@ -558,7 +545,7 @@ public interface NodeInfo extends Source, Item, Location {
      *                    (or that it is self-opening), and that it is closed after use.
      * @param copyOptions a selection of the options defined in {@link CopyOptions}
      * @param locationId  If non-null, identifies the location of the instruction
-     *                    that requested this copy. If zero, indicates that the location information
+     *                    that requested this copy. If null, indicates that the location information
      *                    is not available
      * @throws XPathException if any downstream error occurs
      * @throws IllegalArgumentException if the node is an attribute or namespace node
@@ -568,6 +555,29 @@ public interface NodeInfo extends Source, Item, Location {
         Navigator.copy(this, out, copyOptions, locationId);
     }
 
+
+    /**
+     * Implement the {@link ActiveSource} interface by delivering the document to a
+     * {@link Receiver}
+     *
+     * @throws XPathException if the receiver reports a failure, for example a validation failure
+     */
+    @Override
+    default void deliver(Receiver receiver, ParseOptions options) throws XPathException {
+        Sender.sendDocumentInfo(this, receiver, new Loc(getSystemId(), -1, -1));
+    }
+
+    /**
+     * Obtain an {@link ActiveSource} object that allows the node to be used as input
+     * to any method that expects a {@code Source}
+     * @return an {@code ActiveSource} object representing this node
+     */
+
+    default ActiveSource asActiveSource() {
+        return new NodeSource(this);
+    }
+
+    void setSystemId(String systemId);
 
     /**
      * Get all namespace declarations and undeclarations defined on this element.
@@ -678,14 +688,14 @@ public interface NodeInfo extends Source, Item, Location {
             case Type.ATTRIBUTE:
                 return "@" + getDisplayName();
             case Type.TEXT:
-                return "text(\"" + Err.truncate30(getStringValue()) + "\")";
+                return "text(\"" + Err.truncate30(getUnicodeStringValue()) + "\")";
             case Type.COMMENT:
-                return "<!--" + Err.truncate30(getStringValue()) + "-->";
+                return "<!--" + Err.truncate30(getUnicodeStringValue()) + "-->";
             case Type.PROCESSING_INSTRUCTION:
                 return "<?" + getDisplayName() + "?>";
             case Type.NAMESPACE:
                 String prefix = getLocalPart();
-                return "xmlns" + (prefix.equals("") ? "" : ":" + prefix) + "=\"" + getStringValue() + '"';
+                return "xmlns" + (prefix.equals("") ? "" : ":" + prefix) + "=\"" + getUnicodeStringValue() + '"';
             default:
                 return "";
         }

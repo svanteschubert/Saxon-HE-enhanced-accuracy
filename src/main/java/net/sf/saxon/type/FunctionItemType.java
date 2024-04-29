@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,10 +14,10 @@ import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.function.Supplier;
+
 /**
- * Higher-order functions in XPath 3.0 introduce a third kind of Item, namely a Function Item.
- * This type is represented here by a placeholder interfaces. The implementation of this type
- * is found only in Saxon-EE
+ * An ItemType representing the type of a function item (subclasses are used for maps and arrays)
  */
 
 public interface FunctionItemType extends ItemType {
@@ -53,7 +53,8 @@ public interface FunctionItemType extends ItemType {
     /**
      * Determine the relationship of one function item type to another. This method is only concerned
      * with the type signatures of the two function item types, and not with their annotation assertions.
-     *
+     * @param other the other function item type
+     * @param th the type hierarchy cache
      * @return for example {@link Affinity#SUBSUMES}, {@link Affinity#SAME_TYPE}
      */
 
@@ -71,10 +72,12 @@ public interface FunctionItemType extends ItemType {
      *
      * @param exp     the expression that delivers the supplied sequence of function items (the ones in need of coercion)
      * @param role    information for use in diagnostics
+     * @param allow40 true if 4.0 coercions are allowed, such as reducing the arity of the function
      * @return the coerced function, a function that calls the original function after checking the parameters
+     * @throws XPathException if an error is detected
      */
 
-    Expression makeFunctionSequenceCoercer(Expression exp, RoleDiagnostic role)
+    Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40)
             throws XPathException;
 
     /**

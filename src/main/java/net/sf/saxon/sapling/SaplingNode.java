@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,14 @@
 package net.sf.saxon.sapling;
 
 import net.sf.saxon.event.Receiver;
+import net.sf.saxon.lib.ParseOptions;
+import net.sf.saxon.ma.trie.ImmutableList;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.s9api.SchemaValidator;
 import net.sf.saxon.s9api.Serializer;
 import net.sf.saxon.s9api.XdmNode;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.Type;
 
 import javax.xml.transform.Source;
@@ -63,6 +66,11 @@ import javax.xml.transform.Source;
 
 public abstract class SaplingNode {
 
+    @CSharpReplaceBody(code="return System.Collections.Immutable.ImmutableList<Saxon.Hej.sapling.SaplingNode>.Empty;")
+    protected ImmutableList<SaplingNode> emptyNodeList() {
+        return ImmutableList.empty();
+    }
+
     /**
      * Get the kind of node (document, element, text, comment, or processing instruction)
      * @return the kind of node, for example {@link Type#ELEMENT} for an element node.
@@ -73,10 +81,11 @@ public abstract class SaplingNode {
     /**
      * Send a sequence of events representing this node to a supplied Receiver
      * @param receiver the receiver to which the events are to be sent
+     * @param options parse options (currently ignored)
      * @throws XPathException if the receiver throws an exception
      */
 
-    protected abstract void sendTo(Receiver receiver) throws XPathException;
+    public abstract void deliver(Receiver receiver, ParseOptions options) throws XPathException;
 
 }
 

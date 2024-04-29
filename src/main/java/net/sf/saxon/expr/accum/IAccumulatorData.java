@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,6 +32,7 @@ public interface IAccumulatorData {
      * @param postDescent false if the pre-descent value of the accumulator is required;
      *                    false if the post-descent value is wanted.
      * @return the value of the accumulator for this node
+     * @throws XPathException if any error occurs
      */
 
     Sequence getValue(NodeInfo node, boolean postDescent) throws XPathException;

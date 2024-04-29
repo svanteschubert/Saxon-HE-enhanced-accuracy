@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,14 @@
 
 package net.sf.saxon.lib;
 
+import net.sf.saxon.functions.AccessorFn;
+import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.value.DayTimeDurationValue;
+import net.sf.saxon.value.NumericValue;
+
 import javax.xml.transform.stream.StreamResult;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.PrintStream;
+import java.io.*;
+import java.math.BigDecimal;
 
 /**
  * The default Logger used by Saxon on the Java platform. All messages are written by default
@@ -19,7 +23,7 @@ import java.io.PrintStream;
  */
 public class StandardLogger extends Logger {
 
-    private PrintStream out = System.err;
+    private PrintWriter writer = new PrintWriter(System.err);
     private int threshold = Logger.INFO;
     private boolean mustClose = false;
 
@@ -42,6 +46,17 @@ public class StandardLogger extends Logger {
     }
 
     /**
+     * Create a Logger that wraps the specified writer. Closing the Logger will
+     * not close the underlying stream; this remains the caller's responsibility
+     *
+     * @param writer the writer to which the Logger's output should be written
+     */
+
+    public StandardLogger(Writer writer) {
+        setPrintWriter(new PrintWriter(writer));
+    }
+
+    /**
      * Create a Logger that writes to a specified file
      *
      * @param fileName the file to which output should be written. When the logger is closed,
@@ -54,6 +69,7 @@ public class StandardLogger extends Logger {
         mustClose = true;
     }
 
+
     /**
      * Set the output destination for messages
      *
@@ -63,7 +79,19 @@ public class StandardLogger extends Logger {
      */
 
     public void setPrintStream(PrintStream stream) {
-        out = stream;
+        this.writer = new PrintWriter(stream);
+    }
+
+    /**
+     * Set the output destination for messages
+     *
+     * @param writer the stream to which messages will be written. Defaults to System.err. The caller
+     *               is responsible for closing the stream after use (it will not be closed by the
+     *               close() method on the Logger)
+     */
+
+    public void setPrintWriter(PrintWriter writer) {
+        this.writer = writer;
     }
 
     /**
@@ -72,8 +100,8 @@ public class StandardLogger extends Logger {
      * @return the stream to which messages are written
      */
 
-    public PrintStream getPrintStream() {
-        return out;
+    public PrintWriter getPrintWriter() {
+        return writer;
     }
 
     /**
@@ -99,14 +127,16 @@ public class StandardLogger extends Logger {
     }
 
     /**
-     * Get a JAXP Result object allowing serialized XML to be written to this Logger
+     * Get a JAXP Result object allowing serialized XML to be written to
+     * the output destination of this Logger
      *
      * @return a Result that serializes XML to this Logger
      */
     @Override
     public StreamResult asStreamResult() {
-        return new StreamResult(out);
+        return new StreamResult(writer);
     }
+
 
     /**
      * Output a message with a specified severity.
@@ -119,7 +149,8 @@ public class StandardLogger extends Logger {
     @Override
     public void println(String message, int severity) {
         if (severity >= threshold) {
-            out.println(message);
+            writer.write(message + "\n");
+            writer.flush();
         }
     }
 
@@ -129,7 +160,7 @@ public class StandardLogger extends Logger {
     @Override
     public void close() {
         if (mustClose) {
-            out.close();
+            writer.close();
         }
     }
 }

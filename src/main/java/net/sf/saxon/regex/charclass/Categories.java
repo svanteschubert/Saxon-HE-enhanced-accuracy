@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,12 @@
 package net.sf.saxon.regex.charclass;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.Version;
 import net.sf.saxon.event.Builder;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.AxisInfo;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.pattern.NameTest;
 import net.sf.saxon.pattern.NodeKindTest;
@@ -27,13 +29,14 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.IntPredicate;
 
 /**
- * Data for Regular expression character categories. The data is in an XML file derived from the Unicode
+ * Singleton class holding data for Regular expression character categories.
+ * <p>The data is read from an XML file derived from the Unicode
  * database (In Saxon 9.6, this is based on Unicode 6.2.0). Since Saxon 9.4,
  * we no longer make use of Java's support for character categories since there are too many differences
- * from Unicode.
+ * from Unicode.</p>
+ * <p>Some commonly used categories are hard-coded and made available as static constants.</p>
  */
 public class Categories {
 
@@ -45,10 +48,10 @@ public class Categories {
 
     public static class Category implements CharacterClass {
 
-        private String label;
-        private IntPredicate predicate;
+        private final String label;
+        private final IntPredicateProxy predicate;
 
-        public Category(String label, java.util.function.IntPredicate predicate) {
+        public Category(String label, IntPredicateProxy predicate) {
             this.label = label;
             this.predicate = predicate;
         }
@@ -94,7 +97,7 @@ public class Categories {
             return extent(predicate);
         }
 
-        private static IntSet extent(IntPredicate predicate) {
+        private static IntSet extent(IntPredicateProxy predicate) {
             if (predicate instanceof IntSetPredicate) {
                 return ((IntSetPredicate) predicate).getIntSet();
             }
@@ -103,22 +106,36 @@ public class Categories {
     }
 
 
-    private static HashMap<String, Category> CATEGORIES = null;
+    private final HashMap<String, Category> CATEGORIES = new HashMap<>(30);
 
-    static void build() {
+    private Categories() {
+        build();
+    }
 
-        CATEGORIES = new HashMap<>(30);
+    private static class Holder {
+        // See https://en.wikipedia.org/wiki/Initialization-on-demand_holder_idiom
+        // The idea here is that the initialization occurs the first time getInstance() is called,
+        // and it is automatically synchronized by virtue of the Java class loading rules.
+        public static final Categories INSTANCE = new Categories();
+    }
 
-        InputStream in = Configuration.locateResource("categories.xml", new ArrayList<>(), new ArrayList<>());
+    private static Categories getInstance() {
+        return Holder.INSTANCE;
+    }
+
+    private void build() {
+
+        InputStream in = Version.platform.locateResource("categories.xml", new ArrayList<>());
         if (in == null) {
             throw new RuntimeException("Unable to read categories.xml file");
         }
 
         Configuration config = new Configuration();
-        ParseOptions options = new ParseOptions();
-        options.setSchemaValidationMode(Validation.SKIP);
-        options.setDTDValidationMode(Validation.SKIP);
-        options.setTreeModel(Builder.TINY_TREE);
+        ParseOptions options = new ParseOptions()
+                .withSchemaValidationMode(Validation.SKIP)
+                .withDTDValidationMode(Validation.SKIP)
+                .withTreeModel(Builder.TINY_TREE)
+                .withPleaseCloseAfterUse(true);
         NodeInfo doc;
         try {
             doc = config.buildDocumentTree(new StreamSource(in, "categories.xml"), options).getRootNode();
@@ -126,29 +143,29 @@ public class Categories {
             throw new RuntimeException("Failed to build categories.xml", e);
         }
 
-        int fp_name = config.getNamePool().allocateFingerprint("", "name");
-        int fp_f = config.getNamePool().allocateFingerprint("", "f");
-        int fp_t = config.getNamePool().allocateFingerprint("", "t");
+        int fp_name = config.getNamePool().allocateFingerprint(NamespaceUri.NULL, "name");
+        int fp_f = config.getNamePool().allocateFingerprint(NamespaceUri.NULL, "f");
+        int fp_t = config.getNamePool().allocateFingerprint(NamespaceUri.NULL, "t");
 
-        AxisIterator iter = doc.iterateAxis(AxisInfo.DESCENDANT, new NameTest(Type.ELEMENT, "", "cat", config.getNamePool()));
-        iter.forEach(item -> {
+        AxisIterator iter = doc.iterateAxis(AxisInfo.DESCENDANT, new NameTest(Type.ELEMENT, NamespaceUri.NULL, "cat", config.getNamePool()));
+        for (NodeInfo item; (item = iter.next()) != null; ) {
             String cat = ((TinyElementImpl)item).getAttributeValue(fp_name);
             IntRangeSet irs = new IntRangeSet();
-            for (NodeInfo r : ((NodeInfo)item).children(NodeKindTest.ELEMENT)) {
+            for (NodeInfo r : item.children(NodeKindTest.ELEMENT)) {
                 String from = ((TinyElementImpl)r).getAttributeValue(fp_f);
                 String to = ((TinyElementImpl) r).getAttributeValue(fp_t);
                 irs.addRange(Integer.parseInt(from, 16), Integer.parseInt(to, 16));
             }
             CATEGORIES.put(cat, new Category(cat, new IntSetPredicate(irs)));
-        });
+        }
 
         String c = "CLMNPSZ";
         for (int i = 0; i < c.length(); i++) {
             char ch = c.charAt(i);
-            IntPredicate ip = null;
+            IntPredicateProxy ip = null;
             for (Map.Entry<String, Category> entry : CATEGORIES.entrySet()) {
                 if (entry.getKey().charAt(0) == ch) {
-                    ip = ip == null ? entry.getValue() : ip.or(entry.getValue());
+                    ip = ip == null ? entry.getValue() : IntUnionPredicate.makeUnion(ip, entry.getValue());
                 }
             }
             String label = ch + "";
@@ -193,10 +210,7 @@ public class Categories {
      */
 
     public synchronized static Category getCategory(String cat) {
-        if (CATEGORIES == null) {
-            build();
-        }
-        return CATEGORIES.get(cat);
+        return getInstance().CATEGORIES.get(cat);
     }
 
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,14 +10,15 @@ package net.sf.saxon.type;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.NameChecker;
 import net.sf.saxon.om.NamespaceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.QNameException;
+import net.sf.saxon.regex.ARegularExpression;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.*;
-import net.sf.saxon.value.StringValue;
 
-import java.util.regex.Pattern;
+import java.util.Objects;
 
 /**
  * A {@link Converter} that accepts a string as input. This subclass of Converter is provided
@@ -60,7 +61,7 @@ public abstract class StringConverter extends Converter {
      */
 
 
-    public abstract ConversionResult convertString( CharSequence input);
+    public abstract ConversionResult convertString(UnicodeString input);
 
     /**
      * Validate a string for conformance to the target type, without actually performing
@@ -72,7 +73,7 @@ public abstract class StringConverter extends Converter {
      */
 
     /*@Nullable*/
-    public ValidationFailure validate( CharSequence input) {
+    public ValidationFailure validate(UnicodeString input) {
         ConversionResult result = convertString(input);
         return result instanceof ValidationFailure ? (ValidationFailure) result : null;
     }
@@ -80,7 +81,7 @@ public abstract class StringConverter extends Converter {
 
     @Override
     public ConversionResult convert(AtomicValue input) {
-        return convertString(input.getStringValueCS());
+        return convertString(input.getUnicodeStringValue());
     }
 
     /**
@@ -90,8 +91,8 @@ public abstract class StringConverter extends Converter {
      */
 
     public static class StringToNonStringDerivedType extends StringConverter {
-        private StringConverter phaseOne;
-        private DownCastingConverter phaseTwo;
+        private final StringConverter phaseOne;
+        private final DownCastingConverter phaseTwo;
 
         public StringToNonStringDerivedType(StringConverter phaseOne, DownCastingConverter phaseTwo) {
             this.phaseOne = phaseOne;
@@ -106,8 +107,8 @@ public abstract class StringConverter extends Converter {
         }
 
 
-        public ConversionResult convert(StringValue input) {
-            CharSequence in = input.getStringValueCS();
+        public ConversionResult convert(UnicodeString input) {
+            UnicodeString in = input;
             try {
                 in = phaseTwo.getTargetType().preprocess(in);
             } catch (ValidationException err) {
@@ -122,7 +123,7 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             try {
                 input = phaseTwo.getTargetType().preprocess(input);
             } catch (ValidationException err) {
@@ -144,7 +145,7 @@ public abstract class StringConverter extends Converter {
          * if unsuccessful
          */
         @Override
-        public ValidationFailure validate(CharSequence input) {
+        public ValidationFailure validate(UnicodeString input) {
             try {
                 input = phaseTwo.getTargetType().preprocess(input);
             } catch (ValidationException err) {
@@ -167,18 +168,18 @@ public abstract class StringConverter extends Converter {
 
         @Override
         public ConversionResult convert(AtomicValue input) {
-            return new StringValue(input.getStringValueCS());
+            return new StringValue(input.getUnicodeStringValue().tidy());
         }
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            return new StringValue(input);
+        public ConversionResult convertString(UnicodeString input) {
+            return new StringValue(input.tidy());
         }
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
+        public ValidationFailure validate(UnicodeString input) {
             return null;
         }
 
@@ -196,19 +197,19 @@ public abstract class StringConverter extends Converter {
         public static final StringToUntypedAtomic INSTANCE = new StringToUntypedAtomic();
 
         @Override
-        public UntypedAtomicValue convert(AtomicValue input) {
-            return new UntypedAtomicValue(input.getStringValueCS());
+        public StringValue convert(AtomicValue input) {
+            return StringValue.makeUntypedAtomic(input.getUnicodeStringValue());
         }
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            return new UntypedAtomicValue(input);
+        public ConversionResult convertString(UnicodeString input) {
+            return StringValue.makeUntypedAtomic(input);
         }
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
+        public ValidationFailure validate(UnicodeString input) {
             return null;
         }
 
@@ -227,13 +228,13 @@ public abstract class StringConverter extends Converter {
         public static final StringToNormalizedString INSTANCE = new StringToNormalizedString();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            return new StringValue(Whitespace.normalizeWhitespace(input), BuiltInAtomicType.NORMALIZED_STRING);
+        public ConversionResult convertString(UnicodeString input) {
+            return new StringValue(Whitespace.normalizeWhitespace(input).tidy(), BuiltInAtomicType.NORMALIZED_STRING);
         }
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
+        public ValidationFailure validate(UnicodeString input) {
             return null;
         }
 
@@ -251,13 +252,13 @@ public abstract class StringConverter extends Converter {
         public static final StringToToken INSTANCE = new StringToToken();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            return new StringValue(Whitespace.collapseWhitespace(input), BuiltInAtomicType.TOKEN);
+        public ConversionResult convertString(UnicodeString input) {
+            return new StringValue(Whitespace.collapseWhitespace(input).tidy(), BuiltInAtomicType.TOKEN);
         }
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
+        public ValidationFailure validate(UnicodeString input) {
             return null;
         }
 
@@ -272,15 +273,16 @@ public abstract class StringConverter extends Converter {
      */
 
     public static class StringToLanguage extends StringConverter {
-        private final static Pattern regex = Pattern.compile("[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*");
+        private final static ARegularExpression regex =
+                ARegularExpression.compile("[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*", "");
         // See erratum E2-25 to XML Schema Part 2.
         public static final StringToLanguage INSTANCE = new StringToLanguage();
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            CharSequence trimmed = Whitespace.trimWhitespace(input);
-            if (!regex.matcher(trimmed).matches()) {
+        public ConversionResult convertString(UnicodeString input) {
+            UnicodeString trimmed = Whitespace.trim(input);
+            if (!regex.matches(trimmed)) {
                 return new ValidationFailure("The value '" + input + "' is not a valid xs:language");
             }
             return new StringValue(trimmed, BuiltInAtomicType.LANGUAGE);
@@ -288,8 +290,8 @@ public abstract class StringConverter extends Converter {
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
-            if (regex.matcher(Whitespace.trimWhitespace(input)).matches()) {
+        public ValidationFailure validate(UnicodeString input) {
+            if (regex.matches(Whitespace.trim(input))) {
                 return null;
             } else {
                 return new ValidationFailure("The value '" + input + "' is not a valid xs:language");
@@ -316,9 +318,9 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            CharSequence trimmed = Whitespace.trimWhitespace(input);
-            if (NameChecker.isValidNCName(trimmed)) {
+        public ConversionResult convertString(UnicodeString input) {
+            UnicodeString trimmed = Whitespace.trim(input);
+            if (NameChecker.isValidNCName(trimmed.codePoints())) {
                 return new StringValue(trimmed, targetType);
             } else {
                 return new ValidationFailure("The value '" + input + "' is not a valid " + targetType.getDisplayName());
@@ -327,8 +329,8 @@ public abstract class StringConverter extends Converter {
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
-            if (NameChecker.isValidNCName(Whitespace.trimWhitespace(input))) {
+        public ValidationFailure validate(UnicodeString input) {
+            if (NameChecker.isValidNCName(Whitespace.trim(input).codePoints())) {
                 return null;
             } else {
                 return new ValidationFailure("The value '" + input + "' is not a valid " + targetType.getDisplayName());
@@ -346,8 +348,8 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            CharSequence trimmed = Whitespace.trimWhitespace(input);
+        public ConversionResult convertString(UnicodeString input) {
+            UnicodeString trimmed = Whitespace.trim(input);
             if (NameChecker.isValidNmtoken(trimmed)) {
                 return new StringValue(trimmed, BuiltInAtomicType.NMTOKEN);
             } else {
@@ -357,8 +359,8 @@ public abstract class StringConverter extends Converter {
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
-            if (NameChecker.isValidNmtoken(Whitespace.trimWhitespace(input))) {
+        public ValidationFailure validate(UnicodeString input) {
+            if (NameChecker.isValidNmtoken(Whitespace.trim(input))) {
                 return null;
             } else {
                 return new ValidationFailure("The value '" + input + "' is not a valid xs:NMTOKEN");
@@ -380,10 +382,10 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             ValidationFailure vf = validate(input);
             if (vf == null) {
-                return new StringValue(Whitespace.trimWhitespace(input), BuiltInAtomicType.NAME);
+                return new StringValue(Whitespace.trim(input), BuiltInAtomicType.NAME);
             } else {
                 return vf;
             }
@@ -391,22 +393,15 @@ public abstract class StringConverter extends Converter {
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate(CharSequence input) {
+        public ValidationFailure validate(UnicodeString input) {
             // if it's valid as an NCName then it's OK
-            CharSequence trimmed = Whitespace.trimWhitespace(input);
-            if (NameChecker.isValidNCName(trimmed)) {
+            UnicodeString trimmed = Whitespace.trim(input);
+            if (NameChecker.isValidNCName(trimmed.codePoints())) {
                 return null;
             }
 
             // if not, replace any colons by underscores and then test if it's a valid NCName
-            FastStringBuffer buff = new FastStringBuffer(trimmed.length());
-            buff.cat(trimmed);
-            for (int i = 0; i < buff.length(); i++) {
-                if (buff.charAt(i) == ':') {
-                    buff.setCharAt(i, '_');
-                }
-            }
-            if (NameChecker.isValidNCName(buff)) {
+            if (NameChecker.isValidNCName(trimmed.toString().replace(':', '_'))) {
                 return null;
             } else {
                 return new ValidationFailure("The value '" + trimmed + "' is not a valid xs:Name");
@@ -430,26 +425,24 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            CharSequence cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
+        public ConversionResult convertString(UnicodeString input) {
+            UnicodeString cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
             try {
                 cs = targetType.preprocess(cs);
             } catch (ValidationException err) {
                 return err.getValidationFailure();
             }
-            StringValue sv = new StringValue(cs);
-            ValidationFailure f = targetType.validate(sv, cs, getConversionRules());
+            ValidationFailure f = targetType.validate(new StringValue(cs), cs, getConversionRules());
             if (f == null) {
-                sv.setTypeLabel(targetType);
-                return sv;
+                return new StringValue(cs, targetType);
             } else {
                 return f;
             }
         }
 
         @Override
-        public ValidationFailure validate(CharSequence input) {
-            CharSequence cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
+        public ValidationFailure validate(UnicodeString input) {
+            UnicodeString cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
             try {
                 cs = targetType.preprocess(cs);
             } catch (ValidationException err) {
@@ -477,8 +470,8 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            CharSequence cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
+        public ConversionResult convertString(UnicodeString input) {
+            UnicodeString cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
             ValidationFailure f = builtInValidator.validate(cs);
             if (f != null) {
                 return f;
@@ -488,11 +481,9 @@ public abstract class StringConverter extends Converter {
             } catch (ValidationException err) {
                 return err.getValidationFailure();
             }
-            StringValue sv = new StringValue(cs);
-            f = targetType.validate(sv, cs, getConversionRules());
+            f = targetType.validate(new StringValue(cs), cs, getConversionRules());
             if (f == null) {
-                sv.setTypeLabel(targetType);
-                return sv;
+                return new StringValue(cs, targetType);
             } else {
                 return f;
             }
@@ -506,12 +497,12 @@ public abstract class StringConverter extends Converter {
 
     public static class StringToFloat extends StringConverter {
         public StringToFloat(ConversionRules rules) {
-            super(rules);
+            super(Objects.requireNonNull(rules));
         }
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             try {
                 float flt = (float) getConversionRules().getStringToDoubleConverter().stringToNumber(input);
                 return new FloatValue(flt);
@@ -531,14 +522,14 @@ public abstract class StringConverter extends Converter {
         public static final StringToDecimal INSTANCE = new StringToDecimal();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            return BigDecimalValue.makeDecimalValue(input, true);
+        public ConversionResult convertString(UnicodeString input) {
+            return BigDecimalValue.makeDecimalValue(input.toString(), true);
         }
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate( CharSequence input) {
-            if (BigDecimalValue.castableAsDecimal(input)) {
+        public ValidationFailure validate(UnicodeString input) {
+            if (BigDecimalValue.castableAsDecimal(input.toString())) {
                 return null;
             } else {
                 return new ValidationFailure("Cannot convert string to decimal: " + input);
@@ -554,17 +545,17 @@ public abstract class StringConverter extends Converter {
         public static final StringToInteger INSTANCE = new StringToInteger();
 
         public ConversionResult convert(StringValue input) {
-            return IntegerValue.stringToInteger(input.getStringValueCS());
+            return IntegerValue.stringToInteger(input.toString());
         }
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            return IntegerValue.stringToInteger(input);
+        public ConversionResult convertString(UnicodeString input) {
+            return IntegerValue.stringToInteger(input.toString());
         }
 
         @Override
-        public ValidationFailure validate( CharSequence input) {
+        public ValidationFailure validate(UnicodeString input) {
             return IntegerValue.castableAsInteger(input);
         }
     }
@@ -583,8 +574,8 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            ConversionResult iv = IntegerValue.stringToInteger(input);
+        public ConversionResult convertString(UnicodeString input) {
+            ConversionResult iv = IntegerValue.stringToInteger(input.toString());
             if (iv instanceof Int64Value) {
                 boolean ok = IntegerValue.checkRange(((Int64Value) iv).longValue(), targetType);
                 if (ok) {
@@ -595,8 +586,7 @@ public abstract class StringConverter extends Converter {
             } else if (iv instanceof BigIntegerValue) {
                 boolean ok = IntegerValue.checkBigRange(((BigIntegerValue) iv).asBigInteger(), targetType);
                 if (ok) {
-                    ((BigIntegerValue) iv).setTypeLabel(targetType);
-                    return iv;
+                    return ((BigIntegerValue) iv).copyAsSubType(targetType);
                 } else {
                     return new ValidationFailure("Integer value is out of range for type " + targetType);
                 }
@@ -615,7 +605,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToDuration INSTANCE = new StringToDuration();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return DurationValue.makeDuration(input);
         }
     }
@@ -629,7 +619,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToDayTimeDuration INSTANCE = new StringToDayTimeDuration();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return DayTimeDurationValue.makeDayTimeDurationValue(input);
         }
     }
@@ -642,7 +632,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToYearMonthDuration INSTANCE = new StringToYearMonthDuration();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return YearMonthDurationValue.makeYearMonthDurationValue(input);
         }
     }
@@ -658,7 +648,7 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return DateTimeValue.makeDateTimeValue(input, getConversionRules());
         }
     }
@@ -674,13 +664,13 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             ConversionResult val = DateTimeValue.makeDateTimeValue(input, getConversionRules());
             if (val instanceof DateTimeValue) {
                 if (!((DateTimeValue) val).hasTimezone()) {
                     return new ValidationFailure("Supplied DateTimeStamp value " + input + " has no time zone");
                 } else {
-                    ((DateTimeValue) val).setTypeLabel(BuiltInAtomicType.DATE_TIME_STAMP);
+                    val = ((DateTimeValue) val).copyAsSubType(BuiltInAtomicType.DATE_TIME_STAMP);
                 }
             }
             return val;
@@ -698,7 +688,7 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return DateValue.makeDateValue(input, getConversionRules());
         }
     }
@@ -711,7 +701,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToGMonth INSTANCE = new StringToGMonth();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return GMonthValue.makeGMonthValue(input);
         }
     }
@@ -727,7 +717,7 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return GYearMonthValue.makeGYearMonthValue(input, getConversionRules());
         }
     }
@@ -743,7 +733,7 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return GYearValue.makeGYearValue(input, getConversionRules());
         }
     }
@@ -756,7 +746,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToGMonthDay INSTANCE = new StringToGMonthDay();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return GMonthDayValue.makeGMonthDayValue(input);
         }
     }
@@ -770,7 +760,7 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return GDayValue.makeGDayValue(input);
         }
     }
@@ -783,7 +773,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToTime INSTANCE = new StringToTime();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return TimeValue.makeTimeValue(input);
         }
     }
@@ -796,7 +786,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToBoolean INSTANCE = new StringToBoolean();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             return BooleanValue.fromString(input);
         }
     }
@@ -809,7 +799,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToHexBinary INSTANCE = new StringToHexBinary();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             try {
                 return new HexBinaryValue(input);
             } catch (XPathException e) {
@@ -826,7 +816,7 @@ public abstract class StringConverter extends Converter {
         public static final StringToBase64Binary INSTANCE = new StringToBase64Binary();
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             try {
                 return new Base64BinaryValue(input);
             } catch (XPathException e) {
@@ -862,13 +852,13 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             if (nsResolver == null) {
                 throw new UnsupportedOperationException("Cannot validate a QName without a namespace resolver");
             }
             try {
-                String[] parts = NameChecker.getQNameParts(Whitespace.trimWhitespace(input));
-                String uri = nsResolver.getURIForPrefix(parts[0], true);
+                String[] parts = NameChecker.getQNameParts(Whitespace.trim(input.toString()));
+                NamespaceUri uri = nsResolver.getURIForPrefix(parts[0], true);
                 if (uri == null) {
                     ValidationFailure failure = new ValidationFailure("Namespace prefix " +
                                                                               Err.wrap(parts[0]) + " has not been declared");
@@ -910,19 +900,20 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             if (getNamespaceResolver() == null) {
                 throw new UnsupportedOperationException("Cannot validate a NOTATION without a namespace resolver");
             }
             try {
-                String[] parts = NameChecker.getQNameParts(Whitespace.trimWhitespace(input));
-                String uri = getNamespaceResolver().getURIForPrefix(parts[0], true);
+                String[] parts = NameChecker.getQNameParts(Whitespace.trim(input.toString()));
+                NamespaceUri uri = getNamespaceResolver().getURIForPrefix(parts[0], true);
                 if (uri == null) {
                     return new ValidationFailure("Namespace prefix " + Err.wrap(parts[0]) + " has not been declared");
                 }
                 // This check added in 9.3. The XSLT spec says that this check should not be performed during
                 // validation. However, this appears to be based on an incorrect assumption: see spec bug 6952
                 if (!getConversionRules().isDeclaredNotation(uri, parts[1])) {
+                    //System.err.println(getConversionRules().isDeclaredNotation(uri, parts[1]));
                     return new ValidationFailure("Notation {" + uri + "}" + parts[1] + " is not declared in the schema");
                 }
                 return new NotationValue(parts[0], uri, parts[1], false);
@@ -945,8 +936,8 @@ public abstract class StringConverter extends Converter {
 
 
         @Override
-        public ConversionResult convertString(CharSequence input) {
-            if (getConversionRules().isValidURI(input)) {
+        public ConversionResult convertString(UnicodeString input) {
+            if (getConversionRules().isValidURI(input.toString())) {
                 return new AnyURIValue(input);
             } else {
                 return new ValidationFailure("Invalid URI: " + input);
@@ -955,8 +946,8 @@ public abstract class StringConverter extends Converter {
 
         /*@Nullable*/
         @Override
-        public ValidationFailure validate( CharSequence input) {
-            if (getConversionRules().isValidURI(input)) {
+        public ValidationFailure validate(UnicodeString input) {
+            if (getConversionRules().isValidURI(input.toString())) {
                 return null;
             } else {
                 return new ValidationFailure("Invalid URI: " + input);
@@ -993,9 +984,10 @@ public abstract class StringConverter extends Converter {
          */
 
         @Override
-        public ConversionResult convertString( CharSequence input) {
+        public ConversionResult convertString(UnicodeString input) {
             try {
-                return ((UnionType)targetType).getTypedValue(input, null, rules).head();
+                //noinspection RedundantCast
+                return (AtomicValue)((UnionType)targetType).getTypedValue(input, null, rules).head();
             } catch (ValidationException err) {
                 return err.getValidationFailure();
             }

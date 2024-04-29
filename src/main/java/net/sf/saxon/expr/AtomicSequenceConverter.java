@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,16 +8,25 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.StringValue;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -31,7 +40,7 @@ public class AtomicSequenceConverter extends UnaryExpression {
 
     protected PlainType requiredItemType;
     protected Converter converter;
-    private RoleDiagnostic roleDiagnostic; // may be null
+    private Supplier<RoleDiagnostic> roleSupplier; // may be null
 
 
     /**
@@ -45,6 +54,12 @@ public class AtomicSequenceConverter extends UnaryExpression {
     public AtomicSequenceConverter(Expression sequence, PlainType requiredItemType) {
         super(sequence);
         this.requiredItemType = requiredItemType;
+    }
+
+    public static AtomicSequenceConverter makeDownCaster(Expression sequence, AtomicType requiredItemType, Configuration config) {
+        AtomicSequenceConverter asc = new AtomicSequenceConverter(sequence, requiredItemType);
+        asc.setConverter(new Converter.DownCastingConverter(requiredItemType, config.getConversionRules(), "XPTY0004"));
+        return asc;
     }
 
     public void allocateConverterStatically(Configuration config, boolean allowNull) {
@@ -80,8 +95,10 @@ public class AtomicSequenceConverter extends UnaryExpression {
             converter = new Converter(rules) {
                 /*@NotNull*/
                 @Override
+                @CSharpModifiers(code={"public", "override"})
                 public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
-                    Converter converter = rules.getConverter(input.getPrimitiveType(), (AtomicType) requiredItemType);
+                    Converter converter = getConversionRules().getConverter(
+                            input.getPrimitiveType(), (AtomicType) requiredItemType);
                     if (converter == null) {
                         return new ValidationFailure("Cannot convert value from " + input.getPrimitiveType() + " to " + requiredItemType);
                     } else {
@@ -128,15 +145,13 @@ public class AtomicSequenceConverter extends UnaryExpression {
      * Set a RoleDiagnostic, used to give more precise error information if the conversion
      * fails
      *
-     * @param role the RoleDiagnostic, which gives more precise error information
+     * @param roleSupplier provides more precise error information, in particular the error code
+     *                     to be used.
      */
 
-    public void setRoleDiagnostic(RoleDiagnostic role) {
-        // TODO: pragmatic kludge in the run-up to 9.9. If the role says error=XPTY0004, ignore it, because
-        // in XQuery the cast failure should be FORG0001. We only use the error code in XSLT paths where it
-        // might be something like XTTE0780
-        if (role != null && !"XPTY0004".equals(role.getErrorCode())) {
-            this.roleDiagnostic = role;
+    public void setRoleDiagnostic(Supplier<RoleDiagnostic> roleSupplier) {
+        if (roleSupplier != null) {
+            this.roleSupplier = roleSupplier;
         }
     }
 
@@ -147,8 +162,8 @@ public class AtomicSequenceConverter extends UnaryExpression {
      * @return the RoleDiagnostic, or null if none has been set
      */
 
-    public RoleDiagnostic getRoleDiagnostic() {
-        return this.roleDiagnostic;
+    public Supplier<RoleDiagnostic> getRoleSupplier() {
+        return this.roleSupplier;
     }
 
 
@@ -167,10 +182,16 @@ public class AtomicSequenceConverter extends UnaryExpression {
                 return operand;
             }
             Configuration config = getConfiguration();
-            allocateConverterStatically(config, true);
+            if (converter == null) {
+                allocateConverterStatically(config, true);
+            }
             if (converter != null) {
-                GroundedValue val = iterate(new EarlyEvaluationContext(config)).materialize();
-                return Literal.makeLiteral(val, operand);
+                try {
+                    GroundedValue val = SequenceTool.toGroundedValue(iterate(new EarlyEvaluationContext(config)));
+                    return Literal.makeLiteral(val, operand);
+                } catch (UncheckedXPathException e) {
+                    throw e.getXPathException();
+                }
             }
         }
         return this;
@@ -261,7 +282,7 @@ public class AtomicSequenceConverter extends UnaryExpression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties() | StaticProperty.NO_NODES_NEWLY_CREATED;
         if (requiredItemType == BuiltInAtomicType.UNTYPED_ATOMIC) {
             p &= ~StaticProperty.NOT_UNTYPED_ATOMIC;
@@ -290,7 +311,7 @@ public class AtomicSequenceConverter extends UnaryExpression {
         AtomicSequenceConverter atomicConverter = new AtomicSequenceConverter(getBaseExpression().copy(rebindings), requiredItemType);
         ExpressionTool.copyLocationInfo(this, atomicConverter);
         atomicConverter.setConverter(converter);
-        atomicConverter.setRoleDiagnostic(getRoleDiagnostic());
+        atomicConverter.setRoleDiagnostic(getRoleSupplier());
         return atomicConverter;
     }
 
@@ -302,14 +323,21 @@ public class AtomicSequenceConverter extends UnaryExpression {
     @Override
     public SequenceIterator iterate(final XPathContext context) throws XPathException {
         SequenceIterator base = getBaseExpression().iterate(context);
+        return getConvertingIterator(context, base);
+    }
+
+    public ItemMappingIterator getConvertingIterator(XPathContext context, SequenceIterator base) {
         Converter conv = getConverterDynamically(context);
         if (conv == Converter.ToStringConverter.INSTANCE) {
             return new ItemMappingIterator(base, TO_STRING_MAPPER, true);
         } else {
             AtomicSequenceMappingFunction mapper = new AtomicSequenceMappingFunction();
             mapper.setConverter(conv);
-            if (roleDiagnostic != null) {
-                mapper.setErrorCode(roleDiagnostic.getErrorCode());
+            if (roleSupplier != null) {
+                String errorCode = roleSupplier.get().getErrorCode();
+                if (!"XPTY0004".equals(errorCode)) {
+                    mapper.setErrorCode(errorCode);
+                }
             }
             return new ItemMappingIterator(base, mapper, true);
         }
@@ -331,7 +359,6 @@ public class AtomicSequenceConverter extends UnaryExpression {
             this.errorCode = code;
         }
 
-        @Override
         public AtomicValue mapItem(Item item) throws XPathException {
             ConversionResult result = converter.convert((AtomicValue)item);
             if (errorCode != null && result instanceof ValidationFailure) {
@@ -349,7 +376,7 @@ public class AtomicSequenceConverter extends UnaryExpression {
             implements ItemMappingFunction {
         @Override
         public StringValue mapItem(Item item) {
-            return StringValue.makeStringValue(item.getStringValueCS());
+            return new StringValue(item.getUnicodeStringValue());
         }
     }
 
@@ -359,16 +386,19 @@ public class AtomicSequenceConverter extends UnaryExpression {
      */
 
     @Override
-    public AtomicValue evaluateItem(XPathContext context) throws XPathException {
-        Converter conv = getConverterDynamically(context);
-        AtomicValue item = (AtomicValue) getBaseExpression().evaluateItem(context);
+    public AtomicValue evaluateItem(XPathContext context) throws XPathException{
+        return (AtomicValue)makeElaborator().elaborateForItem().eval(context);
+    }
+
+    public AtomicValue convertItem(AtomicValue item, XPathContext context) throws XPathException {
         if (item == null) {
             return null;
         }
+        Converter conv = getConverterDynamically(context);
         ConversionResult result = conv.convert(item);
-        if (roleDiagnostic != null && result instanceof ValidationFailure) {
+        if (result instanceof ValidationFailure && roleSupplier != null) {
             // TODO: use more of the information in the roleDiagnostic to form the error message
-            ((ValidationFailure)result).setErrorCode(roleDiagnostic.getErrorCode());
+            ((ValidationFailure)result).setErrorCode(roleSupplier.get().getErrorCode());
         }
         return result.asAtomic();
     }
@@ -391,8 +421,18 @@ public class AtomicSequenceConverter extends UnaryExpression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality();
+    }
+
+    /**
+     * The toString() method for an expression attempts to give a representation of the expression
+     * in an XPath-like form, but there is no guarantee that the syntax will actually be true XPath.
+     * In the case of XSLT instructions, the toString() method gives an abstracted view of the syntax
+     */
+    @Override
+    public String toString() {
+        return "convertTo_" + getRequiredItemType().toString() + "(" + getBaseExpression().toString() + ")";
     }
 
     /**
@@ -410,7 +450,7 @@ public class AtomicSequenceConverter extends UnaryExpression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode() ^ requiredItemType.hashCode();
     }
 
@@ -442,15 +482,71 @@ public class AtomicSequenceConverter extends UnaryExpression {
         destination.startElement("convert", this);
         destination.emitAttribute("from", AlphaCode.fromItemType(getBaseExpression().getItemType()));
         destination.emitAttribute("to", AlphaCode.fromItemType(requiredItemType));
-        if (converter instanceof Converter.PromoterToDouble || converter instanceof Converter.PromoterToFloat) {
-            destination.emitAttribute("flags", "p");
+        String flags = "";
+        if (converter.isPromoter()) {
+            flags = "p";
         }
-        if (getRoleDiagnostic() != null) {
-            destination.emitAttribute("diag", getRoleDiagnostic().save());
+        if (converter instanceof Converter.DownCastingConverter) {
+            flags = "d";
         }
-        getBaseExpression().export(destination);
+        if (!flags.isEmpty()) {
+            destination.emitAttribute("flags", flags);
+        }
+        if (getRoleSupplier() != null) {
+            destination.emitAttribute("diag", getRoleSupplier().get().save());
+        }
+        if (converter.isPromoter() && "JS".equals(destination.getOptions().target) && destination.getOptions().targetVersion == 2) {
+            // See bug 6239. For backwards compatibility, output a cvUntyped instruction. This is no longer needed for SaxonJ
+            // because the promoting converter does promotion and conversion from untypedAtomic in a single operation.
+            destination.startElement("cvUntyped");
+            destination.emitAttribute("to", AlphaCode.fromItemType(requiredItemType));
+            if (getRoleSupplier() != null) {
+                destination.emitAttribute("diag", getRoleSupplier().get().save());
+            }
+            getBaseExpression().export(destination);
+            destination.endElement();
+        } else {
+            getBaseExpression().export(destination);
+        }
         destination.endElement();
     }
 
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new AtomicSequenceConverterElaborator();
+    }
+
+    /**
+     * Elaborator for an AtomicSequenceConverter (including an UntypedAtomicConverter, which is
+     * the same except that it uses a different converter internally)
+     */
+
+    public static class AtomicSequenceConverterElaborator extends PullElaborator {
+
+        public PullEvaluator elaborateForPull() {
+            final AtomicSequenceConverter expr = (AtomicSequenceConverter) getExpression();
+            final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
+            return context -> {
+                SequenceIterator base = baseEval.iterate(context);
+                return expr.getConvertingIterator(context, base);
+            };
+        }
+
+        @Override
+        public ItemEvaluator elaborateForItem() {
+            final AtomicSequenceConverter expr = (AtomicSequenceConverter) getExpression();
+            final ItemEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForItem();
+            return context -> {
+                AtomicValue base = (AtomicValue)baseEval.eval(context);
+                return expr.convertItem(base, context);
+            };
+        }
+    }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,12 +12,10 @@ import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.jiter.PairIterator;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.value.Cardinality;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -27,8 +25,8 @@ import java.util.List;
 
 public abstract class BinaryExpression extends Expression {
 
-    private Operand lhs;
-    private Operand rhs;
+    private final Operand lhs;
+    private final Operand rhs;
     protected int operator;       // represented by the token number from class Tokenizer
 
     /**
@@ -51,13 +49,7 @@ public abstract class BinaryExpression extends Expression {
 
     @Override
     final public Iterable<Operand> operands() {
-        // For .NEU - don't use a lambda expression here
-        return new Iterable<Operand>() {
-            @Override
-            public Iterator<Operand> iterator() {
-                return new PairIterator<>(lhs, rhs);
-            }
-        };
+        return operandList(lhs, rhs);
     }
 
 
@@ -224,7 +216,7 @@ public abstract class BinaryExpression extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         Expression lhs = getLhsExpression();
         Expression rhs = getRhsExpression();
         if (!Cardinality.allowsZero(lhs.getCardinality()) &&
@@ -245,7 +237,7 @@ public abstract class BinaryExpression extends Expression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         int p = super.computeSpecialProperties();
         return p | StaticProperty.NO_NODES_NEWLY_CREATED;
     }
@@ -330,15 +322,18 @@ public abstract class BinaryExpression extends Expression {
                 if (isCommutative(operator) && lhs1.isEqual(rhs2) && rhs1.isEqual(lhs2)) {
                     return true;
                 }
-                if (isAssociative(operator) &&
-                        pairwiseEqual(flattenExpression(new ArrayList<>(4)),
-                                b.flattenExpression(new ArrayList<>(4)))) {
+                if (isAssociative(operator) && pairwiseEqual(flattenExpression(), b.flattenExpression())) {
                     return true;
                 }
             }
             return isInverse(operator, b.operator) && lhs1.isEqual(rhs2) && rhs1.isEqual(lhs2);
         }
         return false;
+    }
+
+    private List<Expression> flattenExpression() {
+        List<Expression> list = new ArrayList<>();
+        return flattenExpression(list);
     }
 
     /**
@@ -388,7 +383,7 @@ public abstract class BinaryExpression extends Expression {
      * @return true if the two lists are equal
      */
 
-    private boolean pairwiseEqual(List a, List b) {
+    private <T> boolean pairwiseEqual(List<T> a, List<T> b) {
         if (a.size() != b.size()) {
             return false;
         }
@@ -406,7 +401,7 @@ public abstract class BinaryExpression extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         // Ensure that an operator and its inverse get the same hash code,
         // so that (A lt B) has the same hash code as (B gt A)
         int op = Math.min(operator, Token.inverse(operator));

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,11 +23,10 @@ import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
-import net.sf.saxon.regex.UnicodeString;
-import net.sf.saxon.serialize.CharacterMap;
-import net.sf.saxon.serialize.CharacterMapIndex;
-import net.sf.saxon.serialize.SerializationParamsHandler;
-import net.sf.saxon.serialize.SerializationProperties;
+import net.sf.saxon.serialize.*;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
@@ -38,11 +37,10 @@ import net.sf.saxon.value.*;
 import net.sf.saxon.z.IntHashMap;
 
 import javax.xml.transform.OutputKeys;
-import javax.xml.transform.stream.StreamResult;
-import java.io.StringWriter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Supplier;
 
 /**
  * Implementation of fn:serialize() as defined in XPath 3.1
@@ -60,6 +58,7 @@ public class Serialize extends SystemFunction implements Callable {
         op.addAllowedOption("doctype-public", SequenceType.SINGLE_STRING); //doctype-public-param-type pubid-char-string-type
         op.addAllowedOption("doctype-system", SequenceType.SINGLE_STRING); //doctype-system-param-type system-id-string-type
         op.addAllowedOption("encoding", SequenceType.SINGLE_STRING); //encoding-param-type encoding-string-type
+        op.addAllowedOption("escape-solidus", SequenceType.SINGLE_BOOLEAN); //yes-no-param-type
         op.addAllowedOption("escape-uri-attributes", SequenceType.SINGLE_BOOLEAN); //yes-no-param-type
         op.addAllowedOption("html-version", SequenceType.SINGLE_DECIMAL); //decimal-param-type
         op.addAllowedOption("include-content-type", SequenceType.SINGLE_BOOLEAN); //yes-no-param-type
@@ -95,7 +94,6 @@ public class Serialize extends SystemFunction implements Callable {
         op.addAllowedOption(sx("recognize-binary"), SequenceType.SINGLE_BOOLEAN); //boolean
         op.addAllowedOption(sx("require-well-formed"), SequenceType.SINGLE_BOOLEAN); //boolean
         op.addAllowedOption(sx("single-quotes"), SequenceType.SINGLE_BOOLEAN); //boolean
-        // supply-source-locator is allowed, though it makes no sense in this context
         op.addAllowedOption(sx("supply-source-locator"), SequenceType.SINGLE_BOOLEAN); //boolean
         return op;
     }
@@ -104,31 +102,31 @@ public class Serialize extends SystemFunction implements Callable {
         return "Q{" + NamespaceConstant.SAXON + "}" + s;
     }
 
-    private String[] paramNames = new String[]{
+    private final String[] paramNames = new String[]{
         "allow-duplicate-names", "byte-order-mark", "cdata-section-elements", "doctype-public", "doctype-system",
-        "encoding", "escape-uri-attributes", "html-version", "include-content-type", "indent", "item-separator",
+        "encoding", "escape-solidus", "escape-uri-attributes", "html-version", "include-content-type", "indent", "item-separator",
         "json-node-output-method", "media-type", "method", "normalization-form", "omit-xml-declaration", "standalone",
         "suppress-indentation", "undeclare-prefixes", "use-character-maps", "version"
     };
 
-    private boolean isParamName(String string) {
+    private boolean isParamName(String name) {
         for (String s : paramNames) {
-            if (s.equals(string)) {
+            if (s.equals(name)) {
                 return true;
             }
         }
         return false;
     }
 
-    private String[] paramNamesSaxon = new String[]{
+    private final String[] paramNamesSaxon = new String[]{
             "attribute-order", "canonical", "character-representation", "double-space", "indent-spaces", "line-length",
             /*"next-in-chain",*/ "newline", "property-order", "recognize-binary", "require-well-formed", "single-quotes",
             "supply-source-locator", "suppress-indentation"
     };
 
-    private boolean isParamNameSaxon(String string) {
+    private boolean isParamNameSaxon(String name) {
         for (String s : paramNamesSaxon) {
-            if (s.equals(string)) {
+            if (s.equals(name)) {
                 return true;
             }
         }
@@ -145,6 +143,7 @@ public class Serialize extends SystemFunction implements Callable {
         requiredTypes.put("doctype-public", SequenceType.SINGLE_STRING); //doctype-public-param-type pubid-char-string-type
         requiredTypes.put("doctype-system", SequenceType.SINGLE_STRING); //doctype-system-param-type system-id-string-type
         requiredTypes.put("encoding", SequenceType.SINGLE_STRING); //encoding-param-type encoding-string-type
+        requiredTypes.put("escape-solidus", SequenceType.SINGLE_BOOLEAN); //yes-no-param-type
         requiredTypes.put("escape-uri-attributes", SequenceType.SINGLE_BOOLEAN); //yes-no-param-type
         requiredTypes.put("html-version", SequenceType.SINGLE_DECIMAL); //decimal-param-type
         requiredTypes.put("include-content-type", SequenceType.SINGLE_BOOLEAN); //yes-no-param-type
@@ -178,7 +177,7 @@ public class Serialize extends SystemFunction implements Callable {
         //eqnames
         requiredTypesSaxon.put("indent-spaces", SequenceType.SINGLE_INTEGER); //integer
         requiredTypesSaxon.put("line-length", SequenceType.SINGLE_INTEGER); //integer
-        requiredTypesSaxon.put("newline", SequenceType.SINGLE_STRING); //integer
+        requiredTypesSaxon.put("newline", SequenceType.SINGLE_STRING);
         //requiredTypes.put("next-in-chain", SequenceType.SINGLE_STRING); //uri
         requiredTypesSaxon.put("recognize-binary", SequenceType.SINGLE_BOOLEAN); //boolean
         requiredTypesSaxon.put("require-well-formed", SequenceType.SINGLE_BOOLEAN); //boolean
@@ -195,17 +194,17 @@ public class Serialize extends SystemFunction implements Callable {
      */
 
     private MapItem checkOptions(MapItem map, XPathContext context) throws XPathException {
-        HashTrieMap result = new HashTrieMap();
+        MapItem result = new HashTrieMap();
         TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
 
-        AtomicIterator<?> keysIterator = map.keys();
+        AtomicIterator keysIterator = map.keys();
         AtomicValue key;
         while ((key = keysIterator.next()) != null) {
             if (key instanceof StringValue) {
                 String keyName = key.getStringValue();
                 if (isParamName(keyName)) {
-                    RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.OPTION, keyName, 0);
-                    role.setErrorCode("XPTY0004");
+                    Supplier<RoleDiagnostic> role =
+                            () -> new RoleDiagnostic(RoleDiagnostic.OPTION, keyName, 0, "XPTY0004");
                     //If any serialization error occurs, including the detection of an invalid value for a serialization
                     // parameter, this results in the fn:serialize call failing with a dynamic error.
                     Sequence converted = th.applyFunctionConversionRules(
@@ -213,13 +212,14 @@ public class Serialize extends SystemFunction implements Callable {
                     result = result.addEntry(key, converted.materialize());
                 }
             } else if (key instanceof QNameValue) {
-                if (key.getComponent(AccessorFn.Component.NAMESPACE).getStringValue().equals("")) {
+                if (key.getComponent(AccessorFn.Component.NAMESPACE).getUnicodeStringValue().isEmpty()) {
                     throw new XPathException("A serialization parameter supplied with a QName key must have non-absent namespace", "SEPM0017");
-                } else if (key.getComponent(AccessorFn.Component.NAMESPACE).getStringValue().equals("http://saxon.sf.net/")) {
+                } else if (key.getComponent(AccessorFn.Component.NAMESPACE).getUnicodeStringValue().equals(StringView.of("http://saxon.sf.net/"))) {
                     // Capture Saxon serialization parameters
                     String keyName = ((QNameValue) key).getLocalName();
                     if (isParamNameSaxon(keyName)) {
-                        RoleDiagnostic role = new RoleDiagnostic(RoleDiagnostic.OPTION, keyName, 0);
+                        Supplier<RoleDiagnostic> role =
+                                () -> new RoleDiagnostic(RoleDiagnostic.OPTION, keyName, 0);
                         Sequence converted = th.applyFunctionConversionRules(
                                 map.get(key), requiredTypesSaxon.get(keyName), role, Loc.NONE);
                         result = result.addEntry(key, converted.materialize());
@@ -269,9 +269,9 @@ public class Serialize extends SystemFunction implements Callable {
             if (item instanceof QNameValue) {
                 QNameValue qNameValue = (QNameValue) item;
                 stringVal.append(" Q{")
-                        .append(qNameValue.getComponent(AccessorFn.Component.NAMESPACE).getStringValue())
+                        .append(qNameValue.getComponent(AccessorFn.Component.NAMESPACE).getUnicodeStringValue())
                         .append('}')
-                        .append(qNameValue.getComponent(AccessorFn.Component.LOCALNAME).getStringValue());
+                        .append(qNameValue.getComponent(AccessorFn.Component.LOCALNAME).getUnicodeStringValue());
             } else if (allowStar && item instanceof StringValue && item.getStringValue().equals("*")) {
                 stringVal.append(" *");
             } else {
@@ -290,7 +290,7 @@ public class Serialize extends SystemFunction implements Callable {
         Item item;
         StringBuilder stringVal = new StringBuilder();
         while ((item = iterator.next()) != null) {
-            stringVal.append(" ").append(item.getStringValue());
+            stringVal.append(" ").append(item.getUnicodeStringValue());
         }
         return stringVal.toString();
     }
@@ -323,11 +323,11 @@ public class Serialize extends SystemFunction implements Callable {
                 throw new XPathException(
                         "Keys in a character map must all be strings. Found a value of type " + key.getItemType(), "XPTY0004");
             }
-            if (((StringValue) key).getStringLength() != 1) {
-                throw new XPathException("Keys in a character map must all be one-character strings. Found " + Err.wrap(key.toString()), "SEPM0016");
+            if (((StringValue) key).length() != 1) {
+                throw new XPathException("Keys in a character map must all be one-character strings. Found " + Err.wrap(key.show()), "SEPM0016");
             }
             if (!SequenceType.SINGLE_STRING.matches(pair.value, th)) {
-                throw new XPathException("Values in a character map must all be single strings. Found " + Err.wrap(key.toString()), "XPTY0004");
+                throw new XPathException("Values in a character map must all be single strings. Found " + Err.wrap(key.show()), "XPTY0004");
             }
         }
         return map;
@@ -341,30 +341,29 @@ public class Serialize extends SystemFunction implements Callable {
     }
 
     public static CharacterMap toCharacterMap(MapItem charMap) throws XPathException {
-        AtomicIterator<?> iterator = charMap.keys();
+        AtomicIterator iterator = charMap.keys();
         AtomicValue charKey;
         IntHashMap<String> intHashMap = new IntHashMap<>();
         while ((charKey = iterator.next()) != null) {
-            String ch = charKey.getStringValue();
+            UnicodeString ch = charKey.getUnicodeStringValue();
             String str = charMap.get(charKey).head().getStringValue();
-            UnicodeString chValue = UnicodeString.makeUnicodeString(ch);
-            if (chValue.uLength() != 1) {
+            if (ch.length() != 1) {
                 throw new XPathException("In the serialization parameter for the character map, each character to be mapped " +
                     "must be a single Unicode character", "SEPM0016");
             }
-            int code = chValue.uCharAt(0);
+            int code = ch.codePointAt(0);
             String prev = intHashMap.put(code, str);
             if (prev != null) { // This should never happen in this case because keys in a HashTrieMap must be unique
                 throw new XPathException("In the serialization parameters, the character map contains two entries for the character \\u" +
                     Integer.toHexString(65536 + code).substring(1), "SEPM0018");
             }
         }
-        StructuredQName name = new StructuredQName("output", NamespaceConstant.OUTPUT, "serialization-parameters");
+        StructuredQName name = new StructuredQName("output", NamespaceUri.OUTPUT, "serialization-parameters");
         return new CharacterMap(name, intHashMap);
     }
 
     private SerializationProperties serializationParamsFromMap(
-            Map<String, Sequence> map, XPathContext context) throws XPathException {
+            Map<String, GroundedValue> map, XPathContext context) throws XPathException {
         Sequence seqVal;
         Properties props = new Properties();
         CharacterMapIndex charMapIndex = new CharacterMapIndex();
@@ -385,6 +384,9 @@ public class Serialize extends SystemFunction implements Callable {
         }
         if ((seqVal = map.get("encoding")) != null) {
             props.setProperty("encoding", seqVal.head().getStringValue());
+        }
+        if ((seqVal = map.get("escape-solidus")) != null) {
+            props.setProperty("escape-solidus", toYesNoTypeString(seqVal));
         }
         if ((seqVal = map.get("escape-uri-attributes")) != null) {
             props.setProperty("escape-uri-attributes", toYesNoTypeString(seqVal));
@@ -427,7 +429,7 @@ public class Serialize extends SystemFunction implements Callable {
         }
         if ((seqVal = map.get("use-character-maps")) != null) {
             CharacterMap characterMap = toCharacterMap(seqVal, context);
-            charMapIndex.putCharacterMap(new StructuredQName("", "", "charMap"), characterMap);
+            charMapIndex.putCharacterMap(NamespaceUri.NULL.qName("charMap"), characterMap);
             props.setProperty(SaxonOutputKeys.USE_CHARACTER_MAPS, "charMap");
         }
         if ((seqVal = map.get("version")) != null) {
@@ -448,6 +450,9 @@ public class Serialize extends SystemFunction implements Callable {
         }
         if ((seqVal = map.get(sx("indent-spaces"))) != null) {
             props.setProperty(SaxonOutputKeys.INDENT_SPACES, seqVal.head().getStringValue());
+        }
+        if ((seqVal = map.get(sx("internal-dtd-subset"))) != null) {
+            props.setProperty(SaxonOutputKeys.INTERNAL_DTD_SUBSET, seqVal.head().getStringValue());
         }
         if ((seqVal = map.get(sx("line-length"))) != null) {
             props.setProperty(SaxonOutputKeys.LINE_LENGTH, seqVal.head().getStringValue());
@@ -491,7 +496,7 @@ public class Serialize extends SystemFunction implements Callable {
             if (param instanceof NodeInfo) {
                 NodeInfo paramNode = (NodeInfo) param;
                 if (paramNode.getNodeKind() != Type.ELEMENT ||
-                    !NamespaceConstant.OUTPUT.equals(paramNode.getURI()) ||
+                    !NamespaceUri.OUTPUT.equals(paramNode.getNamespaceUri()) ||
                     !"serialization-parameters".equals(paramNode.getLocalPart())) {
                     throw new XPathException("Second argument to fn:serialize() must be an element named {"
                         + NamespaceConstant.OUTPUT + "}serialization-parameters", "XPTY0004");
@@ -503,7 +508,7 @@ public class Serialize extends SystemFunction implements Callable {
             } else if (param instanceof MapItem) {
                 // If any parameters are supplied as QNames in the Saxon namespace, convert them to EQName strings
                 MapItem paramMap = (MapItem)param;
-                AtomicIterator<?> keyIter = ((MapItem)param).keys();
+                AtomicIterator keyIter = ((MapItem)param).keys();
                 AtomicValue k;
                 while ((k = keyIter.next()) != null) {
                     if (k instanceof QNameValue) {
@@ -511,7 +516,7 @@ public class Serialize extends SystemFunction implements Callable {
                         paramMap = paramMap.addEntry(new StringValue(s), paramMap.get(k));
                     }
                 }
-                Map<String, Sequence> checkedOptions = getDetails().optionDetails.processSuppliedOptions(paramMap, context);
+                Map<String, GroundedValue> checkedOptions = getDetails().optionDetails.processSuppliedOptions(paramMap, context);
                 params = serializationParamsFromMap(checkedOptions, context);
             } else {
                 throw new XPathException("Second argument to fn:serialize() must either be an element named {"
@@ -533,13 +538,14 @@ public class Serialize extends SystemFunction implements Callable {
 
         // TODO add more spec-defined defaults here (for both cases)
         try {
-            StringWriter result = new StringWriter();
+            UnicodeBuilder builder = new UnicodeBuilder();
+            UnicodeWriterResult result = new UnicodeWriterResult(builder, null);
 
             SerializerFactory sf = context.getConfiguration().getSerializerFactory();
             PipelineConfiguration pipe = context.getConfiguration().makePipelineConfiguration();
-            Receiver out = sf.getReceiver(new StreamResult(result), params, pipe);
+            Receiver out = sf.getReceiver(result, params, pipe);
             SequenceCopier.copySequence(iter, out);
-            return new StringValue(result.toString());
+            return new StringValue(builder.toString());
         } catch (XPathException e) {
             e.maybeSetErrorCode("SENR0001");
             throw e;
@@ -550,4 +556,4 @@ public class Serialize extends SystemFunction implements Callable {
 
 }
 
-// Copyright (c) 2011-2020 Saxonica Limited
+// Copyright (c) 2011-2023 Saxonica Limited

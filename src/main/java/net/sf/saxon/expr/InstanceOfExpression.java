@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -181,7 +182,7 @@ public final class InstanceOfExpression extends UnaryExpression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return super.computeHashCode() ^ targetType.hashCode() ^ targetCardinality;
     }
 
@@ -190,7 +191,7 @@ public final class InstanceOfExpression extends UnaryExpression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return StaticProperty.EXACTLY_ONE;
     }
 
@@ -248,33 +249,7 @@ public final class InstanceOfExpression extends UnaryExpression {
 
     @Override
     public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
-        SequenceIterator iter = getBaseExpression().iterate(context);
-        return isInstance(iter, context);
-    }
-
-    /**
-     * Here is the method that does the work
-     * @param iter iterator over the operand sequence
-     * @param context dynamic evaluation context
-     * @return true if the operand is an instance of the required type
-     * @throws XPathException if a failure occurs evaluating the operand
-     */
-
-    private boolean isInstance(SequenceIterator iter, XPathContext context) throws XPathException {
-        int count = 0;
-        Item item;
-        while ((item = iter.next()) != null) {
-            count++;
-            if (!targetType.matches(item, context.getConfiguration().getTypeHierarchy())) {
-                iter.close();
-                return false;
-            }
-            if (count == 2 && !Cardinality.allowsMany(targetCardinality)) {
-                iter.close();
-                return false;
-            }
-        }
-        return !(count == 0 && ((targetCardinality & StaticProperty.ALLOWS_ZERO) == 0));
+        return makeElaborator().elaborateForBoolean().eval(context);
     }
 
     /**
@@ -337,6 +312,64 @@ public final class InstanceOfExpression extends UnaryExpression {
     @Override
     public String getStreamerName() {
         return "InstanceOf";
+    }
+
+    /**
+     * Make an elaborator for this expression
+     *
+     * @return a suitable elaborator
+     */
+
+    @Override
+    public Elaborator getElaborator() {
+        return new InstanceOfElaborator();
+    }
+
+    /**
+     * Elaborator for an {@code instance of} expression
+     */
+
+    public static class InstanceOfElaborator extends BooleanElaborator {
+
+        public BooleanEvaluator elaborateForBoolean() {
+            InstanceOfExpression exp = (InstanceOfExpression) getExpression();
+            TypeHierarchy th = getConfiguration().getTypeHierarchy();
+            Expression arg = exp.getBaseExpression();
+
+            int requiredCardinality = exp.getRequiredCardinality();
+            boolean allowsMany = Cardinality.allowsMany(requiredCardinality);
+            boolean allowsZero = Cardinality.allowsZero(requiredCardinality);
+            ItemType requiredType = exp.getRequiredItemType();
+
+            if (requiredCardinality == StaticProperty.EXACTLY_ONE && !Cardinality.allowsMany(arg.getCardinality())) {
+                final ItemEvaluator itemEval = arg.makeElaborator().elaborateForItem();
+                return context -> {
+                    Item item = itemEval.eval(context);
+                    return item != null && requiredType.matches(item, th);
+                };
+            } else {
+                final PullEvaluator argPull = arg.makeElaborator().elaborateForPull();
+                final boolean itemTypeOK = th.isSubType(arg.getItemType(), requiredType);
+                return context -> {
+                    SequenceIterator iter = argPull.iterate(context);
+                    int count = 0;
+                    for (Item item; (item = iter.next()) != null; ) {
+                        count++;
+                        if (!itemTypeOK && !requiredType.matches(item, th)) {
+                            iter.close();
+                            return false;
+                        }
+                        if (!allowsMany && count == 2) {
+                            iter.close();
+                            return false;
+                        }
+                    }
+                    return allowsZero || count != 0;
+                };
+            }
+        }
+
+
     }
 }
 

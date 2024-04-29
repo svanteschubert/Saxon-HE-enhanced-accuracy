@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,7 +26,7 @@ import net.sf.saxon.tree.util.Navigator;
 public class RuleSetWithWarnings implements BuiltInRuleSet {
 
 
-    private BuiltInRuleSet baseRuleSet;
+    private final BuiltInRuleSet baseRuleSet;
 
     public RuleSetWithWarnings(BuiltInRuleSet baseRuleSet) {
         this.baseRuleSet = baseRuleSet;
@@ -71,7 +71,7 @@ public class RuleSetWithWarnings implements BuiltInRuleSet {
     public void outputWarning(Item item, XPathContext context) {
         String id = item instanceof NodeInfo ?
                 "the node " + Navigator.getPath((NodeInfo) item) :
-                "the atomic value " + item.getStringValue();
+                "the atomic value " + item.getUnicodeStringValue();
         XmlProcessingIncident warning = new XmlProcessingIncident("No user-defined template rule matches " + id, "XTDE0555").asWarning();
         context.getController().getErrorReporter().report(warning);
     }
@@ -83,7 +83,7 @@ public class RuleSetWithWarnings implements BuiltInRuleSet {
      * @return the default action for unmatched element nodes: one of DEEP_COPY, APPLY_TEMPLATES, DEEP_SKIP, FAIL
      */
     @Override
-    public int[] getActionForParentNodes(int nodeKind) {
+    public BuiltInRules[] getActionForParentNodes(int nodeKind) {
         return baseRuleSet.getActionForParentNodes(nodeKind);
     }
 }

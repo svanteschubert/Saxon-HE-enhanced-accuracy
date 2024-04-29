@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -106,7 +106,7 @@ public class DocumentBuilderImpl extends DocumentBuilder {
      */
 
     public void setValidating(boolean state) {
-        parseOptions.setDTDValidationMode(state ? Validation.STRICT : Validation.SKIP);
+        parseOptions = parseOptions.withDTDValidationMode(state ? Validation.STRICT : Validation.SKIP);
     }
 
     /**
@@ -201,7 +201,7 @@ public class DocumentBuilderImpl extends DocumentBuilder {
 
     @Override
     public void setEntityResolver(EntityResolver er) {
-        parseOptions.setEntityResolver(er);
+        parseOptions = parseOptions.withEntityResolver(er);
     }
 
     /**
@@ -213,7 +213,7 @@ public class DocumentBuilderImpl extends DocumentBuilder {
 
     @Override
     public void setErrorHandler(ErrorHandler eh) {
-        parseOptions.setErrorHandler(eh);
+        parseOptions = parseOptions.withErrorHandler(eh);
     }
 
     /**
@@ -238,7 +238,7 @@ public class DocumentBuilderImpl extends DocumentBuilder {
      *              <code>false</code>
      */
     public void setXIncludeAware(boolean state) {
-        parseOptions.setXIncludeAware(state);
+        parseOptions = parseOptions.withXIncludeAware(state);
     }
 
 
@@ -265,26 +265,29 @@ public class DocumentBuilderImpl extends DocumentBuilder {
      * @param stripAction one of {@link net.sf.saxon.value.Whitespace#IGNORABLE},
      *                    {@link net.sf.saxon.value.Whitespace#ALL}, or {@link net.sf.saxon.value.Whitespace#NONE}
      * @since 8.9
-     * @deprecated since 10.0: use {@link ParseOptions#setSpaceStrippingRule(SpaceStrippingRule)}
+     * @deprecated since 10.0: use {@link ParseOptions#withSpaceStrippingRule(SpaceStrippingRule)}
      */
 
+    @Deprecated
     public void setStripSpace(int stripAction) {
+        SpaceStrippingRule rule;
         switch (stripAction) {
             case Whitespace.ALL:
-                parseOptions.setSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
+                rule = AllElementsSpaceStrippingRule.getInstance();
                 break;
             case Whitespace.NONE:
-                parseOptions.setSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                rule = NoElementsSpaceStrippingRule.getInstance();
                 break;
             case Whitespace.IGNORABLE:
-                parseOptions.setSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
+                rule = IgnorableSpaceStrippingRule.getInstance();
                 break;
             case Whitespace.UNSPECIFIED:
-                parseOptions.setSpaceStrippingRule(null);
+                rule = null;
                 break;
             default:
                 throw new IllegalArgumentException();
         }
+        parseOptions = parseOptions.withSpaceStrippingRule(rule);
     }
 
     /**
@@ -295,7 +298,7 @@ public class DocumentBuilderImpl extends DocumentBuilder {
      * @since 8.9
      * @deprecated since 10.0: use {@link ParseOptions#getSpaceStrippingRule()}
      */
-
+    @Deprecated
     public int getStripSpace() {
         SpaceStrippingRule rule = parseOptions.getSpaceStrippingRule();
         if (rule == AllElementsSpaceStrippingRule.getInstance()) {

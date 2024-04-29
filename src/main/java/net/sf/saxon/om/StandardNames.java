@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -43,78 +43,84 @@ public abstract class StandardNames {
     public static final int XSL_ANALYZE_STRING = XSL + 3;
     public static final int XSL_APPLY_IMPORTS = XSL + 4;
     public static final int XSL_APPLY_TEMPLATES = XSL + 5;
-    public static final int XSL_ASSERT = XSL + 6;
-    public static final int XSL_ATTRIBUTE = XSL + 7;
-    public static final int XSL_ATTRIBUTE_SET = XSL + 8;
-    public static final int XSL_BREAK = XSL + 9;
-    public static final int XSL_CALL_TEMPLATE = XSL + 10;
-    public static final int XSL_CATCH = XSL + 11;
-    public static final int XSL_CHARACTER_MAP = XSL + 13;
-    public static final int XSL_CHOOSE = XSL + 14;
-    public static final int XSL_COMMENT = XSL + 15;
-    public static final int XSL_CONTEXT_ITEM = XSL + 16;
-    public static final int XSL_COPY = XSL + 17;
-    public static final int XSL_COPY_OF = XSL + 18;
-    public static final int XSL_DECIMAL_FORMAT = XSL + 19;
+    public static final int XSL_ARRAY = XSL + 6;
+    public static final int XSL_ARRAY_MEMBER = XSL + 7;
+    public static final int XSL_ASSERT = XSL + 8;
+    public static final int XSL_ATTRIBUTE = XSL + 9;
+    public static final int XSL_ATTRIBUTE_SET = XSL + 10;
+    public static final int XSL_BREAK = XSL + 11;
+    public static final int XSL_CALL_TEMPLATE = XSL + 12;
+    public static final int XSL_CATCH = XSL + 13;
+    public static final int XSL_CHARACTER_MAP = XSL + 14;
+    public static final int XSL_CHOOSE = XSL + 15;
+    public static final int XSL_COMMENT = XSL + 16;
+    public static final int XSL_CONTEXT_ITEM = XSL + 17;
+    public static final int XSL_COPY = XSL + 18;
+    public static final int XSL_COPY_OF = XSL + 19;
+    public static final int XSL_DECIMAL_FORMAT = XSL + 20;
     public static final int XSL_DOCUMENT = XSL + 22;
     public static final int XSL_ELEMENT = XSL + 23;
     public static final int XSL_EXPOSE = XSL + 24;
     public static final int XSL_EVALUATE = XSL + 25;
     public static final int XSL_FALLBACK = XSL + 26;
     public static final int XSL_FOR_EACH = XSL + 27;
-    public static final int XSL_FORK = XSL + 28;
-    public static final int XSL_FOR_EACH_GROUP = XSL + 29;
-    public static final int XSL_FUNCTION = XSL + 30;
-    public static final int XSL_GLOBAL_CONTEXT_ITEM = XSL + 31;
-    public static final int XSL_IF = XSL + 32;
-    public static final int XSL_IMPORT = XSL + 33;
-    public static final int XSL_IMPORT_SCHEMA = XSL + 34;
-    public static final int XSL_INCLUDE = XSL + 35;
-    public static final int XSL_ITERATE = XSL + 36;
-    public static final int XSL_KEY = XSL + 37;
-    public static final int XSL_MAP = XSL + 38;
-    public static final int XSL_MAP_ENTRY = XSL + 39;
-    public static final int XSL_MATCHING_SUBSTRING = XSL + 40;
-    public static final int XSL_MERGE = XSL + 41;
-    public static final int XSL_MERGE_ACTION = XSL + 42;
-    public static final int XSL_MERGE_KEY = XSL + 43;
-    public static final int XSL_MERGE_SOURCE = XSL + 44;
-    public static final int XSL_MESSAGE = XSL + 45;
-    public static final int XSL_MODE = XSL + 46;
-    public static final int XSL_NAMESPACE = XSL + 47;
-    public static final int XSL_NAMESPACE_ALIAS = XSL + 48;
-    public static final int XSL_NEXT_ITERATION = XSL + 49;
-    public static final int XSL_NEXT_MATCH = XSL + 50;
-    public static final int XSL_NON_MATCHING_SUBSTRING = XSL + 51;
-    public static final int XSL_NUMBER = XSL + 52;
-    public static final int XSL_OTHERWISE = XSL + 53;
-    public static final int XSL_ON_COMPLETION = XSL + 54;
-    public static final int XSL_ON_EMPTY = XSL + 55;
-    public static final int XSL_ON_NON_EMPTY = XSL + 56;
-    public static final int XSL_OUTPUT = XSL + 57;
-    public static final int XSL_OVERRIDE = XSL + 58;
-    public static final int XSL_OUTPUT_CHARACTER = XSL + 59;
-    public static final int XSL_PACKAGE = XSL + 60;
-    public static final int XSL_PARAM = XSL + 61;
-    public static final int XSL_PERFORM_SORT = XSL + 62;
-    public static final int XSL_PRESERVE_SPACE = XSL + 63;
-    public static final int XSL_PROCESSING_INSTRUCTION = XSL + 64;
-    public static final int XSL_RESULT_DOCUMENT = XSL + 65;
-    public static final int XSL_SEQUENCE = XSL + 66;
-    public static final int XSL_SORT = XSL + 67;
-    public static final int XSL_SOURCE_DOCUMENT = XSL + 68;
-    public static final int XSL_STRIP_SPACE = XSL + 70;
-    public static final int XSL_STYLESHEET = XSL + 71;
-    public static final int XSL_TEMPLATE = XSL + 72;
-    public static final int XSL_TEXT = XSL + 73;
-    public static final int XSL_TRANSFORM = XSL + 74;
-    public static final int XSL_TRY = XSL + 75;
-    public static final int XSL_USE_PACKAGE = XSL + 76;
-    public static final int XSL_VALUE_OF = XSL + 77;
-    public static final int XSL_VARIABLE = XSL + 78;
-    public static final int XSL_WHEN = XSL + 79;
-    public static final int XSL_WHERE_POPULATED = XSL + 80;
-    public static final int XSL_WITH_PARAM = XSL + 81;
+    public static final int XSL_FOR_EACH_GROUP = XSL + 28;
+    public static final int XSL_FORK = XSL + 31;
+    public static final int XSL_FUNCTION = XSL + 32;
+    public static final int XSL_GLOBAL_CONTEXT_ITEM = XSL + 33;
+    public static final int XSL_IF = XSL + 34;
+    public static final int XSL_IMPORT = XSL + 35;
+    public static final int XSL_IMPORT_SCHEMA = XSL + 36;
+    public static final int XSL_INCLUDE = XSL + 37;
+    public static final int XSL_ITEM_TYPE = XSL + 38;
+    public static final int XSL_ITERATE = XSL + 40;
+    public static final int XSL_KEY = XSL + 41;
+    public static final int XSL_MAP = XSL + 42;
+    public static final int XSL_MAP_ENTRY = XSL + 43;
+
+    public static final int XSL_MATCHING_SUBSTRING = XSL + 44;
+    public static final int XSL_MERGE = XSL + 45;
+    public static final int XSL_MERGE_ACTION = XSL + 46;
+    public static final int XSL_MERGE_KEY = XSL + 47;
+    public static final int XSL_MERGE_SOURCE = XSL + 48;
+    public static final int XSL_MESSAGE = XSL + 50;
+    public static final int XSL_MODE = XSL + 51;
+    public static final int XSL_NAMESPACE = XSL + 52;
+    public static final int XSL_NAMESPACE_ALIAS = XSL + 53;
+    public static final int XSL_NEXT_ITERATION = XSL + 54;
+    public static final int XSL_NEXT_MATCH = XSL + 55;
+    public static final int XSL_NON_MATCHING_SUBSTRING = XSL + 56;
+    public static final int XSL_NOTE = XSL + 57;
+    public static final int XSL_NUMBER = XSL + 58;
+    public static final int XSL_OTHERWISE = XSL + 59;
+    public static final int XSL_ON_COMPLETION = XSL + 60;
+    public static final int XSL_ON_EMPTY = XSL + 61;
+    public static final int XSL_ON_NON_EMPTY = XSL + 62;
+    public static final int XSL_OUTPUT = XSL + 63;
+    public static final int XSL_OVERRIDE = XSL + 64;
+    public static final int XSL_OUTPUT_CHARACTER = XSL + 65;
+    public static final int XSL_PACKAGE = XSL + 66;
+    public static final int XSL_PARAM = XSL + 67;
+    public static final int XSL_PERFORM_SORT = XSL + 70;
+    public static final int XSL_PRESERVE_SPACE = XSL + 71;
+    public static final int XSL_PROCESSING_INSTRUCTION = XSL + 72;
+    public static final int XSL_RESULT_DOCUMENT = XSL + 73;
+    public static final int XSL_SEQUENCE = XSL + 74;
+    public static final int XSL_SORT = XSL + 75;
+    public static final int XSL_SOURCE_DOCUMENT = XSL + 76;
+    public static final int XSL_STRIP_SPACE = XSL + 77;
+    public static final int XSL_STYLESHEET = XSL + 80;
+    public static final int XSL_SWITCH = XSL + 81;
+    public static final int XSL_TEMPLATE = XSL + 82;
+    public static final int XSL_TEXT = XSL + 83;
+    public static final int XSL_TRANSFORM = XSL + 84;
+    public static final int XSL_TRY = XSL + 85;
+    public static final int XSL_USE_PACKAGE = XSL + 86;
+    public static final int XSL_VALUE_OF = XSL + 87;
+    public static final int XSL_VARIABLE = XSL + 90;
+    public static final int XSL_WHEN = XSL + 91;
+    public static final int XSL_WHERE_POPULATED = XSL + 92;
+    public static final int XSL_WITH_PARAM = XSL + 93;
 
 
 
@@ -157,9 +163,9 @@ public abstract class StandardNames {
     public static final int XML_LANG = XML + 3;
     public static final int XML_ID = XML + 4;
     public static final int XML_LANG_TYPE = XML + 5;
-    public static final int XML_SPACE_TYPE = 6;
+    public static final int XML_SPACE_TYPE = XML + 6;
 
-    public static final NodeName XML_ID_NAME = new FingerprintedQName("xml", NamespaceConstant.XML, "id", XML_ID);
+    public static final NodeName XML_ID_NAME = new FingerprintedQName("xml", NamespaceUri.XML, "id", XML_ID);
 
     public static final int XS_STRING = XS + 1;
     public static final int XS_BOOLEAN = XS + 2;
@@ -180,7 +186,6 @@ public abstract class StandardNames {
     public static final int XS_ANY_URI = XS + 17;
     public static final int XS_QNAME = XS + 18;
     public static final int XS_NOTATION = XS + 19;
-    //public static final int XS_PRECISION_DECIMAL = XS + 20;
     public static final int XS_INTEGER = XS + 21;
 
     // Note that any type code <= XS_INTEGER is considered to represent a
@@ -215,7 +220,7 @@ public abstract class StandardNames {
     public static final int XS_ANY_TYPE = XS + 60;
     public static final int XS_ANY_SIMPLE_TYPE = XS + 61;
 
-    public static final int XS_INVALID_NAME = XS + 62;
+    //public static final int XS_INVALID_NAME = XS + 62;
     public static final int XS_ERROR = XS + 63;
 
 
@@ -286,16 +291,16 @@ public abstract class StandardNames {
     public static final int XSI_SCHEMA_LOCATION_TYPE = XSI + 5;
 
 
-    private static String[] localNames = new String[1023];
-    private static HashMap<String, Integer> lookup = new HashMap<>(1023);
+    private static final String[] localNames = new String[1023];
+    private static final HashMap<String, Integer> lookup = new HashMap<>(1023);
     public static StructuredQName[] errorVariables = {
-            new StructuredQName("err", NamespaceConstant.ERR, "code"),
-            new StructuredQName("err", NamespaceConstant.ERR, "description"),
-            new StructuredQName("err", NamespaceConstant.ERR, "value"),
-            new StructuredQName("err", NamespaceConstant.ERR, "module"),
-            new StructuredQName("err", NamespaceConstant.ERR, "line-number"),
-            new StructuredQName("err", NamespaceConstant.ERR, "column-number"),
-            new StructuredQName("err", NamespaceConstant.ERR, "additional")
+            new StructuredQName("err", NamespaceUri.ERR, "code"),
+            new StructuredQName("err", NamespaceUri.ERR, "description"),
+            new StructuredQName("err", NamespaceUri.ERR, "value"),
+            new StructuredQName("err", NamespaceUri.ERR, "module"),
+            new StructuredQName("err", NamespaceUri.ERR, "line-number"),
+            new StructuredQName("err", NamespaceUri.ERR, "column-number"),
+            new StructuredQName("err", NamespaceUri.ERR, "additional")
     };
     // key is an expanded QName in Clark notation
     // value is a fingerprint, as a java.lang.Integer
@@ -337,6 +342,9 @@ public abstract class StandardNames {
         bindXSLTName(XSL_ANALYZE_STRING, "analyze-string");
         bindXSLTName(XSL_APPLY_IMPORTS, "apply-imports");
         bindXSLTName(XSL_APPLY_TEMPLATES, "apply-templates");
+        bindXSLTName(XSL_ACCEPT, "accept");
+        bindXSLTName(XSL_ARRAY, "array");
+        bindXSLTName(XSL_ARRAY_MEMBER, "array-member");
         bindXSLTName(XSL_ASSERT, "assert");
         bindXSLTName(XSL_ATTRIBUTE, "attribute");
         bindXSLTName(XSL_ATTRIBUTE_SET, "attribute-set");
@@ -364,6 +372,7 @@ public abstract class StandardNames {
         bindXSLTName(XSL_IMPORT, "import");
         bindXSLTName(XSL_IMPORT_SCHEMA, "import-schema");
         bindXSLTName(XSL_INCLUDE, "include");
+        bindXSLTName(XSL_ITEM_TYPE, "item-type");
         bindXSLTName(XSL_ITERATE, "iterate");
         bindXSLTName(XSL_KEY, "key");
         bindXSLTName(XSL_MAP, "map");
@@ -381,6 +390,7 @@ public abstract class StandardNames {
         bindXSLTName(XSL_NAMESPACE_ALIAS, "namespace-alias");
         bindXSLTName(XSL_NEXT_ITERATION, "next-iteration");
         bindXSLTName(XSL_NON_MATCHING_SUBSTRING, "non-matching-substring");
+        bindXSLTName(XSL_NOTE, "note");
         bindXSLTName(XSL_ON_COMPLETION, "on-completion");
         bindXSLTName(XSL_ON_EMPTY, "on-empty");
         bindXSLTName(XSL_ON_NON_EMPTY, "on-non-empty");
@@ -399,6 +409,7 @@ public abstract class StandardNames {
         bindXSLTName(XSL_SOURCE_DOCUMENT, "source-document");
         bindXSLTName(XSL_STRIP_SPACE, "strip-space");
         bindXSLTName(XSL_STYLESHEET, "stylesheet");
+        bindXSLTName(XSL_SWITCH, "switch");
         bindXSLTName(XSL_TEMPLATE, "template");
         bindXSLTName(XSL_TEXT, "text");
         bindXSLTName(XSL_TRANSFORM, "transform");
@@ -494,7 +505,7 @@ public abstract class StandardNames {
 
         bindXSName(XS_ANY_TYPE, "anyType");
         bindXSName(XS_ANY_SIMPLE_TYPE, "anySimpleType");
-        bindXSName(XS_INVALID_NAME, "invalidName");
+        //bindXSName(XS_INVALID_NAME, "invalidName");
         bindXSName(XS_ERROR, "error");
 
         bindXSName(XS_ALL, "all");
@@ -570,13 +581,8 @@ public abstract class StandardNames {
      * @return the standard fingerprint, or -1 if this is not a built-in name
      */
 
-    public static int getFingerprint(String uri, String localName) {
-        Integer fp = lookup.get('{' + uri + '}' + localName);
-        if (fp == null) {
-            return -1;
-        } else {
-            return fp;
-        }
+    public static int getFingerprint(NamespaceUri uri, String localName) {
+        return lookup.getOrDefault('{' + uri.toString() + '}' + localName, -1);
     }
 
     /**
@@ -599,21 +605,21 @@ public abstract class StandardNames {
      */
 
     /*@NotNull*/
-    public static String getURI(int fingerprint) {
+    public static NamespaceUri getURI(int fingerprint) {
         int c = fingerprint >> 7;
         switch (c) {
             case DFLT_NS:
-                return "";
+                return NamespaceUri.NULL;
             case XSL_NS:
-                return NamespaceConstant.XSLT;
+                return NamespaceUri.XSLT;
             case SAXON_NS:
-                return NamespaceConstant.SAXON;
+                return NamespaceUri.SAXON;
             case XML_NS:
-                return NamespaceConstant.XML;
+                return NamespaceUri.XML;
             case XS_NS:
-                return NamespaceConstant.SCHEMA;
+                return NamespaceUri.SCHEMA;
             case XSI_NS:
-                return NamespaceConstant.SCHEMA_INSTANCE;
+                return NamespaceUri.SCHEMA_INSTANCE;
             default:
                 throw new IllegalArgumentException("Unknown system fingerprint " + fingerprint);
         }
@@ -627,11 +633,11 @@ public abstract class StandardNames {
      */
 
     public static String getClarkName(int fingerprint) {
-        String uri = getURI(fingerprint);
-        if (uri.isEmpty()) {
+        NamespaceUri uri = getURI(fingerprint);
+        if (uri == NamespaceUri.NULL) {
             return getLocalName(fingerprint);
         } else {
-            return '{' + uri + '}' + getLocalName(fingerprint);
+            return '{' + uri.toString() + '}' + getLocalName(fingerprint);
         }
     }
 
@@ -709,7 +715,9 @@ public abstract class StandardNames {
      * A commonly-used name held in static:
      */
 
-    public final static StructuredQName SQ_XS_INVALID_NAME = getStructuredQName(XS_INVALID_NAME);
+    public final static StructuredQName SQ_XS_INVALID_NAME =
+            new StructuredQName("xs", NamespaceUri.SCHEMA, "invalid-name");
+            //getStructuredQName(XS_INVALID_NAME);
 
 }
 

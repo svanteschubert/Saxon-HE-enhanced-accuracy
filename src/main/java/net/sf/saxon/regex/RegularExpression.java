@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,11 @@
 
 package net.sf.saxon.regex;
 
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
 
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 /**
  * This interface represents a compiled regular expression. There are different
@@ -25,7 +26,7 @@ public interface RegularExpression {
      * @return true if the string matches, false otherwise
      */
 
-    boolean matches(CharSequence input);
+    boolean matches(UnicodeString input);
 
     /**
      * Determine whether the regular expression contains a match of a given string
@@ -34,7 +35,7 @@ public interface RegularExpression {
      * @return true if the string matches, false otherwise
      */
 
-    boolean containsMatch(CharSequence input);
+    boolean containsMatch(UnicodeString input);
 
     /**
      * Use this regular expression to tokenize an input string.
@@ -43,7 +44,7 @@ public interface RegularExpression {
      * @return a SequenceIterator containing the resulting tokens, as objects of type StringValue
      */
 
-    AtomicIterator tokenize(CharSequence input);
+    AtomicIterator tokenize(UnicodeString input);
 
     /**
      * Use this regular expression to analyze an input string, in support of the XSLT
@@ -56,7 +57,7 @@ public interface RegularExpression {
      */
 
     /*@NotNull*/
-    RegexIterator analyze(CharSequence input);
+    RegexIterator analyze(UnicodeString input);
 
     /**
      * Replace all substrings of a supplied input string that match the regular expression
@@ -68,7 +69,7 @@ public interface RegularExpression {
      * @throws XPathException if the replacement string is invalid
      */
 
-    CharSequence replace(CharSequence input, CharSequence replacement) throws XPathException;
+    UnicodeString replace(UnicodeString input, UnicodeString replacement) throws XPathException;
 
     /**
      * Replace all substrings of a supplied input string that match the regular expression
@@ -81,7 +82,7 @@ public interface RegularExpression {
      * @throws XPathException if the replacement string is invalid
      */
 
-    CharSequence replaceWith(CharSequence input, Function<CharSequence, CharSequence> replacement) throws XPathException;
+    UnicodeString replaceWith(UnicodeString input, BiFunction<UnicodeString, UnicodeString[], UnicodeString> replacement) throws XPathException;
 
     /**
      * Get the flags used at the time the regular expression was compiled.
@@ -90,6 +91,13 @@ public interface RegularExpression {
      */
 
     String getFlags();
+
+    /**
+     * Ask whether the regular expression is using platform-native syntax (Java or .NET), or XPath syntax
+     * @return true if using platform-native syntax
+     */
+
+    boolean isPlatformNative();
 
 
 }

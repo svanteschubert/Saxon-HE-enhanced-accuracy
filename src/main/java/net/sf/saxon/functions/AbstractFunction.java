@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,9 +15,11 @@ import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.om.AtomicSequence;
-import net.sf.saxon.om.Function;
+import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.query.AnnotationList;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 
 import java.util.Arrays;
@@ -25,7 +27,7 @@ import java.util.Arrays;
 /**
  * Abstract superclass (and factory class) for implementations of Function
  */
-public abstract class AbstractFunction implements Function {
+public abstract class AbstractFunction implements FunctionItem {
 
     /**
      * Get the roles of the arguments, for the purposes of streaming
@@ -74,23 +76,14 @@ public abstract class AbstractFunction implements Function {
     /**
      * Get the string value of the function
      *
-     * @throws UnsupportedOperationException (the string value of a function is not defined)
+     * @throws UncheckedXPathException (the string value of a function is not defined)
+     * @return nothing; this method always throws an exception
      */
 
     @Override
-    public String getStringValue() {
-        throw new UnsupportedOperationException("The string value of a function is not defined");
-    }
-
-    /**
-     * Get the string value of the function
-     *
-     * @throws UnsupportedOperationException (the string value of a function is not defined)
-     */
-
-    @Override
-    public CharSequence getStringValueCS() {
-        throw new UnsupportedOperationException("The string value of a function is not defined");
+    public UnicodeString getUnicodeStringValue() {
+        throw new UncheckedXPathException(
+                new XPathException("The string value of a function is not defined", "FOTY0014"));
     }
 
     @Override
@@ -131,7 +124,7 @@ public abstract class AbstractFunction implements Function {
      * Prepare an XPathContext object for evaluating the function
      *
      * @param callingContext the XPathContext of the function calling expression
-     * @param originator
+     * @param originator the originator of the new context
      * @return a suitable context for evaluating the function (which may or may
      * not be the same as the caller's context)
      */
@@ -148,7 +141,15 @@ public abstract class AbstractFunction implements Function {
      * @param other the other function item
      */
     @Override
-    public boolean deepEquals(Function other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
+        throw new XPathException("Argument to deep-equal() contains a function item", "FOTY0015");
+    }
+
+    @Override
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) throws XPathException {
+        if (options.falseOnError) {
+            return false;
+        }
         throw new XPathException("Argument to deep-equal() contains a function item", "FOTY0015");
     }
 
@@ -167,6 +168,12 @@ public abstract class AbstractFunction implements Function {
     @Override
     public boolean isTrustedResultType() {
         return false;
+    }
+
+    @Override
+    public String toShortString() {
+        // Need to disambiguate multiple inheritance candidates here
+        return getDescription();
     }
 }
 

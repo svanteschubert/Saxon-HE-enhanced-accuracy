@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,7 +15,7 @@ import net.sf.saxon.om.NodeInfo;
  * code will first call notifyElementNode(), giving the informee extra information about the element currently
  * being copied.
  */
-public interface CopyInformee<T extends Object> {
+public interface CopyInformee {
 
     /**
      * Provide information about the node being copied. This method is called immediately before
@@ -25,6 +25,6 @@ public interface CopyInformee<T extends Object> {
      * @return information about this node
      */
 
-    T notifyElementNode(NodeInfo element);
+    Object notifyElementNode(NodeInfo element);
 }
 

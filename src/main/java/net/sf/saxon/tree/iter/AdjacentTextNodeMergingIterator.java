@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,59 +11,61 @@ import net.sf.saxon.expr.AdjacentTextNodeMerger;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.Type;
 
-import java.util.EnumSet;
+import java.io.Closeable;
 
 /**
  * AdjacentTextNodeMergingIterator is an iterator that eliminates zero-length text nodes
  * and merges adjacent text nodes from the underlying iterator
  */
 
-public class AdjacentTextNodeMergingIterator implements LookaheadIterator {
+public class AdjacentTextNodeMergingIterator implements LookaheadIterator, Closeable {
 
-    // Ideally we would specify bounds: AdjacentTextNodeMergingIterator<? extends Item super NodeInfo>,
-    // but Java doesn't allow both an upper and a lower bound
-
-    private SequenceIterator base;
-    private Item next;
+    private final SequenceIterator base;
+    private Item _next;
 
     public AdjacentTextNodeMergingIterator(SequenceIterator base) throws XPathException {
-        this.base = base;
-        next = base.next();
+        try {
+            this.base = base;
+            _next = base.next();
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
+        }
     }
 
     @Override
     public boolean hasNext() {
-        return next != null;
+        return _next != null;
     }
 
     /*@Nullable*/
     @Override
-    public Item next() throws XPathException {
-        Item current = next;
+    public Item next() {
+        Item current = _next;
         if (current == null) {
             return null;
         }
-        next = base.next();
+        _next = base.next();
 
         if (AdjacentTextNodeMerger.isTextNode(current)) {
-            FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.C256);
-            fsb.cat(current.getStringValueCS());
-            while (AdjacentTextNodeMerger.isTextNode(next)) {
-                fsb.cat(next.getStringValueCS() /*.toString() */);
+            UnicodeBuilder ub = new UnicodeBuilder();
+            ub.accept(current.getUnicodeStringValue());
+            while (AdjacentTextNodeMerger.isTextNode(_next)) {
+                ub.accept(_next.getUnicodeStringValue() /*.toString() */);
                 // NOTE: toString() shouldn't be necessary - added 2011-05-05 for bug workaround; removed again 2011-07-14
-                next = base.next();
+                _next = base.next();
             }
-            if (fsb.isEmpty()) {
+            if (ub.isEmpty()) {
                 return next();
             } else {
                 Orphan o = new Orphan(((NodeInfo) current).getConfiguration());
                 o.setNodeKind(Type.TEXT);
-                o.setStringValue(fsb);
+                o.setStringValue(ub.toUnicodeString());
                 current = o;
                 return current;
             }
@@ -73,13 +75,14 @@ public class AdjacentTextNodeMergingIterator implements LookaheadIterator {
     }
 
     @Override
+    public boolean supportsHasNext() {
+        return true;
+    }
+
+    @Override
     public void close() {
         base.close();
     }
 
-    @Override
-    public EnumSet<Property> getProperties() {
-        return EnumSet.of(Property.LOOKAHEAD);
-    }
 }
 

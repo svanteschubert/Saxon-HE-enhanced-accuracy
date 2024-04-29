@@ -6,9 +6,12 @@
     expand-text="yes"
     version="3.0">
     
-    <xsl:param name="lang" as="xs:string" static="yes" required="yes"/>
+    <xsl:param name="lang" as="xs:string" required="yes"/>
+    <xsl:param name="startTime" as="xs:dateTime" required="yes"/>
+    <xsl:param name="executableUri" as="xs:string" required="yes"/>
+    <xsl:param name="nested" as="xs:boolean" required="yes"/>
     
-    <xsl:variable name="process" as="xs:string" static="yes" select="if ($lang = 'XSLT') then 'Stylesheet' else 'Query'"/>
+    <xsl:variable name="process" as="xs:string" select="if ($lang = 'XSLT') then 'Stylesheet' else 'Query'"/>
     <xsl:variable name="templateOr" select="if ($lang = 'XSLT') then 'template, ' else ''"/>
     <xsl:variable name="templatesAnd" select="if ($lang = 'XSLT') then 'templates and ' else ''"/>
     
@@ -83,7 +86,10 @@
                 <style>{$style}</style>
             </head>
             <body>
-                <h1>Analysis of {$process} Execution Time</h1>
+                <h1>Analysis of {$process} Execution Time
+                    <xsl:if test="$nested"> (invoked using fn:transform())</xsl:if>
+                </h1>
+                <p>{if ($lang='XSLT') then 'Transformation' else 'Query'} using {$executableUri} started at {$startTime}</p>
                 <p>Total time: {format-number(@t-total, "#0.000")} milliseconds</p>
                 <h2>Time spent in each {$templateOr} function or global variable:</h2>
                 <p>The table below is ordered by the total net time spent in the {$templateOr} 

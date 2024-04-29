@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.pattern;
 
+import net.sf.saxon.om.NamePool;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.om.StructuredQName;
@@ -14,19 +15,17 @@ import net.sf.saxon.tree.tiny.NodeVectorTree;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
-
-import java.util.function.IntPredicate;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 
 /**
  * NodeTest is an interface that enables a test of whether a node has a particular
  * name and type. An AnyNodeTest matches any node.
- *
- * @author Michael H. Kay
  */
 
 public final class AnyNodeTest extends NodeTest implements QNameTest {
 
-    private static AnyNodeTest THE_INSTANCE = new AnyNodeTest();
+    private static final AnyNodeTest THE_INSTANCE = new AnyNodeTest();
 
     /**
      * Get an instance of AnyNodeTest
@@ -76,9 +75,9 @@ public final class AnyNodeTest extends NodeTest implements QNameTest {
     }
 
     @Override
-    public IntPredicate getMatcher(NodeVectorTree tree) {
+    public IntPredicateProxy getMatcher(NodeVectorTree tree) {
         final byte[] nodeKindArray = tree.getNodeKindArray();
-        return nodeNr -> nodeKindArray[nodeNr] != Type.PARENT_POINTER;
+        return IntPredicateLambda.of(nodeNr -> nodeKindArray[nodeNr] != Type.PARENT_POINTER);
     }
 
     /**
@@ -107,6 +106,18 @@ public final class AnyNodeTest extends NodeTest implements QNameTest {
     }
 
     /**
+     * Test whether the QNameTest matches a given fingerprint
+     *
+     * @param namePool
+     * @param fp       the fingerprint of the QName to be matched
+     * @return true if the name matches, false if not
+     */
+    @Override
+    public boolean matchesFingerprint(NamePool namePool, int fp) {
+        return true;
+    }
+
+    /**
      * Determine the default priority of this node test when used on its own as a Pattern
      */
 
@@ -130,20 +141,6 @@ public final class AnyNodeTest extends NodeTest implements QNameTest {
     @Override
     public String exportQNameTest() {
         return "*";
-    }
-
-    /**
-     * Generate Javascript code to test if a name matches the test.
-     *
-     * @return JS code as a string. The generated code will be used
-     * as the body of a JS function in which the argument name "q" is an
-     * XdmQName object holding the name. The XdmQName object has properties
-     * uri and local.
-     * @param targetVersion The version of Saxon-JS being targeted
-     */
-    @Override
-    public String generateJavaScriptNameTest(int targetVersion) {
-        return "true";
     }
 
 

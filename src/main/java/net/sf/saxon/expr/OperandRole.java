@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -69,7 +69,7 @@ public class OperandRole {
     ;
 
     int properties;
-    private OperandUsage usage;
+    private final OperandUsage usage;
     private SequenceType requiredType = SequenceType.ANY_SEQUENCE;
     private Predicate<Expression> constraint;
 
@@ -89,6 +89,24 @@ public class OperandRole {
         this.usage = usage;
         this.requiredType = requiredType;
         this.constraint = constraint;
+    }
+
+    /**
+     * Create an operand role based on this one, but with a constraint
+     * @param constraint the constraint to be applied
+     * @return the new operand role (the original is unchanged)
+     */
+    public OperandRole withConstraint(Predicate<Expression> constraint) {
+        return new OperandRole(properties, usage, requiredType, constraint);
+    }
+
+    /**
+     * Create an operand role based on this one, but with a constrained class property
+     * @return the new operand role (the original is unchanged)
+     */
+
+    public OperandRole withConstrainedClass() {
+        return new OperandRole(properties | CONSTRAINED_CLASS, usage, requiredType, constraint);
     }
 
     /**
@@ -143,18 +161,11 @@ public class OperandRole {
 
     /**
      * Set a constraint on the expression that can be associated with this operand type
+     * @param constraint the constraint that must be satisfied by the relevant expression
      */
 
     public void setConstraint(Predicate<Expression> constraint) {
         this.constraint = constraint;
-    }
-
-    public OperandRole withConstraint(Predicate<Expression> constraint) {
-        return new OperandRole(properties, usage, requiredType, constraint);
-    }
-
-    public OperandRole withConstrainedClass() {
-        return new OperandRole(properties | CONSTRAINED_CLASS, usage, requiredType, constraint);
     }
 
     /**

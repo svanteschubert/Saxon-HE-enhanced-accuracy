@@ -11,6 +11,7 @@ import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.tree.iter.ManualIterator;
 
 /**
@@ -19,8 +20,8 @@ import net.sf.saxon.tree.iter.ManualIterator;
  */
 public class CallableWithBoundFocus implements Callable {
 
-    private Callable target;
-    private XPathContext boundContext;
+    private final Callable target;
+    private final XPathContext boundContext;
 
     public CallableWithBoundFocus(Callable target, final XPathContext context) {
         this.target = target;
@@ -30,7 +31,7 @@ public class CallableWithBoundFocus implements Callable {
         } else {
             ManualIterator iter =
                     new ManualIterator(context.getContextItem(), context.getCurrentIterator().position());
-            iter.setLastPositionFinder(context::getLast);
+            iter.setLengthFinder(CSharp.methodRef(context::getLast));
             boundContext.setCurrentIterator(iter);
         }
     }
@@ -50,4 +51,4 @@ public class CallableWithBoundFocus implements Callable {
     }
 }
 
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited

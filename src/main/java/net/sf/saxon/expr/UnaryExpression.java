@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2020 Saxonica Limited
+// Copyright (c) 2018-2023 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,11 +11,11 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.jiter.MonoIterator;
 import net.sf.saxon.type.ItemType;
-import java.util.Iterator;
 
 /**
  * Unary Expression: an expression taking a single operand expression
@@ -23,7 +23,7 @@ import java.util.Iterator;
 
 public abstract class UnaryExpression extends Expression {
 
-    private Operand operand;
+    private final Operand operand;
 
     public UnaryExpression(Expression p0) {
         operand = new Operand(this, p0, getOperandRole());
@@ -48,13 +48,7 @@ public abstract class UnaryExpression extends Expression {
 
     @Override
     public Iterable<Operand> operands() {
-        // For .NEU - don't use a lambda expression here
-        return new Iterable<Operand>() {
-            @Override
-            public Iterator<Operand> iterator() {
-                return new MonoIterator<>(operand);
-            }
-        };
+        return operand;
     }
 
     /**
@@ -78,7 +72,7 @@ public abstract class UnaryExpression extends Expression {
         try {
             if (getBaseExpression() instanceof Literal) {
                 Expression e2 = Literal.makeLiteral(
-                        iterate(visitor.getStaticContext().makeEarlyEvaluationContext()).materialize(), this);
+                        SequenceTool.toGroundedValue(iterate(visitor.getStaticContext().makeEarlyEvaluationContext())), this);
                 ExpressionTool.copyLocationInfo(this, e2);
                 return e2;
             }
@@ -114,9 +108,9 @@ public abstract class UnaryExpression extends Expression {
         try {
             if (base instanceof Literal) {
                 return Literal.makeLiteral(
-                        iterate(visitor.getStaticContext().makeEarlyEvaluationContext()).materialize(), this);
+                        SequenceTool.toGroundedValue(iterate(visitor.getStaticContext().makeEarlyEvaluationContext())), this);
             }
-        } catch (XPathException err) {
+        } catch (XPathException | UncheckedXPathException err) {
             // if early evaluation fails, suppress the error: the value might
             // not be needed at run-time
         }
@@ -130,7 +124,7 @@ public abstract class UnaryExpression extends Expression {
      */
 
     @Override
-    public int computeSpecialProperties() {
+    protected int computeSpecialProperties() {
         return getBaseExpression().getSpecialProperties();
     }
 
@@ -139,7 +133,7 @@ public abstract class UnaryExpression extends Expression {
      */
 
     @Override
-    public int computeCardinality() {
+    protected int computeCardinality() {
         return getBaseExpression().getCardinality();
     }
 
@@ -172,7 +166,7 @@ public abstract class UnaryExpression extends Expression {
      */
 
     @Override
-    public int computeHashCode() {
+    protected int computeHashCode() {
         return ("UnaryExpression " + getClass()).hashCode() ^ getBaseExpression().hashCode();
     }
 
