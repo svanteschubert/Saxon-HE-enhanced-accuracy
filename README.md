@@ -85,9 +85,9 @@ Build & smoke test can be executed via command-line by calling: **mvn clean inst
 
 There is bash script '[saxon-update.sh](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/saxon-update.sh)', which download the specified Saxon-HE version [from Maven](https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/) and rebase our changes on top of it.
 
-1. Two variables of next & current version of Saxon needs to be adopted (see [Maven for latest version](https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/)).
+1. Two variables of next & current version of Saxon needs to be adopted (see [Maven for latest version](https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/)). In addition, this change of the '[saxon-update.sh](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/saxon-update.sh)' must be first commited on the **accuracy-feature** branch, otherwise the script will not start.
 1. Sometimes there might be merge conflicts if Saxon changed a line we are adopting (the script will stop).
-   In this case the last three lines (change of version in pom.xml and its commit) have to be done manually.
+   In this case the last three lines (change of version in pom.xml and its commit) have to be done manually, after resolving prior the rebase conflicts manually.
 1. Test if the sources build & our test runs without error (there are errors in JavaDoc nevermind).
 1. Tag manually the latest commit to trigger the GitHub automatic release deployment, see chapter GitHub Actions below.</br>
    **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
