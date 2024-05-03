@@ -416,13 +416,27 @@ public class XPath20FunctionSet extends BuiltInFunctionSet {
         register("root", 1, e -> e.populate(Root_1::new, AnyGNodeType.getInstance(), OPT, CARD0)
                 .arg(0, AnyGNodeType.getInstance(), OPT | NAV, EMPTY));
 
-        register("round", 1, e -> e.populate(Round::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
+        register("round", 1, e -> e.populate(RoundHalfAwayFromZero::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
                 .arg(0, NumericType.getInstance(), OPT, EMPTY));
+
+        register("round-half-to-positive-infinity", 1, e -> e.populate(Round::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
+                .arg(0, NumericType.getInstance(), OPT, EMPTY));
+
+        register("round-half-to-positive-infinity", 2, e -> e.populate(Round::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
+                .arg(0, NumericType.getInstance(), OPT, EMPTY)
+                .arg(1, BuiltInAtomicType.INTEGER, ONE, null));
 
         register("round-half-to-even", 1, e -> e.populate(RoundHalfToEven::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
                 .arg(0, NumericType.getInstance(), OPT, EMPTY));
 
         register("round-half-to-even", 2, e -> e.populate(RoundHalfToEven::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
+                .arg(0, NumericType.getInstance(), OPT, EMPTY)
+                .arg(1, BuiltInAtomicType.INTEGER, ONE, null));
+
+        register("round-half-away-from-zero", 1, e -> e.populate(RoundHalfAwayFromZero::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
+                .arg(0, NumericType.getInstance(), OPT, EMPTY));
+
+        register("round-half-away-from-zero", 2, e -> e.populate(RoundHalfAwayFromZero::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
                 .arg(0, NumericType.getInstance(), OPT, EMPTY)
                 .arg(1, BuiltInAtomicType.INTEGER, ONE, null));
 

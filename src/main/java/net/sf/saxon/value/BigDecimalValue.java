@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
 
 public final class BigDecimalValue extends DecimalValue {
 
-    public static final int DIVIDE_PRECISION = 18;
+    public static final int DIVIDE_PRECISION = 34;
 
     private final BigDecimal value;
 
@@ -518,7 +518,7 @@ public final class BigDecimalValue extends DecimalValue {
     }
 
     /**
-     * Implement the XPath round() function
+     * Does implement the XPath round() function
      */
 
     @Override
@@ -597,6 +597,27 @@ public final class BigDecimalValue extends DecimalValue {
                 scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);
                 break;
         }
+        return new BigDecimalValue(scaledValue.stripTrailingZeros());
+    }
+
+
+    /**
+     * Implement the round-half-up() function
+     *
+     * @param scale the decimal position for rounding: e.g. 2 rounds to a
+     *              multiple of 0.01, while -2 rounds to a multiple of 100
+     * @return a value, of the same type as the original, rounded towards the
+     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor"
+     *         unless both neighbors are equidistant, in which case round up.
+     *         Note that this is the rounding mode commonly taught at school.
+     */
+
+    @Override
+    public NumericValue roundHalfAwayFromZero(int scale){
+        if (scale >= value.scale()) {
+            return this;
+        }
+        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_UP);
         return new BigDecimalValue(scaledValue.stripTrailingZeros());
     }
 

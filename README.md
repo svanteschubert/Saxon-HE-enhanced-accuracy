@@ -2,15 +2,35 @@
 
 ## Purpose
 
-This temporary fork of Michael Kay's Saxon is just a show case of using Saxon in the e-commerce domain requiring best numeric accuracy.
+This is a fork from the XSLT processor (SAXON Home) to provide accuracy and legal conformatiy in commercial calculations.
 
-After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
+1. The accuracy is being achieved by using for floating-point numbers the decimal-based implementation of IEEE 754 of Java instead of the inaccurate binary-based floating point.
+
+2. In some EU countries - like in Germany - the VAT has to be rounded half-up (away from zero - 0,5 becomes 1 and -0,5 becomes -1). But XML is using round half-up towards infinity, where 0,5 becomes 1 and -0,5 becomes 0).
+Therefore the (in Germany for VAT) legally required rounding had been added to SAXON HE.
+
+This temporary fork of Michael Kay's Saxon is just a showcase of using Saxon in the e-commerce domain requiring the best numeric accuracy.
+
+After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as a recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
+
+## Background
+
+In the context of EU e-invoice standardisation the CEN Technical Committee 434 discussed for weeks, how it could be achieved that invoices created from different software could be identical in all data fields, especially the calculated amounts were often varying.
+For weeks spreadsheets with various scenarios were exchanged and the tendency was towards a simple workaround using Slack (to accept the variations and provide a level of inaccuracy).
+
+In the end, there were only three points to be taken care of:
+
+1. No calculation of rounded values (e.g. no addition of line gross values - even if allowed by law as in the Netherlands)
+2. Agree on a single rounding (there are more than a dozen different roundings - XML come up with its own but Germany requires by law for VAT the "half-up rounding away from zero" (or "kaufmännisches Runden") different to XML default rounding)
+3. Use Instead of the usually used binary floating-point use the accurate decimal floating-point (part of IEEE 754 since 2008)
+
+These recommendations are part of the EN16931 amendments - no mandatory requirement as the members were afraid that this standard would not be accepted by the e-receipt industry as their software is "too weak"!
 
 ## Decimal-based floating-point
 
 Decimal-based floating-point was invented for the commercial sector.
 It missed the early [IEEE 754 standard](https://ieeexplore.ieee.org/document/8766229) in the late 80ths and still took 20 years until it was embraced by IEEE 754 in 2008.
-Now being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), [Intel](https://software.intel.com/content/www/us/en/develop/articles/intel-decimal-floating-point-math-library.html), etc.
+Now, being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), [Intel](https://software.intel.com/content/www/us/en/develop/articles/intel-decimal-floating-point-math-library.html), etc.
 
 ### Invoice Example
 
@@ -55,7 +75,7 @@ This Saxon update is achieved by several minor enhancements:
    The fix was to [disable Double creation in NumericValue](https://github.com/svanteschubert/Saxon-HE/commit/fe8ca45c54622b467eb58fbaeae0d3edbe4461c7).
 2. [Extending the existing BigDecimal implementation to full floating-point support](https://github.com/svanteschubert/Saxon-HE/commit/70d0a1197e298eb17dacf343553a2873352f2db2).
 3. [Adding highest Java precision decimal-based floating-point support to multiplication and division of BigDecimals](https://github.com/svanteschubert/Saxon-HE/commit/68c538a364e8bfd8aa5598077521ad87fb297e88).
-4. Added [round-half-up() function](https://docs.oracle.com/javase/8/docs/api/java/math/RoundingMode.html) as integrated extension functions of SAXON, as half-up rounding is the default rounding in EU e-commerce - the rounding that we had learned in school - and now also added as default rounding to the EN16931 specification. The  [W3C XPath round() function](https://www.w3.org/TR/xpath-functions-31/#func-round) is different by always rounding in the direction of positives, e.g. -1.5 becomes -1.
+4. Added [round-half-away-from-zero() function (in Java half-up)](https://docs.oracle.com/javase/8/docs/api/java/math/RoundingMode.html) as integrated extension functions of SAXON, as half-away-from-zero rounding is the default rounding in EU e-commerce - the rounding that we had likely learned in school - and now also added as default rounding to the EN16931 specification. The  [W3C XPath round() function](https://www.w3.org/TR/xpath-functions-31/#func-round) is different by always rounding in the direction of positives, e.g. -1.5 becomes -1.
 
 ## Building Saxon from latest Sources
 
@@ -69,6 +89,52 @@ I have added a [smoke test case](https://github.com/svanteschubert/Saxon-HE/blob
 [JDK 1.8](https://openjdk.java.net/install/) is required by the original [Saxon of Saxonica](http://saxon.sourceforge.net/) and [Maven](https://maven.apache.org/download.cgi?Preferred=ftp://ftp.osuosl.org/pub/apache/) as build environment.
 Build & smoke test can be executed via command-line by calling: **mvn clean install**
 
-## Report to Saxonica
+## Updating Saxon Version
 
-[https://saxonica.plan.io/issues/4823](https://saxonica.plan.io/issues/4823)
+There is bash script '[saxon-update.sh](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/saxon-update.sh)', which download the specified Saxon-HE version [from Maven](https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/) and rebase our changes on top of it.
+
+1. Two variables of next & current version of Saxon needs to be adopted (see [Maven for latest version](https://repo1.maven.org/maven2/net/sf/saxon/Saxon-HE/)). In addition, this change of the '[saxon-update.sh](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/saxon-update.sh)' must be first commited on the **accuracy-feature** branch, otherwise the script will not start.
+1. Sometimes there might be merge conflicts if Saxon changed a line we are adopting (the script will stop).
+   In this case the last three lines (change of version in pom.xml and its commit) have to be done manually, after resolving prior the rebase conflicts manually.
+1. Test if the sources build & our test runs without error (there are errors in JavaDoc nevermind).
+1. Tag manually the latest commit to trigger the GitHub automatic release deployment, see chapter GitHub Actions below.</br>
+   **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
+       e.g. "*git tag -sm v12.4 v12.4*" # using -s to sign the tag & -m is taking the next parameter as message
+
+## Git Branches
+
+1. **accuracy-feature** (our feature branch - our feature on top of the Saxon functionality) - ***we only commit to this branch!***</br>
+   Our feature branch that will be continously updated.
+   Contains the script and everything on top of existing Saxon.
+   Will be rebased on top of the SAXON sources (saxon-upstream).
+1. **saxon-upstream** (automatic generated - don't touch)</br>
+   As Saxon is not available on GitHub we need to create the sources from the Maven source & binary JAR (downloaded, extracted and normalized (dos2unix) via our bash script)
+   Only the Java sources of Saxon (without the pom.xml resulting into continous merge conflicts (e.g. version number changes)).
+   The required parts of the Maven Saxon sources and binaries JAR are being added on top of this branch.
+1. **SAXON-HE-v&lt;VERSION&gt;** (original Saxon sources - ***could be used for other features on top of Saxon***)</br>
+   Branch with original Saxon functionality.
+   Forks the saxon-upstream of Saxon source & binary JARs with adding first the original Saxon pom.xml also downloaded from Maven.
+   With an additional commit overwriting this pom.xml with our feature branch pom.xml to allow the Saxon sources to be able to build.
+1. **SAXON-HE-accuracy-v&lt;VERSION&gt;** (our feature-enriched Saxon sources - ***could be used for maintenance***)</br>
+This branch provides the maintenance branch of our enriched Saxon sources.
+As we are rebasing our feature branch (accuracy-feature) always on top of the saxon-sources (saxon-upstream) all commits will get new hashes and the original branch (and commits) would get lost.
+1. **prototyping** (deprecated (pure historical) - don't touch)</br>
+   Initial work before it was later refactored to be automated by bash script 'saxon-update.sh'.
+1. **basics** (deprecated (pure historical) - don't touch)</br>
+   Branch the inital bash script was being started.
+
+## GiHub Actions
+
+There are two GitHub Actions
+
+1. [Build](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/maven.yml): Triggered by every push or pull-request on the default branch.
+2. [Deployment](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/deployment.yml): Triggered whenever a tag was pushed a GitHub release is being automated made using the version number extracted from the pom.xml file, for instance:
+   1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br> 
+       e.g. "*git tag -sm v12.4 v12.4*" # using -s to sign the tag & -m is taking the next parameter as message
+   2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
+*Note*: The overwrite function does not work a release has to be manually deleted for the same version from pom.xml!
+
+## Reports to Saxonica
+
+* [https://saxonica.plan.io/issues/4823](https://saxonica.plan.io/issues/4823)
+* [https://saxonica.plan.io/issues/5195](https://saxonica.plan.io/issues/5195)

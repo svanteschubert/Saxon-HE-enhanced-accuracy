@@ -1,0 +1,124 @@
+1/3 should be 
+        0.3333333333333333333333333333333333 and is 
+        0.3333333333333333333333333333333333
+(1/3 + 1/3 + 1/3) should be 
+            0.9999999999999999999999999999999999
+            and is 
+            0.9999999999999999999999999999999999
+(1000000000.0 *(1.0 div 3 )) should be 
+            333333333.3333333333333333333333333 and is 
+            333333333.3333333333333333333333333
+(1000000000.0 * 1.0 div 3 ) should be 
+            333333333.3333333333333333333333333333333333
+             and is 
+            333333333.3333333333333333333333333333333333
+-------------------------------------------------------------------------------------
+round-half-to-even(5.5) should be  6 and is 6!
+round-half-to-even(2.5) should be  2 and is 2!
+round-half-to-even(1.6) should be  2 and is 2!
+round-half-to-even(1.1) should be  1 and is 1!
+round-half-to-even(1.0) should be  1 and is 1!
+round-half-to-even(-1.0) should be -1 and is -1!
+round-half-to-even(-1.1) should be -1 and is -1!
+round-half-to-even(-1.6) should be -2 and is -2!
+round-half-to-even(-2.5) should be -2 and is -2!
+round-half-to-even(-5.5) should be -6 and is -6!
+round-half-to-even(0.8449, 2) should be 0.84 and is 0.84!
+round-half-to-even(0.8450, 2) should be 0.84 and is 0.84!
+round-half-to-even(0.8451, 2) should be 0.85 and is 0.85!
+round-half-to-even(0.8452, 2) should be 0.85 and is 0.85!
+round-half-to-even(-0.8449, 2) should be -0.84 and is -0.84!
+round-half-to-even(-0.8450, 2) should be -0.84 and is -0.84!
+round-half-to-even(-0.8451, 2) should be -0.85 and is -0.85!
+round-half-to-even(-0.8452, 2) should be -0.85 and is -0.85!
+round-half-to-even(8452, -2) should be 8500 and is 8500!
+round-half-to-even(-8452, -2) should be -8500 and is -8500!
+round-half-to-even(-9552.245, 2) should be -9552.24 and is -9552.24!
+round-half-to-even(-9552.255, 2) should be -9552.26 and is -9552.26!
+round-half-to-even(-9552.255, -2) should be -9600 and is -9600!
+round-half-to-even(-0.5000000000000) should be  0 and is 0!
+round-half-to-even(-0.5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001) should be 
+                  -1 and is -1!
+-------------------------------------------------------------------------------------
+round-half-to-positive-infinity(5.5) should be  6 and is 6!
+round-half-to-positive-infinity(2.5) should be  3 and is 3!
+round-half-to-positive-infinity(1.6) should be  2 and is 2!
+round-half-to-positive-infinity(1.1) should be  1 and is 1!
+round-half-to-positive-infinity(1.0) should be  1 and is 1!
+round-half-to-positive-infinity(-1.0) should be -1 and is -1!
+round-half-to-positive-infinity(-1.1) should be -1 and is -1!
+round-half-to-positive-infinity(-1.6) should be -2 and is -2!
+round-half-to-positive-infinity(-2.5) should be -2 and is -2!
+round-half-to-positive-infinity(-5.5) should be -5 and is -5!
+round-half-to-positive-infinity(0.8449, 2) should be 0.84 and is 0.84!
+round-half-to-positive-infinity(0.8450, 2) should be 0.85 and is 0.85!
+round-half-to-positive-infinity(0.8451, 2) should be 0.85 and is 0.85!
+round-half-to-positive-infinity(0.8452, 2) should be 0.85 and is 0.85!
+round-half-to-positive-infinity(-0.8449, 2) should be -0.84 and is -0.84!
+round-half-to-positive-infinity(-0.8450, 2) should be -0.84 and is -0.84!
+round-half-to-positive-infinity(-0.8451, 2) should be -0.85 and is -0.85!
+round-half-to-positive-infinity(-0.8452, 2) should be -0.85 and is -0.85!
+round-half-to-positive-infinity(8452, -2) should be 8500 and is 8500!
+round-half-to-positive-infinity(-8452, -2) should be -8500 and is -8500!
+round-half-to-positive-infinity(-9552.245, 2) should be -9552.24 and is -9552.24!
+round-half-to-positive-infinity(-9552.255, 2) should be -9552.25 and is -9552.25!
+round-half-to-positive-infinity(-9552.255, -2) should be -9600 and is -9600!
+round-half-to-positive-infinity(-0.5000000000000) should be  0 and is 0!
+round-half-to-positive-infinity(-0.5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001) should be 
+                  -1 and is -1!
+-------------------------------------------------------------------------------------
+round-half-to-positive-infinity(5.5) should be  6 and is 6!
+round-half-to-positive-infinity(2.5) should be  3 and is 3!
+round-half-to-positive-infinity(1.6) should be  2 and is 2!
+round-half-to-positive-infinity(1.1) should be  1 and is 1!
+round-half-to-positive-infinity(1.0) should be  1 and is 1!
+round-half-to-positive-infinity(-1.0) should be -1 and is -1!
+round-half-to-positive-infinity(-1.1) should be -1 and is -1!
+round-half-to-positive-infinity(-1.6) should be -2 and is -2!
+round-half-to-positive-infinity(-2.5) should be -2 and is -2!
+round-half-to-positive-infinity(-5.5) should be -5 and is -5!
+round-half-to-positive-infinity(0.8449, 2) should be 0.84 and is 0.84!
+round-half-to-positive-infinity(0.8450, 2) should be 0.85 and is 0.85!
+round-half-to-positive-infinity(0.8451, 2) should be 0.85 and is 0.85!
+round-half-to-positive-infinity(0.8452, 2) should be 0.85 and is 0.85!
+round-half-to-positive-infinity(-0.8449, 2) should be -0.84 and is -0.84!
+round-half-to-positive-infinity(-0.8450, 2) should be -0.84 and is -0.84!
+round-half-to-positive-infinity(-0.8451, 2) should be -0.85 and is -0.85!
+round-half-to-positive-infinity(-0.8452, 2) should be -0.85 and is -0.85!
+round-half-to-positive-infinity(8452, -2) should be 8500 and is 8500!
+round-half-to-positive-infinity(-8452, -2) should be -8500 and is -8500!
+round-half-to-positive-infinity(-9552.245, 2) should be -9552.24 and is -9552.24!
+round-half-to-positive-infinity(-9552.255, 2) should be -9552.25 and is -9552.25!
+round-half-to-positive-infinity(-9552.255, -2) should be -9600 and is -9600!
+round-half-to-positive-infinity(-0.5000000000000) should be  0 and is 0!
+round-half-to-positive-infinity(-0.5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001) should be 
+                  -1 and is -1!
+-------------------------------------------------------------------------------------
+round(5.5) should be  6 and is 6!
+round(2.5) should be  3 and is 3!
+round(1.6) should be  2 and is 2!
+round(1.1) should be  1 and is 1!
+round(1.0) should be  1 and is 1!
+round(-1.0) should be -1 and is -1!
+round(-1.1) should be -1 and is -1!
+round(-1.6) should be -2 and is -2!
+round(-2.5) should be -3 and is -3!
+round(-5.5) should be -6 and is -6!
+round(0.8449, 2) should be 0.84 and is 0.84!
+round(0.8450, 2) should be 0.85 and is 0.85!
+round(0.8451, 2) should be 0.85 and is 0.85!
+round(0.8452, 2) should be 0.85 and is 0.85!
+round(-0.8449, 2) should be -0.84 and is -0.84!
+round(-0.8450, 2) should be -0.84 and is -0.84!
+round(-0.8451, 2) should be -0.85 and is -0.85!
+round(-0.8452, 2) should be -0.85 and is -0.85!
+round(8452, -2) should be 8500 and is 8500!
+round(-8452, -2) should be -8500 and is -8500!
+round(-9552.245, 2) should be -9552.24 and is -9552.24!
+round(-9552.255, 2) should be -9552.25 and is -9552.25!
+round(-9552.255, -2) should be -9600 and is -9600!
+round(-0.5000000000000) should be  -1 and is -1!
+round(-0.5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001) should be 
+                  -1 and is -1!
+round( 0.5000000000000) should be  1 and is 1!
+-------------------------------------------------------------------------------------
