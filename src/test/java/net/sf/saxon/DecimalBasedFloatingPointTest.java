@@ -88,8 +88,11 @@ public class DecimalBasedFloatingPointTest {
             if (refFile.exists()) {
                 String referenceResult = Files.readString(Paths.get(refFile.toURI()), Charset.forName("UTF-8"));
                 if (!resultReloaded.equals(referenceResult)) {
-                    compareTextFiles(TARGET_DIR + reportFileName, REFERENCES_DIR + reportFileName);
-                    Assertions.fail("\nRegression test fails as reference was different!\nNote: If the test fails due to a new output (e.g. programming update) copy the new result over the old reference:\n\t" + TARGET_DIR + reportFileName + "\n\t\tto" + "\n\t" + REFERENCES_DIR + reportFileName);                    
+                    Boolean hasDifference = Boolean.FALSE;
+                    hasDifference = compareTextFiles(TARGET_DIR + reportFileName, REFERENCES_DIR + reportFileName);
+                    if(hasDifference){
+                        Assertions.fail("\nRegression test fails as reference was different!\nNote: If the test fails due to a new output (e.g. programming update) copy the new result over the old reference:\n\t" + TARGET_DIR + reportFileName + "\n\t\tto" + "\n\t" + REFERENCES_DIR + reportFileName);                    
+                    }                    
                 }
             }
         } catch (IOException ex) {
@@ -141,8 +144,11 @@ public class DecimalBasedFloatingPointTest {
             if (refFile.exists()) {
                 String referenceResult = Files.readString(Paths.get(refFile.toURI()), Charset.forName("UTF-8"));
                 if (!resultReloaded.equals(referenceResult)) {
-                    compareTextFiles(TARGET_DIR + reportFileName, REFERENCES_DIR + reportFileName);                    
-                    Assertions.fail("\nRegression test fails as reference was different!\nNote: If the test fails due to a new output (e.g. programming update) copy the new result over the old reference:\n\t" + TARGET_DIR + reportFileName + "\n\t\tto" + "\n\t" + REFERENCES_DIR + reportFileName);
+                    Boolean hasDifference = Boolean.FALSE;
+                    hasDifference = compareTextFiles(TARGET_DIR + reportFileName, REFERENCES_DIR + reportFileName);
+                    if(hasDifference){
+                        Assertions.fail("\nRegression test fails as reference was different!\nNote: If the test fails due to a new output (e.g. programming update) copy the new result over the old reference:\n\t" + TARGET_DIR + reportFileName + "\n\t\tto" + "\n\t" + REFERENCES_DIR + reportFileName);
+                    }
                 }
             }
 
@@ -162,7 +168,8 @@ public class DecimalBasedFloatingPointTest {
      * Just for showing the different lines, in case the test and reference
      * files as strings are unequal!
      */
-    private static void compareTextFiles(String firstFilePath, String secondFilePath) {
+    private static Boolean compareTextFiles(String firstFilePath, String secondFilePath) {
+        Boolean hasDifference = Boolean.FALSE;
         try (
                 BufferedReader bfr1 = Files.newBufferedReader(Paths.get(firstFilePath)); BufferedReader bfr2 = Files.newBufferedReader(Paths.get(secondFilePath));) {
             String line1;
@@ -173,10 +180,13 @@ public class DecimalBasedFloatingPointTest {
                 if (!line1.equals(line2)) {
                     System.err.println("### Unmatched Line1: '" + line1 + "'\n");
                     System.err.println("### Unmatched Line2: '" + line2 + "'\n\n");
+                    hasDifference = Boolean.TRUE;
                 }
             }
         } catch (Exception e) {
             System.err.println(e.getMessage() + e.toString());
+            hasDifference = Boolean.TRUE;
         }
+        return hasDifference;
     }    
 }
