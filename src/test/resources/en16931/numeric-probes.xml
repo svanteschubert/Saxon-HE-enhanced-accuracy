@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic arithmetic inputs, independent of the official EN16931 rules. -->
+<probes>
+  <net>-3.50</net>
+  <rate>19</rate>
+  <a>0.1</a>
+  <b>0.2</b>
+  <c>0.3</c>
+</probes>

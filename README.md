@@ -107,6 +107,15 @@ variables, XQuery, JAXP and the CLI. A test-only SchXslt dependency compiles
 positive and negative VAT midpoint cases. This focused fixture is not a complete
 EN16931/XRechnung ruleset.
 
+## Official EN16931 invoice comparison
+
+The [UBL and CII examples and comparison report](docs/en16931-comparison.md)
+use fictional German companies, 2017 dates, and 19%/7% VAT. Run
+`mvn -Pen16931-comparison -Dmaven.javadoc.skip=true verify` with JDK 25 to compare the unchanged
+EN16931 1.3.16 XSLT under stock Saxon-HE 13.0 and this fork in separate JVMs.
+Both baseline invoices pass both engines. Separate numeric probes demonstrate
+where the fork differs and where binary floating-point remains in use.
+
 ## Building Saxon from latest Sources
 
 As the Saxon HE sources do not exist on GitHub, I downloaded the sources and the pom.xml from the [Maven Repository](https://mvnrepository.com/artifact/net.sf.saxon/Saxon-HE) into a Maven directory structure.
