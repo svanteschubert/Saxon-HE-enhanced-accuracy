@@ -205,3 +205,23 @@ buildNumber.properties
 /xslt-runner-task/nbproject/private/
 /xslt-runner/nbproject/
 /generator/schema2template/target_20201110/
+
+### macOS metadata ###
+.DS_Store
+.DSStore
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+.TemporaryItems/
+.fseventsd/
+.DocumentRevisions-V100/
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.apdisk
+__MACOSX/
+
+### Microsoft Office temporary and lock files ###
+~$*
+$*
