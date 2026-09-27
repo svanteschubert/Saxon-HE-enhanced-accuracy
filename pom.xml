@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>net.sf.saxon</groupId>
+  <!-- Maven coordinates only. Java packages stay net.sf.saxon so this JAR remains a
+       drop-in Saxon-HE: s9api, META-INF/services, and net/sf/saxon/data are unchanged.
+       net.sf.saxon on Maven Central belongs to Saxonica; this fork is published under
+       the schubert-consulting.com namespace. -->
+  <groupId>com.schubert-consulting</groupId>
   <artifactId>Saxon-HE-accuracy</artifactId>
-  <version>13.0</version>
+  <!-- Snapshot uploads are overwritten in place and dropped by Central after 90 days.
+       Enable "SNAPSHOTs" on the com.schubert-consulting namespace before deploying.
+       Drop the -SNAPSHOT suffix for a permanent release; that version can be published once. -->
+  <version>13.0.1-SNAPSHOT</version>
   <name>Saxon-HE - enhanced accuracy using decimal-based floating-point arithmetic</name>
   <packaging>jar</packaging>
   <description>The XSLT and XQuery Processor is using the far more accurate decimal-based floating-point arithmetic and half-up rounding. Reason was the European Norm 16931: where arithmetic should come same results and VAT has to be rounded often by national law half-up.</description>
-  <url>http://www.saxonica.com/</url>
+  <url>https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy</url>
   <inceptionYear>1999</inceptionYear>
   <organization>
     <name>Saxonica</name>
@@ -16,7 +23,7 @@
   <licenses>
     <license>
       <name>Mozilla Public License Version 2.0</name>
-      <url>http://www.mozilla.org/MPL/2.0/</url>
+      <url>https://www.mozilla.org/MPL/2.0/</url>
       <distribution>repo</distribution>
     </license>
   </licenses>
@@ -55,9 +62,9 @@
      </developer>
   </developers>
   <scm>
-    <connection>scm:git:https://saxonica.plan.io/projects/saxonmirrorhe/repository</connection>
-    <developerConnection>scm:git:https://saxonica.plan.io/projects/saxonmirrorhe/repository</developerConnection>
-    <url>https://saxonica.plan.io/projects/saxonmirrorhe/repository</url>
+    <connection>scm:git:https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy.git</connection>
+    <developerConnection>scm:git:https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy.git</developerConnection>
+    <url>https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy</url>
   </scm>
   <issueManagement>
     <system>Saxon Community</system>
@@ -193,13 +200,11 @@
         </dependency>
       </dependencies>
     </dependencyManagement>
-    <parent>
-      <groupId>org.sonatype.oss</groupId>
-      <artifactId>oss-parent</artifactId>
-      <version>9</version>
-    </parent>
 
     <!-- Build Settings -->
+    <!-- oss-parent is intentionally not used: it still deploys to the retired
+         OSSRH staging URL. Publishing goes through the Central Portal plugin below,
+         authenticated by the server id "central" in ~/.m2/settings.xml. -->
     <build>
       <plugins>
         <plugin>
@@ -276,20 +281,20 @@
               <goals>
                 <goal>jar</goal>
               </goals>
-              <configuration>
-                <additionalparam>${javadoc.opts}</additionalparam>
-              </configuration>
             </execution>
           </executions>
         </plugin>
         <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-source-plugin</artifactId>
           <version>3.3.0</version>
           <executions>
             <execution>
               <id>attach-sources</id>
               <goals>
-                <goal>jar</goal>
+                <!-- jar-no-fork packs the classes already compiled by this build.
+                     The forked jar goal compiles the tree a second time. -->
+                <goal>jar-no-fork</goal>
               </goals>
             </execution>
           </executions>
@@ -314,8 +319,79 @@
             </execution>
           </executions>
         </plugin>
+        <!-- extensions=true replaces maven-deploy-plugin. A -SNAPSHOT version is
+             uploaded at once to centralSnapshotsUrl and is not validated or signed.
+             A release version opens a Central Portal deployment and waits for a
+             manual Publish click, because autoPublish is false.
+             mvn package and mvn install do not upload anything. -->
+        <plugin>
+          <groupId>org.sonatype.central</groupId>
+          <artifactId>central-publishing-maven-plugin</artifactId>
+          <version>0.11.0</version>
+          <extensions>true</extensions>
+          <configuration>
+            <publishingServerId>central</publishingServerId>
+            <autoPublish>false</autoPublish>
+            <centralSnapshotsUrl>https://central.sonatype.com/repository/maven-snapshots/</centralSnapshotsUrl>
+          </configuration>
+        </plugin>
       </plugins>
     </build>
+    <profiles>
+      <profile>
+        <id>en16931-comparison</id>
+        <build>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-dependency-plugin</artifactId>
+              <version>3.8.1</version>
+              <executions>
+                <execution>
+                  <id>copy-en16931-stock-engine</id>
+                  <phase>pre-integration-test</phase>
+                  <goals><goal>copy</goal></goals>
+                  <configuration>
+                    <!-- Never add stock Saxon to the fork's test classpath. -->
+                    <outputDirectory>${project.build.directory}/en16931-comparison/cache/stock-dependencies</outputDirectory>
+                    <artifactItems>
+                      <artifactItem>
+                        <groupId>net.sf.saxon</groupId>
+                        <artifactId>Saxon-HE</artifactId>
+                        <version>13.0</version>
+                      </artifactItem>
+                      <artifactItem>
+                        <groupId>org.xmlresolver</groupId>
+                        <artifactId>xmlresolver</artifactId>
+                        <version>6.0.23</version>
+                      </artifactItem>
+                      <artifactItem>
+                        <groupId>org.xmlresolver</groupId>
+                        <artifactId>xmlresolver</artifactId>
+                        <version>6.0.23</version>
+                        <classifier>data</classifier>
+                      </artifactItem>
+                    </artifactItems>
+                  </configuration>
+                </execution>
+              </executions>
+            </plugin>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-failsafe-plugin</artifactId>
+              <configuration>
+                <systemPropertyVariables>
+                  <en16931.compare>true</en16931.compare>
+                  <saxon.base.dir>${project.basedir}</saxon.base.dir>
+                  <en16931.output>${project.build.directory}/en16931-comparison</en16931.output>
+                  <en16931.fork.jar>${project.build.directory}/${project.build.finalName}.jar</en16931.fork.jar>
+                </systemPropertyVariables>
+              </configuration>
+            </plugin>
+          </plugins>
+        </build>
+      </profile>
+    </profiles>
     <reporting>
       <plugins>
         <plugin>
