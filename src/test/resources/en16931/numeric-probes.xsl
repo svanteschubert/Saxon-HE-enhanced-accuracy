@@ -19,6 +19,12 @@
              actual="{number(a) + number(b) = number(c)}"/>
       <probe id="division-precision" expected="true"
              actual="{(1.0 div 3.0) * 100000000000000000000 = 33333333333333333333.33333333333333}"/>
+      <!-- Untyped XML operands are multiplied as xs:double. -->
+      <probe id="line-binary-floating-point" expected="1.01"
+             actual="{round(binary-quantity * binary-price, 2)}"/>
+      <!-- Explicit decimals, as in the official UBL rules: only the rounding direction differs. -->
+      <probe id="line-negative-midpoint" expected="-6.38"
+             actual="{round(xs:decimal(midpoint-quantity) * xs:decimal(midpoint-price), 2)}"/>
     </probes>
   </xsl:template>
 </xsl:stylesheet>

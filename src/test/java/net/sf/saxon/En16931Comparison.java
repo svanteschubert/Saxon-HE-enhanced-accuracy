@@ -193,7 +193,9 @@ public class En16931Comparison {
                 "explicit-decimal-xml", List.of("true", "true"),
                 "untyped-xml", List.of("false", "false"),
                 "number-function", List.of("false", "false"),
-                "division-precision", List.of("false", "true"));
+                "division-precision", List.of("false", "true"),
+                "line-binary-floating-point", List.of("1", "1.01"),
+                "line-negative-midpoint", List.of("-6.37", "-6.38"));
         for (var engine : classpaths.entrySet()) {
             Path result = output.resolve("numeric-probes-" + engine.getKey() + ".xml");
             Files.deleteIfExists(result);

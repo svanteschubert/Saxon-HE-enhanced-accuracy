@@ -125,7 +125,7 @@ The run started with an empty validation cache and downloaded both archives usin
 Java's HTTP client. The recorded results and JAR hash below refer to that build.
 The existing Maven suite passed: 22 tests, 18 successful and 4 previously disabled.
 The additional Failsafe integration test passed all 24 official comparisons and
-16 numeric probe outcomes. With the profile disabled, this integration test was
+20 numeric probe outcomes. With the profile disabled, this integration test was
 confirmed to be skipped.
 All twelve XML instances (six cases × two syntaxes) passed their XSDs.
 
@@ -189,6 +189,16 @@ Saxon's different result is often correct under standard XPath semantics.
 | Untyped XML operands: 0.1 + 0.2 = 0.3 | true | false | false |
 | `number()` operands: 0.1 + 0.2 = 0.3 | true | false | false |
 | `(1.0 div 3.0) * 10^20` equals 33333333333333333333.33333333333333 | true | false | true |
+| Line amount, untyped XML: `round(1 × 1.005, 2)` | 1.01 | 1 | 1.01 |
+| Line amount, `xs:decimal`: `round(−3 × 2.125, 2)` | −6.38 | −6.37 | −6.38 |
+
+The two line-amount probes compute quantity (BT-129) × net price (BT-146), which the
+official rules never recalculate. Each isolates one cause. As `xs:double`, 1.005 is
+stored as 1.00499999999999989…, so stock rounds the binary value down; the fork rounds
+the decimal value. In contrast, −6.375 is exact in binary, and stock rounds its negative
+midpoint toward positive infinity, as XPath specifies; the fork rounds away from zero.
+The idiom `round(x * 100) div 100` still yields 1 on both engines for untyped input,
+because the multiplication by 100 already produces 100.49999999999999.
 
 For a meaningful strict VAT comparison, use a supplemental Schematron rule that
 requires the **signed**, rounded tax to equal the declared tax, with decimal casts
