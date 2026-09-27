@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.tree.util;
 
+import net.sf.saxon.Version;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import org.xml.sax.Attributes;
@@ -15,13 +16,11 @@ import org.xml.sax.SAXException;
 import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.XMLFilterImpl;
 
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * ProcInstParser is used to parse pseudo-attributes within Processing Instructions. This is a utility
@@ -66,22 +65,32 @@ public class ProcInstParser {
      */
 
     /*@Nullable*/
-    public static String getPseudoAttribute(/*@NotNull*/ String content, /*@NotNull*/ String name) throws XPathException {
+    public static String getPseudoAttribute(String content, String name) throws XPathException {
         try {
             List<String> result = new ArrayList<>();
             XMLFilterImpl filter = new AttributeProcessor(name, result);
-            SAXParserFactory factory = SAXParserFactory.newInstance();
-            factory.setNamespaceAware(false);  // allows attribute names containing colons or unbound prefixes
-            SAXParser parser = factory.newSAXParser();
-            XMLReader reader = parser.getXMLReader();
+            XMLReader reader = getXMLReader();
             reader.setContentHandler(filter);
             StringReader in = new StringReader("<e " + content + "/>");
             reader.parse(new InputSource(in));
+            parserPool.add(reader);
             return result.isEmpty() ? null : result.get(0);
-        } catch (ParserConfigurationException | SAXException | IOException e) {
-            throw new XPathException("Invalid syntax for pseudo-attributes: " + e.getMessage(), SaxonErrorCode.SXCH0005);
+        } catch (SAXException | IOException e) {
+            throw new XPathException("Invalid syntax for pseudo-attributes: '" + content + "'. ", SaxonErrorCode.SXCH0005);
         }
-
     }
 
-}
+    private static XMLReader getXMLReader() {
+        if (parserPool == null) {
+            parserPool = new ConcurrentLinkedQueue<>();
+        }
+        XMLReader parser = parserPool.poll();
+        if (parser != null) {
+            return parser;
+        }
+        return Version.platform.loadParser();
+    }
+
+    private static ConcurrentLinkedQueue<XMLReader> parserPool;
+
+}   

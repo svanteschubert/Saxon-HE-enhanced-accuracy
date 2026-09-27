@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.str.*;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.type.AtomicType;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.z.IntIterator;
 
@@ -39,6 +39,8 @@ public class StringValue extends AtomicValue {
     public static final StringValue SINGLE_SPACE = new StringValue(StringConstants.SINGLE_SPACE);
     public static final StringValue TRUE = new StringValue(StringConstants.TRUE);
     public static final StringValue FALSE = new StringValue(StringConstants.FALSE);
+    public static final StringValue CR = new StringValue("\r");
+    public static final StringValue LF = new StringValue("\n");
 
     public static final StringValue ZERO_LENGTH_UNTYPED = StringValue.makeUntypedAtomic(EmptyUnicodeString.getInstance());
 
@@ -56,7 +58,7 @@ public class StringValue extends AtomicValue {
      * Protected constructor for use by subtypes
      */
 
-    protected StringValue(AtomicType typeLabel) {
+    protected StringValue(AtomicMetadata typeLabel) {
         super(typeLabel);
         content = EmptyUnicodeString.getInstance();
     }
@@ -77,7 +79,7 @@ public class StringValue extends AtomicValue {
      * @param type    the requested atomic type
      */
 
-    public StringValue(UnicodeString content, AtomicType type) {
+    public StringValue(UnicodeString content, AtomicMetadata type) {
         super(type);
         this.content = content;
     }
@@ -101,7 +103,7 @@ public class StringValue extends AtomicValue {
      *                  a type derived from xs:string and that the string is valid against this type.
      */
 
-    public StringValue(String value, AtomicType typeLabel) {
+    public StringValue(String value, AtomicMetadata typeLabel) {
         super(typeLabel);
         this.content = StringTool.fromCharSequence(value);
     }
@@ -119,16 +121,16 @@ public class StringValue extends AtomicValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     @Override
-    public StringValue copyAsSubType(AtomicType typeLabel) {
-        if (typeLabel == this.typeLabel) {
+    public StringValue withMetadata(AtomicMetadata metadata) {
+        if (metadata == this.metadata) {
             return this;
         } else {
-            return new StringValue(this.content, typeLabel);
+            return new StringValue(this.content, metadata);
         }
     }
 
@@ -153,7 +155,7 @@ public class StringValue extends AtomicValue {
 
     @Override
     public BuiltInAtomicType getPrimitiveType() {
-        return typeLabel == BuiltInAtomicType.UNTYPED_ATOMIC ? BuiltInAtomicType.UNTYPED_ATOMIC : BuiltInAtomicType.STRING;
+        return getItemType() == BuiltInAtomicType.UNTYPED_ATOMIC ? BuiltInAtomicType.UNTYPED_ATOMIC : BuiltInAtomicType.STRING;
     }
 
     /**
@@ -239,6 +241,13 @@ public class StringValue extends AtomicValue {
         return new CodepointIterator(codePoints());
     }
 
+    public StringValue economize() {
+        UnicodeString c2 = content.economize();
+        if (c2 != content) {
+            return new StringValue(c2, metadata);
+        }
+        return this;
+    }
 
     /**
      * Get an object value that implements the XPath equality and ordering comparison semantics for this value.
@@ -246,18 +255,30 @@ public class StringValue extends AtomicValue {
      * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
      * collation.
      *
-     *
-     * @param collator Collation to be used for comparing strings
-     * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
-     *                 sensitive
+     * @param collator         Collation to be used for comparing strings
+     * @param implicitTimezone the XPath dynamic evaluation context, used in cases where the comparison is context
+     *                         sensitive
+     * @param specVersion
      * @return an Object whose equals() and hashCode() methods implement the XPath comparison semantics
-     *         with respect to this atomic value. If ordered is specified, the result will either be null if
-     *         no ordering is defined, or will be a Comparable
+     * with respect to this atomic value. If ordered is specified, the result will either be null if
+     * no ordering is defined, or will be a Comparable
      */
 
     @Override
-    public AtomicMatchKey getXPathMatchKey(/*@NotNull*/ StringCollator collator, int implicitTimezone) {
+    public AtomicMatchKey getXPathMatchKey(/*@NotNull*/ StringCollator collator, int implicitTimezone, int specVersion) {
         return collator.getCollationKey(this.getUnicodeStringValue());
+    }
+
+    /**
+     * Get a value whose equals() method follows the "same key" rules for comparing the keys of a map.
+     *
+     * @param specVersion
+     * @return a value with the property that the equals() and hashCode() methods follow the rules for comparing
+     * keys in maps.
+     */
+    @Override
+    public AtomicMatchKey asMapKey(int specVersion) {
+        return getUnicodeStringValue();
     }
 
     /**
@@ -353,25 +374,41 @@ public class StringValue extends AtomicValue {
             s = s.substring(0,20) + " ... " + s.substring(s.length()-20);
         }
         s = "\"" + s + '\"';
-        if (typeLabel == BuiltInAtomicType.UNTYPED_ATOMIC) {
+        if (getItemType() == BuiltInAtomicType.UNTYPED_ATOMIC) {
             s = "u" + s;
         }
         return s;
     }
 
+    public static class StringXPathComparable implements XPathComparable {
+
+        StringCollator collator;
+        UnicodeString value;
+        public StringXPathComparable(UnicodeString value, StringCollator collator) {
+            this.collator = collator;
+            this.value = value;
+        }
+        @Override
+        public int compareTo(XPathComparable o) {
+            if (o instanceof StringValue) {
+                return collator.compareStrings(value, ((StringValue) o).content);
+            } else if (o instanceof StringXPathComparable) {
+                return collator.compareStrings(value, ((StringXPathComparable)o).value);
+            } else {
+                String other = o.toString();
+                if (o instanceof AtomicValue) {
+                    other = ((AtomicValue) o).getItemType() + " value " + other;
+                }
+                throw new ClassCastException("Cannot compare xs:string value '"
+                                                     + value + "' to " + other);
+            }
+        }
+    }
+
     @Override
     @CSharpInnerClass(outer=true, extra={"Saxon.Hej.lib.StringCollator collator"})
-    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
-        return new XPathComparable() {
-            @Override
-            public int compareTo(XPathComparable o) {
-                if (o instanceof StringValue) {
-                    return collator.compareStrings(getContent(), ((StringValue)o).content);
-                } else {
-                    throw new ClassCastException("Cannot compare xs:string to " + o.toString());
-                }
-            }
-        };
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone, int specVersion) throws NoDynamicContextException {
+        return new StringXPathComparable(getContent(), collator);
     }
 
     /**
@@ -441,7 +478,7 @@ public class StringValue extends AtomicValue {
 
 
     public static final class Builder implements UniStringConsumer {
-
+        
         UnicodeBuilder buffer = new UnicodeBuilder();
 
         @Override

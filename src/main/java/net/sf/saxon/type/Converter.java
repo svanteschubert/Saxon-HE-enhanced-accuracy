@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,18 @@
 
 package net.sf.saxon.type;
 
+import net.sf.saxon.functions.Round;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.NamespaceResolver;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.*;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 
 /**
  * A converter implements conversions from one atomic type to another - that is, it implements the casting
@@ -184,6 +188,17 @@ public abstract class Converter {
 
     }
 
+    /**
+     * Converter to class xs:error, which always fails
+     */
+
+    public static class ConverterToError extends Converter {
+        @Override
+        public ConversionResult convert(AtomicValue input) {
+            return new ValidationFailure("Conversion to xs:error always fails");
+        }
+    }
+
 
     /**
      * Converter that does nothing except change the type annotation of the value. The caller
@@ -200,7 +215,7 @@ public abstract class Converter {
 
         @Override
         public AtomicValue convert(/*@NotNull*/ AtomicValue input) {
-            return input.copyAsSubType(newTypeAnnotation);
+            return input.withMetadata(newTypeAnnotation);
         }
 
     }
@@ -216,12 +231,6 @@ public abstract class Converter {
         public DownCastingConverter(AtomicType annotation, ConversionRules rules) {
             this.newType = annotation;
             setConversionRules(rules);
-        }
-
-        public DownCastingConverter(AtomicType annotation, ConversionRules rules, String errorCode) {
-            this.newType = annotation;
-            setConversionRules(rules);
-            this.errorCode = errorCode;
         }
 
         public AtomicType getTargetType() {
@@ -244,7 +253,7 @@ public abstract class Converter {
             ValidationFailure f = newType.validate(input, lexicalForm, getConversionRules());
             if (f == null) {
                 // success
-                return input.copyAsSubType(newType);
+                return input.withMetadata(newType);
             } else {
                 // validation failed
                 if (errorCode != null) {
@@ -475,8 +484,30 @@ public abstract class Converter {
     public static class FloatToInteger extends Converter {
         public final static FloatToInteger INSTANCE = new FloatToInteger();
         @Override
-        public ConversionResult convert(AtomicValue input) {
-            return IntegerValue.fromDouble(((FloatValue) input).getDoubleValue());
+        public ConversionResult convert(AtomicValue input) { // bug 7070
+            float value = ((FloatValue) input).getFloatValue();
+            if (Float.isNaN(value) || Float.isInfinite(value)) {
+                return new ValidationFailure("Cannot convert " + value + " to integer", "FOCA0002");
+            }
+            if (value >= Long.MIN_VALUE && value <= Long.MAX_VALUE) {
+                try {
+                    long trunc = ((FloatValue) input).round(0, Round.RoundingRule.TOWARD_ZERO).longValue();
+                    return new Int64Value(trunc);
+                } catch (XPathException e) {
+                    throw new UncheckedXPathException(e); // can't happen...?
+                }
+            } else {
+                // Assertion: if the float is outside the range of a long, then there is no fractional part
+                int bits = Float.floatToIntBits(value);
+                int mantissa = (bits & 0x007fffff) | 0x800000;
+                int unbiasedExponent = ((bits & 0x7f800000) >> 23) - 127;
+
+                BigInteger result = BigInteger.valueOf(mantissa).shiftLeft(unbiasedExponent - 23);
+                if (value < 0) {
+                    result = result.negate();
+                }
+                return new BigIntegerValue(result);
+            }
         }
     }
 
@@ -508,10 +539,10 @@ public abstract class Converter {
             try {
                 if (in instanceof IntegerValue) {
                     return in;
-                } else if (in instanceof DoubleValue) {
-                    return IntegerValue.fromDouble(in.getDoubleValue());
-                } else if (in instanceof FloatValue) {
-                    return IntegerValue.fromDouble(in.getDoubleValue());
+                } else if (in instanceof DoubleValue d) {
+                    return DoubleToInteger.INSTANCE.convert(d);
+                } else if (in instanceof FloatValue f) {
+                    return FloatToInteger.INSTANCE.convert(f);
                 } else {
                     return BigIntegerValue.makeIntegerValue(in.getDecimalValue().toBigInteger());
                 }
@@ -542,11 +573,7 @@ public abstract class Converter {
         @Override
         public DayTimeDurationValue convert(AtomicValue duration) {
             DurationValue d = (DurationValue)duration;
-            if (d.signum() < 0) {
-                return new DayTimeDurationValue(-d.getDays(), -d.getHours(), -d.getMinutes(), -d.getSeconds(), -d.getNanoseconds());
-            } else {
-                return new DayTimeDurationValue(d.getDays(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getNanoseconds());
-            }
+            return new DayTimeDurationValue(d.getTotalSeconds());
         }
     }
 
@@ -583,7 +610,7 @@ public abstract class Converter {
         @Override
         public DateValue convert(AtomicValue input) {
             DateTimeValue dt = (DateTimeValue)input;
-            return new DateValue(dt.getYear(), dt.getMonth(), dt.getDay(), dt.getTimezoneInMinutes(), dt.isXsd10Rules());
+            return new DateValue(dt.getYear(), dt.getMonth(), dt.getDay(), dt.getTimezoneInMinutes());
         }
     }
 
@@ -609,7 +636,7 @@ public abstract class Converter {
         @Override
         public GYearMonthValue convert(AtomicValue input) {
             DateTimeValue dt = (DateTimeValue) input;
-            return new GYearMonthValue(dt.getYear(), dt.getMonth(), dt.getTimezoneInMinutes(), dt.isXsd10Rules());
+            return new GYearMonthValue(dt.getYear(), dt.getMonth(), dt.getTimezoneInMinutes());
         }
     }
 
@@ -622,7 +649,7 @@ public abstract class Converter {
         @Override
         public GYearValue convert(AtomicValue input) {
             DateTimeValue dt = (DateTimeValue) input;
-            return new GYearValue(dt.getYear(), dt.getTimezoneInMinutes(), dt.isXsd10Rules());
+            return new GYearValue(dt.getYear(), dt.getTimezoneInMinutes());
         }
     }
 
@@ -661,7 +688,7 @@ public abstract class Converter {
         @Override
         public TimeValue convert(AtomicValue input) {
             DateTimeValue dt = (DateTimeValue) input;
-            return new TimeValue(dt.getHour(), dt.getMinute(), dt.getSecond(), dt.getNanosecond(),
+            return new TimeValue(dt.getHour(), dt.getMinute(), dt.getSecond(),
                                  dt.getTimezoneInMinutes(), BuiltInAtomicType.TIME);
         }
     }

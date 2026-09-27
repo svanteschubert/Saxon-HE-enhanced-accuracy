@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -268,8 +268,19 @@ public class XQueryFunction implements Declaration, Location, FunctionDefinition
      * @return the expression for computing the value of the Nth parameter, or null if there is none
      */
 
-    public Expression getDefaultValueExpression(int i) {
+    public Supplier<Expression> getDefaultValueExpression(int i) {
         return parameters.get(i).getDefaultValueExpression();
+    }
+
+    /**
+     * Set the default value expression of the Nth parameter
+     *
+     * @param i the position of the required parameter
+     * @param exp the expression for computing the value of the Nth parameter
+     */
+
+    public void setDefaultValueExpression(int i, Expression exp) {
+        parameters.get(i).setDefaultValueExpression(() -> exp);
     }
 
     /**
@@ -405,11 +416,18 @@ public class XQueryFunction implements Declaration, Location, FunctionDefinition
             // module.
 
             if (compiledFunction == null) {
+                ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
+
                 SlotManager map = config.makeSlotManager();
                 UserFunctionParameter[] params = getParameterDefinitions();
                 for (int i = 0; i < params.length; i++) {
                     params[i].setSlotNumber(i);
                     map.allocateSlotNumber(params[i].getVariableQName(), params[i]);
+                    if (params[i].getDefaultValueExpression() != null) {
+                        Expression defaultExpr = params[i].getDefaultValueExpression().get();
+                        Expression def2 = defaultExpr.typeCheck(visitor, ContextItemStaticInfo.DEFAULT);
+                        params[i].setDefaultValueExpression(() -> def2);
+                    }
                 }
 
                 // type-check the body of the function
@@ -419,7 +437,6 @@ public class XQueryFunction implements Declaration, Location, FunctionDefinition
                     rsc = getStaticContext().makeRetainedStaticContext();
                     body.setRetainedStaticContext(rsc);
 
-                    ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
                     body = body.simplify().typeCheck(visitor, ContextItemStaticInfo.ABSENT);
 
                     // Try to extract new global variables from the body of the function
@@ -493,7 +510,7 @@ public class XQueryFunction implements Declaration, Location, FunctionDefinition
                 throw err;
             }
         } else {
-            //body.checkForUpdatingSubexpressions();
+            //body.checkForUpdatingSubexpressions(); 
             if (body.isUpdatingExpression()) {
                 XPathException err = new XPathException(
                         "The body of a non-updating function must be a non-updating expression", "XUST0001");
@@ -502,7 +519,6 @@ public class XQueryFunction implements Declaration, Location, FunctionDefinition
             }
         }
         ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
-        Configuration config = staticContext.getConfiguration();
         Optimizer opt = visitor.obtainOptimizer();
         int arity = parameters.size();
         if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS)) {
@@ -536,7 +552,7 @@ public class XQueryFunction implements Declaration, Location, FunctionDefinition
                 body = body.optimize(visitor, ContextItemStaticInfo.ABSENT);
             }
         }
-
+        
         // mark tail calls within the function body
         if (opt.getOptimizerOptions().isSet(OptimizerOptions.TAIL_CALLS) && !updating) {
             int tailCalls = ExpressionTool.markTailFunctionCalls(body, functionName, arity);

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.expr;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.elab.*;
+import net.sf.saxon.expr.flwor.LocalVariableBinding;
 import net.sf.saxon.expr.flwor.OuterForExpression;
 import net.sf.saxon.expr.instruct.Choose;
 import net.sf.saxon.expr.instruct.TailCall;
@@ -21,7 +22,7 @@ import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.IntegerValue;
+import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
@@ -31,13 +32,18 @@ import java.util.function.Supplier;
 /**
  * A ForExpression maps an expression over a sequence.
  * We use a ForExpression in preference to a FLWORExpression to handle simple cases
- * (roughly, the XPath subset). In 9.6, we no longer convert a FLWORExpression to a ForExpression
- * if there is a position variable, which simplifies the cases this class has to handle.
+ * (roughly, the XPath subset). This class is always used for XPath "for" expressions,
+ * because unlike the full XQuery FLWOR expression, it needs to be able to handle
+ * XSLT streaming. It is therefore extended in 4.0 to handle position variables
+ * and declared types. However, it does not handle the new "for member" syntax (which
+ * iterates over an array), as that is compiled into something different.
  */
 
 public class ForExpression extends Assignation {
 
     private int actionCardinality = StaticProperty.ALLOWS_MANY;
+
+    private LocalVariableBinding positionVariable;
 
     /**
      * Create a "for" expression (for $x at $p in SEQUENCE return ACTION)
@@ -59,6 +65,50 @@ public class ForExpression extends Assignation {
         return "for";
     }
 
+    /**
+     * Set the name of the position variable, if there is one
+     * @param binding the binding of the position variable
+     */
+    public void setPositionVariable(LocalVariableBinding binding) {
+        positionVariable = binding;
+    }
+
+    /**
+     * Get the name of the position variable, if there is one
+     * @return the name of the position variable, if there is one, or null otherwise
+     */
+
+    public LocalVariableBinding getPositionVariable() {
+        return positionVariable;
+    }
+
+    @Override
+    public boolean hasVariableBinding(Binding binding) {
+        return this == binding || positionVariable == binding;
+    }
+
+    /**
+     * Get the number of slots required. Normally 1, except for a FOR expression with an AT clause, where it is 2.
+     *
+     * @return the number of slots required
+     */
+    @Override
+    public int getRequiredSlots() {
+        return positionVariable == null ? 1 : 2;
+    }
+
+    /**
+     * Set the slot number for the range variable
+     *
+     * @param nr the slot number to be used
+     */
+
+    public void setSlotNumber(int nr) {
+        slotNumber = nr;
+        if (positionVariable != null) {
+            positionVariable.setSlotNumber(nr+1);
+        }
+    }
 
     /**
      * Type-check the expression
@@ -80,8 +130,7 @@ public class ForExpression extends Assignation {
         if (requiredType != null) {
             // if declaration is null, we've already done the type checking in a previous pass
             SequenceType decl = requiredType;
-            SequenceType sequenceType = SequenceType.makeSequenceType(
-                    decl.getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE);
+            SequenceType sequenceType = SequenceType.zeroOrMore(decl.getPrimaryType());
             Supplier<RoleDiagnostic> role =
                     () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, variableName.getDisplayName(), 0);
             if (visitor.getStaticContext().getXPathVersion() < 40) {
@@ -205,9 +254,7 @@ public class ForExpression extends Assignation {
         if (getSequence().getCardinality() == StaticProperty.EXACTLY_ONE) {
             LetExpression let = new LetExpression();
             let.setVariableQName(variableName);
-            let.setRequiredType(SequenceType.makeSequenceType(
-                    getSequence().getItemType(),
-                    StaticProperty.EXACTLY_ONE));
+            let.setRequiredType(SequenceType.one(getSequence().getItemType()));
             let.setSequence(getSequence());
             let.setAction(getAction());
             let.setSlotNumber(slotNumber);
@@ -232,25 +279,6 @@ public class ForExpression extends Assignation {
         setSequence(getSequence().unordered(retainAllNodes, forStreaming));
         setAction(getAction().unordered(retainAllNodes, forStreaming));
         return this;
-    }
-
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     * unknown or not applicable.
-     */
-    /*@Nullable*/
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        return getAction().getIntegerBounds();
     }
 
     /**
@@ -490,10 +518,14 @@ public class ForExpression extends Assignation {
         explainSpecializedAttributes(out);
         out.emitAttribute("var", getVariableQName());
         ItemType varType = getSequence().getItemType();
-        if (varType != AnyItemType.getInstance()) {
+        if (varType != AnyItemType.INSTANCE) {
             out.emitAttribute("as", AlphaCode.fromItemType(varType));
         }
         out.emitAttribute("slot", "" + getLocalSlotNumber());
+        if (positionVariable != null) {
+            out.emitAttribute("pos", positionVariable.getVariableQName());
+            out.emitAttribute("posSlot", "" + positionVariable.getLocalSlotNumber());
+        }
         out.setChildRole("in");
         getSequence().export(out);
         out.setChildRole("return");
@@ -567,25 +599,50 @@ public class ForExpression extends Assignation {
             final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
             final int actionCardinality = expr.getAction().getCardinality();
             final int slot = expr.getLocalSlotNumber();
+            final int positionSlot = expr.positionVariable == null ? -1 : expr.positionVariable.getLocalSlotNumber();
 
             if (Cardinality.allowsMany(actionCardinality)) {
                 final PullEvaluator actionEval = expr.getAction().makeElaborator().elaborateForPull();
-                return context -> {
-                    SequenceIterator base = selectEval.iterate(context);
-                    return new MappingIterator(base, item -> {
-                        context.setLocalVariable(slot, item);
-                        return actionEval.iterate(context);
-                    });
-                };
+                if (expr.positionVariable == null) {
+                    return context -> {
+                        SequenceIterator base = selectEval.iterate(context);
+                        return new MappingIterator(base, item -> {
+                            context.setLocalVariable(slot, item);
+                            return actionEval.iterate(context);
+                        });
+                    };
+                } else {
+                    return context -> {
+                        SequenceIterator base = selectEval.iterate(context);
+                        FocusTrackingIterator fti = new FocusTrackingIterator(base);
+                        return new MappingIterator(fti, item -> {
+                            context.setLocalVariable(slot, item);
+                            context.setLocalVariable(positionSlot, new Int64Value(fti.position()));
+                            return actionEval.iterate(context);
+                        });
+                    };
+                }
             } else {
                 final ItemEvaluator actionEval = expr.getAction().makeElaborator().elaborateForItem();
-                return context -> {
-                    SequenceIterator base = selectEval.iterate(context);
-                    return new ItemMappingIterator(base, item -> {
-                        context.setLocalVariable(slot, item);
-                        return actionEval.eval(context);
-                    });
-                };
+                if (expr.positionVariable == null) {
+                    return context -> {
+                        SequenceIterator base = selectEval.iterate(context);
+                        return new ItemMappingIterator(base, item -> {
+                            context.setLocalVariable(slot, item);
+                            return actionEval.eval(context);
+                        });
+                    };
+                } else {
+                    return context -> {
+                        SequenceIterator base = selectEval.iterate(context);
+                        FocusTrackingIterator fti = new FocusTrackingIterator(base);
+                        return new ItemMappingIterator(fti, item -> {
+                            context.setLocalVariable(slot, item);
+                            context.setLocalVariable(positionSlot, new Int64Value(fti.position()));
+                            return actionEval.eval(context);
+                        });
+                    };
+                }
             }
         }
 
@@ -595,15 +652,31 @@ public class ForExpression extends Assignation {
             final PullEvaluator selectEval = expr.getSequence().makeElaborator().elaborateForPull();
             final PushEvaluator actionEval = expr.getAction().makeElaborator().elaborateForPush();
             final int slot = expr.getLocalSlotNumber();
-            return (out, context) -> {
-                SequenceIterator base = selectEval.iterate(context);
-                for (Item item; (item = base.next()) != null; ) {
-                    context.setLocalVariable(slot, item);
-                    TailCall tc = actionEval.processLeavingTail(out, context);
-                    dispatchTailCall(tc);
-                }
-                return null;
-            };
+            if (expr.positionVariable == null) {
+                return (out, context) -> {
+                    SequenceIterator base = selectEval.iterate(context);
+                    for (Item item; (item = base.next()) != null; ) {
+                        context.setLocalVariable(slot, item);
+                        TailCall tc = actionEval.processLeavingTail(out, context);
+                        dispatchTailCall(tc);
+                    }
+                    return null;
+                };
+            } else {
+                final int positionSlot = expr.positionVariable.getLocalSlotNumber();
+                final AtomicType label = BuiltInAtomicType.POSITIVE_INTEGER;
+                return (out, context) -> {
+                    SequenceIterator base = selectEval.iterate(context);
+                    FocusTrackingIterator fti = new FocusTrackingIterator(base);
+                    for (Item item; (item = fti.next()) != null; ) {
+                        context.setLocalVariable(slot, item);
+                        context.setLocalVariable(positionSlot, new Int64Value(fti.position(), label));
+                        TailCall tc = actionEval.processLeavingTail(out, context);
+                        dispatchTailCall(tc);
+                    }
+                    return null;
+                };
+            }
         }
 
         @Override

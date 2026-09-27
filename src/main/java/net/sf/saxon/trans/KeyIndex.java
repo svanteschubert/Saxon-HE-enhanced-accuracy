@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2023 Saxonica Limited
+// Copyright (c) 2013-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,9 @@ import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.transpile.CSharpSimpleEnum;
+import net.sf.saxon.transpile.CSharpUsing;
 import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.tree.iter.*;
 import net.sf.saxon.type.*;
@@ -45,6 +47,7 @@ import java.util.*;
  * can happen for an arbitrary number of data types, though it is unlikely in practice because not many
  * types have overlapping lexical spaces.</p>
  */
+@CSharpUsing(code="Saxon.Hej.type")
 public class KeyIndex {
 
     @CSharpSimpleEnum
@@ -53,8 +56,8 @@ public class KeyIndex {
     // The entry in an index is either a NodeInfo or a List<NodeInfo>
     private final Map <AtomicMatchKey, Object> index;
     private UType keyTypesPresent = UType.VOID;
-    private final UType keyTypesConvertedFromUntyped = UType.STRING_LIKE;
-    private List<StringValue> untypedKeys;
+    private UType keyTypesConvertedFromUntyped = UType.STRING_LIKE;
+    private Set<UnicodeString> untypedKeys;
     private ConversionRules rules;
     private int implicitTimezone;
     private StringCollator collation;
@@ -74,7 +77,7 @@ public class KeyIndex {
 
     /**
      * Get the underlying map
-     * @return the underlying map. The "Object" in the map entry is either a @code{NodeInfo}
+     * @return the underlying map. The "Object" in the map entry is either a {@code NodeInfo}
      * or a {@code List<NodeInfo>}
      */
 
@@ -219,9 +222,9 @@ public class KeyIndex {
                 AtomicMatchKey amk = getCollationKey(keyVal, collation, implicitTimezone);
                 if (actualUType.equals(UType.UNTYPED_ATOMIC) && keydef.isConvertUntypedToOther()) {
                     if (untypedKeys == null) {
-                        untypedKeys = new ArrayList<>(20);
+                        untypedKeys = new HashSet<>(20);
                     }
-                    untypedKeys.add((StringValue)keyVal);
+                    untypedKeys.add(keyVal.getUnicodeStringValue());
                 }
                 addEntry(amk, node, isFirst);
             }
@@ -306,9 +309,9 @@ public class KeyIndex {
             type = BuiltInAtomicType.DOUBLE;
         }
         StringConverter converter = type.getStringConverter(rules);
-        for (StringValue v : untypedKeys) {
-            AtomicMatchKey uk = getCollationKey(v, collation, implicitTimezone);
-            AtomicValue convertedValue = converter.convertString(v.getUnicodeStringValue()).asAtomic();
+        for (UnicodeString v : untypedKeys) {
+            AtomicMatchKey uk = getCollationKey(new StringValue(v), collation, implicitTimezone);
+            AtomicValue convertedValue = converter.convertString(v).asAtomic();
             AtomicMatchKey amk = getCollationKey(convertedValue, collation, implicitTimezone);
             Object value = index.get(uk);
             if (value instanceof NodeInfo) {
@@ -343,12 +346,13 @@ public class KeyIndex {
     public SequenceIterator getNodes(AtomicValue soughtValue) throws XPathException {
         if (untypedKeys != null && !keyTypesConvertedFromUntyped.subsumes(soughtValue.getUType())) {
             reindexUntypedValues(soughtValue.getPrimitiveType());
+            keyTypesConvertedFromUntyped = keyTypesConvertedFromUntyped.union(soughtValue.getPrimitiveType().getUType());
         }
         if (soughtValue.isUntypedAtomic()) {
             List<NodeInfo> resultNodes = new ArrayList<>();
             int counter = 0;
             for (PrimitiveUType type : keyTypesPresent.decompose()) {
-                AtomicType targetType = (AtomicType) type.toItemType();
+                AtomicType targetType = (AtomicType) UType.toItemType(type);
                 AtomicValue converted = Converter.convert(soughtValue, targetType, rules);
                 Object value = index.get(getCollationKey(converted, collation, implicitTimezone));
                 if (value != null) {
@@ -373,12 +377,12 @@ public class KeyIndex {
 
     private SequenceIterator entryIterator(Object value) {
         if (value == null) {
-            return EmptyIterator.ofNodes();
+            return EmptyIterator.INSTANCE;
         } else if (value instanceof NodeInfo) {
-            return SingleNodeIterator.makeIterator((NodeInfo) value);
+            return SingletonIterator.makeIterator((NodeInfo) value);
         } else {
             List<NodeInfo> nodes = (List<NodeInfo>) value;
-            return new NodeListIterator(nodes);
+            return new ListIterator.Of<>(nodes);
         }
     }
 
@@ -407,7 +411,7 @@ public class KeyIndex {
                 return collation.getCollationKey(value.getUnicodeStringValue());
             }
         } else {
-            return value.getXPathMatchKey(collation, implicitTimezone);
+            return value.getXPathMatchKey(collation, implicitTimezone, 31);
         }
     }
 

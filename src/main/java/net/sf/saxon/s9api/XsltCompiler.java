@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,6 +32,7 @@ import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.linked.DocumentImpl;
 import net.sf.saxon.tree.linked.ElementImpl;
+import net.sf.saxon.type.Schema;
 
 import javax.xml.transform.ErrorListener;
 import javax.xml.transform.Source;
@@ -40,15 +41,13 @@ import javax.xml.transform.stream.StreamSource;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 /**
- * An XsltCompiler object allows XSLT stylesheets to be compiled. The compiler holds information that
+ * An {@code XsltCompiler} object allows XSLT stylesheets to be compiled. The compiler holds information that
  * represents the static context for the compilation.
- * <p>To construct an {@code XsltCompiler}, use the factory method {@link Processor#newXsltCompiler} on the Processor object.</p>
+ * <p>To construct an {@code XsltCompiler}, use the factory method {@link Processor#newXsltCompiler}
+ * on the {@link Processor} object.</p>
  * <p>An {@code XsltCompiler} may be used repeatedly to compile multiple stylesheets. Any changes made to the
  * {@code XsltCompiler} (that is, to the static context) do not affect stylesheets that have already been compiled.
  * An XsltCompiler may in principle be used concurrently in multiple threads, but in practice this
@@ -79,13 +78,15 @@ public class XsltCompiler {
     private final Processor processor;
     private final Configuration config;
     private final CompilerInfo compilerInfo;
+    private Map<String, XsdSchema> usedXsdSchemata;
+    private Map<String, Schema> usedSchemata;
 
 
     /**
      * Protected constructor. The public way to create an <code>XsltCompiler</code> is by using the factory method
      * {@link Processor#newXsltCompiler} .
      *
-     * @param processor the Saxon processor
+     * @param processor the Saxon {@link Processor}
      */
 
     protected XsltCompiler(Processor processor) {
@@ -94,12 +95,98 @@ public class XsltCompiler {
         compilerInfo = new CompilerInfo(config.getDefaultXsltCompilerInfo());
         compilerInfo.setTargetEdition(config.getEditionCode());
         compilerInfo.setJustInTimeCompilation(config.isJITEnabled());
+        XsdSchema legacySchema = processor.getLegacySchema();
+        if (legacySchema != null) {
+            useSchema(legacySchema);
+        }
     }
 
     /**
-     * Get the Processor from which this XsltCompiler was constructed
+     * Set the {@link XsdSchema} to be used with this {@code XsltCompiler} for a schema-aware
+     * transformation (requires Saxon-EE).
      *
-     * @return the Processor to which this XsltCompiler belongs
+     * <p>If this method is called, then any <code>xsl:import-schema</code> declaration
+     * for a target namespace that is present in the supplied stylesheet (other than an
+     * <code>xsl:import-schema</code> with an inline <code>xs:schema</code>) is satisfied
+     * by schema components in this schema; the <code>schema-location</code> attribute
+     * on the declaration is ignored.</p>
+     *
+     * <p>However, this does not make <code>xsl:import-schema</code> declarations redundant;
+     * they are still needed in order to permit reference to schema components by name (that is,
+     * to make the names of element and attribute declarations and schema types visible in the
+     * static context).</p>
+     *
+     * <p>When validation is invoked within the XSLT code (using a validation or type attribute),
+     * all the schema components supplied in this schema are available for use during the validation
+     * episode, whether or not they have been imported into the static context by means of an
+     * <code>xsl:import-schema</code> declaration.</p>
+     *
+     * <p>The same also applies when a stylesheet is loaded from a SEF file. Any schema contained
+     * within the SEF file, with a matching role, is ignored in favour of the schema supplied
+     * via this API.</p>
+     *
+     * @param role   the schema role. Set this to "" (an empty string) or to null for the default
+     *               (unnamed) schema role. If a role name is specified then the supplied schema
+     *               is ignored unless the stylesheet actually contains an <code>xsl:import-schema</code>
+     *               declaration for this schema role.
+     * @param schema the schema to be imported
+     * @since 13.0
+     */
+
+    public void useSchema(String role, XsdSchema schema) {
+        compilerInfo.setSchemaAware(true);
+        compilerInfo.preLoadSchema(role, schema.getUnderlyingSchema());
+        if (usedXsdSchemata == null) {
+            usedXsdSchemata = new HashMap<>();
+            usedSchemata = new HashMap<>();
+        }
+        usedXsdSchemata.put(role, schema);
+        usedSchemata.put(role,  schema.getUnderlyingSchema());
+    }
+
+    /**
+     * Set the {@link XsdSchema} to be used with this {@code XsltCompiler} for a schema-aware
+     * transformation (requires Saxon-EE). Equivalent to <code>useSchema("", schema)</code>
+     * @param schema the schema to be imported
+     * @since 13.0
+     */
+
+    public void useSchema(XsdSchema schema) {
+        useSchema("", schema);
+    }
+
+    /**
+     * Clear all used schemas (for subsequent stylesheet compilations)
+     */
+
+    public void clearRegisteredSchemas() {
+        usedSchemata = null;
+        usedXsdSchemata = null;
+    }
+
+
+    /**
+     * Get the schema that is to be used for a schema-aware transformation.
+     * @param role the schema role. Set this to "" (an empty string) or to null for the default
+     *      (unnamed) schema role.
+     * @return the schema previous supplied in a call of {@link #useSchema(String, XsdSchema)}, or null if
+     * that method has not been called.
+     */
+
+    public XsdSchema getUsedSchema(String role) {
+        if (role == null) {
+            role = "";
+        }
+        if (usedXsdSchemata == null) {
+            return null;
+        }
+        return usedXsdSchemata.get(role);
+    }
+
+    /**
+     * Get the {@link Processor} from which this {@code XsltCompiler} was constructed
+     *
+     * @return the {@link Processor} to which this {@code XsltCompiler} belongs
      * @since 9.3
      */
 
@@ -108,9 +195,9 @@ public class XsltCompiler {
     }
 
     /**
-     * Set the URIResolver to be used during stylesheet compilation. This interface is
+     * Set the {@link URIResolver} to be used during stylesheet compilation. This interface is
      * retained for backwards compatibility reasons. The supplied <code>URIResolver</code>
-     * is wrapped in a <code>ResourceResolver</code>. The <code>ResourceResolver</code>
+     * is wrapped in a {@link ResourceResolver}. The <code>ResourceResolver</code>
      * interface is preferred because more information is made available; most obviously,
      * the absolute URI formed by combining the base URI and relative URI.
      *
@@ -125,7 +212,7 @@ public class XsltCompiler {
     }
 
     /**
-     * Set the <code>ResourceResolver</code> to be used during stylesheet compilation.
+     * Set the {@link ResourceResolver} to be used during stylesheet compilation.
      * The <code>ResourceResolver</code> is used for dereferencing
      * an absolute URI (after URI resolution) to return a {@link javax.xml.transform.Source} representing the
      * location where a stylesheet module can be found.
@@ -166,7 +253,7 @@ public class XsltCompiler {
 
     /**
      * Clear the values of all stylesheet parameters previously set using {@link #setParameter(QName, XdmValue)}.
-     * This resets the parameters to their initial ("undeclared") state
+     * This resets the parameters to their initial (undeclared) state
      */
 
     public void clearParameters() {
@@ -174,11 +261,11 @@ public class XsltCompiler {
     }
 
     /**
-     * Get the URIResolver to be used during stylesheet compilation.
+     * Get the {@link URIResolver} to be used during stylesheet compilation.
      *
-     * @return the URIResolver used during stylesheet compilation. Returns null if no user-supplied
-     * URIResolver has been set.
-     * @deprecated since 11.1 - use a <code>ResourceResolver</code> instead
+     * @return the {@code URIResolver} used during stylesheet compilation. Returns null if no user-supplied
+     * {@code URIResolver} has been set.
+     * @deprecated since 11.1 - use a {@link ResourceResolver} instead
      */
 
     @Deprecated
@@ -192,10 +279,10 @@ public class XsltCompiler {
     }
 
     /**
-     * Get the ResourceResolver to be used during stylesheet compilation.
+     * Get the {@link ResourceResolver} to be used during stylesheet compilation.
      *
-     * @return the ResourceResolver used during stylesheet compilation. Returns null if no user-supplied
-     * ResourceResolver has been set.
+     * @return the {@code ResourceResolver} used during stylesheet compilation. Returns null if no user-supplied
+     * {@code ResourceResolver} has been set.
      */
 
     public ResourceResolver getResourceResolver() {
@@ -203,7 +290,7 @@ public class XsltCompiler {
     }
 
     /**
-     * Set the ErrorListener to be used during this compilation episode
+     * Set the  to be used during this compilation
      *
      * @param listener The error listener to be used. This is notified of all errors detected during the
      *                 compilation.
@@ -212,7 +299,7 @@ public class XsltCompiler {
      *                 {@code ErrorListener} was also notified of run-time errors, unless a different
      *                 {@code ErrorListener} was supplied at run-time. This is no longer the case from
      *                 Saxon 10.0</i></p>
-     * @deprecated since 10.0. Use {@link #setErrorReporter(ErrorReporter)}
+     * @deprecated since 10.0. Use {@link ErrorListener}{@link #setErrorReporter(ErrorReporter)}
      */
 
     @Deprecated
@@ -221,7 +308,7 @@ public class XsltCompiler {
     }
 
     /**
-     * Get the ErrorListener being used during this compilation episode
+     * Get the {@link ErrorListener} being used during this compilation episode
      *
      * @return listener The error listener in use. This is notified of all errors detected during the
      * compilation. Returns null if no user-supplied ErrorListener has been set.
@@ -294,7 +381,7 @@ public class XsltCompiler {
      *
      * <p>Setting the value to true has no effect (it is not an error) if the configuration does
      * not support schema processing. (Schema processing requires a Saxon-EE license.)</p>
-     *
+     * 
      * @param schemaAware If true, the stylesheet will be compiled with schema-awareness
      *                    enabled even if it contains no {@code xsl:import-schema} declarations. If false, the stylesheet
      *                    is treated as schema-aware only if it contains one or more {@code xsl:import-schema} declarations.
@@ -751,7 +838,7 @@ public class XsltCompiler {
         try {
             IPackageLoader loader = processor.getUnderlyingConfiguration().makePackageLoader();
             if (loader != null) {
-                StylesheetPackage pack = loader.loadPackage(input);
+                StylesheetPackage pack = loader.loadPackage(input, usedSchemata);
                 return new XsltPackage(this, pack);
             }
             throw new SaxonApiException("Loading library package requires Saxon PE or higher");
@@ -911,7 +998,7 @@ public class XsltCompiler {
         }
         try {
             List<VersionedPackageName> packageNames = new ArrayList<>();
-            StylesheetPackage pack = getPackageLibrary().obtainLoadedPackage(details, packageNames);
+            StylesheetPackage pack = getPackageLibrary().obtainLoadedPackage(details, packageNames, usedSchemata);
             return new XsltPackage(this, pack);
         } catch (XPathException e) {
             throw new SaxonApiException(e);
@@ -951,6 +1038,13 @@ public class XsltCompiler {
      * or <code>ErrorList</code> associated with the compiler: more specifically, the <code>ErrorListener</code>
      * or <code>ErrorList</code> that was associated with the <code>XsltCompiler</code> at the time
      * <code>compile()</code> was invoked.</p>
+     * <p>If the source is a {@code StreamSource} or a {@code SAXSource} with no user-supplied {@code XmlReader},
+     * then Saxon will allocate and configure an {@code XmlReader}. This will NOT take account of any configuration
+     * level parser settings (such as DTD validation, XInclude processing, and so on). The recommended way to customise
+     * parsing options is by creating an {@code XmlReader} and supplying this as a property of a {@code SAXSource}. For
+     * options when parsing included or imported stylesheet modules, it is possible to do the same in the
+     * {@link ResourceResolver} set using the {@link #setResourceResolver(ResourceResolver)} method.</p>
+     * </p>
      *
      * @param source Source object representing the principal stylesheet module to be compiled.
      *               Must not be null. If the {@code Source} wraps a resource such as a {@link java.io.Reader}
@@ -969,7 +1063,7 @@ public class XsltCompiler {
         try {
             CompilerInfo ci2 = new CompilerInfo(compilerInfo);
             PreparedStylesheet pss = Compilation.compileSingletonPackage(config, ci2, source);
-            return new XsltExecutable(processor, pss);
+            return new XsltExecutable(processor, pss, compilerInfo.getXsltVersion());
         } catch (UncheckedXPathException e) {
             throw new SaxonApiException(e.getXPathException());
         } catch (XPathException | XmlProcessingAbort e) {
@@ -1119,6 +1213,29 @@ public class XsltCompiler {
 
     public void setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy) {
         compilerInfo.setUnprefixedElementMatchingPolicy(unprefixedElementMatchingPolicy);
+    }
+
+    /**
+     * Say whether any stylesheet being compiled by this compiler should be compiled with export in mind;
+     * that is, whether a SEF file is to be created from the compiled package. It can be useful to set
+     * this flag to inhibit compile-time optimisations that are unhelpful when creating a SEF file. Notably,
+     * pre-evaluating functions like fn:invisible-xml may create function items that cannot be exported
+     * to a SEF file, and this flag inhibits such pre-evaluation.
+     * @param exportable true if stylesheets are to be compiled with export (to a SEF file) in mind.
+     */
+
+    public void setCompileForExport(boolean exportable) {
+        compilerInfo.setCompileForExport(exportable);
+    }
+
+    /**
+     * Ask whether any stylesheet being compiled by this compiler will be compiled with export in mind;
+     * that is, whether {@link #setCompileForExport(boolean)} has been called.
+     * @return true if {@link #setCompileForExport(boolean)} has been called
+     */
+
+    public boolean isCompileForExport() {
+        return compilerInfo.isCompileForExport();
     }
 
 

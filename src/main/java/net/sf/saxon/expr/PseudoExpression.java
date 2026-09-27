@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2023 Saxonica Limited
+// Copyright (c) 2013-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,17 +19,17 @@ import net.sf.saxon.type.ItemType;
 
 /**
  * A pseudo-expression is an object that can appear as a node on the expression tree, but which cannot
- * actually be evaluated in its own right. An example is a sort key definition. This has to be a node
- * on the tree, because it contains subexpressions, so recursive traversals of the tree need to process
- * it. But evaluating a sort key definition throws an exception.
+ * actually be evaluated in its own right. Example are sort key definitions, and XSLT patterns.
+ * These have to be nodes on the tree, because they contain subexpressions, so recursive traversals
+ * of the tree need to process them. But evaluating a sort key definition or an XSLT pattern throws an exception.
  *
- * <p>A constraint for pseudo-expressions is that rewrite methods (simplify, typecheck, promote etc)
+ * <p>A constraint for pseudo-expressions is that rewrite methods (such as simplify, typecheck, optimize etc.)
  * always return an object of the same class (nearly always the same object)</p>
  */
 public abstract class PseudoExpression extends Expression {
 
     private void cannotEvaluate() throws XPathException {
-        throw new XPathException("Cannot evaluate " + getClass().getName());
+        throw new XPathException("Cannot evaluate pseudo-expression " + getClass().getName());
     }
 
     @Override
@@ -83,7 +83,7 @@ public abstract class PseudoExpression extends Expression {
      */
     @Override
     public Elaborator getElaborator() {
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("Cannot evaluate pseudo-expression " + getClass().getName());
     }
 }
 

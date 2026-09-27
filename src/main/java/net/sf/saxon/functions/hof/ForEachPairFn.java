@@ -16,6 +16,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SpecificFunctionType;
+import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.ObjectValue;
 
 /**
@@ -51,10 +52,10 @@ public class ForEachPairFn extends SystemFunction {
                                           SequenceIterator seq0,
                                           SequenceIterator seq1,
                                           final XPathContext context) {
-        PairedSequenceIterator pairs = new PairedSequenceIterator(seq0, seq1);
-        return MappingIterator.map(pairs, item -> {
-            Sequence[] pair = ((ObjectValue<Sequence[]>) item).getObject();
-            return dynamicCall(function, context, pair).iterate();
+        PairedSequenceIterator triples = new PairedSequenceIterator(seq0, seq1, function.getArity());
+        return MappingIterator.map(triples, item -> {
+            Sequence[] triple = ((ObjectValue<Sequence[]>) item).getObject();
+            return dynamicCall(function, context, triple).iterate();
         });
     }
 
@@ -67,28 +68,40 @@ public class ForEachPairFn extends SystemFunction {
 
         private final SequenceIterator seq0;
         private final SequenceIterator seq1;
-        private final Sequence[] args = new Sequence[2];
+        private final Sequence[] args;
+        int position = 0;
+        int arity;
 
         public PairedSequenceIterator(SequenceIterator seq0,
-                                      SequenceIterator seq1) {
+                                      SequenceIterator seq1,
+                                      int arity) {
             this.seq0 = seq0;
             this.seq1 = seq1;
+            this.args = new Sequence[arity];
+            this.arity = arity;
         }
 
         @Override
         public ObjectValue<Sequence[]> next() {
-            Item i0 = seq0.next();
-            if (i0 == null) {
-                close();
-                return null;
+            if (arity > 0) {
+                Item i0 = seq0.next();
+                if (i0 == null) {
+                    close();
+                    return null;
+                }
+                args[0] = i0;
             }
-            Item i1 = seq1.next();
-            if (i1 == null) {
-                close();
-                return null;
+            if (arity > 1) {
+                Item i1 = seq1.next();
+                if (i1 == null) {
+                    close();
+                    return null;
+                }
+                args[1] = i1;
             }
-            args[0] = i0;
-            args[1] = i1;
+            if (arity > 2) {
+                args[2] = new Int64Value(++position);
+            }
             return new ObjectValue<>(args);
         }
 
@@ -102,4 +115,4 @@ public class ForEachPairFn extends SystemFunction {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

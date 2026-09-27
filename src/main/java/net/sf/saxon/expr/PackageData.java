@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,21 +11,23 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.accum.AccumulatorRegistry;
 import net.sf.saxon.expr.instruct.GlobalVariable;
 import net.sf.saxon.expr.instruct.SlotManager;
+import net.sf.saxon.lib.Feature;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.trans.DecimalFormatManager;
 import net.sf.saxon.trans.KeyManager;
 import net.sf.saxon.trans.TypeAliasManager;
+import net.sf.saxon.type.Schema;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * Information about a unit of compilation: in XSLT, a package; in XQuery, a module. May also be a single
- * free-standing XPath expression.
+ * freestanding XPath expression.
  */
 public class PackageData {
 
     protected Configuration config;
+    private final Map<String, Schema> importedSchemata;
     private HostLanguage hostLanguage;
     protected int hostLanguageVersion;
     private boolean schemaAware;
@@ -52,8 +54,12 @@ public class PackageData {
         this.config = config;
         targetEdition = config.getEditionCode();
         globalSlotManager = config.makeSlotManager();
+
+        importedSchemata = new HashMap<>(4);
+        importedSchemata.put("", config.emptySchema());
+        hostLanguageVersion = config.getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS) ? 40 : 31;
         hostLanguage = HostLanguage.XPATH;
-        hostLanguageVersion = 31;
+
     }
 
     /**
@@ -112,6 +118,34 @@ public class PackageData {
     public void setHostLanguage(HostLanguage hostLanguage, int version) {
         this.hostLanguage = hostLanguage;
         this.hostLanguageVersion = version;
+    }
+
+    /**
+     * Set an imported schema for this package
+     *
+     * @param role   the role name of the schema: supply an empty string for the default schema
+     * @param schema the schema
+     */
+    public void setImportedSchema(String role, Schema schema) {
+        Objects.requireNonNull(schema);
+        this.importedSchemata.put(role, schema);
+    }
+
+    /**
+     * Get an imported schema for this package
+     *
+     * @param role the role name of the schema: supply an empty string for the default schema
+     * @return the schema for this role, or null if the role has not been defined
+     */
+    public Schema getImportedSchema(String role) {
+        return this.importedSchemata.get(role);
+    }
+
+    /**
+     * Get all the imported schemata
+     */
+    public Map<String, Schema> getImportedSchemata() {
+        return this.importedSchemata;
     }
 
     /**
@@ -208,7 +242,7 @@ public class PackageData {
 
     public DecimalFormatManager getDecimalFormatManager() {
         if (decimalFormatManager == null) {
-            decimalFormatManager = new DecimalFormatManager(hostLanguage, 31);
+            decimalFormatManager = new DecimalFormatManager(hostLanguage, getHostLanguageVersion());
         }
         return decimalFormatManager;
     }

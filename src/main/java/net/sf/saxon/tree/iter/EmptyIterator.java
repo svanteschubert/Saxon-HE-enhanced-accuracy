@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.tree.iter;
 
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.om.*;
-import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.EmptySequence;
 
 /**
@@ -18,28 +17,14 @@ import net.sf.saxon.value.EmptySequence;
  * getInstance() method.
  */
 
-public class EmptyIterator implements SequenceIterator,
+public enum EmptyIterator implements SequenceIterator,
         ReversibleIterator, LastPositionFinder, GroundedIterator,
         LookaheadIterator, AtomizedValueIterator {
 
-    private static final EmptyIterator theInstance = new EmptyIterator();
+    INSTANCE;
 
-    /**
-     * Get an EmptyIterator, an iterator over an empty sequence.
-     *
-     * @return an EmptyIterator (in practice, this always returns the same
-     *         one)
-     */
-    /*@NotNull*/
     public static EmptyIterator getInstance() {
-        return theInstance;
-    }
-
-    /**
-     * Protected constructor
-     */
-
-    protected EmptyIterator() {
+        return INSTANCE;
     }
 
     /**
@@ -61,6 +46,9 @@ public class EmptyIterator implements SequenceIterator,
     public Item next() {
         return null;
     }
+
+    @Override
+    public void close() {}
 
     @Override
     public boolean supportsGetLength() {
@@ -86,7 +74,7 @@ public class EmptyIterator implements SequenceIterator,
      */
     /*@NotNull*/
     @Override
-    public EmptyIterator getReverseIterator() {
+    public SequenceIterator getReverseIterator() {
         return this;
     }
 
@@ -99,12 +87,12 @@ public class EmptyIterator implements SequenceIterator,
 
     @Override
     public GroundedValue materialize() {
-        return EmptySequence.getInstance();
+        return EmptySequence.INSTANCE;
     }
 
     @Override
     public GroundedValue getResidue() {
-        return EmptySequence.getInstance();
+        return EmptySequence.INSTANCE;
     }
 
     @Override
@@ -130,65 +118,8 @@ public class EmptyIterator implements SequenceIterator,
         return true;
     }
 
-    /**
-     * Static method to get an empty AxisIterator
-     *
-     * @return an empty AxisIterator
-     */
-
-    public static AxisIterator ofNodes() {
-        return OfNodes.THE_INSTANCE;
-    }
-
-    /**
-     * Static method to get an empty AtomicIterator
-     *
-     * @return an empty AtomicIterator
-     */
-
-    public static AtomicIterator ofAtomic() {
-        return OfAtomic.THE_INSTANCE;
-    }
-
-    /**
-     * An empty iterator for use where a sequence of nodes is required
-     */
-
-    private static class OfNodes extends EmptyIterator implements AxisIterator {
-
-        public final static OfNodes THE_INSTANCE = new OfNodes();
-        /**
-         * Get the next item.
-         *
-         * @return the next item. For the EmptyIterator this is always null.
-         */
-        @Override
-        public NodeInfo next() {
-            return null;
-        }
-
-    }
-
-    /**
-     * An empty iterator for use where a sequence of atomic values is required
-     */
-
-    private static class OfAtomic extends EmptyIterator implements AtomicIterator {
-
-        public final static OfAtomic THE_INSTANCE = new OfAtomic();
-
-        /**
-         * Get the next item.
-         *
-         * @return the next item. For the EmptyIterator this is always null.
-         */
-        @Override
-        public AtomicValue next() {
-            return null;
-        }
-
-    }
 
 
+ 
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr.sort;
 
+//import com.saxonica.config.ICULibrary;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.SubstringMatcher;
 import net.sf.saxon.str.EmptyUnicodeString;
@@ -232,7 +233,8 @@ public class UcaCollatorUsingJava implements SubstringMatcher {
                 if (!keys.contains(tokens[0])) {
                     unknownKeys.add(tokens[0]);
                 }
-                props.setProperty(tokens[0], tokens[1]);
+                String value = tokens.length >= 2 ? tokens[1] : "";
+                props.setProperty(tokens[0], value);
             }
         }
         String fallback = props.getProperty("fallback");

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,15 +8,15 @@
 package net.sf.saxon.ma.arrays;
 
 import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.ArrayCoercionPlan;
+import net.sf.saxon.type.coercion.CoercionPlan;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.Optional;
@@ -25,14 +25,14 @@ import java.util.function.Supplier;
 
 /**
  * An instance of this class represents a specific array item type, for example
- * function(xs:int) as xs:boolean
+ * array(xs:boolean)
  */
 public class ArrayItemType extends AnyFunctionType {
 
     public final static ArrayItemType ANY_ARRAY_TYPE = new ArrayItemType(SequenceType.ANY_SEQUENCE);
 
     public final static SequenceType SINGLE_ARRAY =
-            SequenceType.makeSequenceType(ArrayItemType.ANY_ARRAY_TYPE, StaticProperty.EXACTLY_ONE);
+            SequenceType.one(ArrayItemType.ANY_ARRAY_TYPE);
 
     private final SequenceType memberType;
 
@@ -147,18 +147,17 @@ public class ArrayItemType extends AnyFunctionType {
      */
     @Override
     public double getDefaultPriority() {
-        return memberType.getPrimaryType().getNormalizedDefaultPriority();
+        return this == ANY_ARRAY_TYPE ? -0.25 : 0;
     }
 
     /**
      * Test whether a given item conforms to this type
      *
      * @param item The item to be tested
-     * @param th  The type hierarchy cache
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) {
+    public boolean matches(Item item) {
         if (!(item instanceof ArrayItem)) {
             return false;
         }
@@ -166,7 +165,7 @@ public class ArrayItemType extends AnyFunctionType {
             return true;
         } else {
             for (GroundedValue s : ((ArrayItem) item).members()){
-                if (!memberType.matches(s, th)){
+                if (!memberType.matches(s)){
                     return false;
                 }
             }
@@ -183,6 +182,14 @@ public class ArrayItemType extends AnyFunctionType {
     @Override
     public SequenceType getResultType() {
         return memberType;
+    }
+
+    @Override
+    public CoercionPlan getCoercionPlan(int version) {
+        if (version >= 40 /*&& memberType != SequenceType.ANY_SEQUENCE*/) {
+            return ArrayCoercionPlan.getInstance();
+        }
+        return super.getCoercionPlan(version);
     }
 
     /**
@@ -250,8 +257,8 @@ public class ArrayItemType extends AnyFunctionType {
      */
 
     @Override
-    public Affinity relationship(FunctionItemType other, TypeHierarchy th) {
-        if (other == AnyFunctionType.getInstance()) {
+    public Affinity relationship(FunctionItemType other) {
+        if (other == INSTANCE) {
             return Affinity.SUBSUMED_BY;
         } else if (equals(other)) {
             return Affinity.SAME_TYPE;
@@ -259,24 +266,25 @@ public class ArrayItemType extends AnyFunctionType {
             return Affinity.SUBSUMED_BY;
         } else if (other.isMapType()){
             return Affinity.DISJOINT;
-        } else if (other instanceof ArrayItemType) {
+        } else if (other instanceof ArrayItemType a2) {
             // See bug 3720. Array types are never disjoint, because the empty array
             // is an instance of every array type
-            ArrayItemType f2 = (ArrayItemType) other;
-            Affinity rel = th.sequenceTypeRelationship(memberType, f2.memberType);
+            Affinity rel = Subsumption.sequenceTypeRelationship(memberType, a2.memberType);
             return rel== Affinity.DISJOINT ? Affinity.OVERLAPS : rel;
         } else {
-            Affinity rel = new SpecificFunctionType(getArgumentTypes(), getResultType()).relationship(other, th);
-            if (rel == Affinity.SUBSUMES || rel == Affinity.SAME_TYPE) {
-                rel = Affinity.OVERLAPS;
-            }
-            return rel;
+            Affinity rel = new SpecificFunctionType(getArgumentTypes(), getResultType()).relationship(other);
+            return switch (rel) {
+                case DISJOINT -> Affinity.DISJOINT;
+                case OVERLAPS -> Affinity.OVERLAPS;
+                case SUBSUMED_BY -> Affinity.SUBSUMED_BY;
+                case SAME_TYPE -> Affinity.SUBSUMED_BY;
+                case SUBSUMES -> Affinity.OVERLAPS;
+            };
         }
     }
 
     @Override
-    public Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40)
-            throws XPathException {
+    public Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40) {
         return new SpecificFunctionType(
                 getArgumentTypes(), getResultType()).makeFunctionSequenceCoercer(exp, role, false);
     }
@@ -296,7 +304,7 @@ public class ArrayItemType extends AnyFunctionType {
         if (item instanceof ArrayItem) {
             for (int i=0; i<((ArrayItem)item).arrayLength(); i++) {
                 GroundedValue member = ((ArrayItem) item).get(i);
-                if (!memberType.matches(member, th)) {
+                if (!memberType.matches(member)) {
                     String s = "The " + RoleDiagnostic.ordinal(i+1) +
                             " member of the supplied array {" +
                             Err.depictSequence(member) +
@@ -315,4 +323,4 @@ public class ArrayItemType extends AnyFunctionType {
 
 }
 
-// Copyright (c) 2015-2023 Saxonica Limited
+// Copyright (c) 2015-2026 Saxonica Limited

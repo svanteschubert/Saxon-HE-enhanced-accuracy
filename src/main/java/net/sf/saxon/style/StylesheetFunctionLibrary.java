@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,13 +12,14 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.UserFunctionCall;
 import net.sf.saxon.expr.instruct.UserFunction;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.functions.ContextDependentUserFunction;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -114,16 +115,16 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
             fc.setArguments(expandedArgs);
         }
 
-        if (env instanceof ExpressionContext) {
+        StyleElement elem = ExpressionContext.getXsltElement(env);
+        if (elem != null) {
             // compile-time binding of a static function call in XSLT
-            final PrincipalStylesheetModule psm = ((ExpressionContext) env).getStyleElement().getCompilation().getPrincipalStylesheetModule();
-            final ExpressionVisitor visitor = ExpressionVisitor.make(env);
+            final PrincipalStylesheetModule psm = elem.getCompilation().getPrincipalStylesheetModule();
             psm.addFixupAction(() -> {
                 if (fc.getFunction() == null) {
                     Component target = psm.getComponent(fc.getSymbolicName());
                     UserFunction fn1 = (UserFunction) target.getActor();
                     if (fn1 != null) {
-                        fc.allocateArgumentEvaluators();
+                        //fc.allocateArgumentEvaluators(); Now done at elaboration time
                         fc.setStaticType(fn1.getResultType());
                     } else {
                         XPathException err = new XPathException("There is no available function named " + fc.getDisplayName() +
@@ -170,6 +171,7 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
         for (Component c : candidates) {
             UserFunction fn = (UserFunction)c.getActor();
             if (fn.getMinimumArity() <= actualArgs && fn.getArity() >= actualArgs) {
+                fn.incrementReferenceCount();
                 return c;
             }
         }
@@ -192,7 +194,34 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
      */
     @Override
     public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext) throws XPathException {
-        return pack.getFunction(functionName);
+        Component c = getFunction(functionName.getComponentName(), functionName.getArity());
+        if (c == null) {
+            return null;
+        }
+        UserFunction uf = (UserFunction)c.getActor();
+//        if (uf.isVariadic() && functionName.getArity() > uf.getArity())  {
+//            // Generate a function f(a,b,c,d) whose body is a call to f((a,b,c,d))
+//            UserFunctionReference reference = new UserFunctionReference(uf);
+//            FunctionItem simpleCall = getFunctionItem(new SymbolicName.F(functionName.getComponentName(), uf.getArity()), staticContext);
+//            Callable callable = (context, args) -> {
+//                Sequence[] amalgamated = new Sequence[uf.getArity()];
+//                System.arraycopy(args, 0, amalgamated, 0, uf.getArity()-1);
+//                amalgamated[uf.getArity()-1] = SequenceTool.joinSequences(
+//                        Arrays.copyOfRange(args, uf.getArity() - 1, args.length)).materialize();
+//                return simpleCall.call(context, amalgamated);
+//            };
+//            SequenceType[] argTypes = new SequenceType[functionName.getArity()];
+//            int last = uf.getArity() - 1;
+//            for (int i=0; i<argTypes.length; i++) {
+//                argTypes[i] = uf.getArgumentType(Math.min(i, last));
+//            }
+//            FunctionItemType fit = new SpecificFunctionType(argTypes, uf.getResultType());
+//            return new CallableFunction(functionName.getArity(), callable, fit);
+//        }
+        if (uf.getArity() > functionName.getArity() /*&& uf.hasContextDependentDefaults(functionName.getArity()) */) {
+            return new ContextDependentUserFunction(uf, functionName.getArity());
+        }
+        return uf;
     }
 
     /**
@@ -200,11 +229,12 @@ public class StylesheetFunctionLibrary implements FunctionLibrary {
      * <p>This supports the function-available() function in XSLT.</p>
      *
      * @param functionName  the qualified name of the function being called
+     * @param schema
      * @param languageLevel the XPath language level (times 10, e.g. 31 for XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
+    public boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel) {
         return pack.getFunction(functionName) != null;
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,8 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.style.*;
 import net.sf.saxon.trans.CompilerInfo;
 import net.sf.saxon.trans.XPathException;
-
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
+import net.sf.saxon.type.Schema;
 
 import javax.xml.transform.Source;
 import java.io.File;
@@ -189,6 +190,7 @@ public class PackageLibrary {
      * then the one with highest version number is taken.
      */
 
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public synchronized PackageDetails findPackage(String name, PackageVersionRanges ranges) {
         Set<PackageDetails> candidates = new HashSet<>();
         List<PackageVersion> available = packageVersions.get(name);
@@ -280,7 +282,10 @@ public class PackageLibrary {
      * @since 9.8
      */
 
-    public StylesheetPackage obtainLoadedPackage(PackageDetails details, List<VersionedPackageName> disallowed) throws XPathException {
+    public StylesheetPackage obtainLoadedPackage(PackageDetails details,
+                                                 List<VersionedPackageName> disallowed,
+                                                 Map<String, Schema> usedSchemata
+    ) throws XPathException {
         if (details.loadedPackage != null) {
             return details.loadedPackage;
         } else if (details.exportLocation != null) {
@@ -288,7 +293,7 @@ public class PackageLibrary {
             details.beingProcessed = Thread.currentThread();
             Source input = details.exportLocation;
             IPackageLoader loader = config.makePackageLoader();
-            StylesheetPackage pack = loader.loadPackage(input);
+            StylesheetPackage pack = loader.loadPackage(input, usedSchemata);
             checkNameAndVersion(pack, details);
             details.loadedPackage = pack;
             details.beingProcessed = null;

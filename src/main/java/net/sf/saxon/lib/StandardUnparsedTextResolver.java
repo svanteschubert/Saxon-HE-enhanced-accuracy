@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -65,7 +65,7 @@ public class StandardUnparsedTextResolver
      */
 
     @Override
-    public Reader resolve(URI absoluteURI, String encoding, Configuration config) throws XPathException {
+    public Reader resolve(URI absoluteURI, String encoding, Configuration config, boolean fallback) throws XPathException {
 
         Logger err = config.getLogger();
         if (debug) {
@@ -97,7 +97,7 @@ public class StandardUnparsedTextResolver
         }
 
         if (resolved instanceof StreamSource) {
-            return getReaderFromStreamSource((StreamSource)resolved, encoding, config, debug);
+            return getReaderFromStreamSource((StreamSource)resolved, encoding, config, debug, false);
         } else {
             throw new XPathException("Resolver for unparsed-text() returned non-StreamSource");
         }
@@ -133,7 +133,7 @@ public class StandardUnparsedTextResolver
         return detectEncoding(inputStream, encoding, config, debug);
     }
 
-    private static Reader detectEncoding(InputStream inputStream, String encoding, Configuration config, boolean debug) throws XPathException {
+    public static Reader detectEncoding(InputStream inputStream, String encoding, Configuration config, boolean debug) throws XPathException {
         try {
             if (encoding == null) {
                 Logger err = config.getLogger();
@@ -147,14 +147,14 @@ public class StandardUnparsedTextResolver
             encoding = "UTF-8";
         }
         try {
-            return ResourceLoader.getReaderFromStream(inputStream, encoding);
+            return ResourceLoader.getReaderFromStream(inputStream, encoding, false);
         } catch (UnsupportedEncodingException e) {
             throw new XPathException(e).withErrorCode("FOUT1200");
         }
     }
 
     public static Reader getReaderFromStreamSource(StreamSource source, String encoding, Configuration config,
-                                                   boolean debug) throws XPathException {
+                                                   boolean debug, boolean fallback) throws XPathException {
         Logger err = config.getLogger();
         InputStream inputStream = source.getInputStream();
 
@@ -200,7 +200,7 @@ public class StandardUnparsedTextResolver
             }
             if (encoding != null) {
                 try {
-                    return ResourceLoader.getReaderFromStream(inputStream, encoding);
+                    return ResourceLoader.getReaderFromStream(inputStream, encoding, fallback);
                 } catch (UnsupportedEncodingException e) {
                     throw new XPathException(e);
                 }

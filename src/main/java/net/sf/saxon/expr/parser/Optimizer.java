@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,9 +14,7 @@ import net.sf.saxon.expr.sort.DocumentSorter;
 import net.sf.saxon.functions.PositionAndLast;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.Logger;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.NodeSetPattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.style.XSLFunction;
@@ -24,8 +22,10 @@ import net.sf.saxon.style.XSLTemplate;
 import net.sf.saxon.trans.GlobalVariableManager;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.RuleTarget;
+import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.BooleanValue;
+import net.sf.saxon.value.SequenceType;
 
 /**
  * This class performs optimizations that vary between different versions of the Saxon product.
@@ -113,7 +113,7 @@ public class Optimizer {
             trace("Rewrote position() ~= last()", e2);
             return e2;
         }
-        e2 = optimizePositionVsLast(rhs, lhs, Token.inverse(vc.getOperator()));
+        e2 = optimizePositionVsLast(rhs, lhs, OperatorInfo.inverse(vc.getOperator()));
         if (e2 != null) {
             trace("Rewrote last() ~= position()", e2);
             return e2;
@@ -121,26 +121,43 @@ public class Optimizer {
         return vc;
     }
 
-    private Expression optimizePositionVsLast(Expression lhs, Expression rhs, int operator) {
+    /**
+     * Perform schema-aware type checking of an axis expression
+     *
+     * @param expr        the expression
+     * @param visitor     the expression visitor
+     * @param contextInfo static context information regarding the axis expression
+     * @param warnings    true if warnings are to be issued
+     * @return the axis expression, perhaps modified
+     * @throws XPathException if things go wrong
+     */
+
+    public Expression checkAxisExprAgainstSchema(AxisExpression expr, ExpressionVisitor visitor,
+                                                         ContextItemStaticInfo contextInfo, boolean warnings) throws XPathException {
+        return expr;
+    }
+
+
+        private Expression optimizePositionVsLast(Expression lhs, Expression rhs, OperatorSymbol operator) {
 
         // optimise [position()=last()] etc
 
         if (lhs.isCallOn(PositionAndLast.Position.class) &&
                 rhs.isCallOn(PositionAndLast.Last.class)) {
             switch (operator) {
-                case Token.FEQ:
-                case Token.FGE:
+                case FEQ:
+                case FGE:
                     IsLastExpression iletrue = new IsLastExpression(true);
                     ExpressionTool.copyLocationInfo(lhs, iletrue);
                     return iletrue;
-                case Token.FNE:
-                case Token.FLT:
+                case FNE:
+                case FLT:
                     IsLastExpression ilefalse = new IsLastExpression(false);
                     ExpressionTool.copyLocationInfo(lhs, ilefalse);
                     return ilefalse;
-                case Token.FGT:
+                case FGT:
                     return Literal.makeLiteral(BooleanValue.FALSE, lhs);
-                case Token.FLE:
+                case FLE:
                     return Literal.makeLiteral(BooleanValue.TRUE, lhs);
             }
         }
@@ -415,6 +432,100 @@ public class Optimizer {
     public Expression tryGeneralComparison(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType, OrExpression orExpr) throws XPathException {
         return orExpr;
     }
+
+    /**
+     * Try to factor out dependencies on the context item, by rewriting an expression f(.) as
+     * let $dot := . return f($dot). This is not always possible, for example where f() is an extension
+     * function call that uses XPathContext as an implicit argument. However, doing this increases the
+     * chances of distributing a "where" condition in a FLWOR expression to the individual input sequences
+     * selected by the "for" clauses.
+     *
+     * @param exp             the expression from which references to "." should be factored out if possible
+     * @param contextItemType the static type of the context item
+     * @return either the expression, after binding "." to a local variable and replacing all references to it;
+     * or null, if no changes were made.
+     */
+
+    public Expression tryToFactorOutDot(Expression exp, ItemType contextItemType) {
+        if (exp instanceof ContextItemExpression) {
+            return null;
+        } else if (exp instanceof LetExpression && ((LetExpression) exp).getSequence() instanceof ContextItemExpression) {
+            Expression action = ((LetExpression) exp).getAction();
+            boolean changed = factorOutDot(action, (LetExpression) exp);
+            if (changed) {
+                trace("Factored out context item expression", exp);
+                exp.resetLocalStaticProperties();
+            }
+            return exp;
+        } else if ((exp.getDependencies() &
+                            (StaticProperty.DEPENDS_ON_CONTEXT_ITEM | StaticProperty.DEPENDS_ON_CONTEXT_DOCUMENT)) != 0) {
+            LetExpression let = new LetExpression();
+            let.setVariableQName(
+                    new StructuredQName("saxon", NamespaceUri.SAXON, "dot" + exp.hashCode()));
+            let.setRequiredType(SequenceType.one(contextItemType));
+            let.setSequence(new ContextItemExpression());
+            Expression actionCopy = exp.copy(new RebindingMap());
+            let.setAction(actionCopy);
+            boolean changed = factorOutDot(actionCopy, let);
+            if (changed) {
+                trace("Factored out context item", let);
+                exp.resetLocalStaticProperties();
+                return let;
+            } else {
+                return exp;
+            }
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Replace references to the context item with references to a variable
+     *
+     * @param exp      the expression in which the replacement is to take place
+     * @param variable the declaration of the variable
+     * @return true if replacement has taken place (at any level)
+     */
+
+    public static boolean factorOutDot(Expression exp, Binding variable) {
+        boolean changed = false;
+        if ((exp.getDependencies() &
+                     (StaticProperty.DEPENDS_ON_CONTEXT_ITEM | StaticProperty.DEPENDS_ON_CONTEXT_DOCUMENT)) != 0) {
+            for (Operand info : exp.operands()) {
+                if (info.hasSameFocus()) {
+                    Expression child = info.getChildExpression();
+                    if (child instanceof ContextItemExpression) {
+                        VariableReference ref = makeReference(variable);
+                        ExpressionTool.copyLocationInfo(child, ref);
+                        info.setChildExpression(ref);
+                        changed = true;
+                    } else if (child instanceof AxisExpression ||
+                            child instanceof RootExpression) {
+                        VariableReference ref = makeReference(variable);
+                        ExpressionTool.copyLocationInfo(child, ref);
+                        Expression path = ExpressionTool.makePathExpression(ref, child);
+                        info.setChildExpression(path);
+                        changed = true;
+                    } else {
+                        changed |= factorOutDot(child, variable);
+                    }
+                }
+            }
+        }
+        if (changed) {
+            exp.resetLocalStaticProperties();
+        }
+        return changed;
+    }
+
+    private static VariableReference makeReference(Binding variable) {
+        if (variable.isGlobal()) {
+            return new GlobalVariableReference((GlobalVariable) variable);
+        } else {
+            return new LocalVariableReference((LocalBinding) variable);
+        }
+    }
+
 
     /**
      * Generate the inversion of the expression comprising the body of a template rules.

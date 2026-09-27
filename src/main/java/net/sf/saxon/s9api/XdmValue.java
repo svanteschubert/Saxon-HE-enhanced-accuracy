@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.event.SequenceCopier;
 import net.sf.saxon.expr.sort.DocumentOrderIterator;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
 import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.jnode.JNode;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.streams.Step;
@@ -24,6 +25,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.value.AnyExternalObject;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceExtent;
 
 import javax.xml.transform.OutputKeys;
@@ -39,14 +41,14 @@ import java.util.stream.StreamSupport;
 
 /**
  * A value in the XDM data model. A value is a sequence of zero or more items,
- * each item being an atomic value, a node, or a function item.
- * <p>An XdmValue is immutable.</p>
+ * each item being an atomic value, a node, a function item, or (exceptionally) an external object.
+ * <p>An {@code XdmValue} is immutable.</p>
  * <p>A sequence consisting of a single item may be represented as an instance of {@link XdmItem},
- * which is a subtype of XdmValue. However, there is no guarantee that a sequence of length one
- * will always be an instance of XdmItem.</p>
+ * which is a subtype of {@code XdmValue}. However, there is no guarantee that a sequence of length one
+ * will always be an instance of {@code XdmItem}.</p>
  * <p>Similarly, a zero-length sequence may be represented as an instance of {@link XdmEmptySequence},
  * but there is no guarantee that every sequence of length zero will always be an instance of
- * XdmEmptySequence.</p>
+ * {@code XdmEmptySequence}.</p>
  *
  * @since 9.0
  */
@@ -57,7 +59,7 @@ public class XdmValue implements Iterable<XdmItem> {
     private final GroundedValue value;
 
     /**
-     * Create an XdmValue that wraps a supplied <code>GroundedValue</code>. This
+     * Create an {@code XdmValue} that wraps a supplied <code>GroundedValue</code>. This
      * method is primarily for internal use, though it is also available to applications
      * that manipulate data using lower-level Saxon interfaces.
      * <p>Note that this constructor necessarily produces an <code>XdmValue</code> regardless
@@ -67,12 +69,13 @@ public class XdmValue implements Iterable<XdmItem> {
      * @param value the value to be wrapped.
      */
 
+    @CSharpModifiers(code={"public"})
     protected XdmValue(GroundedValue value) {
         this.value = value;
     }
 
     /**
-     * Create an XdmValue as a sequence of XdmItem objects
+     * Create an {@code XdmValue} as a sequence of XdmItem objects
      *
      * @param items a sequence of XdmItem objects. Note that if this is supplied as a list or similar
      *              collection, subsequent changes to the list/collection will have no effect on the XdmValue.
@@ -88,7 +91,7 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Create an XdmValue containing the items returned by an {@link Iterator}.
+     * Create an {@code XdmValue} containing the items returned by an {@link Iterator}.
      *
      * @param iterator the iterator that supplies the values
      * @throws SaxonApiException if an error occurs reading values from the supplied iterator
@@ -108,7 +111,7 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Create an XdmValue containing the results of reading a Stream
+     * Create an {@code XdmValue} containing the results of reading a Stream
      * @param stream the stream to be read
      * @throws SaxonApiException if an error occurs reading values from the supplied stream
      */
@@ -118,18 +121,20 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Create an XdmValue that wraps an existing Saxon Sequence
+     * Create an {@code XdmValue} that wraps an existing Saxon Sequence
      *
      * @param value the supplied Sequence (which may be a singleton Item),
      * @return an XdmValue corresponding to the supplied Sequence. If the
-     *         supplied value is null, an empty sequence is returned. If the supplied
-     *         value is an atomic value, the result will be an instance of XdmAtomicValue.
+     *         supplied value is null, an empty sequence is returned.
      *         <ul>
-     *         <li>If the supplied value is a node, the result will be an instance of XdmNode.</li>
-     *         <li>If the supplied value is a map, the result will be an instance of XdmMap.</li>
-     *         <li>If the supplied value is an array, the result will be an instance of XdmArray.</li>
+     *         <li>If the supplied value is an empty sequence, the result will be an instance
+     *         (the singleton instance) of {@link XdmEmptySequence}.</li>
+     *         <li>If the supplied value is an atomic value, the result will be an instance of {@link XdmAtomicValue}.</li>
+     *         <li>If the supplied value is a node, the result will be an instance of {@link XdmNode}.</li>
+     *         <li>If the supplied value is a map, the result will be an instance of {@link XdmMap}.</li>
+     *         <li>If the supplied value is an array, the result will be an instance of {@link XdmArray}.</li>
      *         <li>If the supplied value is a function item, the result will be an instance of
-     *         XdmFunctionItem.</li>
+     *         {@link XdmFunctionItem}.</li>
      *         </ul>
      * @throws SaxonApiUncheckedException if the supplied Sequence is not yet fully evaluated, and evaluation
      *                                    of the underlying expression fails with a dynamic error.
@@ -152,6 +157,8 @@ public class XdmValue implements Iterable<XdmItem> {
             Item first = gv.head();
             if (first instanceof NodeInfo) {
                 return new XdmNode((NodeInfo) first);
+            } else if (first instanceof JNode) {
+               return new XdmJNode((JNode) first);
             } else if (first instanceof AtomicValue) {
                 return new XdmAtomicValue((AtomicValue) first);
             } else if (first instanceof MapItem) {
@@ -171,20 +178,17 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     public static XdmValue wrap(AtomicSequence value) {
-        switch (value.getLength()) {
-            case 0:
-                return XdmEmptySequence.getInstance();
-            case 1:
-                return new XdmAtomicValue(value.head());
-            default:
-                return new XdmValue(value);
-        }
+        return switch (value.getLength()) {
+            case 0 -> XdmEmptySequence.getInstance();
+            case 1 -> new XdmAtomicValue(value.head());
+            default -> new XdmValue(value);
+        };
     }
 
 
     /**
-     * Create a new XdmValue by concatenating the contents of this XdmValue and another
-     * XdmValue into a single sequence. The two input XdmValue objects are unaffected by this operation.
+     * Create a new {@code XdmValue} by concatenating the contents of this {@code XdmValue} and another
+     * {@code XdmValue} into a single sequence. The two input {@code XdmValue} objects are unaffected by this operation.
      * <p>Note: creating a sequence of N values by successive calls on this method
      * takes time proportional to N-squared.</p>
      *
@@ -218,11 +222,27 @@ public class XdmValue implements Iterable<XdmItem> {
 
     /**
      * Ask whether the sequence is empty
+     *
      * @return true if the value is an empty sequence
      * @since 10.1
+     * @deprecated since 12.9, because the overriding method in {@link XdmMap} tests
+     * whether the value is an empty map (and thus, a sequence of length one). Use
+     * {@link #isEmptySequence} instead.
      */
 
+    @Deprecated
     public boolean isEmpty() {
+        return value.head() == null;
+    }
+
+    /**
+     * Ask whether the sequence is empty
+     *
+     * @return true if the value is an empty sequence
+     * @since 12.9
+     */
+
+    public boolean isEmptySequence() {
         return value.head() == null;
     }
 
@@ -299,7 +319,7 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Create a string representation of the value. The is the result of serializing
+     * Create a string representation of the value. This is the result of serializing
      * the value using the adaptive serialization method, with the options
      * <code>indent="yes"</code> and <code>omit-xml-declaration="yes"</code>.
      * The <code>item-separator</code> if there are multiple items is a newline.
@@ -326,14 +346,15 @@ public class XdmValue implements Iterable<XdmItem> {
      * <code>xs:date("2023-01-31")</code>.</p>
      * <p>A sequence of items is formatted by serializing the individual items, separated
      * by newlines.</p>
+     * <p>The output format is not guaranteed to remain identical between software releases.</p>
      * @return a string representation of the value
      */
 
     public String toString() {
         try {
             // To get a serializer we need a Configuration. If the sequence contains any nodes,
-            // we can get the associated configuration from the node. If not, we create a brand
-            // new configuration for the purpose.
+            // we can get the associated configuration from the node. If not, we create a brand-new
+            // Configuration for the purpose.
             Configuration config = null;
             SequenceIterator iter = value.iterate();
             for (Item item; (item = iter.next()) != null; ) {
@@ -366,7 +387,7 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Make an XDM sequence from a Java {@link Iterable}. Each value delivered by the iterable
+     * Make an {@code XdmValue} from a Java {@link Iterable}. Each value delivered by the iterable
      * is first converted to an XDM value using the {@link #makeValue(Object)} method;
      * if the result is anything other than a single XDM item, it is then wrapped in an
      * {@link XdmArray}.
@@ -389,7 +410,7 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Make an XDM value from a Java object. The supplied object may be any of the following:
+     * Make an {@code XdmValue} from a Java object. The supplied object may be any of the following:
      * <ul>
      * <li>An instance of {@link XdmValue} (for example, an
      * {@link XdmNode} or {@link XdmAtomicValue} or {@link XdmArray} or {@link XdmMap}),
@@ -429,7 +450,7 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Return a new XdmValue containing the nodes present in this XdmValue,
+     * Return a new {@code XdmValue} containing the nodes present in this {@code XdmValue},
      * with duplicates eliminated, and sorted into document order
      * @return the same nodes, sorted into document order, with duplicates eliminated
      * @throws SaxonApiException if anything goes wrong (typically during delayed evaluation of the
@@ -449,9 +470,9 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Get a stream comprising the items in this value
+     * Get a stream comprising the items in this {@code XdmValue}
      *
-     * @return a Stream over the items in this value
+     * @return a Stream over the items in this {@code XdmValue}
      * @since 9.9
      */
     public XdmStream<? extends XdmItem> stream() {
@@ -509,6 +530,36 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
+     * Select children of the nodes in this value. This is a shortcut for
+     * <code>select(Steps.child(nodeName))</code>; it returns an <code>XdmStream</code>
+     * containing all the child elements of nodes in this <code>XdmValue</code> that have
+     * local name <code>nodeName</code>; or if <code>nodeName</code> is <code>"*"</code>,
+     * then all child elements regardless of their name.
+     * @param nodeName the local name of the required child elements, or <code>"*"</code>
+     *                 to select all element children
+     * @since 13
+     */
+
+    public XdmStream<XdmNode> select(String nodeName) {
+        return select(Steps.child(nodeName));
+    }
+
+    /**
+     * Select children of the nodes in this value. This is a shortcut for
+     * <code>select(Steps.child(uri, localName))</code>; it returns an <code>XdmStream</code>
+     * containing all the child elements of nodes in this <code>XdmValue</code> that have
+     * local name <code>localName</code> and namespace URI <code>uri</code>.
+     * @param uri the namespace URI of the child elements to be selected by the {@code Step}:
+     *            supply a zero-length string to indicate the null namespace
+     * @param localName the local name of the child elements to be selected
+     * @since 13
+     */
+
+    public XdmStream<XdmNode> select(String uri, String localName) {
+        return select(Steps.child(uri, localName));
+    }
+
+    /**
      * Filter the value on a supplied predicate
      * @param predicate the predicate to be applied. Note that an {@link ItemType} is a
      *                  predicate, so this method can be used to select those items
@@ -524,14 +575,16 @@ public class XdmValue implements Iterable<XdmItem> {
     }
 
     /**
-     * Test whether the value matches a supplied SequenceType
+     * Test whether this {@code XdmValue} matches a supplied SequenceType
      * @param type the SequenceType that we are testing against
      * @return true if this value matches the sequence type, false otherwise.
      * @since 12.0
      */
 
     public boolean matches(SequenceType type) {
-        if (!type.getOccurrenceIndicator().allows(size())) {
+        OccurrenceIndicator occurrenceIndicator = type.getOccurrenceIndicator();
+        int size = size();
+        if (!Cardinality.occurrenceIndicatorAllows(occurrenceIndicator, size)) {
             return false;
         }
         ItemType it = type.getItemType();

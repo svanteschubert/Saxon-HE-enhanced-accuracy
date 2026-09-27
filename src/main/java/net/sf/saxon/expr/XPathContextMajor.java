@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.sort.GroupIterator;
+import net.sf.saxon.expr.sort.MergeGroupingIterator;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.*;
@@ -39,7 +40,7 @@ public class XPathContextMajor extends XPathContextMinor {
     private Component.M currentMode;
     private Rule currentTemplate;
     private GroupIterator currentGroupIterator;
-    private GroupIterator currentMergeGroupIterator;
+    private MergeGroupingIterator currentMergeGroupIterator;
     private RegexIterator currentRegexIterator;
 
 
@@ -507,7 +508,7 @@ public class XPathContextMajor extends XPathContextMinor {
      * @param iterator the new current GroupIterator
      */
 
-    public void setCurrentMergeGroupIterator(GroupIterator iterator) {
+    public void setCurrentMergeGroupIterator(MergeGroupingIterator iterator) {
         currentMergeGroupIterator = iterator;
     }
 
@@ -519,7 +520,7 @@ public class XPathContextMajor extends XPathContextMinor {
      */
 
     @Override
-    public GroupIterator getCurrentMergeGroupIterator() {
+    public MergeGroupingIterator getCurrentMergeGroupIterator() {
         return currentMergeGroupIterator;
     }
 
@@ -574,7 +575,7 @@ public class XPathContextMajor extends XPathContextMinor {
         boolean checked = params.isTypeChecked(index);
         return checked ? ParameterSet.SUPPLIED_AND_CHECKED : ParameterSet.SUPPLIED;
     }
-
+    
     public void setResourceResolver(ResourceResolver resolver) {
         resourceResolver = resolver;
     }

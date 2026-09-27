@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,8 +20,10 @@ public class REFlags {
     private boolean singleLine;
     private boolean allowWhitespace;
     private boolean literal;
+    private boolean allowComments;
     private boolean xpath20;
     private boolean xpath30;
+    private boolean xpath40;
     private boolean xsd11;
     private boolean debug; // flags = ";g"
     private boolean allowUnknownBlockNames = false; //flags = ";k"
@@ -46,6 +48,10 @@ public class REFlags {
         } else if (language.contains("XP30") || language.contains("XP31")) {
             xpath20 = true;
             xpath30 = true;
+        } else if (language.contains("XP40")) {
+            xpath20 = true;
+            xpath30 = true;
+            xpath40 = true;
         }
 
         int semi = flags.indexOf(';');
@@ -71,9 +77,22 @@ public class REFlags {
                 case 'x':
                     allowWhitespace = true;
                     break;
+                case 'c':
+                    if (!xpath40) {
+                        throw new RESyntaxException("'c' flag requires XPath 4.0 to be enabled");
+                    }
+                    allowComments = true;
+                    break;
                 default:
                     throw new RESyntaxException("Unrecognized flag '" + c + "'");
             }
+        }
+        if (literal) {
+            // 'q' flag means that 'i', 'm', 'x', and 'c' are ignored
+            allowWhitespace = false;
+            allowComments = false;
+            multiLine = false;
+            singleLine = false;
         }
         for (int i = semi + 1; i < flags.length(); i++) {
             char c = flags.charAt(i);
@@ -106,6 +125,9 @@ public class REFlags {
     public boolean isAllowWhitespace() {
         return allowWhitespace;
     }
+    public boolean isAllowComments() {
+        return allowComments;
+    }
 
     public boolean isLiteral() {
         return literal;
@@ -117,6 +139,10 @@ public class REFlags {
 
     public boolean isAllowsXPath30Extensions() {
         return xpath30;
+    }
+
+    public boolean isAllowsXPath40Extensions() {
+        return xpath40;
     }
 
     public boolean isAllowsXSD11Syntax() {

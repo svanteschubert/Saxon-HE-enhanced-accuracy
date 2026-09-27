@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -28,7 +28,7 @@ public class Tokenize_3 extends RegexFunction {
 
     @Override
     protected boolean allowRegexMatchingEmptyString() {
-        return false;
+        return getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40;
     }
 
     /**
@@ -44,11 +44,11 @@ public class Tokenize_3 extends RegexFunction {
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue sv = (AtomicValue) arguments[0].head();
         if (sv == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         UnicodeString input = sv.getUnicodeStringValue();
         if (input.isEmpty()) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         RegularExpression re = getRegularExpression(arguments, 1, 2);
         if (re == null) {

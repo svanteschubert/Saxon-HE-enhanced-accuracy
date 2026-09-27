@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,12 +11,12 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.lib.ActiveSource;
 import net.sf.saxon.lib.ParseOptions;
-import net.sf.saxon.om.AxisInfo;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.GenericTreeInfo;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.type.gnode.NodeKindType;
 import org.jdom2.Attribute;
 import org.jdom2.Document;
 import org.jdom2.Element;
@@ -86,9 +86,9 @@ public class JDOM2DocumentWrapper extends GenericTreeInfo implements ActiveSourc
     public NodeInfo selectID(String id, boolean getParent) {
         if (idIndex == null) {
             idIndex = new HashMap<String, Element>(100);
-            AxisIterator iter = getRootNode().iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
-            NodeInfo node;
-            while ((node = iter.next()) != null) {
+            SequenceIterator iter = getRootNode().iterateDescendantAxis(NodeKindType.ELEMENT);
+            GNode node;
+            while ((node = (GNode)iter.next()) != null) {
                 Element element = (Element) ((JDOM2NodeWrapper) node).node;
                 for (Attribute att : element.getAttributes()) {
                     if (att.getAttributeType() == Attribute.ID_TYPE) {
@@ -103,4 +103,4 @@ public class JDOM2DocumentWrapper extends GenericTreeInfo implements ActiveSourc
 
 }
 
-// Original Code is Copyright (c) 2009-2020 Saxonica Limited
+// Original Code is Copyright (c) 2009-2026 Saxonica Limited

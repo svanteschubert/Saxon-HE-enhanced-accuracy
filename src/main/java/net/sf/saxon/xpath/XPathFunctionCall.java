@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,6 @@ import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.elab.SequenceEvaluator;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
@@ -110,32 +109,6 @@ public class XPathFunctionCall extends FunctionCall implements Callable {
 
 
     /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     *         expression is the first operand of a path expression or filter expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    /*@NotNull*/
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(/*@NotNull*/ PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        return addExternalFunctionCallToPathMap(pathMap, pathMapNodeSet);
-    }
-
-    /**
      * Evaluate the function. <br>
      *
      * @param context The context in which the function is to be evaluated
@@ -188,7 +161,7 @@ public class XPathFunctionCall extends FunctionCall implements Callable {
         try {
             Object result = function.evaluate(convertedArgs);
             if (result == null) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             }
             JPConverter converter = JPConverter.allocate(result.getClass(), null, config);
             return converter.convert(result, context);

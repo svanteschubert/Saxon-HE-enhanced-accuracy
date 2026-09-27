@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -449,14 +449,13 @@ public abstract class Mode extends Actor {
         Controller controller = context.getController();
         SequenceIterator iterator = context.getCurrentIterator();
         TailCall tc = null;
-        TraceListener traceListener = null;
-        if (controller.isTracing()) {
-            traceListener = controller.getTraceListener();
-        }
+        TraceListener traceListener = controller.isTracing() ? controller.getTraceListener() : null;
 
         // Iterate over this sequence
 
-        boolean lookahead = iterator instanceof LookaheadIterator && ((LookaheadIterator)iterator).supportsHasNext();
+        LookaheadIterator lookaheadIter = (iterator instanceof LookaheadIterator li && li.supportsHasNext())
+                        ? li
+                        : null;
         TemplateRule previousTemplate = null;
         boolean first = true;
 
@@ -469,7 +468,7 @@ public abstract class Mode extends Actor {
             // space. In other cases, we need to execute the outstanding tail calls before moving the iterator
 
             if (tc != null) {
-                if (lookahead && !((LookaheadIterator) iterator).hasNext()) {
+                if (lookaheadIter != null && !lookaheadIter.hasNext()) {
                     break;
                 }
                 do {
@@ -518,9 +517,9 @@ public abstract class Mode extends Actor {
                 getBuiltInRuleSet().process(item, parameters, tunnelParameters, output, context, locationId);
 
             } else {
-                Object[] result = handleRuleNotNull(rule, traceListener, context, item, previousTemplate, parameters, tunnelParameters, output);
-                tc = (TailCall) result[0];
-                previousTemplate = (TemplateRule) result[1];
+                RuleInfo result = handleRuleNotNull(rule, traceListener, context, item, previousTemplate, parameters, tunnelParameters, output);
+                tc = result.tc();
+                previousTemplate = result.rule();
             }
             if (modeTracing) {
                 ruleTraceListener.leave();
@@ -531,13 +530,16 @@ public abstract class Mode extends Actor {
         return tc;
     }
 
+    
+    private record RuleInfo (TailCall tc, TemplateRule rule) {}
+
     private void checkMustBeTyped(Item item) throws XPathException
     {
-        if (item instanceof NodeInfo) {
-            int kind = ((NodeInfo) item).getNodeKind();
+        if (item instanceof NodeInfo node) {
+            int kind = node.getNodeKind();
             if (kind == Type.ELEMENT || kind == Type.ATTRIBUTE) {
-                SchemaType annotation = ((NodeInfo) item).getSchemaType();
-                if (annotation == Untyped.getInstance() || annotation == BuiltInAtomicType.UNTYPED_ATOMIC) {
+                SchemaType annotation = node.getSchemaType();
+                if (annotation == Untyped.INSTANCE || annotation == BuiltInAtomicType.UNTYPED_ATOMIC) {
                     throw new XPathException(getModeTitle(true) + " requires typed nodes, but the input is untyped", "XTTE3100");
                 }
             }
@@ -546,18 +548,18 @@ public abstract class Mode extends Actor {
 
     private void checkMustByUntyped(Item item) throws XPathException
     {
-        if (item instanceof NodeInfo) {
-            int kind = ((NodeInfo) item).getNodeKind();
+        if (item instanceof NodeInfo node) {
+            int kind = node.getNodeKind();
             if (kind == Type.ELEMENT || kind == Type.ATTRIBUTE) {
-                SchemaType annotation = ((NodeInfo) item).getSchemaType();
-                if (!(annotation == Untyped.getInstance() || annotation == BuiltInAtomicType.UNTYPED_ATOMIC)) {
+                SchemaType annotation = node.getSchemaType();
+                if (!(annotation == Untyped.INSTANCE || annotation == BuiltInAtomicType.UNTYPED_ATOMIC)) {
                     throw new XPathException(getModeTitle(true) + " requires untyped nodes, but the input is typed", "XTTE3110");
                 }
             }
         }
     }
 
-    private Object[] handleRuleNotNull(Rule rule, TraceListener traceListener, XPathContextMajor context, Item item, TemplateRule previousTemplate, ParameterSet parameters,
+    private RuleInfo handleRuleNotNull(Rule rule, TraceListener traceListener, XPathContextMajor context, Item item, TemplateRule previousTemplate, ParameterSet parameters,
             ParameterSet tunnelParameters, Outputter output) throws XPathException
     {
         TemplateRule template = (TemplateRule) rule.getAction();
@@ -587,10 +589,10 @@ public abstract class Mode extends Actor {
             tc = template.applyLeavingTail(output, context);
         }
 
-        return new Object[]{tc, previousTemplate};
+        return new RuleInfo(tc, previousTemplate);
     }
 
-    private TemplateRuleTraceListener handleRuleTraceListener(TemplateRuleTraceListener ruleTraceListener, Controller controller, Location locationId, Item item, Rule rule)
+    private static TemplateRuleTraceListener handleRuleTraceListener(TemplateRuleTraceListener ruleTraceListener, Controller controller, Location locationId, Item item, Rule rule)
     {
         ruleTraceListener = ((XsltController)controller).getTemplateRuleTraceListener();
         if (ruleTraceListener == null) {
@@ -620,7 +622,7 @@ public abstract class Mode extends Actor {
      * @param builtInRuleSet the rule set to get a code
      * @return a simple string code or "???" if the ruleset is unknown
      */
-    public String getCodeForBuiltInRuleSet(BuiltInRuleSet builtInRuleSet) {
+    public static String getCodeForBuiltInRuleSet(BuiltInRuleSet builtInRuleSet) {
         if (builtInRuleSet instanceof ShallowCopyAllRuleSet) {
             return "CA";
         } else if (builtInRuleSet instanceof ShallowCopyRuleSet) {
@@ -637,25 +639,27 @@ public abstract class Mode extends Actor {
             return "TC";
         } else if (builtInRuleSet instanceof RuleSetWithWarnings) {
             return getCodeForBuiltInRuleSet(((RuleSetWithWarnings) builtInRuleSet).getBaseRuleSet()) + "+W";
+        } else if (builtInRuleSet instanceof RuleSetWithTypeCheck) {
+            return getCodeForBuiltInRuleSet(((RuleSetWithTypeCheck) builtInRuleSet).getBaseRuleSet()) + "+C";
         } else {
             return "???";
         }
     }
 
     /**
-     * Return a built-in rule set for a code string.
+     * Return a built-in rule set for a code string. 
      *
      * @param code the code used in export
      * @return a suitable ruleset
      */
-    public BuiltInRuleSet getBuiltInRuleSetForCode(String code) {
+    public static BuiltInRuleSet getBuiltInRuleSetForCode(String code, SequenceType requiredType, boolean copyNamespaces) {
         BuiltInRuleSet base;
         if (code.startsWith("SC")) {
-            base = ShallowCopyRuleSet.getInstance();
+            base = ShallowCopyRuleSet.getInstance(copyNamespaces);
         } else if (code.startsWith("SS")) {
             base = ShallowSkipRuleSet.getInstance();
         } else if (code.startsWith("DC")) {
-            base = DeepCopyRuleSet.getInstance();
+            base = DeepCopyRuleSet.getInstance(copyNamespaces);
         } else if (code.startsWith("DS")) {
             base = DeepSkipRuleSet.getInstance();
         } else if (code.startsWith("FF")) {
@@ -663,12 +667,15 @@ public abstract class Mode extends Actor {
         } else if (code.startsWith("TC")) {
             base = TextOnlyCopyRuleSet.getInstance();
         } else if (code.startsWith("CA")) {
-            base = ShallowCopyAllRuleSet.getInstance();
+            base = ShallowCopyAllRuleSet.getInstance(copyNamespaces);
         } else {
             throw new IllegalArgumentException(code);
         }
-        if (code.endsWith("+W")) {
+        if (code.contains("+W")) {
             base = new RuleSetWithWarnings(base);
+        }
+        if (code.contains("+C")) {
+            base = new RuleSetWithTypeCheck(base, requiredType);
         }
         return base;
     }
@@ -680,6 +687,9 @@ public abstract class Mode extends Actor {
             presenter.emitAttribute("name", getModeName());
         }
         presenter.emitAttribute("onNo", getCodeForBuiltInRuleSet(getBuiltInRuleSet()));
+        if (getBuiltInRuleSet() instanceof RuleSetWithTypeCheck) {
+            presenter.emitAttribute("as", ((RuleSetWithTypeCheck)getBuiltInRuleSet()).getRequiredType().toAlphaCode());
+        }
         String flags = "";
         if (isDeclaredStreamable()) {
             flags += "s";
@@ -701,6 +711,9 @@ public abstract class Mode extends Actor {
         if (!hasRules) {
             flags += "e";
         }
+        if (!isCopyNamespaces()) {
+            flags += "n";
+        }
         if (!flags.isEmpty()) {
             presenter.emitAttribute("flags", flags);
         }
@@ -718,6 +731,8 @@ public abstract class Mode extends Actor {
     public boolean isMustBeTyped() {
         return mustBeTyped;
     }
+
+    public abstract boolean isCopyNamespaces();
 
     public void explain(ExpressionPresenter presenter) throws XPathException {
         int s = presenter.startElement("mode");

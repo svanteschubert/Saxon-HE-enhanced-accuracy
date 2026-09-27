@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,12 +15,6 @@ import net.sf.saxon.lib.FeatureKeys;
  * same namespace as system-defined error codes.</p>
  */
 public class SaxonErrorCode {
-
-    /**
-     * SXLM0001: stylesheet or query appears to be looping/recursing indefinitely
-     */
-
-    public static final String SXLM0001 = "SXLM0001";
 
     /**
      * SXCH0002: cannot supply output to ContentHandler because it is not well-formed
@@ -172,6 +166,19 @@ public class SaxonErrorCode {
      */
 
     public static final String SXJE0053 = "SXJE0053";
+
+    /**
+     * SXLM0001: stylesheet or query appears to be looping/recursing indefinitely
+     */
+
+    public static final String SXLM0001 = "SXLM0001";
+
+    /**
+     * SXLM0002: Max length of sequence exceeded
+     */
+
+    public static final String SXLM0002 = "SXLM0002";
+
 
     /**
      * SXJM0001: Error in arguments to saxon:send-mail
@@ -328,7 +335,7 @@ public class SaxonErrorCode {
      */
 
     public static final String SXST0072 = "SXST0072";
-
+    
     /**
      * SXTA0001: unresolved type alias
      */
@@ -656,6 +663,36 @@ public class SaxonErrorCode {
      */
 
     public static final String SXWN9050 = "SXWN9050";
+
+    /**
+     * SXWN9051: Expression not guaranteed to have an EBV
+     */
+
+    public static final String SXWN9051 = "SXWN9051";
+
+    /**
+     * 4.0 incompatibility, union pattern whose branches have differing priority
+     */
+
+    public static final String SXWN9052 = "SXWN9052";
+
+    /**
+     * SXWN9053: saxon:as is deprecated in Saxon 13
+     */
+
+    public static final String SXWN9053 = "SXWN9053";
+
+    /**
+     * SXWN9054: saxon:capture is deprecated in Saxon 13
+     */
+
+    public static final String SXWN9054 = "SXWN9054";
+
+    /**
+     * SXWN9054: saxon:composite is ignored and deprecated in Saxon 13
+     */
+
+    public static final String SXWN9055 = "SXWN9055";
 
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,8 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.type.coercion.CoercionPlan;
 
 import java.util.Optional;
 
@@ -22,15 +24,14 @@ import java.util.Optional;
  * instances of SimpleType in the schema type hierarchy. Node Types, represented by
  * the class NodeTest, are also Patterns as used in XSLT.
  * <p>Saxon assumes that apart from {@link AnyItemType} (which corresponds to <code>item()</code>
- * and matches anything), every ItemType will be either an {@link AtomicType}, a {@link net.sf.saxon.pattern.NodeTest},
+ * and matches anything), every ItemType will be either an {@link AtomicType}, a {@link NodeTest},
  * or a {@link FunctionItemType}. User-defined implementations of ItemType must therefore extend one of those
  * three classes/interfaces.</p>
  *
  * @see AtomicType
- * @see net.sf.saxon.pattern.NodeTest
+ * @see NodeTest
  * @see FunctionItemType
  */
-
 public interface ItemType {
 
     /**
@@ -61,12 +62,12 @@ public interface ItemType {
 
     /**
      * Test whether a given item conforms to this type
-     * @param item    The item to be tested
-     * @param th      The type hierarchy cache. Currently used only when matching function items.
+     *
+     * @param item The item to be tested
      * @return true if the item is an instance of this type; false otherwise
      */
 
-    boolean matches(Item item, TypeHierarchy th);
+    boolean matches(Item item);
 
     /**
      * Get the primitive item type corresponding to this item type. For item(),
@@ -117,6 +118,7 @@ public interface ItemType {
      */
 
     default double getNormalizedDefaultPriority() {
+        // TODO: no longer conformant to the 4.0 spec
         return (getDefaultPriority() + 1) / 2;
     }
 
@@ -141,6 +143,14 @@ public interface ItemType {
     boolean isAtomizable(TypeHierarchy th);
 
     /**
+     * Get the coercion plan for use when this type is the required type for (say) coercion
+     * of arguments in a function call
+     * @param version the XPath language version (40 or 31)
+     */
+
+    CoercionPlan getCoercionPlan(int version);
+
+    /**
      * Get an alphabetic code representing the type, or at any rate, the nearest built-in type
      * from which this type is derived. The codes are designed so that for any two built-in types
      * A and B, alphaCode(A) is a prefix of alphaCode(B) if and only if A is a supertype of B.
@@ -151,16 +161,16 @@ public interface ItemType {
 
     String getBasicAlphaCode();
 
-    /**
-     * Get the full alpha code for this item type. As well as the basic alpha code, this contains
-     * additional information, for example <code>element(EFG)</code> has a basic alpha code of
-     * <code>NE</code>, but the full alpha code of <code>NE nQ{}EFG</code>.
-     * @return the alpha code for the type
-     */
-
-    default String getFullAlphaCode() {
-        return getBasicAlphaCode();
-    }
+//    /**
+//     * Get the full alpha code for this item type. As well as the basic alpha code, this contains
+//     * additional information, for example <code>element(EFG)</code> has a basic alpha code of
+//     * <code>NE</code>, but the full alpha code of <code>NE nQ{}EFG</code>.
+//     * @return the alpha code for the type
+//     */
+//
+//    default String getFullAlphaCode() {
+//        return AlphaCode.fromItemType(this);
+//    }
 
     /**
      * Return a string representation of this ItemType suitable for use in stylesheet
@@ -175,6 +185,30 @@ public interface ItemType {
         return toString();
     }
 
+    /**
+     * Normalize this item type, returning a potentially different item type that matches the same
+     * items. For example, {@code record(*)} and {@code map(*)} match the same items. The default
+     * implementation returns the item type unchanged. This method does NOT expand item types
+     * to an equivalent choice item type.
+     * <p>Item types should be normalized before comparison using equals().</p>
+     * @return the normalized item type.
+     */
+
+    default ItemType normalizeItemType() {
+        return this;
+    }
+
+    /**
+     * Expand this item type to a choice item type. The default delivers a choice
+     * with this type as its only member. Implementations for abstract types return
+     * a choice of the corresponding concrete types, for example {@code node()} expands
+     * to a choice of the seven node kinds. The implementation for a choice type
+     * that includes abstract member types should expand these recursively.
+     */
+
+    default ChoiceItemType asChoiceItemType() {
+        return ChoiceItemType.of(this);
+    }
 
     /**
      * Get extra diagnostic information about why a supplied item does not conform to this
@@ -185,9 +219,7 @@ public interface ItemType {
      * @return optionally, a message explaining why the item does not match the type
      */
 
-    default Optional<String> explainMismatch(Item item, TypeHierarchy th) {
-        return Optional.empty();
-    }
+    Optional<String> explainMismatch(Item item, TypeHierarchy th);
 
 }
 

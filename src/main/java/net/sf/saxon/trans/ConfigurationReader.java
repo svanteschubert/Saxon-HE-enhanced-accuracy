@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.ResultDocument;
-import net.sf.saxon.expr.parser.Token;
+import net.sf.saxon.expr.parser.Tokenizer;
 import net.sf.saxon.expr.parser.XPathParser;
 import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.lib.*;
@@ -159,7 +159,7 @@ public class ConfigurationReader implements Receiver {
             }
         }
         setSystemId(source.getSystemId());
-        ActiveSource activeSource = Version.platform.resolveSource(source, localConfig);
+        ActiveSource activeSource = Version.platform.resolveSource(source, null, localConfig);
         activeSource.deliver(this, new ParseOptions());
         // TODO: set an error handler
         // TODO: set location information
@@ -346,6 +346,7 @@ public class ConfigurationReader implements Receiver {
         props.setProperty("#element", "global");
         applyProperty(props, "allowedProtocols", FeatureCode.ALLOWED_PROTOCOLS, "JN");
         applyProperty(props, "allowExternalFunctions", FeatureCode.ALLOW_EXTERNAL_FUNCTIONS, "J");
+        applyProperty(props, "allowImplausibleExpressions", FeatureCode.ALLOW_IMPLAUSIBLE_EXPRESSIONS, "JN");
         applyProperty(props, "allowMultiThreading", FeatureCode.ALLOW_MULTITHREADING, "JN");
         applyProperty(props, "allowOldJavaUriFormat", FeatureCode.ALLOW_OLD_JAVA_URI_FORMAT, "J");
         applyProperty(props, "allowSyntaxExtensions", FeatureCode.ALLOW_SYNTAX_EXTENSIONS, "JN");
@@ -651,7 +652,7 @@ public class ConfigurationReader implements Receiver {
         if (name == null) {
             error("withParam", "name", null, null);
         }
-        QNameParser qp = new QNameParser(nsMap).withAcceptEQName(true);
+        QNameParser qp = new QNameParser(nsMap).withAcceptEQName(true, 40);
         StructuredQName qName = null;
         try {
             qName = qp.parse(name, NamespaceUri.NULL);
@@ -667,7 +668,7 @@ public class ConfigurationReader implements Receiver {
         XPathParser parser = new XPathParser(env);
         GroundedValue value = null;
         try {
-            Expression exp = parser.parse(select, 0, Token.EOF, env);
+            Expression exp = parser.parse(select, 0, Tokenizer.END_OF_INPUT, env);
             value = SequenceTool.toGroundedValue(exp.iterate(env.makeEarlyEvaluationContext()));
         } catch (XPathException e) {
             error(e);
@@ -779,7 +780,12 @@ public class ConfigurationReader implements Receiver {
     private void error(String element, String attribute, String actual, String required) {
         XmlProcessingIncident err;
         if (attribute == null) {
-            err = new XmlProcessingIncident("Invalid configuration element " + element);
+            if (required.equals("#obsolete")) {
+                err = new XmlProcessingIncident("Obsolete configuration element " +
+                                                        element).asWarning();
+            } else {
+                err = new XmlProcessingIncident("Invalid configuration element " + element);
+            }
         } else if (actual == null) {
             err = new XmlProcessingIncident("Missing configuration property " +
                                              element + "/@" + attribute);
@@ -836,19 +842,9 @@ public class ConfigurationReader implements Receiver {
                         errorClass("extensionFunction", null, content, ExtensionFunctionDefinition.class, e);
                     }
                 } else if ("schemaDocument".equals(localName)) {
-                    try {
-                        Source source = getInputSource(content);
-                        targetConfig.addSchemaSource(source);
-                    } catch (XPathException e) {
-                        errors.add(new XmlProcessingException(e));
-                    }
+                    error(localName, null, null, "#obsolete");
                 } else if ("schemaComponentModel".equals(localName)) {
-                    try {
-                        Source source = getInputSource(content);
-                        targetConfig.importComponents(source);
-                    } catch (XPathException e) {
-                        errors.add(new XmlProcessingException(e));
-                    }
+                    error(localName, null, null, "#obsolete");
                 } else if ("catalogFile".equals(localName)) {
                     URI baseURI = URI.create(systemId);
                     catalogFiles.add(baseURI.resolve(content).toString());

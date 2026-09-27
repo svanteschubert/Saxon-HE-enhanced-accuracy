@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -47,6 +47,11 @@ public class LinkedTreeBuilder extends Builder {
     public LinkedTreeBuilder(PipelineConfiguration pipe) {
         super(pipe);
         nodeFactory = DefaultNodeFactory.THE_INSTANCE;
+    }
+
+    @Override
+    protected String getTreeKind() {
+        return "linked";
     }
 
     /**
@@ -214,9 +219,7 @@ public class LinkedTreeBuilder extends Builder {
 
         namespaceStack.push(namespaces);
 
-        boolean isTopWithinEntity = false;
-        isTopWithinEntity = location instanceof ReceivingContentHandler.LocalLocator &&
-                      ((ReceivingContentHandler.LocalLocator) location).levelInEntity == 0;
+        boolean isTopWithinEntity = (properties & ReceiverOption.TOP_IN_ENTITY) != 0;
 
         AttributeInfo xmlId = suppliedAttributes.get(NamespaceUri.XML, "id");
         if (xmlId != null && Whitespace.containsWhitespace(StringTool.codePoints(xmlId.getValue()))) {
@@ -290,6 +293,9 @@ public class LinkedTreeBuilder extends Builder {
                 TextImpl n = nodeFactory.makeTextNode(currentNode, t);
                 //TextImpl n = new TextImpl(chars.toString());
                 currentNode.addChild(n, size[depth]++);
+                if (lineNumbering) {
+                    n.setLocation(locationId);
+                }
             }
         }
     }

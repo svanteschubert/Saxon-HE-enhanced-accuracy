@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,14 @@ package net.sf.saxon.value;
 
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
+import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 
 import java.util.Optional;
 
@@ -35,22 +37,19 @@ public final class SequenceType {
      * A type that allows any sequence of items
      */
 
-    public static final SequenceType ANY_SEQUENCE =
-            AnyItemType.getInstance().zeroOrMore();
+    public static final SequenceType ANY_SEQUENCE = AnyItemType.getInstance().zeroOrMore();
 
     /**
      * A type that allows exactly one item, of any kind
      */
 
-    public static final SequenceType SINGLE_ITEM =
-            AnyItemType.getInstance().one();
+    public static final SequenceType SINGLE_ITEM = AnyItemType.getInstance().one();
 
     /**
      * A type that allows zero or one items, of any kind
      */
 
-    public static final SequenceType OPTIONAL_ITEM =
-            AnyItemType.getInstance().zeroOrOne();
+    public static final SequenceType OPTIONAL_ITEM = AnyItemType.getInstance().zeroOrOne();
 
     /**
      * A type that allows exactly one atomic value
@@ -202,11 +201,24 @@ public final class SequenceType {
             BuiltInAtomicType.DECIMAL.zeroOrOne();
 
     /**
+     * A type that allows a single anyURI
+     */
+    public static final SequenceType SINGLE_ANY_URI =
+            BuiltInAtomicType.ANY_URI.one();
+
+    /**
      * A type that allows a single optional anyURI
      */
 
     public static final SequenceType OPTIONAL_ANY_URI =
             BuiltInAtomicType.ANY_URI.zeroOrOne();
+
+    /**
+     * A type that allows a sequence of anyURI values
+     */
+
+    public static final SequenceType ANY_URI_SEQUENCE =
+            BuiltInAtomicType.ANY_URI.zeroOrMore();
 
     /**
      * A type that allows a single optional date
@@ -321,39 +333,60 @@ public final class SequenceType {
      * A type that allows an optional numeric value
      */
 
-    public static final SequenceType OPTIONAL_NUMERIC =
-            makeSequenceType(NumericType.getInstance(), StaticProperty.ALLOWS_ZERO_OR_ONE);
+    public static final SequenceType OPTIONAL_NUMERIC = optional(NumericType.getInstance());
 
-    public static final SequenceType SINGLE_NUMERIC =
-            makeSequenceType(NumericType.getInstance(), StaticProperty.EXACTLY_ONE);
+    public static final SequenceType SINGLE_NUMERIC = one(NumericType.getInstance());
+
+    public static final SequenceType NUMERIC_SEQUENCE = zeroOrMore(NumericType.getInstance());
 
     /**
      * A type that allows zero or one nodes
      */
 
     public static final SequenceType OPTIONAL_NODE =
-            AnyNodeTest.getInstance().zeroOrOne();
+            AnyXNodeType.getInstance().zeroOrOne();
 
     /**
      * A type that allows a single node
      */
 
     public static final SequenceType SINGLE_NODE =
-            AnyNodeTest.getInstance().one();
+            AnyXNodeType.getInstance().one();
 
     /**
      * A type that allows a single document node
      */
 
     public static final SequenceType OPTIONAL_DOCUMENT_NODE =
-            NodeKindTest.DOCUMENT.zeroOrOne();
+            NodeKindType.DOCUMENT.zeroOrOne();
 
     /**
-     * A type that allows a sequence of zero or more nodes
+     * A type that allows a sequence of zero or more XNodes
      */
 
     public static final SequenceType NODE_SEQUENCE =
-            AnyNodeTest.getInstance().zeroOrMore();
+            AnyXNodeType.getInstance().zeroOrMore();
+
+    /**
+     * A type that allows a single GNode
+     */
+
+    public static final SequenceType SINGLE_GNODE =
+            AnyGNodeType.getInstance().one();
+
+    /**
+     * A type that allows a sequence of zero or more GNodes
+     */
+
+    public static final SequenceType GNODE_SEQUENCE =
+            AnyGNodeType.getInstance().zeroOrMore();
+
+    /**
+     * A type that allows a sequence of zero or one GNodes
+     */
+
+    public static final SequenceType OPTIONAL_GNODE =
+            AnyGNodeType.getInstance().zeroOrOne();
 
     /**
      * A type that allows a sequence of zero or more string values
@@ -365,20 +398,24 @@ public final class SequenceType {
      * A type that allows a single function item
      */
 
-    public static final SequenceType SINGLE_FUNCTION =
-            makeSequenceType(AnyFunctionType.ANY_FUNCTION, StaticProperty.EXACTLY_ONE);
+    public static final SequenceType SINGLE_FUNCTION = one(AnyFunctionType.INSTANCE);
 
     /**
      * A type that allows a sequence of zero or one function items
      */
-    public static final SequenceType OPTIONAL_FUNCTION_ITEM =
-            makeSequenceType(AnyFunctionType.getInstance(), StaticProperty.ALLOWS_ZERO_OR_ONE);
+    public static final SequenceType OPTIONAL_FUNCTION_ITEM = optional(AnyFunctionType.INSTANCE);
 
     /**
      * A type that allows a sequence of zero or mode function items
      */
-    public static final SequenceType FUNCTION_ITEM_SEQUENCE =
-            makeSequenceType(AnyFunctionType.getInstance(), StaticProperty.ALLOWS_ZERO_OR_MORE);
+    public static final SequenceType FUNCTION_ITEM_SEQUENCE = zeroOrMore(AnyFunctionType.INSTANCE);
+
+    /**
+     * A type that allows a single map item
+     */
+    public static final SequenceType SINGLE_MAP = one(MapType.ANY_MAP_TYPE);
+    public static final SequenceType OPTIONAL_MAP = optional(MapType.ANY_MAP_TYPE);
+    public static final SequenceType MAP_SEQUENCE = zeroOrMore(MapType.ANY_MAP_TYPE);
 
 
     /**
@@ -392,8 +429,7 @@ public final class SequenceType {
      * A type that only permits a non-empty sequence
      */
 
-    public static final SequenceType NON_EMPTY_SEQUENCE =
-            makeSequenceType(AnyItemType.getInstance(), StaticProperty.ALLOWS_ONE_OR_MORE);
+    public static final SequenceType NON_EMPTY_SEQUENCE = makeSequenceType(AnyItemType.INSTANCE, StaticProperty.ALLOWS_ONE_OR_MORE);
 
     /**
      * A type that has no instances
@@ -410,11 +446,11 @@ public final class SequenceType {
      */
     public SequenceType(ItemType primaryType, int cardinality) {
         this.primaryType = primaryType;
-        if (primaryType instanceof ErrorType && Cardinality.allowsZero(cardinality)) {
-            this.cardinality = StaticProperty.EMPTY;
-        } else {
+//        if (primaryType instanceof ErrorType && Cardinality.allowsZero(cardinality)) {
+//            this.cardinality = StaticProperty.EMPTY;
+//        } else {
             this.cardinality = cardinality;
-        }
+//        }
     }
 
     /**
@@ -429,20 +465,22 @@ public final class SequenceType {
 
     public static SequenceType makeSequenceType(ItemType primaryType, int cardinality) {
 
-        if (primaryType instanceof ItemTypeWithSequenceTypeCache) {
-            ItemTypeWithSequenceTypeCache bat = (ItemTypeWithSequenceTypeCache) primaryType;
+        if (primaryType instanceof ItemTypeWithSequenceTypeCache bat) {
             switch (cardinality) {
-                case StaticProperty.EXACTLY_ONE:
+                case StaticProperty.EXACTLY_ONE -> {
                     return bat.one();
-                case StaticProperty.ALLOWS_ZERO_OR_ONE:
+                }
+                case StaticProperty.ALLOWS_ZERO_OR_ONE -> {
                     return bat.zeroOrOne();
-                case StaticProperty.ALLOWS_ZERO_OR_MORE:
+                }
+                case StaticProperty.ALLOWS_ZERO_OR_MORE -> {
                     return bat.zeroOrMore();
-                case StaticProperty.ALLOWS_ONE_OR_MORE:
+                }
+                case StaticProperty.ALLOWS_ONE_OR_MORE -> {
                     return bat.oneOrMore();
-                default:
-                    break;
-                    // fall through
+                }
+                default -> {
+                }
             }
         }
         if (cardinality == StaticProperty.ALLOWS_ZERO) {
@@ -451,8 +489,48 @@ public final class SequenceType {
         return new SequenceType(primaryType, cardinality);
     }
 
+//    /**
+//     * Construct an instance of SequenceType. This is a factory method: it maintains a
+//     * pool of SequenceType objects to reduce the amount of object creation.
+//     *
+//     * @param primaryType The item type
+//     * @param indicator The required cardinality.
+//     * @return the SequenceType (either a newly created object, or an existing one from the cache)
+//     */
+
+//    public static SequenceType makeSequenceType(ItemType primaryType, OccurrenceIndicator indicator) {
+//        int card = Cardinality.f
+//            return switch (indicator) {
+//                case ONE -> one(p);
+//                case ZERO_OR_ONE -> bat.zeroOrOne();
+//                }
+//                case ZERO_OR_MORE -> {
+//                    return bat.zeroOrMore();
+//                }
+//                case ONE_OR_MORE -> {
+//                    return bat.oneOrMore();
+//                }
+//                case ZERO -> {
+//                    return EMPTY_SEQUENCE;
+//                }
+//            }
+//        }
+//    }
+
     public static SequenceType one(ItemType itemType) {
         return new SequenceType(itemType, StaticProperty.EXACTLY_ONE);
+    }
+
+    public static SequenceType optional(ItemType itemType) {
+        return new SequenceType(itemType, StaticProperty.ALLOWS_ZERO_OR_ONE);
+    }
+
+    public static SequenceType zeroOrMore(ItemType itemType) {
+        return new SequenceType(itemType, StaticProperty.ALLOWS_ZERO_OR_MORE);
+    }
+
+    public static SequenceType oneOrMore(ItemType itemType) {
+        return new SequenceType(itemType, StaticProperty.ALLOWS_ONE_OR_MORE);
     }
 
     /**
@@ -479,16 +557,24 @@ public final class SequenceType {
      * Determine whether a given value is a valid instance of this SequenceType
      *
      * @param value the value to be tested
-     * @param th    the type hierarchy cache
      * @return true if the value is a valid instance of this type
      */
 
-    public boolean matches(GroundedValue value, TypeHierarchy th) {
+    public boolean matches(GroundedValue value) {
+
+        if (this == SequenceType.ANY_SEQUENCE) {
+            return true;
+        }
         int count = 0;
+
+        if (value instanceof Item it) {
+            return primaryType.matches(it);
+        }
+
         SequenceIterator iter = value.iterate();
         for (Item item; (item = iter.next()) != null; ) {
             count++;
-            if (!primaryType.matches(item, th)) {
+            if (!primaryType.matches(item)) {
                 return false;
             }
         }
@@ -511,7 +597,7 @@ public final class SequenceType {
         SequenceIterator iter = value.iterate();
         for (Item item; (item = iter.next()) != null; ) {
             count++;
-            if (!primaryType.matches(item, th)) {
+            if (!primaryType.matches(item)) {
                 String s = "The " + RoleDiagnostic.ordinal(count) + " item is not an instance of the required type";
                 Optional<String> more = primaryType.explainMismatch(item, th);
                 if (more.isPresent()) {
@@ -574,19 +660,35 @@ public final class SequenceType {
     }
 
     /**
-     * Indicates whether some other object is "equal to" this one.
+     * Indicates whether some other object is "equal to" this one. Note that equality for sequence types
+     * and item types is stricter than the relation established using
+     * {@link #isSameType}: for example the two
+     * types map(*) and record(*) are considered distinct types by equals(), but the same type
+     * by {@code Affinity.SAME_TYPE}.
      */
     public boolean equals(/*@NotNull*/ Object obj) {
         return obj instanceof SequenceType &&
-                this.primaryType.equals(((SequenceType) obj).primaryType) &&
+                this.primaryType.normalizeItemType().equals(((SequenceType) obj).primaryType.normalizeItemType()) &&
                 this.cardinality == ((SequenceType) obj).cardinality;
     }
+
+    public SequenceType normalizeSequenceType() {
+        ItemType it2 = this.primaryType.normalizeItemType();
+        if (it2 == primaryType) {
+            return this;
+        }
+        return new SequenceType(it2, cardinality);
+    }
+
+    /**
+     * Indicates whether some other sequence type is "the same as" this one. Unlike the equals() method,
+     * this treats two types A and B as "the same" if each subsumes the other; for example element() and element(*)
+     * do not compare equal(), but they are the same type under this method.
+     */
 
     public boolean isSameType(SequenceType other, TypeHierarchy th) {
         return cardinality == other.cardinality && th.relationship(primaryType, other.primaryType) == Affinity.SAME_TYPE;
     }
-
-
 
 
 }

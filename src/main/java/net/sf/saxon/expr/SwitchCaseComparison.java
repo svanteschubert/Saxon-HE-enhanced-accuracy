@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -54,7 +54,7 @@ public class SwitchCaseComparison extends BinaryExpression implements Comparison
      * @param allowMultiple true if the 4.0 semantics are implemented (second operand may be a sequence)
      */
 
-    public SwitchCaseComparison(Expression p1, int operator, Expression p2, boolean allowMultiple) {
+    public SwitchCaseComparison(Expression p1, OperatorSymbol operator, Expression p2, boolean allowMultiple) {
         super(p1, operator, p2);
         this.allowMultiple = allowMultiple;
     }
@@ -68,13 +68,14 @@ public class SwitchCaseComparison extends BinaryExpression implements Comparison
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         StaticContext env = visitor.getStaticContext();
+        int version = env.getPackageData().getHostLanguageVersion();
         String defaultCollationName = env.getDefaultCollationName();
         final Configuration config = visitor.getConfiguration();
         StringCollator collation = config.getCollation(defaultCollationName);
         if (collation == null) {
             collation = CodepointCollator.getInstance();
         }
-        comparer = new SwitchCaseComparer(collation, config.getConversionContext());
+        comparer = new SwitchCaseComparer(collation, version, config.getConversionContext());
 
         Expression oldOp0 = getLhsExpression();
         Expression oldOp1 = getRhsExpression();
@@ -129,7 +130,7 @@ public class SwitchCaseComparison extends BinaryExpression implements Comparison
         } else {
             if (Type.isGuaranteedComparable(pt0, pt1, false)) {
                 knownToBeComparable = true;
-            } else if (!Type.isPossiblyComparable(pt0, pt1, visitor.getStaticContext().getXPathVersion())) {
+            } else if (!Type.isPossiblyComparable(pt0, pt1, false, version >= 40)) {
                 env.issueWarning("Cannot compare " + t0 + " to " + t1, SaxonErrorCode.SXWN9025, getLocation());
                 // This is not an error in a switch statement, but it means the branch will never be chosen
             }
@@ -164,7 +165,7 @@ public class SwitchCaseComparison extends BinaryExpression implements Comparison
     }
 
     @Override
-    public int getSingletonOperator() {
+    public OperatorSymbol getSingletonOperator() {
         return operator;
     }
 
@@ -326,4 +327,4 @@ public class SwitchCaseComparison extends BinaryExpression implements Comparison
     }
 }
 
-// Copyright (c) 2010-2023 Saxonica Limited
+// Copyright (c) 2010-2026 Saxonica Limited

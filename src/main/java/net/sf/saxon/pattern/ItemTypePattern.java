@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,8 +18,8 @@ import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
 
 /**
- * An ItemTypePattern is a pattern that consists simply of an ItemType; although
- * a node test is an item type, this class is used only for non-node item types,
+ * An ItemTypePattern is a pattern that consists simply of an ItemType;
+ * this class is used primarily for non-node item types,
  * such as atomic types, map types, array types etc.
  */
 
@@ -50,7 +50,7 @@ public class ItemTypePattern extends Pattern {
 
     @Override
     public boolean matches(Item item, XPathContext context) throws XPathException {
-        return itemType.matches(item, context.getConfiguration().getTypeHierarchy());
+        return itemType.matches(item);
     }
 
     /**
@@ -106,6 +106,7 @@ public class ItemTypePattern extends Pattern {
     public void export(ExpressionPresenter presenter) throws XPathException {
         presenter.startElement("p.nodeTest");
         presenter.emitAttribute("test", AlphaCode.fromItemType(itemType));
+        presenter.emitAttribute("flags", "t");
         presenter.endElement();
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.str;
 
 import net.sf.saxon.expr.sort.EmptyIntIterator;
 import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.z.IntIterator;
 
 import java.io.IOException;
@@ -88,7 +89,7 @@ public class ZenoString extends UnicodeString {
      */
 
     private int segmentForOffset(long offset) {
-        if (segments.size() == 0) {
+        if (segments.isEmpty()) {
             throw new IndexOutOfBoundsException("ZenoString is empty");
         }
         int result = binarySearch(offset, 0, offsets.size() - 1);
@@ -99,7 +100,6 @@ public class ZenoString extends UnicodeString {
     }
 
     private int binarySearch(long offset, int start, int end) {
-        //System.err.println("BinarySearch " + start + " " + end);
         if (start == end) {
             long s = offsets.get(start);
             long e = s + segments.get(start).length();
@@ -125,6 +125,7 @@ public class ZenoString extends UnicodeString {
      */
     @Override
     @CSharpReplaceBody(code="return new Saxon.Impl.Overrides.ZenoStringCodepoints(segments);")
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public IntIterator codePoints() {
         if (isEmpty()) {
             return EmptyIntIterator.getInstance();
@@ -317,6 +318,28 @@ public class ZenoString extends UnicodeString {
             return substring(offset, end).equals(other);
         }
 
+    }
+
+    /**
+     * Replace a character at a given position with a supplied string
+     */
+
+    public ZenoString replace(int index, UnicodeString replacement) {
+        return ZenoString.of(
+                substring(0, index)
+                .concat(replacement)
+                .concat(substring(index+1)));
+    }
+
+    /**
+     * Insert a supplied string at a given position
+     */
+
+    public ZenoString insert(int index, UnicodeString replacement) {
+        return ZenoString.of(
+                substring(0, index)
+                        .concat(replacement)
+                        .concat(substring(index)));
     }
 
 

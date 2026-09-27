@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,13 +14,11 @@ import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.sort.DocumentOrderIterator;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Navigator;
+import net.sf.saxon.type.UType;
 
 import java.util.Properties;
 
@@ -45,8 +43,10 @@ public class Outermost extends SystemFunction {
     @Override
     public Expression makeOptimizedFunctionCall(
             ExpressionVisitor visitor, ContextItemStaticInfo contextInfo, Expression... arguments) throws XPathException {
-        if ((arguments[0].getSpecialProperties() & StaticProperty.PEER_NODESET) != 0) {
-            return arguments[0];
+        if (!arguments[0].getItemType().getUType().overlaps(UType.JNODE)) {
+            if ((arguments[0].getSpecialProperties() & StaticProperty.PEER_NODESET) != 0) {
+                return arguments[0];
+            }
         }
         presorted = (arguments[0].getSpecialProperties() & StaticProperty.ORDERED_NODESET) != 0;
         return null;
@@ -103,10 +103,10 @@ public class Outermost extends SystemFunction {
      * recently output node.</p>
      */
 
-    private class OutermostIterator implements SequenceIterator {
+    private static class OutermostIterator implements SequenceIterator {
 
         SequenceIterator in;
-        NodeInfo current = null;
+        GNode current = null;
         int position = 0;
 
         /**
@@ -121,9 +121,9 @@ public class Outermost extends SystemFunction {
         }
 
         @Override
-        public NodeInfo next() {
+        public GNode next() {
             while (true) {
-                NodeInfo next = (NodeInfo)in.next();
+                GNode next = (GNode)in.next();
                 if (next == null) {
                     current = null;
                     position = -1;
@@ -150,4 +150,4 @@ public class Outermost extends SystemFunction {
     }
 }
 
-// Copyright (c) 2012-2023 Saxonica Limited
+// Copyright (c) 2012-2026 Saxonica Limited

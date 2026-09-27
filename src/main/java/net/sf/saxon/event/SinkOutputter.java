@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,7 @@ import net.sf.saxon.type.SimpleType;
  * An Outputter that swallows (discards) all input supplied to it
  */
 
-public class SinkOutputter extends Outputter {
+public class SinkOutputter extends AbstractOutputter {
 
     @Override
     public void startDocument(int properties) throws XPathException {
@@ -67,4 +67,4 @@ public class SinkOutputter extends Outputter {
     }
 }
 
-// Copyright (c) 2009-2023 Saxonica Limited
+// Copyright (c) 2009-2026 Saxonica Limited

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -74,7 +74,7 @@ public final class SequenceCollector extends SequenceWriter {
     public GroundedValue getSequence() {
         switch (list.size()) {
             case 0:
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             case 1:
                 return list.get(0);
             default:
@@ -90,7 +90,7 @@ public final class SequenceCollector extends SequenceWriter {
 
     public SequenceIterator iterate() {
         if (list.isEmpty()) {
-            return EmptyIterator.getInstance();
+            return EmptyIterator.INSTANCE;
         } else {
             return new ListIterator.Of<>(list);
         }

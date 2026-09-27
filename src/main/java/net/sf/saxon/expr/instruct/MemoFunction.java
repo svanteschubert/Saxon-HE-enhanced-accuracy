@@ -30,11 +30,13 @@ public class MemoFunction extends UserFunction {
 
     private boolean lookForNodes = false;  // true if the function signature allows nodes within argument values
 
+    public MemoFunction() {}
+
     @Override
     public void setParameterDefinitions(UserFunctionParameter[] params) {
         super.setParameterDefinitions(params);
         for (UserFunctionParameter param : params) {
-            if (param.getRequiredType().getPrimaryType().getUType().overlaps(UType.ANY_NODE)) {
+            if (param.getRequiredType().getPrimaryType().getUType().overlaps(UType.XNODE)) {
                 lookForNodes = true;
             }
         }
@@ -212,7 +214,7 @@ public class MemoFunction extends UserFunction {
                 }
                 Genre g0 = it0.getGenre();
 
-                if (g0 == Genre.NODE) {
+                if (g0 == Genre.XNODE) {
                     if (it1 instanceof NodeSurrogate) {
                         return ((NodeSurrogate)it1).getObject().apply((NodeInfo)it0);
                     } else {
@@ -357,7 +359,7 @@ public class MemoFunction extends UserFunction {
         }
 
     }
-
+    
 }
 
 

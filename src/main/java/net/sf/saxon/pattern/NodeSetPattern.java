@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,15 @@
 
 package net.sf.saxon.pattern;
 
+//import com.saxonica.ee.stream.Posture;
+//import com.saxonica.ee.stream.Streamability;
+//import com.saxonica.ee.stream.Sweep;
+//import com.saxonica.ee.trans.ContextItemStaticInfoEE;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.UncheckedXPathException;
@@ -19,6 +24,7 @@ import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.type.AlphaCode;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.function.Supplier;
@@ -207,7 +213,7 @@ public class NodeSetPattern extends Pattern {
         if (itemType instanceof NodeTest) {
             return itemType;
         } else {
-            return AnyNodeTest.getInstance();
+            return AnyXNodeType.getInstance();
         }
     }
 

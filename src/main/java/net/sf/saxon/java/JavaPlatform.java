@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -46,7 +46,6 @@ import javax.xml.transform.stax.StAXSource;
 import javax.xml.transform.stream.StreamSource;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Method;
 import java.net.URL;
 import java.text.CollationKey;
 import java.text.Collator;
@@ -60,8 +59,6 @@ import java.util.Properties;
  * (as distinct from .NET). This is a singleton class with no instance data.
  */
 public class JavaPlatform implements Platform {
-
-    static boolean tryJdk9 = true;
 
     /**
      * The constructor is called during the static initialization of the Configuration
@@ -137,11 +134,9 @@ public class JavaPlatform implements Platform {
                 } catch (IOException ioe) {
                     messages.add("IO error " + ioe.getMessage() +
                                          " reading " + filename + " located using getSystemResource(): using defaults");
-                    in = null;
                 }
             }
         }
-        //loaders.add(loader);
         return in;
 
     }
@@ -242,6 +237,14 @@ public class JavaPlatform implements Platform {
     }
 
     /**
+     * Ask if we are running on Windows
+     */
+    @Override
+    public boolean isWindows() {
+        return System.getProperty("os.name").startsWith("Windows");
+    }
+
+    /**
      * Get the default DynamicLoader for the platform
      *
      * @return the default DynamicLoader
@@ -252,7 +255,8 @@ public class JavaPlatform implements Platform {
     }
 
     /**
-     * Get a parser by instantiating the SAXParserFactory
+     * Get a parser by instantiating the SAXParserFactory. This returns whatever parser is found
+     * on the classpath.
      *
      * @return the parser (XMLReader)
      */
@@ -260,13 +264,18 @@ public class JavaPlatform implements Platform {
     @Override
     public XMLReader loadParser() {
         XMLReader parser;
+        if (saxParserFactory == null) {
+            saxParserFactory = SAXParserFactory.newInstance();
+        }
         try {
-            parser = SAXParserFactory.newInstance().newSAXParser().getXMLReader();
+            parser = saxParserFactory.newSAXParser().getXMLReader();
         } catch (ParserConfigurationException | SAXException err) {
             throw new TransformerFactoryConfigurationError(err);
         }
         return parser;
     }
+
+    private static SAXParserFactory saxParserFactory;
 
     /**
      * Get a parser suitable for parsing XML fragments
@@ -276,64 +285,38 @@ public class JavaPlatform implements Platform {
      * in use, the JAXP system properties may be set so that JAXP returns a custom XMLReader supplied
      * by the catalog resolver, and that XMLReader ignores any attempt to set an EntityResolver. So
      * we bypass JAXP and try to load the built-in parser within the JDK, which we know we can trust;
-     * only if this fails (presumably because this is not the Oracle JDK) do we fall back to using a
-     * JAXP-supplied parser. And if this turns out to ignore {@code setEntityResolver()} calls, we're
-     * hosed.
+     * (on the assumption that we are using the Oracle JDK). And if this turns out to ignore
+     * {@code setEntityResolver()} calls, we're hosed.
      * </p>
      *
      * @return the parser (XMLReader)
      */
     @Override
     public XMLReader loadParserForXmlFragments() {
-        SAXParserFactory factory = null;
-        if (tryJdk9) {
-            try {
-                // Try the JDK 9 approach (unless we know it ain't gonna work)
-                @SuppressWarnings("JavaReflectionMemberAccess")
-                Method method = SAXParserFactory.class.getMethod("newDefaultInstance");
-                Object result = method.invoke(null);
-                factory = (SAXParserFactory)result;
-            } catch (Exception e) {
-                tryJdk9 = false;
-                // keep trying
-            }
+        try {
+            return SAXParserFactory.newDefaultNSInstance().newSAXParser().getXMLReader();
+        } catch (ParserConfigurationException | SAXException err) {
+            throw new TransformerFactoryConfigurationError(err);
         }
-        if (factory == null) {
-            // Try the JDK 8 approach (causes problems in JDK 9 with illegal access warnings)
-            try {
-                Class<?> factoryClass = Class.forName("com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl");
-                factory = (SAXParserFactory) factoryClass.newInstance();
-            } catch (Exception e2) {
-                // keep trying
-            }
-        }
-        if (factory != null) {
-            try {
-                return factory.newSAXParser().getXMLReader();
-            } catch (Exception e) {
-                // keep trying
-            }
-        }
-        // Fallback - use whatever parser we can find
-        return loadParser();
     }
 
     /**
      * Convert a Source to an ActiveSource. This method is present in the Platform
      * because different Platforms accept different kinds of Source object.
      *
-     * @param source A source object, typically the source supplied as the first
-     *               argument to {@link Transformer#transform(Source, Result)}
-     *               or similar methods.
-     * @param config The Configuration. This provides the SourceResolver with access to
-     *               configuration information; it also allows the SourceResolver to invoke the
-     *               resolveSource() method on the Configuration object as a fallback implementation.
+     * @param source  A source object, typically the source supplied as the first
+     *                argument to {@link Transformer#transform(Source, Result)}
+     *                or similar methods.
+     * @param options
+     * @param config  The Configuration. This provides the SourceResolver with access to
+     *                configuration information; it also allows the SourceResolver to invoke the
+     *                resolveSource() method on the Configuration object as a fallback implementation.
      * @return a source object that Saxon knows how to process. Return null if the Source object is not
      * recognized
      * @throws XPathException if the Source object is recognized but cannot be processed
      */
     @Override
-    public ActiveSource resolveSource(Source source, Configuration config) throws XPathException {
+    public ActiveSource resolveSource(Source source, ParseOptions options, Configuration config) throws XPathException {
         if (source instanceof ActiveSource) {
             return (ActiveSource)source;
         }
@@ -474,7 +457,9 @@ public class JavaPlatform implements Platform {
                 useJava = true;
             }
             if (useJava) {
-                flags = flags.substring(0, semi);
+                if (semi >= 0) {
+                    flags = flags.substring(0, semi);
+                }
                 return new JavaRegularExpression(regex, flags);
             } else {
                 return new ARegularExpression(regex, flags, hostLanguage, warnings, config);

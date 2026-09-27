@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -34,6 +34,8 @@ import java.util.function.Supplier;
  */
 
 public class CastExpression extends CastingExpression implements Callable {
+
+
 
     /**
      * Create a cast expression
@@ -70,18 +72,11 @@ public class CastExpression extends CastingExpression implements Callable {
 
 
         if (sourceItemType instanceof ErrorType) {
-            if (allowsEmpty()) {
-                return Literal.makeEmptySequence();
-            } else {
-                throw new XPathException("Cast does not allow an empty sequence as input")
-                        .withErrorCode("XPTY0004")
-                        .withLocation(getLocation())
-                        .asTypeError();
-            }
+            return getBaseExpression();
         }
 
-        PlainType sourceType = (PlainType) sourceItemType;
-        Affinity r = th.relationship(sourceType, getTargetType());
+        //PlainType sourceType = (PlainType) sourceItemType;
+        Affinity r = th.relationship(sourceItemType, getTargetType());
         if (r == Affinity.SAME_TYPE) {
             return operand;
         } else if (r == Affinity.SUBSUMED_BY) {
@@ -90,13 +85,18 @@ public class CastExpression extends CastingExpression implements Callable {
             converter = new Converter.UpCastingConverter(getTargetType());
         } else {
 
-            ConversionRules rules = visitor.getConfiguration().getConversionRules();
+            ConversionRules rules;
+            if (getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40) {
+                rules = ConversionRules.DEFAULT;
+            } else {
+                rules = visitor.getConfiguration().getConversionRules();
+            }
 
-            if (sourceType.isAtomicType() && sourceType != BuiltInAtomicType.ANY_ATOMIC) {
+            if (sourceItemType.isAtomicType() && sourceItemType != BuiltInAtomicType.ANY_ATOMIC) {
                 //System.err.println("Allocating converter from " + sourceType + " to " + getTargetType());
-                converter = rules.getConverter((AtomicType)sourceType, getTargetType());
+                converter = rules.getConverter((AtomicType)sourceItemType, getTargetType());
                 if (converter == null) {
-                    throw new XPathException("Casting from " + sourceType + " to " + getTargetType() +
+                    throw new XPathException("Casting from " + sourceItemType + " to " + getTargetType() +
                             " can never succeed")
                             .withErrorCode("XPTY0004")
                             .withLocation(getLocation())
@@ -227,8 +227,7 @@ public class CastExpression extends CastingExpression implements Callable {
         GroundedValue literalOperand = ((Literal) getBaseExpression()).getGroundedValue();
         if (literalOperand instanceof AtomicValue && converter != null) {
             ConversionResult result = converter.convert((AtomicValue) literalOperand);
-            if (result instanceof ValidationFailure) {
-                ValidationFailure err = (ValidationFailure) result;
+            if (result instanceof ValidationFailure err) {
                 String code = err.getErrorCode();
                 if (code == null) {
                     code = "FORG0001";
@@ -294,29 +293,6 @@ public class CastExpression extends CastingExpression implements Callable {
             p = p &~ StaticProperty.NOT_UNTYPED_ATOMIC;
         }
         return p;
-    }
-
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    /*@Nullable*/
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        if (converter == Converter.BooleanToInteger.INSTANCE) {
-            return new IntegerValue[]{Int64Value.ZERO, Int64Value.PLUS_ONE};
-        } else {
-            return null;
-        }
     }
 
     /**

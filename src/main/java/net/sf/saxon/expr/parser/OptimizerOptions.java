@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -58,44 +58,26 @@ public class OptimizerOptions {
     }
 
     private int decodeFlag(char flag) {
-        switch (flag) {
-            case 'c':
-                return BYTE_CODE_NOT_USED;
-            case 'd':
-                return VOID_EXPRESSIONS;
-            case 'e':
-                return REGEX_CACHE;
-            case 'f':
-                return INLINE_FUNCTIONS;
-            case 'g':
-                return EXTRACT_GLOBALS;
-            case 'j':
-                return JIT;
-            case 'k':
-                return CREATE_KEYS;
-            case 'l':
-                return LOOP_LIFTING;
-            case 'm':
-                return MISCELLANEOUS;
-            case 'n':
-                return CONSTANT_FOLDING;
-            case 'p':
-                return REORDER_PREDICATES;
-            case 'r':
-                return RULE_SET;
-            case 's':
-                return COMMON_SUBEXPRESSIONS;
-            case 't':
-                return TAIL_CALLS;
-            case 'v':
-                return INLINE_VARIABLES;
-            case 'w':
-                return SWITCH;
-            case 'x':
-                return INDEX_VARIABLES;
-
-            default: return 0;
-        }
+        return switch (flag) {
+            case 'c' -> BYTE_CODE_NOT_USED;
+            case 'd' -> VOID_EXPRESSIONS;
+            case 'e' -> REGEX_CACHE;
+            case 'f' -> INLINE_FUNCTIONS;
+            case 'g' -> EXTRACT_GLOBALS;
+            case 'j' -> JIT;
+            case 'k' -> CREATE_KEYS;
+            case 'l' -> LOOP_LIFTING;
+            case 'm' -> MISCELLANEOUS;
+            case 'n' -> CONSTANT_FOLDING;
+            case 'p' -> REORDER_PREDICATES;
+            case 'r' -> RULE_SET;
+            case 's' -> COMMON_SUBEXPRESSIONS;
+            case 't' -> TAIL_CALLS;
+            case 'v' -> INLINE_VARIABLES;
+            case 'w' -> SWITCH;
+            case 'x' -> INDEX_VARIABLES;
+            default -> 0;
+        };
     }
 
     public OptimizerOptions intersect(OptimizerOptions other) {

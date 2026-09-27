@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.str;
 
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.PositiveIntIterator;
 
 import java.util.Objects;
 import java.util.function.IntPredicate;
@@ -125,10 +126,14 @@ public class StringView extends UnicodeString {
         return tidy().substring(start, end);
     }
 
-
     @Override
     public IntIterator codePoints() {
         return baseUnicodeString != null ? baseUnicodeString.codePoints() : StringTool.codePoints(baseString);
+    }
+
+    @Override
+    public PositiveIntIterator iterate() {
+        return baseUnicodeString != null ? baseUnicodeString.iterate() : StringTool.iterate(baseString);
     }
 
     @Override

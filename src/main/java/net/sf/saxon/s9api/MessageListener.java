@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,11 @@ import javax.xml.transform.SourceLocator;
 /**
  * A user-written implementation of the MessageListener interface may be registered with the XsltTransformer
  * to receive notification of xsl:message output. Each xsl:message instruction that is evaluated results in
- * a single call to the MessageListener
+ * a single call to the MessageListener.
+ *
+ * <p>This class is obsolescent. The preferred way to receive notification of <code>xsl:message</code>
+ * instructions is the use the method {@link Xslt30Transformer#setMessageHandler}, which is typically
+ * supplied with a lambda expression of type <code>Consumer&lt;Message></code> as its argument.</p>
  */
 public interface MessageListener {
 

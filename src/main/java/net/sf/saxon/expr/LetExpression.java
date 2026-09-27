@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.UType;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
@@ -151,7 +150,7 @@ public class LetExpression extends Assignation {
 
         Supplier<RoleDiagnostic> role =
                 () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
-        if (visitor.getStaticContext().getXPathVersion() == 40) {
+        if (visitor.getStaticContext().getXPathVersion() >= 40) {
             TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
             setSequence(tc.staticTypeCheck(getSequence(), requiredType, role, visitor));
         } else {
@@ -403,7 +402,7 @@ public class LetExpression extends Assignation {
         } else if (needsLazyEvaluation) {
             setEvaluator(getSequence().makeElaborator().lazily(getNominalReferenceCount() > 1, needsLazyEvaluation));
         } else if (evaluator == null) {
-            setEvaluator(new LearningEvaluator(
+            setEvaluator(LearningEvaluator.makeLearningEvaluator(
                     getSequence(),
                     getSequence().makeElaborator().lazily(getNominalReferenceCount() > 1, false)));
         }
@@ -485,25 +484,6 @@ public class LetExpression extends Assignation {
     }
 
     /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    /*@Nullable*/
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        return getAction().getIntegerBounds();
-    }
-
-    /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
      * This method indicates which of these methods is provided directly. The other methods will always be available
      * indirectly, using an implementation that relies on one of the other methods.
@@ -564,7 +544,7 @@ public class LetExpression extends Assignation {
             if (needsEagerEvaluation) {
                 setEvaluator(getSequence().makeElaborator().eagerly());
             } else {
-                setEvaluator(new LearningEvaluator(
+                setEvaluator(LearningEvaluator.makeLearningEvaluator(
                         getSequence(), getSequence().makeElaborator().lazily(getNominalReferenceCount() > 1, false)));
             }
         }
@@ -799,7 +779,7 @@ public class LetExpression extends Assignation {
      */
 
     public static class LetExprElaborator extends PullElaborator {
-
+        
 
         private SequenceEvaluator makeSequenceEvaluator(LetExpression let) {
             if (let.evaluator != null) {
@@ -831,7 +811,7 @@ public class LetExpression extends Assignation {
             finalAction.add(next);
             switch (setters.size()) {
                 // for a small number of local variables, unroll the loop
-                case 1: {
+                case 1 -> {
                     LetExpression let = setters.get(0);
                     SequenceEvaluator evaluator = makeSequenceEvaluator(let);
                     int slot = setters.get(0).slotNumber;
@@ -840,7 +820,7 @@ public class LetExpression extends Assignation {
                         return null;
                     };
                 }
-                case 2: {
+                case 2 -> {
                     SequenceEvaluator evaluator0 = makeSequenceEvaluator(setters.get(0));
                     int slot0 = setters.get(0).slotNumber;
                     SequenceEvaluator evaluator1 = makeSequenceEvaluator(setters.get(1));
@@ -851,7 +831,7 @@ public class LetExpression extends Assignation {
                         return null;
                     };
                 }
-                case 3: {
+                case 3 -> {
                     SequenceEvaluator evaluator0 = makeSequenceEvaluator(setters.get(0));
                     int slot0 = setters.get(0).slotNumber;
                     SequenceEvaluator evaluator1 = makeSequenceEvaluator(setters.get(1));
@@ -865,7 +845,7 @@ public class LetExpression extends Assignation {
                         return null;
                     };
                 }
-                case 4: {
+                case 4 -> {
                     SequenceEvaluator evaluator0 = makeSequenceEvaluator(setters.get(0));
                     int slot0 = setters.get(0).slotNumber;
                     SequenceEvaluator evaluator1 = makeSequenceEvaluator(setters.get(1));
@@ -882,7 +862,7 @@ public class LetExpression extends Assignation {
                         return null;
                     };
                 }
-                default: {
+                default -> {
                     SequenceEvaluator[] evaluators = new SequenceEvaluator[setters.size()];
                     int[] slots = new int[setters.size()];
                     for (int i = 0; i < setters.size(); i++) {
@@ -896,7 +876,6 @@ public class LetExpression extends Assignation {
                         return null;
                     };
                 }
-
             }
 
         }
@@ -972,7 +951,7 @@ public class LetExpression extends Assignation {
                 actionEval.registerUpdates(context, pul);
             };
         }
-
+        
     }
 
     private static class EagerLocalVariableEvaluator implements SequenceEvaluator {
@@ -1001,7 +980,7 @@ public class LetExpression extends Assignation {
             Sequence value = selectEval.evaluate(context);
             context.setLocalVariable(slot, value);
             context.setTemporaryOutputState(savedOutputState);
-            return actionEval.evaluate(context);
+            return actionEval.evaluate(context).materialize();
         }
 
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,7 @@ package net.sf.saxon.expr;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.expr.sort.AtomicComparer;
-import net.sf.saxon.expr.sort.CodepointCollator;
-import net.sf.saxon.expr.sort.GenericAtomicComparer;
-import net.sf.saxon.expr.sort.UntypedNumericComparer;
+import net.sf.saxon.expr.sort.*;
 import net.sf.saxon.functions.Minimax;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.ConversionRules;
@@ -47,7 +44,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     public enum ComparisonCardinality {ONE_TO_ONE, MANY_TO_ONE, MANY_TO_MANY}
     // Note, a one-to-many comparison is inverted into a many-to-one comparison
 
-    protected int singletonOperator;
+    protected OperatorSymbol singletonOperator;
     protected AtomicComparer comparer;
     protected boolean runtimeCheckNeeded = true;
     protected ComparisonCardinality comparisonCardinality = ComparisonCardinality.MANY_TO_MANY;
@@ -62,7 +59,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
      * @param p1 the right-hand operand
      */
 
-    public GeneralComparison(Expression p0, int op, Expression p1) {
+    public GeneralComparison(Expression p0, OperatorSymbol op, Expression p1) {
         super(p0, op, p1);
         singletonOperator = getCorrespondingSingletonOperator(op);
     }
@@ -167,7 +164,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
      */
 
     @Override
-    public int getSingletonOperator() {
+    public OperatorSymbol getSingletonOperator() {
         return singletonOperator;
     }
 
@@ -203,6 +200,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
 
         final Configuration config = visitor.getConfiguration();
+        int version = visitor.getStaticContext().getPackageData().getHostLanguageVersion();
 
         Expression oldOp0 = getLhsExpression();
         Expression oldOp1 = getRhsExpression();
@@ -225,11 +223,11 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
         TypeChecker tc = config.getTypeChecker(false);
         Supplier<RoleDiagnostic> role0 =
-                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 0);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), atomicType, role0, visitor));
 
         Supplier<RoleDiagnostic> role1 =
-                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), atomicType, role1, visitor));
 
         if (getLhsExpression() != oldOp0) {
@@ -243,17 +241,10 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         ItemType t0 = getLhsExpression().getItemType();  // this is always an atomic type or union type or xs:error
         ItemType t1 = getRhsExpression().getItemType();  // this is always an atomic type or union type or xs:error
 
-        if (t0 instanceof ErrorType || t1 instanceof ErrorType) {
-            return Literal.makeLiteral(BooleanValue.FALSE, this);
-        }
-
         if (t0.getUType().union(t1.getUType()).overlaps(UType.EXTENSION)) {
             throw new XPathException("Cannot perform comparisons involving external objects")
                     .asTypeError().withErrorCode("XPTY0004").withLocation(getLocation());
         }
-
-        BuiltInAtomicType pt0 = (BuiltInAtomicType) t0.getPrimitiveItemType();
-        BuiltInAtomicType pt1 = (BuiltInAtomicType) t1.getPrimitiveItemType();
 
         int c0 = getLhsExpression().getCardinality();
         int c1 = getRhsExpression().getCardinality();
@@ -262,11 +253,23 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             return Literal.makeLiteral(BooleanValue.FALSE, this);
         }
 
-        if (t0.equals(BuiltInAtomicType.ANY_ATOMIC) || t0.equals(BuiltInAtomicType.UNTYPED_ATOMIC) ||
-                t1.equals(BuiltInAtomicType.ANY_ATOMIC) || t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
+        // Technically, if one operand raises an error we could return false (and in the past we did so), but that's unfriendly.
+        if (t0 instanceof ErrorType) {
+            return getLhsExpression();
+        }
+
+        if (t1 instanceof ErrorType) {
+            return getRhsExpression();
+        }
+
+        BuiltInAtomicType pt0 = (BuiltInAtomicType) t0.getPrimitiveItemType();
+        BuiltInAtomicType pt1 = (BuiltInAtomicType) t1.getPrimitiveItemType();
+
+        if (pt0.equals(BuiltInAtomicType.ANY_ATOMIC) || pt0.equals(BuiltInAtomicType.UNTYPED_ATOMIC) ||
+                pt1.equals(BuiltInAtomicType.ANY_ATOMIC) || pt1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
             // then no static type checking is possible
         } else {
-            if (!Type.isPossiblyComparable(pt0, pt1, visitor.getStaticContext().getXPathVersion())) {
+            if (!Type.isPossiblyComparable(pt0, pt1, OperatorInfo.isOrderedOperator(singletonOperator), version >= 40)) {
                 String message = "In {" + toShortString() + "}: cannot compare " + t0 + " to " + t1;
                 if (Cardinality.allowsZero(c0) || Cardinality.allowsZero(c1)) {
                     if (!doneWarnings) { // avoid duplicate warnings
@@ -289,19 +292,19 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
         }
 
-        runtimeCheckNeeded = !Type.isGuaranteedGenerallyComparable(pt0, pt1, Token.isOrderedOperator(singletonOperator));
+        runtimeCheckNeeded = !Type.isGuaranteedGenerallyComparable(pt0, pt1, OperatorInfo.isOrderedOperator(singletonOperator));
 
         if (!Cardinality.allowsMany(c0) /*c0 == StaticProperty.EXACTLY_ONE*/ &&
                 !Cardinality.allowsMany(c1) /*c1 == StaticProperty.EXACTLY_ONE */ &&
-                !t0.equals(BuiltInAtomicType.ANY_ATOMIC) &&
-                !t1.equals(BuiltInAtomicType.ANY_ATOMIC)) {
+                !pt0.equals(BuiltInAtomicType.ANY_ATOMIC) &&
+                !pt1.equals(BuiltInAtomicType.ANY_ATOMIC)) {
 
             // Use a value comparison if both arguments are singletons, and if the comparison operator to
             // be used can be determined.
 
             Expression e0 = getLhsExpression();
             Expression e1 = getRhsExpression();
-
+            
             if (t0.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                 if (t1.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                     e0 = new CastExpression(getLhsExpression(), BuiltInAtomicType.STRING, Cardinality.allowsZero(c0));
@@ -347,7 +350,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             collation = CodepointCollator.getInstance();
         }
         comparer = GenericAtomicComparer.makeAtomicComparer(
-                pt0, pt1, collation, config.getConversionContext());
+                pt0, pt1, collation, version, config.getConversionContext());
 
 
         // evaluate the expression now if both arguments are constant
@@ -473,7 +476,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         }
 
         // look for (N to M = I)
-        if (operator == Token.EQUALS) {
+        if (operator == OperatorSymbol.EQUALS) {
 
             // First a variable range...
 
@@ -534,8 +537,8 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
         // early exit on a many-to-one comparison. But with a many-to-one comparison, do it
         // if the "many" branch can be lifted up the expression tree.
 
-        if (operator != Token.EQUALS &&
-                operator != Token.NE &&
+        if (operator != OperatorSymbol.EQUALS &&
+                operator != OperatorSymbol.NE &&
                 (comparisonCardinality == ComparisonCardinality.MANY_TO_MANY ||
                          comparisonCardinality == ComparisonCardinality.MANY_TO_ONE && (manyOperandIsLiftable() || manyOperandIsRangeExpression())) &&
                 (NumericType.isNumericType(t0) || NumericType.isNumericType(t1))) {
@@ -543,16 +546,16 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             // System.err.println("** using minimax optimization **");
             ValueComparison vc;
             switch (operator) {
-                case Token.LT:
-                case Token.LE:
+                case LT:
+                case LE:
                     vc = new ValueComparison(makeMinOrMax(visitor, contextInfo, getLhsExpression(), "min"),
                             singletonOperator,
                             makeMinOrMax(visitor, contextInfo, getRhsExpression(), "max"));
                     vc.setResultWhenEmpty(BooleanValue.FALSE);
                     //vc.setAtomicComparer(comparer);
                     break;
-                case Token.GT:
-                case Token.GE:
+                case GT:
+                case GE:
                     vc = new ValueComparison(makeMinOrMax(visitor, contextInfo, getLhsExpression(), "max"),
                             singletonOperator,
                             makeMinOrMax(visitor, contextInfo, getRhsExpression(), "min"));
@@ -636,25 +639,26 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
      *
      * @param a0         the first value
      * @param operator   the singleton version of the comparison operator,
-     *                   for example {@link net.sf.saxon.expr.parser.Token#FEQ}
+     *                   for example {@link net.sf.saxon.expr.parser.OperatorSymbol#FEQ}
      * @param a1         the second value
      * @param comparer   the comparer to be used to perform the comparison. If the comparer is context-sensitive
      *                   then the context must already have been bound using comparer.provideContext().
      * @param checkTypes set to true if the operand types need to be checked for comparability at runtime
      * @param context    the XPath evaluation context
-     * @param nsResolver namespace resolver
+     * @param staticContext retained static context, used for namespace resolver and spec version
      * @return true if the comparison succeeds
      * @throws XPathException if a dynamic error occurs during the comparison
      */
 
     public static boolean compare(AtomicValue a0,
-                                  int operator,
+                                  OperatorSymbol operator,
                                   AtomicValue a1,
                                   AtomicComparer comparer,
                                   boolean checkTypes,
                                   XPathContext context,
-                                  NamespaceResolver nsResolver) throws XPathException {
+                                  RetainedStaticContext staticContext) throws XPathException {
 
+        int specVersion = staticContext.getPackageData().getHostLanguageVersion();
         boolean u0 = a0.isUntypedAtomic();
         boolean u1 = a1.isUntypedAtomic();
         if (u0 != u1) {
@@ -663,28 +667,30 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             if (u0) {
                 // a0 is untyped atomic
                 if (a1 instanceof NumericValue) {
-                    return UntypedNumericComparer.quickCompare((StringValue) a0, (NumericValue) a1, operator, rules);
+                    return UntypedNumericComparer.quickCompare(
+                            (StringValue) a0, (NumericValue) a1, operator, rules, specVersion);
                 } else if (a1 instanceof StringValue) {
                     // no conversion needed
                 } else {
                     AtomicType prim = a1.getPrimitiveType();
                     StringConverter sc = prim.getStringConverter(rules);
                     if (a1 instanceof QualifiedNameValue) {
-                        sc = (StringConverter) sc.setNamespaceResolver(nsResolver);
+                        sc = (StringConverter) sc.setNamespaceResolver(staticContext);
                     }
                     a0 = sc.convertString(a0.getUnicodeStringValue()).asAtomic();
                 }
             } else {
                 // a1 is untyped atomic
                 if (a0 instanceof NumericValue) {
-                    return UntypedNumericComparer.quickCompare((StringValue) a1, (NumericValue) a0, Token.inverse(operator), rules);
+                    return UntypedNumericComparer.quickCompare(
+                            (StringValue) a1, (NumericValue) a0, OperatorInfo.inverse(operator), rules, specVersion);
                 } else if (a0 instanceof StringValue) {
                     // no conversion needed
                 } else {
                     AtomicType prim = a0.getPrimitiveType();
                     StringConverter sc = prim.getStringConverter(rules);
                     if (a0 instanceof QualifiedNameValue) {
-                        sc = (StringConverter) sc.setNamespaceResolver(nsResolver);
+                        sc = (StringConverter) sc.setNamespaceResolver(staticContext);
                     }
                     a1 = sc.convertString(a1.getUnicodeStringValue()).asAtomic();
                 }
@@ -723,30 +729,30 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
      * Return the singleton form of the comparison operator, e.g. FEQ for EQUALS, FGT for GT
      *
      * @param op the many-to-many form of the operator, for example {@link Token#LE}
-     * @return the corresponding singleton operator, for example {@link Token#FLE}
+     * @return the corresponding singleton operator, for example {@link OperatorSymbol#FLE}
      */
 
-    public static int getCorrespondingSingletonOperator(int op) {
+    public static OperatorSymbol getCorrespondingSingletonOperator(OperatorSymbol op) {
         switch (op) {
-            case Token.EQUALS:
-                return Token.FEQ;
-            case Token.GE:
-                return Token.FGE;
-            case Token.NE:
-                return Token.FNE;
-            case Token.LT:
-                return Token.FLT;
-            case Token.GT:
-                return Token.FGT;
-            case Token.LE:
-                return Token.FLE;
+            case EQUALS:
+                return OperatorSymbol.FEQ;
+            case GE:
+                return OperatorSymbol.FGE;
+            case NE:
+                return OperatorSymbol.FNE;
+            case LT:
+                return OperatorSymbol.FLT;
+            case GT:
+                return OperatorSymbol.FGT;
+            case LE:
+                return OperatorSymbol.FLE;
             default:
                 return op;
         }
     }
 
     protected GeneralComparison getInverseComparison() {
-        GeneralComparison20 gc2 = new GeneralComparison20(getRhsExpression(), Token.inverse(operator), getLhsExpression());
+        GeneralComparison20 gc2 = new GeneralComparison20(getRhsExpression(), OperatorInfo.inverse(operator), getLhsExpression());
         gc2.setRetainedStaticContext(getRetainedStaticContext());
         return gc2;
     }
@@ -814,7 +820,7 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
             final boolean needsRunTimeCheck = exp.needsRuntimeCheck();
             final AtomicComparer comparer = exp.getAtomicComparer();
             final RetainedStaticContext staticContext = exp.getRetainedStaticContext();
-            final int singletonOperator = exp.getSingletonOperator();
+            final OperatorSymbol singletonOperator = exp.getSingletonOperator();
 
             switch (cardinality) {
                 case ONE_TO_ONE: {
@@ -865,14 +871,15 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
         public boolean evaluateManyToOne(SequenceIterator iter0,
                                          AtomicValue value1,
-                                         int singletonOperator,
+                                         OperatorSymbol singletonOperator,
                                          AtomicComparer comparer,
                                          boolean runTimeCheckNeeded,
                                          RetainedStaticContext staticContext,
                                          Location loc,
                                          XPathContext context) throws XPathException {
             try {
-                if (value1 == null) {
+                if (value1 == null || (value1.isNaN() && singletonOperator != OperatorSymbol.FNE)) {
+                    iter0.close();
                     return false;
                 }
                 if (iter0 instanceof RangeIterator) {
@@ -881,17 +888,17 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
                     }
                     RangeIterator ri = (RangeIterator) iter0;
                     switch (singletonOperator) {
-                        case Token.FEQ:
+                        case FEQ:
                             return ri.containsEq((NumericValue) value1);
-                        case Token.FNE:
+                        case FNE:
                             return ri.getFirst().compareTo(ri.getLast()) != 0 || ri.getFirst().compareTo(((NumericValue) value1)) != 0;
-                        case Token.FLE:
+                        case FLE:
                             return ri.getMin().compareTo(((NumericValue) value1)) <= 0;
-                        case Token.FLT:
+                        case FLT:
                             return ri.getMin().compareTo(((NumericValue) value1)) < 0;
-                        case Token.FGE:
+                        case FGE:
                             return ri.getMax().compareTo(((NumericValue) value1)) >= 0;
-                        case Token.FGT:
+                        case FGT:
                             return ri.getMax().compareTo(((NumericValue) value1)) > 0;
                         default:
                             throw new AssertionError();
@@ -915,13 +922,14 @@ public abstract class GeneralComparison extends BinaryExpression implements Comp
 
         public boolean evaluateManyToMany(SequenceIterator iter0,
                                           SequenceIterator iter1,
-                                          int singletonOperator,
+                                          OperatorSymbol singletonOperator,
                                           AtomicComparer comparer,
                                           boolean runTimeCheckNeeded,
                                           RetainedStaticContext staticContext,
                                           Location loc,
                                           XPathContext context) throws XPathException {
             try {
+
                 boolean exhausted0 = false;
                 boolean exhausted1 = false;
 

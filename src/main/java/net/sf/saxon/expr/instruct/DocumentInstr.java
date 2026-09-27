@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,8 +17,8 @@ import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.type.gnode.NodeKindType;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeBuilder;
@@ -103,16 +103,15 @@ public class DocumentInstr extends ParentNodeConstructor {
      * Check statically that the sequence of child instructions doesn't violate any obvious constraints
      * on the content of the node
      *
-     * @param env the static context
      * @throws XPathException if the check fails
      */
 
     @Override
-    protected void checkContentSequence(StaticContext env) throws XPathException {
-        checkContentSequence(env, getContentOperand(), getValidationOptions());
+    protected void checkContentSequence() throws XPathException {
+        checkContentSequence(getContentOperand(), getValidationOptions());
     }
 
-    protected static void checkContentSequence(StaticContext env, Operand content, ParseOptions validationOptions)
+    protected static void checkContentSequence(Operand content, ParseOptions validationOptions)
             throws XPathException {
         Operand[] components;
         if (content.getChildExpression() instanceof Block) {
@@ -153,8 +152,9 @@ public class DocumentInstr extends ParentNodeConstructor {
                         throw de;
                     }
                     if (validation == Validation.STRICT && component instanceof FixedElement) {
-                        SchemaDeclaration decl = env.getConfiguration().getElementDeclaration(
-                                ((FixedElement) component).getFixedElementName().getFingerprint());
+                        int fingerprint = ((FixedElement) component).getFixedElementName().getFingerprint();
+                        Schema schema = validationOptions.getSchema();
+                        IElementDecl decl = schema.getElementDecl(fingerprint);
                         if (decl != null) {
                             ((FixedElement) component).getContentExpression().
                                     checkPermittedContents(decl.getType(), true);
@@ -220,8 +220,9 @@ public class DocumentInstr extends ParentNodeConstructor {
     public Expression copy(RebindingMap rebindings) {
         DocumentInstr doc = new DocumentInstr(textOnly, constantText);
         ExpressionTool.copyLocationInfo(this, doc);
+        Schema schema = getSchema();
         doc.setContentExpression(getContentExpression().copy(rebindings));
-        doc.setValidationAction(getValidationAction(), getSchemaType());
+        doc.setValidationAction(schema, getValidationAction(), getSchemaType());
         return doc;
     }
 
@@ -233,7 +234,7 @@ public class DocumentInstr extends ParentNodeConstructor {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return NodeKindTest.DOCUMENT;
+        return NodeKindType.DOCUMENT;
     }
 
     /**
@@ -286,6 +287,10 @@ public class DocumentInstr extends ParentNodeConstructor {
         if (schemaType != null) {
             out.emitAttribute("type", schemaType.getStructuredQName());
         }
+        String schemaRole = getRetainedStaticContext().getImportedSchemaRoleName();
+        if (!schemaRole.isEmpty()) {
+            out.emitAttribute("schemaRole", schemaRole);
+        }
         getContentExpression().export(out);
         out.endElement();
     }
@@ -315,17 +320,33 @@ public class DocumentInstr extends ParentNodeConstructor {
 
         public PushEvaluator elaborateForPush() {
             DocumentInstr expr = (DocumentInstr) getExpression();
-//            PushEvaluator content = expr.getContentExpression().makeElaborator().elaborateForPush();
-//            if (expr.preservingTypes && !expr.textOnly) {
-//                return (output, context) -> {
-//                    output.setSystemId(expr.getStaticBaseURIString());
-//                    output.startDocument(ReceiverOption.NONE);
-//                    TailCall tc = content.processLeavingTail(output, context);
-//                    dispatchTailCall(tc);
-//                    output.endDocument();
-//                    return null;
-//                };
-//            } else {
+            PushEvaluator content = expr.getContentExpression().makeElaborator().elaborateForPush();
+            if (!expr.textOnly) {
+                if (expr.preservingTypes) {
+                    return (output, context) -> {
+                        output.setSystemId(expr.getStaticBaseURIString());
+                        output.startDocument(ReceiverOption.NONE);
+                        TailCall tc = content.processLeavingTail(output, context);
+                        dispatchTailCall(tc);
+                        output.endDocument();
+                        return null;
+                    };
+                } else {
+                    Schema schema = expr.getRetainedStaticContext().getImportedSchema();
+                    ParseOptions options = expr.getValidationOptions();
+                    return (output, context) -> {
+                        context.getConfiguration().prepareValidationReporting(context, options);
+                        Receiver validator = schema.getDocumentValidator(
+                                output, expr.getStaticBaseURIString(), options, expr.getLocation());
+                        ComplexContentOutputter outputter = new ComplexContentOutputter(validator);
+                        outputter.startDocument(ReceiverOption.NONE);
+                        TailCall tc = content.processLeavingTail(outputter, context);
+                        dispatchTailCall(tc);
+                        outputter.endDocument();
+                        return null;
+                    };
+                }
+            } else {
                 ItemEvaluator evalAsItem = elaborateForItem();
                 Location loc = expr.getLocation();
                 return (output, context) -> {
@@ -335,7 +356,7 @@ public class DocumentInstr extends ParentNodeConstructor {
                     }
                     return null;
                 };
-//            }
+            }
         }
 
         @Override
@@ -363,6 +384,7 @@ public class DocumentInstr extends ParentNodeConstructor {
             } else {
                 PushEvaluator contentEval = expr.getContentExpression().makeElaborator().elaborateForPush();
                 HostLanguage hostLanguage = expr.getPackageData().getHostLanguage();
+                int hostLanguageVersion = expr.getPackageData().getHostLanguageVersion();
                 return context -> {
                     try {
                         Controller controller = context.getController();
@@ -381,7 +403,7 @@ public class DocumentInstr extends ParentNodeConstructor {
                         builder.setBaseURI(staticBaseUri);
                         builder.setTiming(false);
 
-                        pipe.setHostLanguage(hostLanguage);
+                        pipe.setHostLanguage(hostLanguage, hostLanguageVersion);
                         builder.setPipelineConfiguration(pipe);
 
                         ComplexContentOutputter out =

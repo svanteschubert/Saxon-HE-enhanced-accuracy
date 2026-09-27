@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,13 @@
 package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
-import net.sf.saxon.z.IntPredicateProxy;
+
+import java.util.function.IntPredicate;
 
 /**
  * Enumerate all the nodes on the preceding axis from a given start node.
@@ -23,27 +25,27 @@ import net.sf.saxon.z.IntPredicateProxy;
  * when performing xsl:number level="any".
  */
 
-final class PrecedingIterator implements AxisIterator {
+final public class PrecedingIterator implements SequenceIterator {
 
     private final TinyTree tree;
     private NodeInfo current;
     private int nextAncestorDepth;
     private final boolean includeAncestors;
-    private final IntPredicateProxy matcher;
+    private final IntPredicate matcher;
     private NodeInfo pending = null;
-    private final NodeTest nodeTest;
+    private final NodePredicate predicate;
     private final boolean matchesTextNodes;
 
-    public PrecedingIterator(/*@NotNull*/ TinyTree doc, /*@NotNull*/ TinyNodeImpl node,
-                             NodeTest nodeTest, boolean includeAncestors) {
+    public PrecedingIterator(TinyTree doc, TinyNodeImpl node,
+                             NodePredicate predicate, boolean includeAncestors) {
 
         this.includeAncestors = includeAncestors;
         tree = doc;
         current = node;
         nextAncestorDepth = doc.depth[node.nodeNr] - 1;
-        this.nodeTest = nodeTest;
-        this.matcher = nodeTest.getMatcher(doc);
-        matchesTextNodes = nodeTest.getUType().overlaps(UType.TEXT);
+        this.predicate = predicate;
+        this.matcher = Navigator.getNumberedNodeMatcher(predicate, doc);
+        matchesTextNodes = Navigator.getPotentialNodeKinds(predicate).overlaps(UType.TEXT);
     }
 
     /*@Nullable*/
@@ -58,7 +60,7 @@ final class PrecedingIterator implements AxisIterator {
             return null;
         }
         if (current instanceof TinyTextualElement.TinyTextualElementText) {
-            current = current.getParent();
+            current = (NodeInfo)current.getParent();
         }
         int nextNodeNr = ((TinyNodeImpl) current).nodeNr;
         while (true) {
@@ -83,12 +85,12 @@ final class PrecedingIterator implements AxisIterator {
             if (matchesTextNodes && tree.nodeKind[nextNodeNr] == Type.TEXTUAL_ELEMENT) {
                 TinyTextualElement element = (TinyTextualElement)tree.getNode(nextNodeNr);
                 TinyTextualElement.TinyTextualElementText text = element.getTextNode();
-                if (nodeTest.test(text)) {
-                    if (nodeTest.test(element)) {
+                if (predicate.test(text)) {
+                    if (predicate.test(element)) {
                         pending = element;
                     }
                     return current = text;
-                } else if (nodeTest.test(element)) {
+                } else if (predicate.test(element)) {
                     return current = element;
                 }
             } else {

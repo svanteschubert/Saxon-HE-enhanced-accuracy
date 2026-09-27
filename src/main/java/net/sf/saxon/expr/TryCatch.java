@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,13 +14,10 @@ import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.instruct.BreakInstr;
 import net.sf.saxon.expr.instruct.TailCall;
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.RebindingMap;
+import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.QNameTest;
+import net.sf.saxon.pattern.qname.QNameTest;
 import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.UncheckedXPathException;
@@ -28,9 +25,11 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.Cardinality;
+import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 
 /**
@@ -43,6 +42,7 @@ import java.util.List;
 public class TryCatch extends Expression {
 
     private final Operand tryOp;
+    private Operand finallyOp;
     private final List<CatchClause> catchClauses = new ArrayList<>();
     private boolean rollbackOutput;
 
@@ -51,10 +51,15 @@ public class TryCatch extends Expression {
     }
 
     public void addCatchExpression(QNameTest test, Expression catchExpr) {
-        CatchClause clause = new CatchClause();
-        clause.catchOp = new Operand(this, catchExpr, OperandRole.SAME_FOCUS_ACTION);
-        clause.nameTest = test;
+        CatchClause clause = new CatchClause(
+                new Operand(this, catchExpr, OperandRole.SAME_FOCUS_ACTION),
+                test
+        );
         catchClauses.add(clause);
+    }
+
+    public void setFinallyExpression(Expression finallyExpr) {
+        finallyOp = new Operand(this, finallyExpr, OperandRole.SAME_FOCUS_ACTION);
     }
 
     public void setRollbackOutput(boolean rollback) {
@@ -126,7 +131,7 @@ public class TryCatch extends Expression {
     protected int computeCardinality() {
         int card = getTryExpr().getCardinality();
         for (CatchClause catchClause : catchClauses) {
-            card = Cardinality.union(card, catchClause.catchOp.getChildExpression().getCardinality());
+            card = Cardinality.union(card, catchClause.catchOp().getChildExpression().getCardinality());
         }
         return card;
     }
@@ -140,7 +145,7 @@ public class TryCatch extends Expression {
     public ItemType getItemType() {
         ItemType type = getTryExpr().getItemType();
         for (CatchClause catchClause : catchClauses) {
-            type = Type.getCommonSuperType(type, catchClause.catchOp.getChildExpression().getItemType());
+            type = Type.getCommonSuperType(type, catchClause.catchOp().getChildExpression().getItemType());
         }
         return type;
     }
@@ -158,9 +163,25 @@ public class TryCatch extends Expression {
         List<Operand> list = new ArrayList<>();
         list.add(tryOp);
         for (CatchClause cc : catchClauses) {
-            list.add(cc.catchOp);
+            list.add(cc.catchOp());
+        }
+        if (finallyOp != null) {
+            list.add(finallyOp);
         }
         return list;
+    }
+
+    public Expression typeCheck(ExpressionVisitor visitor,
+                                ContextItemStaticInfo contextInfo) throws XPathException {
+        typeCheckChildren(visitor, contextInfo);
+        if (finallyOp != null) {
+            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.SUBEXPRESSION, "try/finally", 0);
+            TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
+            Expression checked = tc.staticTypeCheck(
+                    finallyOp.getChildExpression(), SequenceType.EMPTY_SEQUENCE, role, visitor);
+            setFinallyExpression(checked);
+        }
+        return this;
     }
 
     @Override
@@ -226,7 +247,7 @@ public class TryCatch extends Expression {
     public Expression copy(RebindingMap rebindings) {
         TryCatch t2 = new TryCatch(tryOp.getChildExpression().copy(rebindings));
         for (CatchClause clause : catchClauses) {
-            t2.addCatchExpression(clause.nameTest, clause.catchOp.getChildExpression().copy(rebindings));
+            t2.addCatchExpression(clause.nameTest, clause.catchOp().getChildExpression().copy(rebindings));
         }
         t2.setRollbackOutput(rollbackOutput);
         ExpressionTool.copyLocationInfo(this, t2);
@@ -287,10 +308,11 @@ public class TryCatch extends Expression {
         tryOp.getChildExpression().export(out);
         for (CatchClause clause : catchClauses) {
             out.startElement("catch");
-            out.emitAttribute("errors", clause.nameTest.exportQNameTest());
-            clause.catchOp.getChildExpression().export(out);
+            out.emitAttribute("errors", clause.nameTest().exportQNameTest());
+            clause.catchOp().getChildExpression().export(out);
             out.endElement();
         }
+        // There's no `finally` operand in XSLT
         out.endElement();
     }
 
@@ -304,10 +326,9 @@ public class TryCatch extends Expression {
         return new TryCatchElaborator();
     }
 
-    public static class CatchClause {
-        public int slotNumber = -1;
-        public Operand catchOp;
-        public QNameTest nameTest;
+    public record CatchClause (
+        Operand catchOp,
+        QNameTest nameTest) {
     }
 
     private static class TryCatchElaborator extends PushElaborator {
@@ -316,6 +337,10 @@ public class TryCatch extends Expression {
         public PushEvaluator elaborateForPush() {
             TryCatch expr = (TryCatch) getExpression();
             PushEvaluator tryPush = expr.getTryExpr().makeElaborator().elaborateForPush();
+            SequenceEvaluator finallyEval =
+                    expr.finallyOp == null
+                            ? null
+                            : expr.finallyOp.getChildExpression().makeElaborator().eagerly();
             return (output, context) -> {
                 PipelineConfiguration pipe = output.getPipelineConfiguration();
                 XPathContextMajor c1 = context.newContext();
@@ -329,6 +354,10 @@ public class TryCatch extends Expression {
                 } else {
                     o2 = new EventMonitor(output);
                     o2.setPipelineConfiguration(pipe);
+                }
+                Object checkpoint = null;
+                if (c1.getController().isTracing()) {
+                    checkpoint = c1.getController().getTraceListener().checkpoint();
                 }
                 try {
                     try {
@@ -351,13 +380,13 @@ public class TryCatch extends Expression {
                 } catch (XPathException err) {
                     if (err.isGlobalError()) {
                         err.setIsGlobalError(false);
-                    } else {
+                    } else if (!(err instanceof XPathException.StackOverflow)) {
                         StructuredQName code = err.getErrorCodeQName();
                         if (code == null) {
                             code = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
                         }
                         for (CatchClause clause : expr.catchClauses) {
-                            if (clause.nameTest.matches(code)) {
+                            if (clause.nameTest().matches(code)) {
                                 if (o2 instanceof EventMonitor && ((EventMonitor) o2).hasBeenWrittenTo()) {
                                     // rollback=no was specified, and output has been written, so we cannot recover
                                     String message = err.getMessage() +
@@ -365,6 +394,9 @@ public class TryCatch extends Expression {
                                     throw new XPathException(message, "XTDE3530")
                                             .withLocation(err.getLocator())
                                             .withXPathContext(context);
+                                }
+                                if (checkpoint != null) {
+                                    context.getController().getTraceListener().recover(checkpoint, err);
                                 }
                                 Expression caught = clause.catchOp.getChildExpression();
                                 XPathContextMajor c2 = context.newContext();
@@ -384,6 +416,14 @@ public class TryCatch extends Expression {
                     err.setHasBeenReported(false);
                     throw err;
 
+                } finally {
+                    if (finallyEval != null) {
+                        Sequence f = finallyEval.evaluate(context);
+                        if (f.head() != null) {
+                            //noinspection ThrowFromFinallyBlock
+                            throw new XPathException("The 'finally' expression must evaluate to ()", "XQTY0153");
+                        }
+                    }
                 }
                 return null;
             };
@@ -393,35 +433,39 @@ public class TryCatch extends Expression {
         public PullEvaluator elaborateForPull() {
             TryCatch expr = (TryCatch)getExpression();
             SequenceEvaluator tryEval = expr.getTryExpr().makeElaborator().eagerly();
+            SequenceEvaluator finallyEval =
+                    expr.finallyOp == null
+                            ? null
+                            : expr.finallyOp.getChildExpression().makeElaborator().eagerly();
             return context -> {
                 XPathContextMajor c1 = context.newContext();
                 c1.createThreadManager();
                 c1.setErrorReporter(new FilteringErrorReporter(context.getErrorReporter(), expr.catchClauses));
+                Sequence result = null;
                 try {
                     try {
                         // Need to do eager iteration of the first argument to flush any errors out
-                        Sequence v = tryEval.evaluate(c1);
+                        result = tryEval.evaluate(c1);
                         c1.waitForChildThreads();
                         // check for xsl:break within xsl:try - test iterate-035
                         TailCallLoop.TailCallInfo tci = c1.getTailCallInfo();
                         if (tci instanceof BreakInstr) {
                             ((BreakInstr) tci).markContext(context);
                         }
-                        return v.iterate();
                     } catch (UncheckedXPathException ue) {
                         throw ue.getXPathException();
                     }
                 } catch (XPathException err) {
                     if (err.isGlobalError()) {
                         err.setIsGlobalError(false);
-                    } else {
+                    } else if (!(err instanceof XPathException.StackOverflow)) {
                         StructuredQName code = err.getErrorCodeQName();
                         if (code == null) {
                             code = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
                         }
                         for (CatchClause clause : expr.catchClauses) {
-                            if (clause.nameTest.matches(code)) {
-                                Expression caught = clause.catchOp.getChildExpression();
+                            if (clause.nameTest().matches(code)) {
+                                Expression caught = clause.catchOp().getChildExpression();
                                 XPathContextMajor c2 = context.newContext();
                                 c2.setCurrentException(err);
                                 // check for xsl:break within xsl:catch - test iterate-036
@@ -430,13 +474,25 @@ public class TryCatch extends Expression {
                                 if (tci instanceof BreakInstr) {
                                     ((BreakInstr) tci).markContext(context);
                                 }
+                                if (finallyEval != null) {
+                                    finallyEval.evaluate(context);
+                                }
                                 return v.iterate();
                             }
                         }
                     }
                     err.setHasBeenReported(false);
                     throw err;
+                } finally {
+                    if (finallyEval != null) {
+                        Sequence f = finallyEval.evaluate(context);
+                        if (f.head() != null) {
+                            //noinspection ThrowFromFinallyBlock
+                            throw new XPathException("The 'finally' expression must evaluate to ()", "XQTY0153");
+                        }
+                    }
                 }
+                return result.iterate();
             };
         }
 
@@ -444,34 +500,52 @@ public class TryCatch extends Expression {
         public ItemEvaluator elaborateForItem() {
             TryCatch expr = (TryCatch) getExpression();
             SequenceEvaluator tryEval = expr.getTryExpr().makeElaborator().eagerly();
+            SequenceEvaluator finallyEval =
+                    expr.finallyOp == null
+                            ? null
+                            : expr.finallyOp.getChildExpression().makeElaborator().eagerly();
             return context -> {
                 XPathContext c1 = context.newMinorContext();
+                Item result;
                 try {
                     try {
-                        return tryEval.evaluate(c1).head();
+                        result = tryEval.evaluate(c1).head();
                     } catch (UncheckedXPathException e) {
                         throw e.getXPathException();
                     }
                 } catch (XPathException err) {
                     if (err.isGlobalError()) {
                         err.setIsGlobalError(false);
-                    } else {
+                    } else if (!(err instanceof XPathException.StackOverflow)) {
                         StructuredQName code = err.getErrorCodeQName();
                         if (code == null) {
                             code = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
                         }
                         for (CatchClause clause : expr.catchClauses) {
-                            if (clause.nameTest.matches(code)) {
-                                Expression caught = clause.catchOp.getChildExpression();
+                            if (clause.nameTest().matches(code)) {
+                                Expression caught = clause.catchOp().getChildExpression();
                                 XPathContextMajor c2 = context.newContext();
                                 c2.setCurrentException(err);
-                                return caught.evaluateItem(c2);
+                                Item resultItem = caught.evaluateItem(c2);
+                                if (finallyEval != null) {
+                                    finallyEval.evaluate(context);
+                                }
+                                return resultItem;
                             }
                         }
                     }
                     err.setHasBeenReported(false);
                     throw err;
+                } finally {
+                    if (finallyEval != null) {
+                        Sequence f = finallyEval.evaluate(context);
+                        if (f.head() != null) {
+                            //noinspection ThrowFromFinallyBlock
+                            throw new XPathException("The 'finally' expression must evaluate to ()", "XQTY0153");
+                        }
+                    }
                 }
+                return result;
             };
         }
     }
@@ -497,7 +571,7 @@ public class TryCatch extends Expression {
             }
             StructuredQName code = errorCode.getStructuredQName();
             for (CatchClause clause : catchClauses) {
-                if (clause.nameTest.matches(code)) {
+                if (clause.nameTest().matches(code)) {
                     return true;
                 }
             }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,8 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.Controller;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.elab.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.lib.TraceListener;
 import net.sf.saxon.om.Item;
@@ -18,6 +20,7 @@ import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Type;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -220,6 +223,23 @@ public class TraceExpression extends Instruction {
         return !getChild().hasSpecialProperty(StaticProperty.NO_NODES_NEWLY_CREATED);
     }
 
+
+    public boolean equals(Object other) {
+        return other instanceof TraceExpression &&
+                getChild().equals(((TraceExpression) other).getChild());
+    }
+
+    /**
+     * Compute a hash code, which will then be cached for later use
+     *
+     * @return a computed hash code
+     */
+    @Override
+    protected int computeHashCode() {
+        return 0x64646464 ^ getChild().hashCode();
+    }
+
+
     /**
      * Return the estimated cost of evaluating an expression. For a TraceExpression we return zero,
      * because ideally we don't want trace expressions to affect optimization decisions.
@@ -281,6 +301,34 @@ public class TraceExpression extends Instruction {
     }
 
     /**
+     * Perform optimisation of an expression and its subexpressions. This is the third and final
+     * phase of static optimization.
+     * <p>This method is called after all references to functions and variables have been resolved
+     * to the declaration of the function or variable, and after all type checking has been done.</p>
+     *
+     * @param visitor     an expression visitor
+     * @param contextInfo the static type of "." at the point where this expression is invoked.
+     *                    The parameter is set to null if it is known statically that the context item will be undefined.
+     *                    If the type of the context item is not known statically, the argument is set to
+     *                    {@link Type#ITEM_TYPE}
+     * @return the original expression, rewritten if appropriate to optimize execution
+     * @throws XPathException if an error is discovered during this phase
+     *                        (typically a type error)
+     */
+    @Override
+    public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
+        // See bug 6415
+        Expression t = super.optimize(visitor, contextInfo);
+        if (t != this) {
+            return t;
+        }
+        if (getChild() instanceof TraceExpression) {
+            return getChild();
+        }
+        return this;
+    }
+
+    /**
      * Export the expression structure. The abstract expression tree
      * is written to the supplied output destination. Note: trace expressions
      * are omitted from the generated SEF file.
@@ -289,6 +337,16 @@ public class TraceExpression extends Instruction {
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
         getChild().export(out);
+
+        // Following code was written for diagnostics, to show the tree with the trace instructions
+//        out.startElement("traceExp");
+//        for (Map.Entry<String, Object> prop : properties.entrySet()) {
+//            out.emitAttribute(prop.getKey(), prop.getValue().toString());
+//        }
+//        out.emitAttribute("line", getLocation().getLineNumber()+"");
+//        out.emitAttribute("col", getLocation().getColumnNumber() + "");
+//        getChild().export(out);
+//        out.endElement();
     }
 
     /**
@@ -320,15 +378,16 @@ public class TraceExpression extends Instruction {
         @Override
         public StringEvaluator elaborateForString(boolean zeroLengthWhenAbsent) {
             TraceExpression expr = (TraceExpression) getExpression();
+            Expression body = expr.getBody();
             StringEvaluator baseEval = expr.getBody().makeElaborator().elaborateForString(zeroLengthWhenAbsent);
             return context -> {
                 Controller controller = context.getController();
                 assert controller != null;
                 if (controller.isTracing()) {
                     TraceListener listener = controller.getTraceListener();
-                    listener.enter(expr, expr.properties, context);
+                    listener.enter(body, expr.properties, context);
                     String result = baseEval.eval(context);
-                    listener.leave(expr);
+                    listener.leave(body);
                     return result;
                 } else {
                     return baseEval.eval(context);
@@ -339,16 +398,16 @@ public class TraceExpression extends Instruction {
         @Override
         public UpdateEvaluator elaborateForUpdate() {
             TraceExpression expr = (TraceExpression) getExpression();
+            Expression body = expr.getBody();
             UpdateEvaluator baseEval = expr.getBody().makeElaborator().elaborateForUpdate();
             return (context, pul) -> {
                 Controller controller = context.getController();
                 assert controller != null;
                 if (controller.isTracing()) {
                     TraceListener listener = controller.getTraceListener();
-
-                    listener.enter(expr, expr.properties, context);
+                    listener.enter(body, expr.properties, context);
                     baseEval.registerUpdates(context, pul);
-                    listener.leave(expr);
+                    listener.leave(body);
                 } else {
                     baseEval.registerUpdates(context, pul);
                 }
@@ -383,6 +442,7 @@ public class TraceExpression extends Instruction {
         @Override
         public PullEvaluator elaborateForPull() {
             TraceExpression expr = (TraceExpression) getExpression();
+            Expression body = expr.getBody();
             PullEvaluator baseEval = expr.getBody().makeElaborator().elaborateForPull();
             return context -> {
                 Controller controller = context.getController();
@@ -390,9 +450,9 @@ public class TraceExpression extends Instruction {
                 if (controller.isTracing()) {
                     TraceListener listener = controller.getTraceListener();
 
-                    listener.enter(expr, expr.properties, context);
+                    listener.enter(body, expr.properties, context);
                     SequenceIterator result = baseEval.iterate(context);
-                    listener.leave(expr);
+                    listener.leave(body);
                     return result;
                 } else {
                     return baseEval.iterate(context);
@@ -424,6 +484,7 @@ public class TraceExpression extends Instruction {
         @Override
         public ItemEvaluator elaborateForItem() {
             TraceExpression expr = (TraceExpression) getExpression();
+            Expression body = expr.getBody();
             ItemEvaluator baseEval = expr.getBody().makeElaborator().elaborateForItem();
             return context -> {
                 Controller controller = context.getController();
@@ -431,9 +492,9 @@ public class TraceExpression extends Instruction {
                 if (controller.isTracing()) {
                     TraceListener listener = controller.getTraceListener();
 
-                    listener.enter(expr, expr.properties, context);
+                    listener.enter(body, expr.properties, context);
                     Item result = baseEval.eval(context);
-                    listener.leave(expr);
+                    listener.leave(body);
                     return result;
                 } else {
                     return baseEval.eval(context);
@@ -444,16 +505,16 @@ public class TraceExpression extends Instruction {
         @Override
         public BooleanEvaluator elaborateForBoolean() {
             TraceExpression expr = (TraceExpression) getExpression();
+            Expression body = expr.getBody();
             BooleanEvaluator baseEval = expr.getBody().makeElaborator().elaborateForBoolean();
             return context -> {
                 Controller controller = context.getController();
                 assert controller != null;
                 if (controller.isTracing()) {
                     TraceListener listener = controller.getTraceListener();
-
-                    listener.enter(expr, expr.properties, context);
+                    listener.enter(body, expr.properties, context);
                     boolean result = baseEval.eval(context);
-                    listener.leave(expr);
+                    listener.leave(body);
                     return result;
                 } else {
                     return baseEval.eval(context);
@@ -464,6 +525,7 @@ public class TraceExpression extends Instruction {
         @Override
         public UnicodeStringEvaluator elaborateForUnicodeString(boolean zeroLengthWhenAbsent) {
             TraceExpression expr = (TraceExpression) getExpression();
+            Expression body = expr.getBody();
             UnicodeStringEvaluator baseEval = expr.getBody().makeElaborator().elaborateForUnicodeString(zeroLengthWhenAbsent);
             return context -> {
                 Controller controller = context.getController();
@@ -471,9 +533,9 @@ public class TraceExpression extends Instruction {
                 if (controller.isTracing()) {
                     TraceListener listener = controller.getTraceListener();
 
-                    listener.enter(expr, expr.properties, context);
+                    listener.enter(body, expr.properties, context);
                     UnicodeString result = baseEval.eval(context);
-                    listener.leave(expr);
+                    listener.leave(body);
                     return result;
                 } else {
                     return baseEval.eval(context);

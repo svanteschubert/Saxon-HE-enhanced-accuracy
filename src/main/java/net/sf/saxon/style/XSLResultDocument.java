@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,9 +16,9 @@ import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.Whitespace;
@@ -49,6 +49,7 @@ public class XSLResultDocument extends StyleElement {
         fans.add("build-tree");
         fans.add("byte-order-mark");
         fans.add("cdata-section-elements");
+        fans.add("canonical");
         fans.add("doctype-public");
         fans.add("doctype-system");
         fans.add("encoding");
@@ -58,6 +59,7 @@ public class XSLResultDocument extends StyleElement {
         fans.add("include-content-type");
         fans.add("indent");
         fans.add("item-separator");
+        fans.add("json-lines");
         fans.add("json-node-output-method");
         fans.add("media-type");
         fans.add("method");
@@ -72,6 +74,7 @@ public class XSLResultDocument extends StyleElement {
         fans.add(SaxonOutputKeys.ATTRIBUTE_ORDER);
         fans.add(SaxonOutputKeys.CANONICAL);
         fans.add(SaxonOutputKeys.CHARACTER_REPRESENTATION);
+        fans.add(SaxonOutputKeys.CONDITIONAL_CDATA);
         fans.add(SaxonOutputKeys.DOUBLE_SPACE);
         fans.add(SaxonOutputKeys.INDENT_SPACES);
         fans.add(SaxonOutputKeys.INTERNAL_DTD_SUBSET);
@@ -93,6 +96,7 @@ public class XSLResultDocument extends StyleElement {
     private SchemaType schemaType = null;
     private final Map<StructuredQName, Expression> serializationAttributes = new HashMap<>(10);
     private boolean async = true;
+    private Expression select;
 
     /**
      * Determine whether this node is an instruction.
@@ -142,6 +146,10 @@ public class XSLResultDocument extends StyleElement {
                 typeAtt = Whitespace.trim(value);
             } else if (f.equals("use-character-maps")) {
                 useCharacterMapsAtt = Whitespace.trim(value);
+            } else if (f.equals("select")) {
+                if (requireXslt40Attribute("select")) {
+                    select = makeExpression(value, att);
+                }
             } else if (fans.contains(f) || (f.startsWith("{") && !StandardNames.SAXON_ASYCHRONOUS.equals(f))) {
                 // this is a serialization attribute
                 String val = value;
@@ -150,6 +158,10 @@ public class XSLResultDocument extends StyleElement {
                 }
                 if (f.equals(SaxonOutputKeys.ESCAPE_SOLIDUS)) {
                     requireXslt40Attribute(f);
+                }
+                if (f.equals("{http://saxon.sf.net/}canonical")) {
+                    // Allowed for backwards compatibility
+                    name = new StructuredQName("", "", "canonical");
                 }
                 Expression exp = makeAttributeValueTemplate(val, att);
                 serializationAttributes.put(name, exp);
@@ -202,11 +214,15 @@ public class XSLResultDocument extends StyleElement {
 
     @Override
     public void validate(ComponentDeclaration decl) throws XPathException {
+        checkSelectXorContent(true);
         if (href != null && !getConfiguration().getBooleanProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS)) {
             compileError("xsl:result-document is disabled when extension functions are disabled");
         }
         href = typeCheck("href", href);
         formatExpression = typeCheck("format", formatExpression);
+        if (select != null) {
+            select = typeCheck("select", select);
+        }
 
         for (StructuredQName prop : serializationAttributes.keySet()) {
             final Expression exp1 = serializationAttributes.get(prop);
@@ -231,9 +247,9 @@ public class XSLResultDocument extends StyleElement {
         // This is a dynamic error, but worth detecting statically.
         // In fact this is a bit of a fudge. If a function or variable is inlined, we sometimes don't detect
         // XTDE1480 at run-time. Doing this static check improves our chances, though it won't catch all cases.
-        AxisIterator ai = iterateAxis(AxisInfo.ANCESTOR);
+        SequenceIterator ai = iterateAncestorAxis(AnyGNode.TEST);
         NodeInfo node;
-        while ((node = ai.next()) != null) {
+        while ((node = (NodeInfo)ai.next()) != null) {
             if (node instanceof XSLGeneralVariable || (node instanceof XSLFunction && !((XSLFunction) node).isUpdating())) {
                 issueWarning("An xsl:result-document instruction inside " + node.getDisplayName() +
                         " will always fail at run-time", "XTDE1480");
@@ -261,8 +277,8 @@ public class XSLResultDocument extends StyleElement {
         if (formatExpression == null &&
                 globalProps.getProperty("method") == null &&
                 serializationAttributes.get(METHOD) == null) {
-            AxisIterator kids = iterateAxis(AxisInfo.CHILD);
-            NodeInfo first = kids.next();
+            SequenceIterator kids = iterateChildAxis(AnyGNode.TEST);
+            NodeInfo first = (NodeInfo)kids.next();
             if (first instanceof LiteralResultElement) {
                 if (first.getNamespaceUri().equals(NamespaceUri.XHTML) && first.getLocalPart().equals("html")) {
                     method = "xhtml";
@@ -311,14 +327,21 @@ public class XSLResultDocument extends StyleElement {
                 href,
                 formatExpression,
                 validationAction,
+                getImportedSchema(),
                 schemaType,
                 serializationAttributes,
                 getContainingPackage().getCharacterMapIndex()
         );
 
-        Expression content = compileSequenceConstructor(exec, decl, true);
+        Expression content;
+
+        if (select != null) {
+            content = select;
+        } else {
+            content = compileSequenceConstructor(exec, decl, true);
+        }
         if (content == null) {
-            content = Literal.makeLiteral(EmptySequence.getInstance());
+            content = Literal.makeLiteral(EmptySequence.INSTANCE);
         }
         inst.setContentExpression(content);
         inst.setAsynchronous(async);

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,10 +11,8 @@ import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.ItemElaborator;
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.RebindingMap;
+import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
@@ -36,7 +34,7 @@ public class SingletonIntersectExpression extends VennExpression {
      * @param p2 the second argument
      */
 
-    public SingletonIntersectExpression(final Expression p1, final int op, final Expression p2) {
+    public SingletonIntersectExpression(final Expression p1, final OperatorSymbol op, final Expression p2) {
         super(p1, op, p2);
     }
 
@@ -99,7 +97,7 @@ public class SingletonIntersectExpression extends VennExpression {
     public SequenceIterator iterate(XPathContext c) throws XPathException {
         NodeInfo m = (NodeInfo) getLhsExpression().evaluateItem(c);
         if (m == null) {
-            return EmptyIterator.getInstance();
+            return EmptyIterator.INSTANCE;
         }
         SequenceIterator iter = getRhsExpression().iterate(c);
         NodeInfo n;
@@ -109,7 +107,7 @@ public class SingletonIntersectExpression extends VennExpression {
                 return SingletonIterator.makeIterator(m);
             }
         }
-        return EmptyIterator.getInstance();
+        return EmptyIterator.INSTANCE;
     }
 
     /**
@@ -132,9 +130,9 @@ public class SingletonIntersectExpression extends VennExpression {
      * @throws XPathException if evaluating the iterator fails
      */
 
-    public static boolean containsNode(SequenceIterator iter, NodeInfo m) throws XPathException {
-        NodeInfo n;
-        while ((n = (NodeInfo) iter.next()) != null) {
+    public static boolean containsNode(SequenceIterator iter, GNode m) throws XPathException {
+        GNode n;
+        while ((n = (GNode) iter.next()) != null) {
             if (n.equals(m)) {
                 iter.close();
                 return true;
@@ -194,7 +192,7 @@ public class SingletonIntersectExpression extends VennExpression {
             final PullEvaluator rhs = exp.getRhsExpression().makeElaborator().elaborateForPull();
 
             return context -> {
-                NodeInfo node = (NodeInfo) lhs.eval(context);
+                GNode node = (GNode) lhs.eval(context);
                 if (node == null) {
                     return null;
                 }

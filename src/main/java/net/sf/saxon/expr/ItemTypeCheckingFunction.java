@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,10 +12,8 @@ import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.type.UType;
 
 import java.util.function.Supplier;
 
@@ -58,10 +56,10 @@ public class ItemTypeCheckingFunction implements ItemMappingFunction {
 
     private void testConformance(Item item, Configuration config) throws XPathException {
         final TypeHierarchy th = config.getTypeHierarchy();
-        if (requiredItemType.matches(item, th)) {
+        if (requiredItemType.matches(item)) {
             // OK, no action
-        } else if (requiredItemType.getUType().subsumes(UType.STRING) && BuiltInAtomicType.ANY_URI.matches(item, th)) {
-            // OK, no action
+//        } else if (requiredItemType.getUType().subsumes(UType.STRING) && BuiltInAtomicType.ANY_URI.matches(item, th)) {
+//            // OK, no action
         } else {
             RoleDiagnostic role = roleSupplier.get();
             String message = role.composeErrorMessage(requiredItemType, item, th);

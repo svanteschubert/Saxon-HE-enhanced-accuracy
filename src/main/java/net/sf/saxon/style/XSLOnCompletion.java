@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,12 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.om.AttributeInfo;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.type.gnode.NodeKindType;
 
 /**
  * An xsl:on-completion element in the stylesheet (XSLT 3.0). <br>
@@ -70,15 +70,15 @@ public class XSLOnCompletion extends StyleElement {
         if (!(parent instanceof XSLIterate)) {
             compileError("xsl:on-completion is not allowed as a child of " + parent.getDisplayName(), "XTSE0010");
         }
-        AxisIterator iter = iterateAxis(AxisInfo.PRECEDING_SIBLING, NodeKindTest.ELEMENT);
+        SequenceIterator iter = iteratePrecedingSiblingAxis(NodeKindType.ELEMENT);
         NodeInfo sib;
-        while ((sib = iter.next()) != null) {
+        while ((sib = (NodeInfo)iter.next()) != null) {
             if (!(sib instanceof XSLFallback || sib instanceof XSLLocalParam)) {
                 compileError("xsl:on-completion must be the first child of xsl:iterate after the xsl:param elements", "XTSE0010");
             }
         };
 
-        if (select != null && iterateAxis(AxisInfo.CHILD).next() != null) {
+        if (select != null && iterateChildAxis(AnyGNode.TEST).next() != null) {
             compileError("An xsl:on-completion element with a select attribute must be empty", "XTSE3125");
         }
         select = typeCheck("select", select);

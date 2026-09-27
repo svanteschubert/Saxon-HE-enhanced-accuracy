@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,6 +19,7 @@ import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.NoElementsSpaceStrippingRule;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.tree.tiny.TinyBuilder;
+import net.sf.saxon.type.Schema;
 import org.xml.sax.SAXException;
 
 import javax.xml.transform.Result;
@@ -78,8 +79,9 @@ public class TransformerHandlerImpl extends ReceivingContentHandler implements T
         }
         if (validation != Validation.PRESERVE) {
             options = options.withSchemaValidationMode(validation);
-            options = options.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
-            receiver = config.getDocumentValidator(receiver, getSystemId(), options, null);
+            options = options.withSpaceStrippingRule(NoElementsSpaceStrippingRule.INSTANCE);
+            Schema schema = transformer.getUnderlyingXsltExecutable().getUnderlyingCompiledStylesheet().getTopLevelPackage().getImportedSchema("");
+            receiver = schema.getDocumentValidator(receiver, getSystemId(), options, null);
         }
         pipe.setParseOptions(options);
         setReceiver(receiver);

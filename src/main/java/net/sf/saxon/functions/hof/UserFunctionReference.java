@@ -20,6 +20,7 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.functions.AbstractFunction;
+import net.sf.saxon.functions.IFunctionWithRetainedParameterNames;
 import net.sf.saxon.functions.registry.FunctionDefinition;
 import net.sf.saxon.om.*;
 import net.sf.saxon.query.AnnotationList;
@@ -36,11 +37,15 @@ import java.util.Arrays;
  * A UserFunctionReference is an expression in the form local:f#1 where local:f is a user-defined function.
  * Evaluating the expression returns a function item. The reason that UserFunctionReference is treated
  * as an expression rather than a value is that the binding to the actual function may be deferred, for
- * example if the function is overridden in a different package.
+ * example if the function is overridden in a different package. In addition, if the function is context
+ * dependent, the function item that results will have a captured context, captured at the time the
+ * UserFunctionReference is evaluated.
+ *
+ * <p>Also used on some occasions for references to system functions.</p>
  */
 
 public class UserFunctionReference extends Expression
-        implements ComponentInvocation, UserFunctionResolvable, Callable {
+        implements ComponentInvocation, UserFunctionResolvable, IFunctionWithRetainedParameterNames, Callable {
 
     private final SymbolicName.F functionName;
     private UserFunction nominalTarget;
@@ -69,7 +74,7 @@ public class UserFunctionReference extends Expression
             throw new IllegalArgumentException("Function name does not match");
         }
 
-        if (function.getMinimumArity() > functionName.getArity() || function.getArity() < functionName.getArity()) {
+        if (function.getMinimumArity() > functionName.getArity() || (function.getArity() < functionName.getArity())) {
             throw new IllegalArgumentException("Function arity does not match");
         }
         this.nominalTarget = function;
@@ -184,6 +189,20 @@ public class UserFunctionReference extends Expression
     }
 
     /**
+     * Get the names of the parameters in the underlying function definition
+     *
+     * @return the names of the parameters, in order
+     */
+    @Override
+    public StructuredQName[] getParameterNames() {
+        UserFunction uf = getNominalTarget();
+        UserFunctionParameter[] params = uf.getParameterDefinitions();
+        StructuredQName[] paramNames = new StructuredQName[params.length];
+        Arrays.setAll(paramNames, i -> params[i].getVariableQName());
+        return paramNames;
+    }
+
+    /**
      * Set the binding slot to be used. This is the offset within the binding vector of the containing
      * component where the actual target component is to be found. The target template is not held directly
      * in the invocation instruction/expression itself because it can be overridden in a using package.
@@ -272,6 +291,10 @@ public class UserFunctionReference extends Expression
      */
     @Override
     public ItemType getItemType() {
+        if (nominalTarget == null) {
+            // happens while reloading from a SEF file
+            return AnyFunctionType.INSTANCE;
+        }
         return nominalTarget.getFunctionItemType();
     }
 
@@ -304,7 +327,7 @@ public class UserFunctionReference extends Expression
      */
     @Override
     public Expression copy(RebindingMap rebindings) {
-        UserFunctionReference ref = new UserFunctionReference(nominalTarget);
+        UserFunctionReference ref = new UserFunctionReference(nominalTarget, functionName);
         ref.optimizeCounter = optimizeCounter;
         ref.typeCheckCounter = typeCheckCounter;
         return ref;
@@ -476,6 +499,7 @@ public class UserFunctionReference extends Expression
             c2.setCurrentComponent(component);
             c2.setResourceResolver(oldContext.getResourceResolver());
             c2.setOrigin(originator);
+            c2.setCaller(oldContext);
             return function.makeNewContext(c2, originator);
         }
 
@@ -491,7 +515,7 @@ public class UserFunctionReference extends Expression
                 FunctionDefinition fd = (FunctionDefinition)function;
                 Sequence[] extendedArgs = Arrays.copyOf(args, fd.getNumberOfParameters());
                 for (int i=args.length; i<extendedArgs.length; i++) {
-                    extendedArgs[i] = fd.getDefaultValueExpression(i).copy(new RebindingMap())
+                    extendedArgs[i] = fd.getDefaultValueExpression(i).get()
                             .makeElaborator().lazily(true, false).evaluate(context);
                 }
                 args = extendedArgs;
@@ -501,6 +525,9 @@ public class UserFunctionReference extends Expression
 
         @Override
         public FunctionItemType getFunctionItemType() {
+            if (function instanceof UserFunction) {
+                return ((UserFunction) function).getFunctionItemType(getArity());
+            }
             return function.getFunctionItemType();
         }
 
@@ -528,8 +555,30 @@ public class UserFunctionReference extends Expression
         public void export(ExpressionPresenter out) throws XPathException {
             agent.export(out);
         }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (other instanceof BoundUserFunction) {
+                BoundUserFunction buf = (BoundUserFunction) other;
+                return getTargetFunction() == buf.getTargetFunction() && getArity() == buf.getArity();
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return getTargetFunction().hashCode() ^ (getArity() << 13);
+        }
+
+        @Override
+        public synchronized String getUniqueIdentifier() {
+            return function.getDescription();
+        }
     }
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.type.NumericType;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.NumericValue;
@@ -29,14 +30,15 @@ import java.util.function.Function;
  */
 public class MathFunctionSet extends BuiltInFunctionSet {
 
-    private static final MathFunctionSet THE_INSTANCE = new MathFunctionSet();
+    private static final MathFunctionSet THE_INSTANCE_31 = new MathFunctionSet(31);
+    private static final MathFunctionSet THE_INSTANCE_40 = new MathFunctionSet(40);
 
-    public static MathFunctionSet getInstance() {
-        return THE_INSTANCE;
+    public static MathFunctionSet getInstance(int version) {
+        return version >= 40 ? THE_INSTANCE_40 : THE_INSTANCE_31;
     }
 
-    private MathFunctionSet() {
-        init();
+    private MathFunctionSet(int xpathVersion) {
+        init(xpathVersion);
     }
 
     private void reg1(String name, Function<Double, Double> method) {
@@ -45,7 +47,7 @@ public class MathFunctionSet extends BuiltInFunctionSet {
     }
 
 
-    private void init() {
+    private void init(int xpathVersion) {
 
         // Arity 0 functions
 
@@ -69,12 +71,19 @@ public class MathFunctionSet extends BuiltInFunctionSet {
 
         register("pow", 2, e -> e.populate(PowFn::new, BuiltInAtomicType.DOUBLE, OPT, CARD0)
                 .arg(0, BuiltInAtomicType.DOUBLE, OPT, EMPTY)
-                .arg(1, BuiltInAtomicType.DOUBLE, ONE, null));
+                .arg(1, NumericType.getInstance(), ONE, null));
 
         register("atan2", 2, e -> e.populate(Atan2Fn::new, BuiltInAtomicType.DOUBLE, ONE, 0)
                 .arg(0, BuiltInAtomicType.DOUBLE, ONE, null)
                 .arg(1, BuiltInAtomicType.DOUBLE, ONE, null));
 
+        // Version 4.0 function
+        if (xpathVersion >= 40) {
+            register("e", 0, e -> e.populate(EFn::new, BuiltInAtomicType.DOUBLE, ONE, 0));
+            reg1("sinh", Math::sinh);
+            reg1("cosh", Math::cosh);
+            reg1("tanh", Math::tanh);
+        }
     }
 
     @Override
@@ -104,6 +113,22 @@ public class MathFunctionSet extends BuiltInFunctionSet {
     }
 
     /**
+     * Implement math:e
+     */
+
+    public static class EFn extends SystemFunction {
+        @Override
+        public Expression makeFunctionCall(Expression... arguments) {
+            return Literal.makeLiteral(new DoubleValue(Math.E));
+        }
+
+        @Override
+        public DoubleValue call(XPathContext context, Sequence[] arguments) throws XPathException {
+            return new DoubleValue(Math.E);
+        }
+    }
+
+    /**
      * Generic superclass for all the arity-1 trig functions
      */
 
@@ -119,7 +144,7 @@ public class MathFunctionSet extends BuiltInFunctionSet {
         public GroundedValue call(XPathContext context, Sequence[] args) throws XPathException {
             DoubleValue in = (DoubleValue) args[0].head();
             if (in == null) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             } else {
                 return new DoubleValue(method.apply(in.getDoubleValue()));
             }
@@ -145,7 +170,7 @@ public class MathFunctionSet extends BuiltInFunctionSet {
             DoubleValue x = (DoubleValue) args[0].head();
             DoubleValue result;
             if (x == null) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             } else {
                 double dx = x.getDoubleValue();
                 if (dx == 1) {
@@ -184,4 +209,4 @@ public class MathFunctionSet extends BuiltInFunctionSet {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.sort.GroupIterator;
+import net.sf.saxon.expr.sort.MergeGroupingIterator;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.*;
@@ -235,9 +236,9 @@ public class XPathContextMinor implements XPathContext {
         if (currentIterator == null) {
             return null;
         }
-        if (currentIterator instanceof FocusTrackingIterator) {
+        if (currentIterator instanceof FocusTrackingIterator mfti) {
             // Common case extracted to reduce overhead of megamorphism
-            return ((FocusTrackingIterator)currentIterator).current();
+            return mfti.current();
         } else {
             return currentIterator.current();
         }
@@ -277,6 +278,9 @@ public class XPathContextMinor implements XPathContext {
 
     @Override
     public final boolean isAtLast() throws XPathException {
+        if (currentIterator == null) {
+            throw new XPathException("Cannot evaluate position()=last() because there is no context item", "XPDY0002");
+        }
         if (currentIterator instanceof LookaheadIterator && ((LookaheadIterator)currentIterator).supportsHasNext()) {
             return !((LookaheadIterator) currentIterator).hasNext();
         }
@@ -382,7 +386,7 @@ public class XPathContextMinor implements XPathContext {
         // This should not happen, and if it does, it means that the evaluation mode has been miscalculated.
         // But if it does happen, we recover by wrapping the Closure in a MemoSequence which remembers the
         // value as it is calculated.
-
+        
         value = value.makeRepeatable();
         try {
             stackFrame.slots[slotNumber] = value;
@@ -507,7 +511,7 @@ public class XPathContextMinor implements XPathContext {
      */
 
     @Override
-    public GroupIterator getCurrentMergeGroupIterator() {
+    public MergeGroupingIterator getCurrentMergeGroupIterator() {
         return getMajorContext().getCurrentMergeGroupIterator();
     }
 

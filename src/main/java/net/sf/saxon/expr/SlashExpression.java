@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,16 +20,23 @@ import net.sf.saxon.expr.sort.DocumentSorter;
 import net.sf.saxon.functions.Doc;
 import net.sf.saxon.functions.DocumentFn;
 import net.sf.saxon.functions.KeyFn;
+import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.arrays.SquareArrayConstructor;
+import net.sf.saxon.ma.jnode.AnyJNodeType;
+import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.GNodeSequenceConverter;
+import net.sf.saxon.type.coercion.SequenceCoercer;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
@@ -61,7 +68,7 @@ public class SlashExpression extends BinaryExpression
      */
 
     public SlashExpression(Expression start, Expression step) {
-        super(start, Token.SLASH, step);
+        super(start, OperatorSymbol.SLASH, step);
     }
 
     @Override
@@ -162,24 +169,6 @@ public class SlashExpression extends BinaryExpression
 
 
     /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        return getStep().getIntegerBounds();
-    }
-
-    /**
      * Type-check the expression
      */
 
@@ -196,32 +185,57 @@ public class SlashExpression extends BinaryExpression
             return getStart();
         }
 
-        // The first operand must be of type node()*
+        int version = visitor.getStaticContext().getXPathVersion();
 
         Configuration config = visitor.getConfiguration();
-        TypeChecker tc = config.getTypeChecker(false);
+
+
+        // The first operand must be of type gnode()*. This is a specific coercion,
+        // that wraps arrays and maps in gnodes: it's not something that falls out
+        // of the standard coercion rules.
+
         Supplier<RoleDiagnostic> roleSupplier =
                 () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, "/", 0, "XPTY0019");
-        setStart(tc.staticTypeCheck(getStart(), SequenceType.NODE_SEQUENCE, roleSupplier, visitor));
+
+        if (version >= 40) {
+            ItemType lhsItemType = getLhsExpression().getItemType();
+            if (lhsItemType instanceof MapType || lhsItemType instanceof ArrayItemType) {
+                setStart(new GNodeSequenceConverter(getStart(), roleSupplier));
+            } else {
+                Affinity aff = Subsumption.computeRelationship(lhsItemType, AnyGNodeType.getInstance());
+                switch (aff) {
+                    case OVERLAPS:
+                    case SUBSUMES:
+                        setStart(new GNodeSequenceConverter(getStart(), roleSupplier));
+                        break;
+                    default:
+                        // no action
+                }
+            }
+        }
+
+        TypeChecker tc = config.getTypeChecker(false);
+        SequenceType lhsType = version >= 40 ? SequenceType.GNODE_SEQUENCE : SequenceType.NODE_SEQUENCE;
+        setStart(tc.staticTypeCheck(getStart(), lhsType, roleSupplier, visitor));
+
 
         // Now check the second operand
 
         ItemType startType = getStart().getItemType();
         if (startType == ErrorType.getInstance()) {
-            // implies the start expression will return an empty sequence, so the whole expression is void
-            return Literal.makeEmptySequence();
+            // start expression is either empty or error
+            return getStart();
         }
 
-        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(startType, false);
-        cit.setContextSettingExpression(getStart());
+        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(startType)
+                .withContextSetter(getStart());
         getRhs().typeCheck(visitor, cit);
 
         // Give a warning if people write a/[x = 3]
-        if (getRhsExpression() instanceof SquareArrayConstructor)  {
-            SquareArrayConstructor sq = (SquareArrayConstructor)getRhsExpression();
+        if (getRhsExpression() instanceof SquareArrayConstructor sq)  {
             if (sq.getOperanda().getNumberOfOperands() == 1) {
                 visitor.getStaticContext().issueWarning("An array constructor appears immediately after '/' or '//'. Perhaps " +
-                                "'/*[predicate]' was intended? If not, consider using '!' rather than '/' to remove this warning.", SaxonErrorCode.SXWN9028, getLocation());
+                                "'/*[predicate]' was intended? If not, consider using '!' rather than '/' to remove this warning.", SaxonErrorCode.SXWN9028, sq.getLocation());
             }
         }
 
@@ -267,30 +281,29 @@ public class SlashExpression extends BinaryExpression
             underlyingStep = ((FilterExpression) underlyingStep).getSelectExpression();
         }
 
-        if (!(underlyingStep instanceof AxisExpression)) {
+        if (!(underlyingStep instanceof GeneralizedAxisExpression)) {
             return null;
         }
 
-        Expression st = getStart();
+        Expression start = getStart();
 
         // detect .//x as a special case; this will appear as descendant-or-self::node()/x
 
-        if (st instanceof AxisExpression) {
-            AxisExpression stax = (AxisExpression) st;
+        if (start instanceof GeneralizedAxisExpression stax) {
             if (stax.getAxis() != AxisInfo.DESCENDANT_OR_SELF) {
                 return null;
             }
             ContextItemExpression cie = new ContextItemExpression();
             ExpressionTool.copyLocationInfo(this, cie);
-            st = ExpressionTool.makePathExpression(cie, stax.copy(new RebindingMap()));
-            ExpressionTool.copyLocationInfo(this, st);
+            start = ExpressionTool.makePathExpression(cie, ((Expression)stax).copy(new RebindingMap()));
+            ExpressionTool.copyLocationInfo(this, start);
         }
 
-        if (!(st instanceof SlashExpression)) {
+        if (!(start instanceof SlashExpression)) {
             return null;
         }
 
-        SlashExpression startPath = (SlashExpression) st;
+        SlashExpression startPath = (SlashExpression) start;
         if (!(startPath.getStep() instanceof AxisExpression)) {
             return null;
         }
@@ -300,23 +313,30 @@ public class SlashExpression extends BinaryExpression
             return null;
         }
 
-
-
         NodeTest test = mid.getNodeTest();
-        if (!(test == null || test instanceof AnyNodeTest)) {
+        if (!(test == null
+                      || test == AnyGNodeType.getInstance()
+                      || test == AnyJNodeType.getInstance()
+                      || test == AnyXNodeType.getInstance())) {
             return null;
         }
 
 
 
-        int underlyingAxis = ((AxisExpression) underlyingStep).getAxis();
+        int underlyingAxis = ((GeneralizedAxisExpression) underlyingStep).getAxis();
         if (underlyingAxis == AxisInfo.CHILD ||
                 underlyingAxis == AxisInfo.DESCENDANT ||
                 underlyingAxis == AxisInfo.DESCENDANT_OR_SELF) {
             int newAxis = underlyingAxis == AxisInfo.DESCENDANT_OR_SELF ? AxisInfo.DESCENDANT_OR_SELF : AxisInfo.DESCENDANT;
-            Expression newStep =
-                    new AxisExpression(newAxis,
-                            ((AxisExpression) underlyingStep).getNodeTest());
+            Expression newStep;
+            if (underlyingStep instanceof AxisExpression) {
+                newStep = new AxisExpression(newAxis,
+                                             ((AxisExpression) underlyingStep).getNodeTest());
+            } else if (underlyingStep instanceof AxisGetExpression) {
+                newStep = new AxisGetExpression(newAxis, ((AxisGetExpression)underlyingStep).getBaseExpression());
+            } else {
+                throw new IllegalStateException();
+            }
             ExpressionTool.copyLocationInfo(this, newStep);
 
             underlyingStep = getStep();
@@ -349,7 +369,7 @@ public class SlashExpression extends BinaryExpression
             // turn the expression a//@b into a/descendant-or-self::*/@b
 
             Expression newStep =
-                    new AxisExpression(AxisInfo.DESCENDANT_OR_SELF, NodeKindTest.ELEMENT);
+                    new AxisExpression(AxisInfo.DESCENDANT_OR_SELF, NodeKindType.ELEMENT);
             ExpressionTool.copyLocationInfo(this, newStep);
             Expression e2 = ExpressionTool.makePathExpression(startPath.getStart(), newStep);
             Expression e3 = ExpressionTool.makePathExpression(e2, getStep());
@@ -375,15 +395,15 @@ public class SlashExpression extends BinaryExpression
             return Literal.makeEmptySequence();
         }
 
-        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(getStart().getItemType(), false);
-        cit.setContextSettingExpression(getStart());
+        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(getStart().getItemType())
+                .withContextSetter(getStart());
         getRhs().optimize(visitor, cit);
 
         if (Literal.isEmptySequence(getStep())) {
             return Literal.makeEmptySequence();
         }
 
-        if (getStart() instanceof RootExpression && th.isSubType(contextItemType.getItemType(), NodeKindTest.DOCUMENT)) {
+        if (getStart() instanceof RootExpression && th.isSubType(contextItemType.getItemType(), NodeKindType.DOCUMENT)) {
             // remove unnecessary leading "/" - helps streaming
             return getStep();
         }
@@ -495,9 +515,9 @@ public class SlashExpression extends BinaryExpression
                 return (SlashExpression) path;
             }
         }
-        if (first instanceof DocumentSorter && ((DocumentSorter) first).getBaseExpression() instanceof SlashExpression) {
+        if (first instanceof DocumentSorter
+                && ((DocumentSorter) first).getBaseExpression() instanceof SlashExpression se) {
             // see test case filter-001 in xqts-extra
-            SlashExpression se = (SlashExpression) ((DocumentSorter) first).getBaseExpression();
             SlashExpression se2 = se.tryToMakeAbsolute();
             if (se2 != null) {
                 if (se2 == se) {
@@ -557,8 +577,8 @@ public class SlashExpression extends BinaryExpression
 
         Expression k = new FilterExpression(y, x);
         // If we're not starting at the root, ensure we go down at least one level
-        if (!th.isSubType(contextItemType.getItemType(), NodeKindTest.DOCUMENT)) {
-            k = new SlashExpression(new AxisExpression(AxisInfo.CHILD, NodeKindTest.ELEMENT), k);
+        if (!th.isSubType(contextItemType.getItemType(), NodeKindType.DOCUMENT)) {
+            k = new SlashExpression(new AxisExpression(AxisInfo.CHILD, NodeKindType.ELEMENT), k);
             ExpressionTool.copyLocationInfo(this, k);
             opt.trace("Rewrote descendant::X/child::Y as child::*/descendant::Y[parent::X]", k);
         } else {
@@ -586,20 +606,6 @@ public class SlashExpression extends BinaryExpression
         return this;
     }
 
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     *
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     *         expression is the first operand of a path expression or filter expression
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet target = getStart().addToPathMap(pathMap, pathMapNodeSet);
-        return getStep().addToPathMap(pathMap, target);
-    }
 
     /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
@@ -708,14 +714,20 @@ public class SlashExpression extends BinaryExpression
      *         if no additional sort is required
      */
 
+//    private boolean testNaturallySorted(int startProperties, int stepProperties) {
+//        boolean result = testNaturallySorted0(startProperties, stepProperties);
+//        if (!result) {
+//            // do it again for diagnostics
+//            ExpressionTool.resetPropertiesWithinSubtree(this);
+//            simplifyDescendantPath(new IndependentContext(getConfiguration()));
+//            startProperties = getLhsExpression().computeSpecialProperties();
+//            result = testNaturallySorted0(startProperties, stepProperties);
+//        }
+//        //System.err.println(this + " is " + (result ? "" : "not ") + "ordered");
+//        return result;
+//    }
+
     private boolean testNaturallySorted(int startProperties, int stepProperties) {
-
-        // System.err.println("**** Testing pathExpression.isNaturallySorted()");
-        // display(20);
-        // System.err.println("Start is ordered node-set? " + start.isOrderedNodeSet());
-        // System.err.println("Start is naturally sorted? " + start.isNaturallySorted());
-        // System.err.println("Start is singleton? " + start.isSingleton());
-
         if ((stepProperties & StaticProperty.ORDERED_NODESET) == 0) {
             return false;
         }
@@ -800,61 +812,68 @@ public class SlashExpression extends BinaryExpression
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath true if an axis step in this expression is to be treated as an initial step in the pattern
      * @return the equivalent pattern
-     * @throws net.sf.saxon.trans.XPathException
-     *          if conversion is not possible
+     * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
         Expression head = getLeadingSteps();
+        if (head instanceof SequenceCoercer
+                && ((SequenceCoercer)head).getRequiredType().getPrimaryType() == AnyGNodeType.getInstance()) {
+            head = ((SequenceCoercer)head).getBaseExpression();
+        }
         Expression tail = getLastStep();
-        if (head instanceof ItemChecker) {
+        if (head instanceof RootExpression) {
+            head = new AxisExpression(AxisInfo.SELF, NodeKindType.DOCUMENT);
+        }
+        if (head instanceof ItemChecker checker) {
             // No need to type check the context item
-            ItemChecker checker = (ItemChecker) head;
             if (checker.getBaseExpression() instanceof ContextItemExpression) {
-                return tail.toPattern(config);
+                return tail.toPattern(config, firstInPath);
             }
-        } else if (tail instanceof VennExpression) {
+        } else if (tail instanceof VennExpression ve) {
             // Bug 4645. Rewrite a/(b|c) as (a/b union a/c). Note this rewrite isn't safe for
             // the "intersect" and "except" operators, except in special cases
-            VennExpression ve = (VennExpression)tail;
-            if (ve.operator == Token.UNION) {
+            if (ve.operator == OperatorSymbol.UNION) {
                 Expression lhExpansion = new SlashExpression(
                         head.copy(new RebindingMap()), ve.getLhsExpression());
                 Expression rhExpansion = new SlashExpression(
                         head.copy(new RebindingMap()), ve.getRhsExpression());
                 VennExpression topExpansion = new VennExpression(
                         lhExpansion, ve.operator, rhExpansion);
-                return topExpansion.toPattern(config);
+                return topExpansion.toPattern(config, firstInPath);
             }
         }
 
-        Pattern tailPattern = tail.toPattern(config);
+        Pattern tailPattern = tail.toPattern(config, false);
         if (tailPattern instanceof NodeTestPattern) {
             if (tailPattern.getItemType() instanceof ErrorType) {
                 return tailPattern;
             }
         } else if (tailPattern instanceof GeneralNodePattern) {
-            return new GeneralNodePattern(this, (NodeTest)tailPattern.getItemType());
+            return new GeneralNodePattern(this, tailPattern.getItemType());
         }
 
         int axis = AxisInfo.PARENT;
         Pattern headPattern = null;
-        if (head instanceof SlashExpression) {
-            SlashExpression start = (SlashExpression) head;
-            if (start.getActionExpression() instanceof AxisExpression) {
-                AxisExpression mid = (AxisExpression) start.getActionExpression();
+        if (head instanceof SlashExpression start) {
+            if (start.getActionExpression() instanceof AxisExpression mid) {
                 if (mid.getAxis() == AxisInfo.DESCENDANT_OR_SELF &&
-                        (mid.getNodeTest() == null || mid.getNodeTest() instanceof AnyNodeTest)) {
+                        (mid.getNodeTest() == null || mid.getNodeTest() == AnyGNodeType.getInstance())) {
                     axis = AxisInfo.ANCESTOR;
-                    headPattern = start.getSelectExpression().toPattern(config);
+                    headPattern = start.getSelectExpression().toPattern(config, firstInPath);
                 }
             }
         }
         if (headPattern == null) {
             axis = PatternMaker.getAxisForPathStep(tail);
-            headPattern = head.toPattern(config);
+            if (head instanceof ContextItemExpression) {
+                headPattern = AnchorPattern.getInstance();
+            } else {
+                headPattern = head.toPattern(config, firstInPath);
+            }
         }
         return new AncestorQualifiedPattern(tailPattern, headPattern, axis);
     }
@@ -911,22 +930,22 @@ public class SlashExpression extends BinaryExpression
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(final XPathContext context) throws XPathException {
-
+        return makeElaborator().elaborateForPull().iterate(context);
         // This class delivers the result of the path expression in unsorted order,
         // without removal of duplicates. If sorting and deduplication are needed,
         // this is achieved by wrapping the path expression in a DocumentSorter
 
-        Expression step = getStep();
-        if (contextFree && step instanceof AxisExpression) {
-            // See bug 4730: the step might have been changed to something else
-            return MappingIterator.map(
-                    getStart().iterate(context),
-                    item -> ((AxisExpression) step).iterate((NodeInfo)item));
-        }
-
-        XPathContext context2 = context.newMinorContext();
-        context2.trackFocus(getStart().iterate(context));
-        return new ContextMappingIterator(c1 -> getStep().iterate(c1), context2);
+//        Expression step = getStep();
+//        if (contextFree && step instanceof AxisExpression) {
+//            // See bug 4730: the step might have been changed to something else
+//            return MappingIterator.map(
+//                    getStart().iterate(context),
+//                    item -> ((AxisExpression) step).iterate((NodeInfo)item));
+//        }
+//
+//        XPathContext context2 = context.newMinorContext();
+//        context2.trackFocus(getStart().iterate(context));
+//        return new ContextMappingIterator(c1 -> getStep().iterate(c1), context2);
     }
 
     /**
@@ -1113,9 +1132,8 @@ public class SlashExpression extends BinaryExpression
             SlashExpression expr = (SlashExpression) getExpression();
             PullEvaluator select = expr.getSelectExpression().makeElaborator().elaborateForPull();
             PullEvaluator action = expr.getActionExpression().makeElaborator().elaborateForPull();
-            if (expr.contextFree && expr.getStep() instanceof AxisExpression) {
-                AxisExpression step = (AxisExpression)expr.getStep();
-                return context -> MappingIterator.map(select.iterate(context), item -> step.iterate((NodeInfo)item));
+            if (expr.contextFree && expr.getStep() instanceof AxisExpression step) {
+                return context -> MappingIterator.map(select.iterate(context), item -> step.iterate((GNode)item));
             } else {
                 @SuppressWarnings("Convert2MethodRef")
                 ContextMappingFunction mapper = cxt -> action.iterate(cxt);
@@ -1132,13 +1150,12 @@ public class SlashExpression extends BinaryExpression
             SlashExpression expr = (SlashExpression)getExpression();
             PullEvaluator select = expr.getSelectExpression().makeElaborator().elaborateForPull();
             PushEvaluator action = expr.getActionExpression().makeElaborator().elaborateForPush();
-            if (expr.contextFree && expr.getStep() instanceof AxisExpression) {
-                AxisExpression step = (AxisExpression) expr.getStep();
+            if (expr.contextFree && expr.getStep() instanceof AxisExpression step) {
                 return (out, context) -> {
                     SequenceIterator outer = select.iterate(context);
                     for (Item a; (a = outer.next()) != null; ) {
-                        AxisIterator inner = step.iterate((NodeInfo)a);
-                        for (NodeInfo b; (b = inner.next()) != null;) {
+                        SequenceIterator inner = step.iterate((GNode)a);
+                        for (GNode b; (b = (GNode)inner.next()) != null;) {
                            out.append(b, expr.getLocation(), ReceiverOption.ALL_NAMESPACES);
                         }
                     }

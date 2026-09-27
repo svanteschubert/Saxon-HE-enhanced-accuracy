@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,25 +7,24 @@
 
 package net.sf.saxon.tree.tiny;
 
-import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.om.AtomicSequence;
+import net.sf.saxon.om.AtomizedValueIterator;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.type.SchemaType;
-import net.sf.saxon.type.Type;
 
 /**
  * AttributeIterator is an iterator over all the attribute nodes of an Element in the TinyTree.
  */
 
-final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
+final class AttributeIterator implements SequenceIterator, AtomizedValueIterator {
 
     private final TinyTree tree;
     private final int element;
-    private final NodeTest nodeTest;
+    private final NodePredicate predicate;
     private int index;
-    private int currentNodeNr;
+    private TinyAttributeImpl current = null;
 
     /**
      * Constructor. Note: this constructor will only be called if the relevant node
@@ -34,16 +33,16 @@ final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
      *
      * @param tree:     the containing TinyTree
      * @param element:  the node number of the element whose attributes are required
-     * @param nodeTest: condition to be applied to the names of the attributes selected
+     * @param predicate: condition to be applied to the names of the attributes selected
      */
 
-    AttributeIterator(/*@NotNull*/ TinyTree tree, int element, NodeTest nodeTest) {
+    AttributeIterator(TinyTree tree, int element, NodePredicate predicate) {
 
-        this.nodeTest = nodeTest;
+        this.predicate = predicate;
         this.tree = tree;
         this.element = element;
         index = tree.alpha[element];
-        currentNodeNr = -1;
+
     }
 
     /**
@@ -56,16 +55,13 @@ final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
         while (true) {
             if (index >= tree.numberOfAttributes || tree.attParent[index] != element) {
                 index = Integer.MAX_VALUE;
-                currentNodeNr = -1;
+                current = null;
                 return false;
             }
-            SchemaType typeCode = tree.getAttributeType(index);
-            if (nodeTest.matches(Type.ATTRIBUTE, new CodedName(tree.attCode[index] & NamePool.FP_MASK, "", tree.getNamePool()), typeCode)) {
-                currentNodeNr = index++;
-                if (nodeTest instanceof NameTest) {
-                    // there can only be one match, so abandon the search after this node
-                    index = Integer.MAX_VALUE;
-                }
+            TinyAttributeImpl att = tree.getAttributeNode(index);
+            if (predicate.test(att)) {
+                current = att;
+                index++;
                 return true;
             }
             index++;
@@ -82,7 +78,7 @@ final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
     @Override
     public NodeInfo next() {
         if (moveToNext()) {
-            return tree.getAttributeNode(currentNodeNr);
+            return current;
         } else {
             return null;
         }
@@ -98,7 +94,7 @@ final class AttributeIterator implements AxisIterator, AtomizedValueIterator {
     @Override
     public AtomicSequence nextAtomizedValue() throws XPathException {
         if (moveToNext()) {
-            return tree.getTypedValueOfAttribute(null, currentNodeNr);
+            return current.atomize();
         } else {
             return null;
         }

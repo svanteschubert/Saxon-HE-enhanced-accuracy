@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,31 +12,36 @@ import net.sf.saxon.Controller;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.streams.Step;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.type.FunctionItemType;
 import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.value.SequenceType;
 
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
- * The class XdmFunctionItem represents a function item
+ * The class {@code XdmFunctionItem} represents a function item. There are subclasses for maps and arrays.
  */
 
 @CSharpModifiers(code = {"internal"})
 public class XdmFunctionItem extends XdmItem {
 
     /**
-     * Create an XdmFunctionItem that wraps a supplied <code>Function</code>. This
+     * Create an {@code XdmFunctionItem} that wraps a supplied <code>Function</code>. This
      * method is primarily for internal use, though it is also available to applications
      * that manipulate data using lower-level Saxon interfaces.
      *
      * @param fi the function value to be wrapped.
      */
-
+    
     public XdmFunctionItem(FunctionItem fi) {
         super(fi);
     }
@@ -94,7 +99,7 @@ public class XdmFunctionItem extends XdmItem {
     }
 
     /**
-     * Get an equivalent Java Function object representing this XdmFunction.
+     * Get an equivalent Java Function object representing this XDM Function.
      * This is possible only for arity-1 functions.
      * @param processor the processor
      * @return a Java Function. This takes an XdmValue
@@ -150,7 +155,8 @@ public class XdmFunctionItem extends XdmItem {
      *
      * @param arguments the values to be supplied as arguments to the function. The "function
      *                  conversion rules" will be applied to convert the arguments to the required
-     *                  type when necessary.
+     *                  type when necessary. The conversion rules that apply are those defined
+     *                  in the XPath 3.1 specification.
      * @param processor the s9api Processor
      * @return the result of calling the function
      * @throws SaxonApiException if an error is detected
@@ -164,19 +170,21 @@ public class XdmFunctionItem extends XdmItem {
             FunctionItem fi = (FunctionItem) getUnderlyingValue();
             FunctionItemType type = fi.getFunctionItemType();
             Sequence[] argVals = new Sequence[arguments.length];
-            TypeHierarchy th = processor.getUnderlyingConfiguration().getTypeHierarchy();
+            final Configuration config = processor.getUnderlyingConfiguration();
+            TypeHierarchy th = config.getTypeHierarchy();
+            CoercionRules coercionRules = CoercionRules.forVersion(config, 31);
             for (int i = 0; i < arguments.length; i++) {
                 net.sf.saxon.value.SequenceType required = type.getArgumentTypes()[i];
                 GroundedValue val = arguments[i].getUnderlyingValue();
-                if (!required.matches(val, th)) {
+                if (!required.matches(val)) {
                     final int pos = i;
                     Supplier<RoleDiagnostic> role =
                             () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, "", pos);
-                    val = th.applyFunctionConversionRules(val, required, role, Loc.NONE);
+                    val = coercionRules.coerce(val, required, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE)
+                            .materialize();
                 }
                 argVals[i] = val;
             }
-            Configuration config = processor.getUnderlyingConfiguration();
             Controller controller = new Controller(config);
             XPathContext context = controller.newXPathContext();
             context = fi.makeNewContext(context, controller);
@@ -185,10 +193,12 @@ public class XdmFunctionItem extends XdmItem {
             GroundedValue groundedResult = result.materialize();
             if (!fi.isTrustedResultType()) {
                 net.sf.saxon.value.SequenceType required = type.getResultType();
-                if (!required.matches(groundedResult, th)) {
+                if (!required.matches(groundedResult)) {
                     Supplier<RoleDiagnostic> role =
                             () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, "", 0);
-                    groundedResult = th.applyFunctionConversionRules(groundedResult, required, role, Loc.NONE);
+                    groundedResult = coercionRules.coerce(
+                            groundedResult, required, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE)
+                            .materialize();
                 }
             }
             return XdmValue.wrap(groundedResult);

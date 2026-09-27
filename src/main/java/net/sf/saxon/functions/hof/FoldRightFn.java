@@ -9,13 +9,13 @@ package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.functions.Reverse;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyFunctionType;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.value.Int64Value;
 
 /**
  * This class implements the function fn:fold-right(), which is a standard function in XQuery 1.1
@@ -48,12 +48,15 @@ public class FoldRightFn extends SystemFunction {
 
     private Sequence evalFoldRight(final FunctionItem function,
                                    Sequence zero, SequenceIterator base, XPathContext context) throws XPathException {
-        SequenceIterator reverseBase = Reverse.getReverseIterator(base);
-        Sequence[] args = new Sequence[2];
-        Item item;
-        while ((item = reverseBase.next()) != null) {
-            args[0] = item;
+        GroundedValue input = SequenceTool.toGroundedValue(base);
+        int arity = function.getArity();
+        Sequence[] args = new Sequence[arity];
+        for (int i=input.getLength(); i>=1; i--) {
+            args[0] = input.itemAt(i-1);
             args[1] = zero.materialize();
+            if (arity == 3) {
+                args[2] = Int64Value.makeIntegerValue(i);
+            }
             try {
                 zero = dynamicCall(function, context, args);
             } catch (XPathException e) {
@@ -66,4 +69,4 @@ public class FoldRightFn extends SystemFunction {
 }
 
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

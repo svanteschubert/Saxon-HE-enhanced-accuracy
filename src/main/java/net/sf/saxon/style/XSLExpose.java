@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,8 +14,8 @@ import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.QNameTest;
+import net.sf.saxon.pattern.qname.QNameTest;
+import net.sf.saxon.pattern.qname.SpecificQNameTest;
 import net.sf.saxon.trans.*;
 
 import java.util.List;
@@ -76,12 +76,12 @@ public class XSLExpose extends XSLAcceptExpose {
 
         for (ComponentTest test : getExplicitComponentTests()) {
             QNameTest nameTest = test.getQNameTest();
-            if (nameTest instanceof NameTest) {
-                StructuredQName qName = ((NameTest) nameTest).getMatchingNodeName();
+            if (nameTest instanceof SpecificQNameTest) {
+                StructuredQName qName = ((SpecificQNameTest) nameTest).getStructuredQName();
                 int kind = test.getComponentKind();
                 SymbolicName sName = kind == StandardNames.XSL_FUNCTION ?
-                    new SymbolicName.F(((NameTest) nameTest).getMatchingNodeName(), test.getArity()) :
-                    new SymbolicName(kind, ((NameTest) nameTest).getMatchingNodeName());
+                    new SymbolicName.F(qName, test.getArity()) :
+                    new SymbolicName(kind, qName);
                 boolean found = false;
                 switch(kind) {
                     case StandardNames.XSL_TEMPLATE: {
@@ -131,7 +131,7 @@ public class XSLExpose extends XSLAcceptExpose {
                         if (test.getArity() == -1) {
                             // This will match any function of the required name, regardless of arity
                             for (int i = 0; i <= pack.getMaxFunctionArity(); i++) {
-                                sName = new SymbolicName.F(((NameTest) nameTest).getMatchingNodeName(), i);
+                                sName = new SymbolicName.F(qName, i);
                                 Component fn = pack.getComponent(sName);
                                 if (fn != null) {
                                     found = true;

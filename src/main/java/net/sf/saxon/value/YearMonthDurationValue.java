@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,10 +14,7 @@ import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
-import net.sf.saxon.type.AtomicType;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.ConversionResult;
-import net.sf.saxon.type.ValidationFailure;
+import net.sf.saxon.type.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -29,10 +26,10 @@ import java.math.RoundingMode;
  * to be represented.</p>
  */
 
-public final class YearMonthDurationValue extends DurationValue implements XPathComparable, ContextFreeAtomicValue {
+public final class YearMonthDurationValue extends DurationValue implements XPathComparable {
 
     public YearMonthDurationValue(int months, AtomicType typeLabel) {
-        super(0, months, 0, 0, 0, 0, 0, typeLabel);
+        super(months, BigDecimal.ZERO, typeLabel);
     }
 
     /**
@@ -56,14 +53,14 @@ public final class YearMonthDurationValue extends DurationValue implements XPath
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     /*@NotNull*/
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        return new YearMonthDurationValue(getLengthInMonths(), typeLabel);
+    public AtomicValue withMetadata(AtomicMetadata metadata) {
+        return new YearMonthDurationValue(_months, metadata.getType());
     }
 
     /**
@@ -93,7 +90,7 @@ public final class YearMonthDurationValue extends DurationValue implements XPath
         int m = getMonths();
 
         UnicodeBuilder sb = new UnicodeBuilder(16);
-        if (_negative) {
+        if (signum() < 0) {
             sb.append('-');
         }
         sb.append('P');
@@ -110,11 +107,11 @@ public final class YearMonthDurationValue extends DurationValue implements XPath
     /**
      * Get the number of months in the duration
      *
-     * @return the number of months in the duration
+     * @return the total number of months in the duration (years*12 + months); negative if the duration is negative
      */
 
     public int getLengthInMonths() {
-        return _months * (_negative ? -1 : +1);
+        return _months;
     }
 
     /**
@@ -261,48 +258,47 @@ public final class YearMonthDurationValue extends DurationValue implements XPath
         return fromMonths(-getLengthInMonths());
     }
 
-    /**
-     * Compare the value to another duration value
-     *
-     * @param other The other dateTime value
-     * @return negative value if this one is the earler, 0 if they are chronologically equal,
-     *         positive value if this one is the later. For this purpose, dateTime values with an unknown
-     *         timezone are considered to be UTC values (the Comparable interface requires
-     *         a total ordering).
-     * @throws ClassCastException if the other value is not a DateTimeValue (the parameter
-     *                            is declared as Object to satisfy the Comparable interface)
-     */
+//    /**
+//     * Compare the value to another duration value
+//     *
+//     * @param other The other dateTime value
+//     * @return negative value if this one is the earler, 0 if they are chronologically equal,
+//     *         positive value if this one is the later. For this purpose, dateTime values with an unknown
+//     *         timezone are considered to be UTC values (the Comparable interface requires
+//     *         a total ordering).
+//     * @throws ClassCastException if the other value is not a DateTimeValue (the parameter
+//     *                            is declared as Object to satisfy the Comparable interface)
+//     */
+//
+//    @Override
+//    public int compareTo(XPathComparable other) {
+//        if (other instanceof YearMonthDurationValue) {
+//            return Integer.compare(getLengthInMonths(), ((YearMonthDurationValue) other).getLengthInMonths());
+//        } else {
+//            throw new ClassCastException("Cannot compare xs:yearMonthDuration with " + other);
+//        }
+//    }
 
     @Override
-    public int compareTo(XPathComparable other) {
-        if (other instanceof YearMonthDurationValue) {
-            return Integer.compare(getLengthInMonths(), ((YearMonthDurationValue) other).getLengthInMonths());
-        } else {
-            throw new ClassCastException("Cannot compare xs:yearMonthDuration with " + other);
-        }
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone, int specVersion) {
+        return specVersion >= 40
+                ? new DurationValue(_months, _seconds, BuiltInAtomicType.DURATION)
+                : this;
     }
-
-    @Override
-    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) {
-        return this;
-    }
-
-    @Override
-    public XPathComparable getXPathComparable() {
-        return this;
-    }
-
+    
     /**
      * Get a Comparable value that implements the XPath ordering comparison semantics for this value.
      * Returns null if the value is not comparable according to XPath rules. The default implementation
      * returns the value itself. This is modified for types such as
      * xs:duration which allow ordering comparisons in XML Schema, but not in XPath.
-     *  @param collator for comparing strings - not used
+     *
+     * @param collator         for comparing strings - not used
      * @param implicitTimezone implicit timezone in the dynamic context - not used
+     * @param specVersion
      */
 
     @Override
-    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone, int specVersion) {
         return this;
     }
 

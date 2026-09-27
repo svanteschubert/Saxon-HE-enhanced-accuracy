@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,7 @@ import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.functions.registry.VendorFunctionSetHE;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NameTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
 import net.sf.saxon.trans.DecimalFormatManager;
@@ -25,16 +25,17 @@ import net.sf.saxon.trans.KeyManager;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.AttributeLocation;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.Type;
-
-import java.util.Set;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.value.SequenceType;
 
 /**
  * An ExpressionContext represents the context for an XPath expression written
- * in the stylesheet.
+ * in an XSLT stylesheet. Note that in 4.0, an ExpressionContext may be accessed
+ * indirectly via a {@link StaticContextOverlay}.
  */
 
 public class ExpressionContext implements StaticContext {
@@ -43,7 +44,7 @@ public class ExpressionContext implements StaticContext {
     private final StructuredQName attributeName;
     private Location containingLocation = null;
     private RetainedStaticContext retainedStaticContext = null;
-
+    private UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy = UnprefixedElementMatchingPolicy.UNSPECIFIED;
 
     /**
      * Create a static context for XPath expressions in an XSLT stylesheet
@@ -59,12 +60,55 @@ public class ExpressionContext implements StaticContext {
     }
 
     /**
+     * Static method to get the XSLT instruction underlying a supplied StaticContext
+     * object if there is one; otherwise return null.
+     */
+
+    public static ExpressionContext getXsltExpressionContext(StaticContext env) {
+        if (env instanceof ExpressionContext ex) {
+            return ex;
+        }
+        if (env instanceof StaticContextOverlay overlay) {
+            return getXsltExpressionContext(overlay.getDelegee());
+        }
+        return null;
+    }
+
+    /**
+     * Static method to get the XSLT instruction underlying a supplied StaticContext
+     * object if there is one; otherwise return null.
+     */
+
+    public static StyleElement getXsltElement(StaticContext env) {
+        ExpressionContext expressionContext = getXsltExpressionContext(env);
+        if (expressionContext != null) {
+            return expressionContext.getStyleElement();
+        }
+        return null;
+    }
+
+    /**
      * Get the system configuration
      */
 
     @Override
     public Configuration getConfiguration() {
         return element.getConfiguration();
+    }
+
+    /**
+     * Register a namespace that is explicitly declared in the prolog of the XPath expression or query module.
+     *
+     * @param prefix The namespace prefix. Must not be null. May be zero-length to declare the default namespace
+     *               for elements and types.
+     * @param uri    The namespace URI. Must not be null. The value "" (zero-length string) is used
+     *               to undeclare a namespace; it is not an error if there is no existing binding for
+     *               the namespace prefix. Must not be "##any", which is handled separately.
+     * @throws XPathException if the declaration is invalid
+     */
+    @Override
+    public void declarePrologNamespace(String prefix, NamespaceUri uri) throws XPathException {
+        throw new UnsupportedOperationException("Cannot declare prolog namespaces on an immutable static context");
     }
 
     /**
@@ -85,6 +129,14 @@ public class ExpressionContext implements StaticContext {
      */
     public boolean isSchemaAware() {
         return element.isSchemaAware();
+    }
+
+    /**
+     * Get the in-scope schema declarations for the static context
+     */
+    @Override
+    public Schema getImportedSchema() {
+        return element.getImportedSchema();
     }
 
     /**
@@ -182,7 +234,9 @@ public class ExpressionContext implements StaticContext {
 
     @Override
     public NamespaceResolver getNamespaceResolver() {
-        return element.getAllNamespaces();
+        NamespaceMap map = element.getModuleRoot().getFixedNamespaces();
+        map = map == null ? element.getAllNamespaces() : map;
+        return map;
     }
 
     /**
@@ -195,7 +249,12 @@ public class ExpressionContext implements StaticContext {
 
     @Override
     public ItemType getRequiredContextItemType() {
-        return AnyItemType.getInstance();
+        return AnyItemType.INSTANCE;
+    }
+
+    @Override
+    public SequenceType getRequiredContextValueType() {
+        return SequenceType.SINGLE_ITEM;
     }
 
     /**
@@ -245,14 +304,16 @@ public class ExpressionContext implements StaticContext {
             Component comp = element.getCompilation().getPrincipalStylesheetModule().getComponent(sn);
             if (comp != null) { // test variable-0118
                 // See tests variable-0118 and variable-0120
-                SequenceTool.supply(element.iterateAxis(AxisInfo.ANCESTOR_OR_SELF), (ItemConsumer<? super Item>) parent -> {
-                    if (parent instanceof XSLGlobalVariable && ((XSLGlobalVariable) parent).getVariableQName().equals(qName)) {
-                        XPathException err = new XPathException("Variable $" + qName.getDisplayName() +
-                                                                        " cannot be used within its own declaration", "XPST0008");
-                        err.setIsStaticError(true);
-                        throw err;
-                    }
-                });
+                if (getPackageData().getHostLanguageVersion() < 40) {
+                    SequenceTool.supply(element.iterateAncestorOrSelfAxis(AnyGNode.TEST), (ItemConsumer<? super Item>) parent -> {
+                        if (parent instanceof XSLGlobalVariable && ((XSLGlobalVariable) parent).getVariableQName().equals(qName)) {
+                            XPathException err = new XPathException("Variable $" + qName.getDisplayName() +
+                                                                            " cannot be used within its own declaration", "XPST0008");
+                            err.setIsStaticError(true);
+                            throw err;
+                        }
+                    });
+                }
 
                 GlobalVariable globalVar = (GlobalVariable) comp.getActor();
                 GlobalVariableReference vref = new GlobalVariableReference(globalVar);
@@ -261,8 +322,8 @@ public class ExpressionContext implements StaticContext {
             }
             // it might be an implicit error variable in try/catch
             if (getXPathVersion() >= 30 && qName.hasURI(NamespaceUri.ERR)) {
-                AxisIterator catchers = element.iterateAxis(AxisInfo.ANCESTOR_OR_SELF,
-                                                            new NameTest(Type.ELEMENT, StandardNames.XSL_CATCH, element.getNamePool()));
+                SequenceIterator catchers = element.iterateAncestorOrSelfAxis(
+                        NamedXNodeType.make(Type.ELEMENT, StandardNames.XSL_CATCH, element.getConfiguration()));
                 StyleElement catcher = (StyleElement) catchers.next();
                 if (catcher != null) {
                     for (StructuredQName errorVariable : StandardNames.errorVariables) {
@@ -381,33 +442,6 @@ public class ExpressionContext implements StaticContext {
     }
 
     /**
-     * Test whether a schema has been imported for a given namespace
-     *
-     * @param namespace the target namespace of the required schema
-     * @return true if a schema for this namespace has been imported
-     */
-
-    @Override
-    public boolean isImportedSchema(NamespaceUri namespace) {
-        //if (Configuration.USE_PACKAGE_BINDING) {
-        return element.getPrincipalStylesheetModule().isImportedSchema(namespace);
-        //} else {
-        //    return getConfiguration().
-        //}
-    }
-
-    /**
-     * Get the set of imported schemas
-     *
-     * @return a Set, the set of URIs representing the names of imported schemas
-     */
-
-    @Override
-    public Set<NamespaceUri> getImportedSchemaNamespaces() {
-        return element.getPrincipalStylesheetModule().getImportedSchemaTable();
-    }
-
-    /**
      * Get the KeyManager, containing definitions of keys available for use.
      *
      * @return the KeyManager. This is used to resolve key names, both explicit calls
@@ -443,6 +477,21 @@ public class ExpressionContext implements StaticContext {
     }
 
     /**
+     * Set the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
+     * The value can be any of {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE} (the default),
+     * which uses the value of {@link #getDefaultElementNamespace()}, or {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE_OR_NONE},
+     * which matches both the namespace given in {@link #getDefaultElementNamespace()} and the null namespace,
+     * or {@link UnprefixedElementMatchingPolicy#ANY_NAMESPACE}, which matches any namespace (that is, it
+     * matches by local name only).
+     *
+     * @param policy the policy for matching unprefixed element names in path expressions
+     */
+    @Override
+    public void setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy policy) {
+        unprefixedElementMatchingPolicy = policy;
+    }
+
+    /**
      * Get the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
      * The value can be any of {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE} (the default),
      * which uses the value of {@link #getDefaultElementNamespace()}, or {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE_OR_NONE},
@@ -452,7 +501,10 @@ public class ExpressionContext implements StaticContext {
      */
     @Override
     public UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy() {
-        return element.getCompilation().getCompilerInfo().getUnprefixedElementMatchingPolicy();
+        if (unprefixedElementMatchingPolicy == UnprefixedElementMatchingPolicy.UNSPECIFIED) {
+            return element.getCompilation().getCompilerInfo().getUnprefixedElementMatchingPolicy();
+        }
+        return unprefixedElementMatchingPolicy;
     }
 }
 

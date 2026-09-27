@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.GroupIterator;
 import net.sf.saxon.expr.sort.MergeGroupingIterator;
 import net.sf.saxon.expr.sort.MergeInstr;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.SequenceTool;
@@ -118,10 +119,14 @@ public class CurrentMergeGroup extends SystemFunction {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public Sequence call(XPathContext context, Sequence[] arguments /*@NotNull*/) throws XPathException {
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         String source = null;
         if (arguments.length > 0) {
-            source = arguments[0].head().getStringValue();
+            Item value = arguments[0].head();
+            if (value != null) {
+                // Empty sequence allowed in 4.0
+                source = value.getStringValue();
+            }
         }
         return SequenceTool.toLazySequence(currentGroup(source, context));
     }

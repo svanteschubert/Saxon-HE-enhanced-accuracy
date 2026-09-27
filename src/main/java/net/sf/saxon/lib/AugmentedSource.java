@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.lib;
 
 import net.sf.saxon.event.FilterFactory;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.om.TreeModel;
 import net.sf.saxon.type.SchemaType;
@@ -46,6 +47,7 @@ public class AugmentedSource implements Source {
     private final Source source;
     private ParseOptions options = new ParseOptions();
     private String systemID;
+    private NamespaceUri requiredTargetNamespace;
 
     /**
      * Create an AugmentedSource that wraps a given Source object (which must not itself be an
@@ -448,7 +450,7 @@ public class AugmentedSource implements Source {
         return options.getEntityResolver();
     }
 
-
+    
     /**
      * Set an ErrorReporter to be used when parsing
      *
@@ -472,6 +474,24 @@ public class AugmentedSource implements Source {
         return options.getErrorReporter();
     }
 
+    /**
+     * Say that the source is expected to be an XSD schema document with a particular target namespace
+     * @param targetNamespace the required target namespace
+     */
+
+    public void setRequiredTargetNamespace(NamespaceUri targetNamespace) {
+        this.requiredTargetNamespace = targetNamespace;
+    }
+
+    /**
+     * Ask whether the source is expected to be an XSD schema document with a particular target namespace;
+     * if so return the required namespace
+     * @return the required target namespace
+     */
+
+    public NamespaceUri getRequiredTargetNamespace() {
+        return requiredTargetNamespace;
+    }
 
     /**
      * Say whether the user of this Source is encouraged to close it as soon as reading is finished.

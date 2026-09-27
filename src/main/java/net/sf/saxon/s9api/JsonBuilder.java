@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,29 +11,31 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.UnparsedTextFunction;
+import net.sf.saxon.lib.StandardUnparsedTextResolver;
 import net.sf.saxon.ma.json.ParseJsonFn;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.BooleanValue;
+import net.sf.saxon.z.IntIterator;
 import net.sf.saxon.z.IntPredicateProxy;
 import net.sf.saxon.z.IntSetPredicate;
 
-import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * A {@code JsonBuilder} is used to parse JSON documents
+ * A {@code JsonBuilder} is used to parse JSON documents. It can be instantiated by calling
+ * {@link Processor#newJsonBuilder()}.
  * @since 11
  */
 
 public class JsonBuilder {
 
-    private Configuration config;
+    private final Configuration config;
     private boolean liberal;
 
     protected JsonBuilder(Configuration config) {
@@ -87,19 +89,39 @@ public class JsonBuilder {
      */
 
     public XdmValue parseJson(Reader jsonReader) throws SaxonApiException {
+        Map<String, GroundedValue> options = new HashMap<>();
+        options.put("liberal", BooleanValue.get(liberal));
+        options.put("escape", BooleanValue.TRUE);
+        return parseJson(jsonReader, options);
+    }
+
+    /**
+     * Parse a JSON input string, supplied as a {@code Reader} and construct an {@code XdmValue} representing
+     * its content. The {@link XdmValue} will usually be an {@link XdmMap} or {@link XdmArray}.
+     * If the JSON input consists simply of a string, number, or boolean, then the result will be an
+     * {@code XdmAtomicValue}. If the input is the JSON string "null", the method returns an
+     * {@code XdmEmptySequence}.
+     *
+     * @param jsonReader supplies the input JSON as a stream of characters
+     * @param options options, as defined by the fn:parse-json function
+     * @return the result of parsing the JSON input. This will be an {@code XdmItem} in all cases except
+     * where the input JSON text is the string "null".
+     * @throws SaxonApiException if the JSON input is invalid, or if the reader throws an IOException
+     * @since 11
+     */
+
+    public XdmValue parseJson(Reader jsonReader, Map<String, GroundedValue> options) throws SaxonApiException {
         try {
             XPathContext context = new Controller(config).newXPathContext();
             IntPredicateProxy checker = IntSetPredicate.ALWAYS_TRUE;
-            UnicodeString content = UnparsedTextFunction.readFile(checker, jsonReader);
-            Map<String, GroundedValue> options = new HashMap<>();
-            options.put("liberal", BooleanValue.get(liberal));
-            options.put("escape", BooleanValue.TRUE);
-            Item result = ParseJsonFn.parse(content.toString(), options, context);
+            IntIterator content = UnparsedTextFunction.codepoints(checker, jsonReader);
+            Item result = ParseJsonFn.parse(content, options, context);
             return XdmValue.wrap(result);
-        } catch (XPathException | IOException e) {
+        } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
     }
+
 
     /**
      * Parse a JSON input string, supplied as a {@code String} and construct an {@code XdmValue} representing
@@ -120,6 +142,39 @@ public class JsonBuilder {
     public XdmValue parseJson(String json) throws SaxonApiException {
         return parseJson(new StringReader(json));
     }
+
+    /**
+     * Parse a JSON input string from a resource, supplied as a {@code URI},
+     * and construct an {@code XdmValue} representing
+     * its content. The {@code XdmValue} will usually be an {@code XdmMap} or {@code XdmArray}.
+     * If the JSON input consists simply of a string, number, or boolean, then the result will be an
+     * {@code XdmAtomicValue}. If the input is the JSON string "null", the method returns an
+     * {@code XdmEmptySequence}.
+     *
+     * <p>The method follows the rules of the {@code fn:parse-json()} function when called with
+     * default options.</p>
+     *
+     * @param uri supplies the URI of a resource containing the input JSON
+     * @return the result of parsing the JSON input
+     * @throws SaxonApiException if the resource cannot be read or contains invalid JSON input
+     * @since 13
+     */
+
+    public XdmValue loadJson(URI uri) throws SaxonApiException {
+        Reader reader;
+        try {
+            reader = new StandardUnparsedTextResolver().resolve(uri, "utf-8", config, false);
+            if (reader == null) {
+                throw new XPathException("Unable to resolve json-doc() URI " + uri, "FOUT1170");
+            }
+        } catch (XPathException err) {
+            err.maybeSetErrorCode("FOUT1170");
+            throw new SaxonApiException(err);
+        }
+
+        return parseJson(reader);
+    }
+
 
 }
 

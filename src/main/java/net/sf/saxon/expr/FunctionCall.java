@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -78,7 +78,7 @@ public abstract class FunctionCall extends Expression {
     public abstract FunctionItem getTargetFunction(XPathContext context) throws XPathException;
 
     /**
-     * Get the qualified of the function being called
+     * Get the qualified name of the function being called
      *
      * @return the qualified name. May be null if the function is anonymous.
      */
@@ -222,14 +222,21 @@ public abstract class FunctionCall extends Expression {
         FunctionDefinition fd = null;
         if (target instanceof FunctionDefinition) {
             fd = (FunctionDefinition)target;
+        } else if (target instanceof SystemFunction) {
+            fd = ((SystemFunction) target).getDetails();
         }
-        if (target.isSequenceVariadic() && getArity() == 1) {
+        if (target.isSequenceVariadic()) {
+            // Now applies to fn:concat only, with different rules for 3.1 and 4.0
+            int version = visitor.getStaticContext().getXPathVersion();
             String name = getFunctionName() == null ? "" : getFunctionName().getDisplayName();
-            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, name, 0);
-            setArg(0, tc.staticTypeCheck(
-                    getArg(0),
-                    new SequenceType(argTypes[0].getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE),
-                    role, visitor));
+            for (int a=0; a<getArity(); a++) {
+                final int finalA = a;
+                Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, name, finalA);
+                setArg(a, tc.staticTypeCheck(
+                        getArg(a),
+                        version >= 40 ? SequenceType.zeroOrMore(argTypes[0].getPrimaryType()) : argTypes[0],
+                        role, visitor));
+            }
         } else {
             int n = target.getArity();
             for (int i = 0; i < n; i++) {
@@ -250,20 +257,22 @@ public abstract class FunctionCall extends Expression {
                             throw new XPathException("No value supplied for " + RoleDiagnostic.ordinal(i + 1) +
                                                              " parameter of function " +
                                                              (getFunctionName() == null ? "" : getFunctionName().getDisplayName()),
-                                                     "XPST0141");
+                                                     "XPST0017");
                         }
                         if (arg instanceof DefaultedArgumentExpression.DefaultCollationArgument) {
                             arg = new StringLiteral(visitor.getStaticContext().getDefaultCollationName());
                         } else {
-                            Expression defaultValue = fd.getDefaultValueExpression(i);
+                            Supplier<Expression> defaultValue = fd.getDefaultValueExpression(i);
                             if (defaultValue == null) {
+                                arg = Literal.makeEmptySequence();
                                 // This only happens if there's an error in the function definition
-                                throw new XPathException("No value or default available for " + RoleDiagnostic.ordinal(i + 1) +
-                                                                 " parameter of function " +
-                                                                 (getFunctionName() == null ? "" : getFunctionName().getDisplayName()),
-                                                         "XPST0141");
+//                                throw new XPathException("No value or default available for " + RoleDiagnostic.ordinal(i + 1) +
+//                                                                 " parameter of function " +
+//                                                                 (getFunctionName() == null ? "" : getFunctionName().getDisplayName()),
+//                                                         "XPST0141");
+                            } else {
+                                arg = defaultValue.get().copy(new RebindingMap());
                             }
-                            arg = defaultValue.copy(new RebindingMap());
                             adoptChildExpression(arg);
                         }
                     } else if (target instanceof net.sf.saxon.functions.SystemFunction) {
@@ -274,10 +283,10 @@ public abstract class FunctionCall extends Expression {
                             throw new XPathException("No value supplied for " + RoleDiagnostic.ordinal(i + 1) +
                                                              " parameter of function " +
                                                              (getFunctionName() == null ? "" : getFunctionName().getDisplayName()),
-                                                     "XPST0141");
+                                                     "XPST0017");
                         }
-                        // For the moment, assume a default value of ()
-                        arg = new Literal(EmptySequence.getInstance());
+
+                        arg = new Literal(EmptySequence.INSTANCE);
                         adoptChildExpression(arg);
                     } else {
                         throw new UnsupportedOperationException();
@@ -437,49 +446,13 @@ public abstract class FunctionCall extends Expression {
      */
 
     public static String plural(int num, String thing) {
-        switch (num) {
-            case 0:
-                return "no " + thing + "s";
-            case 1:
-                return "one " + thing;
-            default:
-                return num + " " + thing + "s";
-        }
+        return switch (num) {
+            case 0 -> "no " + thing + "s";
+            case 1 -> "one " + thing;
+            default -> num + " " + thing + "s";
+        };
     }
 
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap      the PathMap to which the expression should be added
-     * @param pathMapNodes the node in the PathMap representing the focus at the point where this expression
-     *                     is called. Set to null if this expression appears at the top level, in which case the expression, if it
-     *                     is registered in the path map at all, must create a new path map root.
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     * expression is the first operand of a path expression or filter expression. For an expression that does
-     * navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     * expressions, it is the same as the input pathMapNode.
-     */
-
-    public PathMap.PathMapNodeSet addExternalFunctionCallToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodes) {
-        // Except in the case of system functions, we have no idea where a function call might
-        // navigate, so we assume the worst, and register that the path has unknown dependencies
-        PathMap.PathMapNodeSet result = new PathMap.PathMapNodeSet();
-        for (Operand o : operands()) {
-            result.addNodeSet(o.getChildExpression().addToPathMap(pathMap, pathMapNodes));
-        }
-        result.setHasUnknownDependencies();
-        return result;
-    }
 
     /**
      * Get a name identifying the kind of expression, in terms meaningful to a user.

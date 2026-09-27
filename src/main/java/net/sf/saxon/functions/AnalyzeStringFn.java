@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,13 +20,10 @@ import net.sf.saxon.regex.RegularExpression;
 import net.sf.saxon.str.EmptyUnicodeString;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.SchemaType;
-import net.sf.saxon.type.SimpleType;
-import net.sf.saxon.type.Untyped;
+import net.sf.saxon.type.*;
 
 /**
- * Implements the fn:analyze-string function defined in XPath 3.0.
+ * Implements the fn:analyze-string function first defined in XPath 3.0.
  */
 public class AnalyzeStringFn extends RegexFunction {
 
@@ -35,27 +32,36 @@ public class AnalyzeStringFn extends RegexFunction {
         public NodeName nonMatchName;
         public NodeName matchName;
         public NodeName groupName;
+        public NodeName lookaheadGroupName;
         public NodeName groupNrName;
-        public SchemaType resultType = Untyped.getInstance();
-        public SchemaType nonMatchType = Untyped.getInstance();
-        public SchemaType matchType = Untyped.getInstance();
-        public SchemaType groupType = Untyped.getInstance();
+        public NodeName positionName;
+        public NodeName valueName;
+        public SchemaType resultType = Untyped.INSTANCE;
+        public SchemaType nonMatchType = Untyped.INSTANCE;
+        public SchemaType matchType = Untyped.INSTANCE;
+        public SchemaType groupType = Untyped.INSTANCE;
+        public SchemaType lookaheadGroupType = Untyped.INSTANCE;
         public SimpleType groupNrType = BuiltInAtomicType.UNTYPED_ATOMIC;
+        public SimpleType positionType = BuiltInAtomicType.UNTYPED_ATOMIC;
+        public SimpleType valueType = BuiltInAtomicType.UNTYPED_ATOMIC;
     }
 
-    private ResultNamesAndTypes vocab = new ResultNamesAndTypes();
+    private final ResultNamesAndTypes vocab = new ResultNamesAndTypes();
 
     @Override
     protected boolean allowRegexMatchingEmptyString() {
-        return false;
+        return getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40;
     }
 
-    private synchronized void init(Configuration config, boolean schemaAware) throws XPathException {
+    private synchronized void init(Configuration config, Schema schema) throws XPathException {
         vocab.resultName = new FingerprintedQName("", NamespaceUri.FN, "analyze-string-result");
         vocab.nonMatchName = new FingerprintedQName("", NamespaceUri.FN, "non-match");
         vocab.matchName = new FingerprintedQName("", NamespaceUri.FN, "match");
         vocab.groupName = new FingerprintedQName("", NamespaceUri.FN, "group");
+        vocab.lookaheadGroupName = new FingerprintedQName("", NamespaceUri.FN, "lookahead-group");
         vocab.groupNrName = new NoNamespaceName("nr");
+        vocab.positionName = new NoNamespaceName("position");
+        vocab.valueName = new NoNamespaceName("value");
 
     }
 
@@ -79,7 +85,7 @@ public class AnalyzeStringFn extends RegexFunction {
         RegularExpression re = getRegularExpression(arguments, 1, 2);
         RegexIterator iter = re.analyze(input);
 
-        init(context.getConfiguration(), false);
+        init(context.getConfiguration(), null);
 
         final Builder builder = context.getController().makeBuilder();
         final ComplexContentOutputter out = new ComplexContentOutputter(builder);
@@ -137,8 +143,29 @@ public class AnalyzeStringFn extends RegexFunction {
             out.endElement();
         }
 
+        /**
+         * Method to be called when a lookahead captured group is encountered
+         *
+         * @param groupNumber the group number of the captured group
+         * @param position    the position within the input string of the captured group
+         * @param value       the captured substring
+         */
+
+        public void onLookaheadGroup(int groupNumber, int position, UnicodeString value) throws XPathException {
+            out.startElement(vocab.lookaheadGroupName, vocab.lookaheadGroupType,
+                             Loc.NONE, ReceiverOption.NONE);
+            out.attribute(vocab.groupNrName, vocab.groupNrType, "" + groupNumber,
+                          Loc.NONE, ReceiverOption.NONE);
+            out.attribute(vocab.positionName, vocab.positionType, "" + position,
+                          Loc.NONE, ReceiverOption.NONE);
+            out.attribute(vocab.valueName, vocab.valueType, value.toString(),
+                          Loc.NONE, ReceiverOption.NONE);
+            out.startContent();
+            out.endElement();
+        }
+
     }
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

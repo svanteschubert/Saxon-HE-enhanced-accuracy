@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -111,22 +111,22 @@ public class XPathExpressionImpl implements XPathExpression {
      *             <caption>Return value types</caption>
      *         <thead><tr><td>QName</td><td>Return Value</td></thead>
      *         <tbody>
-     *         <tr><td valign="top">BOOLEAN</td>
+     *         <tr><td>BOOLEAN</td>
      *         <td>The effective boolean value of the actual result,
      *         as a Java Boolean object</td></tr>
-     *         <tr><td valign="top">STRING</td>
+     *         <tr><td>STRING</td>
      *         <td>The result of applying the string() function to the actual result,
      *         as a Java String object</td></tr>
-     *         <tr><td valign="top">NUMBER</td>
+     *         <tr><td>NUMBER</td>
      *         <td>The result of applying the number() function to the actual result,
      *         as a Java Double object</td></tr>
-     *         <tr><td valign="top">NODE</td>
+     *         <tr><td>NODE</td>
      *         <td>A single node, in the native data model supplied as input. If the
      *         expression returns more than one node, the first is returned. If
      *         the expression returns an empty sequence, null is returned. If the
      *         expression returns an atomic value, or if the first item in the
      *         result sequence is an atomic value, an exception is thrown.</td></tr>
-     *         <tr><td valign="top">NODESET</td>
+     *         <tr><td>NODESET</td>
      *         <td>This is interpreted as allowing any sequence, of nodes or atomic values.
      *         If the first argument is a wrapper around a DOM Node, then the result is
      *         returned as a DOM NodeList, and an exception is then thrown if the result sequence

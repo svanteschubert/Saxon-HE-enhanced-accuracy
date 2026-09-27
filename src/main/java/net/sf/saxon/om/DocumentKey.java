@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,10 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.style.PackageVersion;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 import java.io.File;
-import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.Objects;
 
 /**
@@ -54,7 +55,12 @@ public class DocumentKey {
     }
 
     public String getAbsoluteURI() {
-        return displayValue;
+        String s = displayValue;
+        int query = s.indexOf('?');
+        if (query >= 0) {
+            s = s.substring(0, query);
+        }
+        return s;
     }
 
 
@@ -101,11 +107,11 @@ public class DocumentKey {
                 uri = "file:/" + uri.substring(8);
             }
             if (uri.startsWith("file:/")) {
-                // Use getCanonicalPath() to remove any "." and ".." path segments
+                // Bug 6565: No longer use getCanonicalPath() to remove any "." and ".." path segments, for performance reasons
                 try {
-                    String cpath = new File(uri.substring(5)).getCanonicalPath();
+                    String cpath = getCanonicalPath(uri);
                     uri = "file:" + cpath;
-                } catch (IOException ioe) {
+                } catch (Exception ioe) {
                     // nop
                 }
             }
@@ -115,5 +121,12 @@ public class DocumentKey {
         }
         return uri;
     }
+
+    @CSharpReplaceBody(code="return new Saxon.Ejava.io.File(uri.Substring(6)).getCanonicalPath();")
+    private static String getCanonicalPath(String uri) {
+        return Paths.get(uri.substring(6)).normalize().toString();
+    }
+
+
 }
 

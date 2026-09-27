@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,10 +19,11 @@ import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.PushElaborator;
 import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.om.AxisInfo;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
@@ -64,7 +65,7 @@ public class Doctype extends Instruction {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
-        throw new UnsupportedOperationException("Doctype.copy()");
+        return new Doctype(getContent().copy(rebindings));
     }
 
 
@@ -122,7 +123,7 @@ public class Doctype extends Instruction {
 
                 PipelineConfiguration pipe = controller.makePipelineConfiguration();
                 pipe.setXPathContext(context);
-                pipe.setHostLanguage(expr.getPackageData().getHostLanguage());
+                pipe.setHostLanguage(expr.getPackageData().getHostLanguage(), expr.getPackageData().getHostLanguageVersion());
                 TinyBuilder builder = new TinyBuilder(pipe);
                 builder.setStatistics(pipe.getConfiguration().getTreeStatistics().RESULT_TREE_STATISTICS);
                 builder.open();
@@ -134,15 +135,15 @@ public class Doctype extends Instruction {
                 builder.close();
                 NodeInfo dtdRoot = builder.getCurrentRoot();
 
-                SequenceIterator children = dtdRoot.iterateAxis(AxisInfo.CHILD);
+                SequenceIterator children = dtdRoot.iterateChildAxis(AnyGNode.TEST);
                 NodeInfo docType = (NodeInfo) children.next();
                 if (docType == null || !"doctype".equals(docType.getLocalPart())) {
                     throw new XPathException("saxon:doctype instruction must contain dtd:doctype")
                             .withXPathContext(context);
                 }
-                String name = docType.getAttributeValue("", "name");
-                String system = docType.getAttributeValue("", "system");
-                String publicid = docType.getAttributeValue("", "public");
+                String name = docType.getAttributeValue(NamespaceUri.NULL, "name");
+                String system = docType.getAttributeValue(NamespaceUri.NULL, "system");
+                String publicid = docType.getAttributeValue(NamespaceUri.NULL, "public");
 
                 if (name == null) {
                     throw new XPathException("dtd:doctype must have a name attribute")
@@ -159,7 +160,7 @@ public class Doctype extends Instruction {
                 }
 
                 boolean openSquare = false;
-                children = docType.iterateAxis(AxisInfo.CHILD);
+                children = docType.iterateChildAxis(AnyGNode.TEST);
 
                 NodeInfo child = (NodeInfo) children.next();
                 if (child != null) {
@@ -171,8 +172,8 @@ public class Doctype extends Instruction {
                     String localname = child.getLocalPart();
 
                     if ("element".equals(localname)) {
-                        String elname = child.getAttributeValue("", "name");
-                        String content = child.getAttributeValue("", "content");
+                        String elname = child.getAttributeValue(NamespaceUri.NULL, "name");
+                        String content = child.getAttributeValue(NamespaceUri.NULL, "content");
                         if (elname == null) {
                             throw new XPathException("dtd:element must have a name attribute")
                                     .withXPathContext(context);
@@ -184,14 +185,14 @@ public class Doctype extends Instruction {
                         write(output, "\n  <!ELEMENT " + elname + ' ' + content + '>');
 
                     } else if (localname.equals("attlist")) {
-                        String elname = child.getAttributeValue("", "element");
+                        String elname = child.getAttributeValue(NamespaceUri.NULL, "element");
                         if (elname == null) {
                             throw new XPathException("dtd:attlist must have an attribute named 'element'")
                                     .withXPathContext(context);
                         }
                         write(output, "\n  <!ATTLIST " + elname + ' ');
 
-                        SequenceIterator attributes = child.iterateAxis(AxisInfo.CHILD);
+                        SequenceIterator attributes = child.iterateChildAxis(AnyGNode.TEST);
                         while (true) {
                             NodeInfo attDef = (NodeInfo) attributes.next();
                             if (attDef == null) {
@@ -200,9 +201,9 @@ public class Doctype extends Instruction {
 
                             if ("attribute".equals(attDef.getLocalPart())) {
 
-                                String atname = attDef.getAttributeValue("", "name");
-                                String type = attDef.getAttributeValue("", "type");
-                                String value = attDef.getAttributeValue("", "value");
+                                String atname = attDef.getAttributeValue(NamespaceUri.NULL, "name");
+                                String type = attDef.getAttributeValue(NamespaceUri.NULL, "type");
+                                String value = attDef.getAttributeValue(NamespaceUri.NULL, "value");
                                 if (atname == null) {
                                     throw new XPathException("dtd:attribute must have a name attribute")
                                             .withXPathContext(context);
@@ -225,11 +226,11 @@ public class Doctype extends Instruction {
 
                     } else if (localname.equals("entity")) {
 
-                        String entname = child.getAttributeValue("", "name");
-                        String parameter = child.getAttributeValue("", "parameter");
-                        String esystem = child.getAttributeValue("", "system");
-                        String epublicid = child.getAttributeValue("", "public");
-                        String notation = child.getAttributeValue("", "notation");
+                        String entname = child.getAttributeValue(NamespaceUri.NULL, "name");
+                        String parameter = child.getAttributeValue(NamespaceUri.NULL, "parameter");
+                        String esystem = child.getAttributeValue(NamespaceUri.NULL, "system");
+                        String epublicid = child.getAttributeValue(NamespaceUri.NULL, "public");
+                        String notation = child.getAttributeValue(NamespaceUri.NULL, "notation");
 
                         if (entname == null) {
                             throw new XPathException("dtd:entity must have a name attribute")
@@ -254,16 +255,17 @@ public class Doctype extends Instruction {
                             write(output, "NDATA " + notation + ' ');
                         }
 
-                        for (NodeInfo content : child.children()) {
+                        SequenceIterator grandChildren = child.iterateChildAxis(null);
+                        for (NodeInfo content; (content = (NodeInfo) grandChildren.next()) != null; ) {
                             content.copy(output, 0, expr.getLocation());
                         }
 
                         write(output, ">");
 
                     } else if (localname.equals("notation")) {
-                        String notname = child.getAttributeValue("", "name");
-                        String nsystem = child.getAttributeValue("", "system");
-                        String npublicid = child.getAttributeValue("", "public");
+                        String notname = child.getAttributeValue(NamespaceUri.NULL, "name");
+                        String nsystem = child.getAttributeValue(NamespaceUri.NULL, "system");
+                        String npublicid = child.getAttributeValue(NamespaceUri.NULL, "public");
                         if (notname == null) {
                             throw new XPathException("dtd:notation must have a name attribute")
                                     .withXPathContext(context);

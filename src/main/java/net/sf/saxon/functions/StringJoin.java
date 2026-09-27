@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -112,7 +112,8 @@ public class StringJoin extends FoldingFunction implements PushableFunction {
     public Fold getFold(XPathContext context, Sequence... additionalArguments) throws XPathException {
         UnicodeString separator = EmptyUnicodeString.getInstance();
         if (additionalArguments.length > 0) {
-            separator = ((GroundedValue) additionalArguments[0].head()).getUnicodeStringValue();
+            Item sep = additionalArguments[0].head();
+            separator = sep == null ? EmptyUnicodeString.getInstance() : sep.getUnicodeStringValue();
         }
         return new StringJoinFold(separator, returnEmptyIfEmpty);
     }
@@ -185,7 +186,7 @@ public class StringJoin extends FoldingFunction implements PushableFunction {
         @Override
         public Sequence result()  {
             if (position == 0 && returnEmptyIfEmpty) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             } else {
                 return new StringValue(data.toUnicodeString());
             }

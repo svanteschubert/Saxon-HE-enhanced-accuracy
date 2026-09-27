@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,13 +14,12 @@ import net.sf.saxon.event.Sender;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.ActiveSource;
 import net.sf.saxon.lib.ParseOptions;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodePredicate;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.tree.jiter.IterableSequenceIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.*;
 import org.xml.sax.Locator;
@@ -41,7 +40,8 @@ import javax.xml.transform.SourceLocator;
  * <p>The interface represented by this class is at a slightly higher level than the abstraction described
  * in the W3C data model specification, in that it includes support for the XPath axes, rather than exposing
  * the lower-level properties (such as "parent" and "children") directly. All navigation within trees,
- * except for a few convenience methods, is done by following the axes using the {@link #iterateAxis} method.
+ * except for a few convenience methods, is done by following the axes using methods such as {@link #iterateChildAxis},
+ * {@link #iterateAttributeAxis}, or {@link #iterateDescendantAxis}.
  * This allows different implementations of the XPath tree model to implement axis navigation in different ways.
  * Some implementations may choose to use the helper methods provided in class {@link net.sf.saxon.tree.util.Navigator}.</p>
  * <p>Note that the stability of this interface applies to classes that use the interface,
@@ -56,7 +56,7 @@ import javax.xml.transform.SourceLocator;
  * a new implementation of this interface.
  */
 
-public interface NodeInfo extends Item, Location
+public interface NodeInfo extends GNode, Location
     // On SaxonCS, NodeInfo doesn't implement Source because of multiple-inheritance problems
     // Instead, use the asActiveSource() method to get a Source (this also works on Java)
     , ActiveSource
@@ -145,7 +145,7 @@ public interface NodeInfo extends Item, Location
      */
 
     int hashCode();
-
+ 
     /**
      * Get the System ID for the node. Note this is not the
      * same as the base URI: the base URI can be modified by xml:base, but
@@ -241,24 +241,24 @@ public interface NodeInfo extends Item, Location
     default int getColumnNumber() {
         return -1;
     }
-
-    /**
-     * Determine the relative position of this node and another node, in document order.
-     * <p>The other node must always be in the same tree; the effect of calling this method
-     * when the two nodes are in different trees is undefined. To obtain a global ordering
-     * of nodes, the application should first compare the result of getDocumentNumber(),
-     * and only if the document number is the same should compareOrder() be called.</p>
-     *
-     * @param other The other node, whose position is to be compared with this
-     *              node
-     * @return -1 if this node precedes the other node, +1 if it follows the
-     *         other node, or 0 if they are the same node. (In this case,
-     *         isSameNode() will always return true, and the two nodes will
-     *         produce the same result for generateId())
-     * @since 8.4
-     */
-
-    int compareOrder(NodeInfo other);
+    
+//    /**
+//     * Determine the relative position of this node and another node, in document order.
+//     * <p>The other node must always be in the same tree; the effect of calling this method
+//     * when the two nodes are in different trees is undefined. To obtain a global ordering
+//     * of nodes, the application should first compare the result of getDocumentNumber(),
+//     * and only if the document number is the same should compareOrder() be called.</p>
+//     *
+//     * @param other The other node, whose position is to be compared with this
+//     *              node
+//     * @return -1 if this node precedes the other node, +1 if it follows the
+//     *         other node, or 0 if they are the same node. (In this case,
+//     *         isSameNode() will always return true, and the two nodes will
+//     *         produce the same result for generateId())
+//     * @since 8.4
+//     */
+//
+    int compareOrder(GNode other);
 
     /**
      * Ask whether this NodeInfo implementation holds a fingerprint identifying the name of the
@@ -289,6 +289,18 @@ public interface NodeInfo extends Item, Location
      */
 
     int getFingerprint();
+
+
+    /**
+     * Get the name of the node as a {@link StructuredQName}.
+     *
+     * @return the name of the node. The default implementation constructs this from
+     * calls on {@link #getPrefix()}, {@link #getNamespaceUri}, and {@link #getLocalPart()}.
+     */
+
+    default StructuredQName getQName() {
+        return new StructuredQName(getPrefix(), getNamespaceUri(), getLocalPart());
+    }
 
     /**
      * Get the local part of the name of this node. This is the name after the ":" if any.
@@ -360,7 +372,7 @@ public interface NodeInfo extends Item, Location
      *         For document nodes, either xs:untyped if the document has not been validated, or
      *         xs:anyType if it has.
      *         <p>The default implementation returns {@link BuiltInAtomicType#UNTYPED_ATOMIC} for attribute
-     *         nodes, {@link Untyped#getInstance} for element and document nodes, and null otherwise</p>
+     *         nodes, {@link Untyped#INSTANCE} for element and document nodes, and null otherwise</p>
      * @since 9.4
      */
 
@@ -370,7 +382,7 @@ public interface NodeInfo extends Item, Location
                 return BuiltInAtomicType.UNTYPED_ATOMIC;
             case Type.DOCUMENT:
             case Type.ELEMENT:
-                return Untyped.getInstance();
+                return Untyped.INSTANCE;
             default:
                 return null;
         }
@@ -391,51 +403,16 @@ public interface NodeInfo extends Item, Location
     /**
      * Get the NodeInfo object representing the parent of this node
      *
+     * <p>The result will always be of type <code>NodeInfo</code>; however, we cannot
+     * declare it as such because C# does not allow covariant return types on interface
+     * methods. </p>
+     *
      * @return the parent of this node; null if this node has no parent
      * @since 8.4
      */
 
     /*@Nullable*/
-    NodeInfo getParent();
-
-    /**
-     * Return an iteration over all the nodes reached by the given axis from this node
-     *
-     * @param axisNumber an integer identifying the axis; one of the constants
-     *                   defined in class {@link AxisInfo}
-     * @return an AxisIterator that delivers the nodes reached by the axis in
-     *         turn. The nodes are returned in axis order (document order for a forwards
-     *         axis, reverse document order for a reverse axis). The default implementation
-     *         returns {@code iterateAxis(axisNumber, AnyNodeTest.getInstance()}.
-     * @throws UnsupportedOperationException if the namespace axis is
-     *                                       requested and this axis is not supported for this implementation.
-     * @see AxisInfo
-     * @since 8.4
-     */
-
-    default AxisIterator iterateAxis(int axisNumber) {
-        return iterateAxis(axisNumber, AnyNodeTest.getInstance());
-    }
-
-    /**
-     * Return an iteration over all the nodes reached by the given axis from this node
-     * that match a given NodeTest
-     *
-     * @param axisNumber an integer identifying the axis; one of the constants
-     *                   defined in class {@link AxisInfo}
-     * @param predicate  A condition to be satisfied by the returned nodes; nodes
-     *                   that do not satisfy this condition are not included in the result
-     * @return an AxisIterator that delivers the nodes reached by the axis in
-     *         turn.  The nodes are returned in axis order (document order for a forwards
-     *         axis, reverse document order for a reverse axis).
-     * @throws UnsupportedOperationException if the namespace axis is
-     *                                       requested and this axis is not supported for this implementation.
-     * @see AxisInfo
-     * @since 8.4. Changed in 10.0 to accept any {@code Predicate<NodeInfo>} as the second argument. It is still
-     * possible to supply a {@link NodeTest}, because {@code NodeTest} implements {@code Predicate<NodeInfo>}.
-     */
-     AxisIterator iterateAxis(int axisNumber, NodePredicate predicate);
-
+    GNode getParent();
 
     /**
      * Get the string value of a given attribute of this node
@@ -450,24 +427,6 @@ public interface NodeInfo extends Item, Location
 
     /*@Nullable*/
     String getAttributeValue(NamespaceUri uri, String local);
-
-    /**
-     * Get the string value of a given attribute of this node
-     *
-     * <p>This method is retained for compatibility, but {@link #getAttributeValue(NamespaceUri, String)} is preferred.</p>
-     *
-     * @param uri   the namespace URI of the attribute name, as a string. Supply the empty string for an attribute
-     *              that is in no namespace
-     * @param local the local part of the attribute name.
-     * @return the attribute value if it exists, or null if it does not exist. Always returns null
-     * if this node is not an element.
-     * @since 9.4
-     */
-
-    /*@Nullable*/
-    default String getAttributeValue(String uri, String local) {
-        return getAttributeValue(uri.isEmpty() ? NamespaceUri.NULL : NamespaceUri.of(uri), local);
-    }
 
     /**
      * Get the root node of the tree containing this node
@@ -499,7 +458,7 @@ public interface NodeInfo extends Item, Location
      */
 
     default Iterable<? extends NodeInfo> children() {
-        return new Navigator.ChildrenAsIterable(this);
+        return new IterableSequenceIterator<NodeInfo>(iterateChildAxis(null));
     }
 
     default Iterable<? extends NodeInfo> children(NodePredicate filter) {
@@ -507,11 +466,11 @@ public interface NodeInfo extends Item, Location
     }
 
     default AttributeMap attributes() {
-        AttributeMap atts = EmptyAttributeMap.getInstance();
+        AttributeMap atts = EmptyAttributeMap.INSTANCE;
         if (getNodeKind() == Type.ELEMENT) {
-            AxisIterator iter = iterateAxis(AxisInfo.ATTRIBUTE);
+            SequenceIterator iter = iterateAttributeAxis(AnyGNode.TEST);
             NodeInfo attr;
-            while ((attr = iter.next()) != null) {
+            while ((attr = ((NodeInfo)iter.next())) != null) {
                 atts = atts.put(new AttributeInfo(NameOfNode.makeName(attr), (SimpleType) attr.getSchemaType(),
                                                   attr.getStringValue(),
                                                   Loc.NONE,
@@ -520,18 +479,6 @@ public interface NodeInfo extends Item, Location
         }
         return atts;
     }
-
-    /**
-     * Construct a character string that uniquely identifies this node.
-     * Note: a.isSameNode(b) if and only if generateId(a)==generateId(b)
-     *
-     * @param buffer a buffer which will be updated to hold a string
-     *               that uniquely identifies this node, across all documents.
-     * @since 8.7
-     *        <p>Changed in Saxon 8.7 to generate the ID value in a client-supplied buffer</p>
-     */
-
-    void generateId(StringBuilder buffer);
 
     /**
      * Copy this node to a given Receiver.
@@ -704,12 +651,12 @@ public interface NodeInfo extends Item, Location
     /**
      * Get the genre of this item
      *
-     * @return the genre: specifically, {@link Genre#NODE}. The default implementation (which should not
-     * be overridden) returns {@link Genre#NODE}.
+     * @return the genre: specifically, {@link Genre#XNODE}. The default implementation (which should not
+     * be overridden) returns {@link Genre#XNODE}.
      */
     @Override
     default Genre getGenre() {
-        return Genre.NODE;
+        return Genre.XNODE;
     }
 
 

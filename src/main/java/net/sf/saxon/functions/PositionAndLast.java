@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.Optionality;
 import net.sf.saxon.om.FocusIterator;
 import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Sequence;
@@ -22,6 +23,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.IntegerValue;
+import net.sf.saxon.value.SequenceType;
 
 
 public abstract class PositionAndLast extends ContextAccessorFunction {
@@ -58,33 +60,14 @@ public abstract class PositionAndLast extends ContextAccessorFunction {
         } catch (final XPathException e) {
             // This happens when we do a dynamic lookup of position() or last() when there is no context item
             SymbolicName.F name = new SymbolicName.F(getFunctionName(), getArity());
-            Callable callable = new CallableDelegate((context1, arguments) -> {
-                throw e;
-            });
-            return new CallableFunction(name, callable, getFunctionItemType());
+//            CallableDelegate callable = new CallableDelegate((context1, arguments) -> {
+//                throw e;
+//            });
+//            callable.setDescription(getDescription());
+            return new CallableFunction(name, (cxt, args) -> { throw e; }, getFunctionItemType())
+                    .withDescription(getDescription());
         }
-        ConstantFunction fn = new ConstantFunction(value);
-        fn.setDetails(getDetails());
-        fn.setRetainedStaticContext(getRetainedStaticContext());
-        return fn;
-    }
-
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        return new IntegerValue[]{Int64Value.PLUS_ONE, Expression.MAX_SEQUENCE_LENGTH};
+        return new ConstantFunction(getFunctionName(), value, SequenceType.SINGLE_INTEGER);
     }
 
     @Override
@@ -93,7 +76,7 @@ public abstract class PositionAndLast extends ContextAccessorFunction {
         if (contextInfo.getItemType() == ErrorType.getInstance()) {
             throw new XPathException("The context item is absent at this point", "XPDY0002");
         } else {
-            contextPossiblyUndefined = contextInfo.isPossiblyAbsent();
+            contextPossiblyUndefined = contextInfo.getOptionality() != Optionality.REQUIRED;
         }
     }
 

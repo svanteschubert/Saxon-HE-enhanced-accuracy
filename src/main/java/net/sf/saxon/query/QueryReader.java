@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,6 @@ import net.sf.saxon.z.IntPredicateProxy;
 
 import javax.xml.transform.stream.StreamSource;
 import java.io.*;
-import java.net.URL;
 
 /**
  * This class contains static methods used to read a query as a byte stream, infer the encoding if
@@ -139,7 +138,7 @@ public class QueryReader {
 
     private static String readQueryFromReader(Reader reader, IntPredicateProxy charChecker) throws XPathException {
         try {
-            UnicodeString content = UnparsedTextFunction.readFile(charChecker, reader);
+            UnicodeString content = UnparsedTextFunction.readFile(charChecker, reader, false);
             return content.toString();
         } catch (XPathException err) {
             err.setErrorCode("XPST0003");

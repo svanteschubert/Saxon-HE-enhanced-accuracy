@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,12 @@
 package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.z.IntPredicateProxy;
+
+import java.util.function.IntPredicate;
 
 /**
  * This class supports both the descendant:: and descendant-or-self:: axes, which are
@@ -21,27 +23,31 @@ import net.sf.saxon.z.IntPredicateProxy;
  * The calling code must ensure that the start node is not an attribute or namespace node.
  */
 
-final class DescendantIterator implements AxisIterator {
+final class DescendantIterator implements SequenceIterator {
 
     private final TinyTree tree;
-    private int nextNodeNr;
     private final int startDepth;
-    private final IntPredicateProxy matcher;
+    private final NodePredicate predicate;
+    private final IntPredicate matcher;
+
+    private int nextNodeNr;
     private NodeInfo pending = null;
 
     /**
      * Create an iterator over the descendant axis
      *
-     * @param doc         the containing TinyTree
+     * @param tree        the containing TinyTree
      * @param node        the node whose descendants are required
-     * @param nodeTest    test to be satisfied by each returned node
+     * @param predicate   test to be satisfied by each returned node. May be null
+     *                    to indicate that all nodes are to be returned
      */
 
-    DescendantIterator(/*@NotNull*/ TinyTree doc, /*@NotNull*/ TinyNodeImpl node, NodeTest nodeTest) {
-        tree = doc;
+    DescendantIterator(TinyTree tree, TinyNodeImpl node, NodePredicate predicate) {
+        this.tree = tree;
+        this.predicate = predicate;
         nextNodeNr = node.nodeNr;
-        startDepth = doc.depth[nextNodeNr];
-        matcher = nodeTest.getMatcher(doc);
+        startDepth = tree.depth[nextNodeNr];
+        matcher = Navigator.getNumberedNodeMatcher(predicate, tree);
 
     }
 
@@ -69,9 +75,13 @@ final class DescendantIterator implements AxisIterator {
                 return null;
             }
             if (tree.nodeKind[nextNodeNr] == Type.TEXTUAL_ELEMENT) {
-                pending = ((TinyTextualElement)tree.getNode(nextNodeNr)).getTextNode();
+                NodeInfo text = ((TinyTextualElement)tree.getNode(nextNodeNr)).getTextNode();
+                if (predicate==null || predicate.test(text)) {
+                    pending = text;
+                }
             }
         } while (!matcher.test(nextNodeNr));
+
         return tree.getNode(nextNodeNr);
     }
 

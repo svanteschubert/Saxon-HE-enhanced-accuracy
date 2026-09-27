@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
@@ -95,11 +94,6 @@ public class CountClause extends Clause {
         // no action
     }
 
-    @Override
-    public void addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        // no action
-    }
-
     /**
      * Diagnostic print of expression structure. The abstract expression tree
      * is written to the supplied output destination.
@@ -121,6 +115,6 @@ public class CountClause extends Clause {
     }
 }
 
-// Copyright (c) 2011-2023 Saxonica Limited
+// Copyright (c) 2011-2026 Saxonica Limited
 
 

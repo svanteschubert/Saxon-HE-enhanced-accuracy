@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -36,10 +36,11 @@ public class CompressedWhitespace extends WhitespaceString {
     public static UnicodeString compressWS(char[] in, int start, int len) {
         int runlength = 1;
         int outlength = 0;
-        for (int i = 0; i < len; i++) {
+        int end = start + len;
+        for (int i = start; i < end; i++) {
             final char c = in[i];
             if (c <= 32 && CODES[c] >= 0) {
-                if (i == len - 1 || c != in[i + 1] || runlength == 63) {
+                if (i == end - 1 || c != in[i + 1] || runlength == 63) {
                     runlength = 1;
                     outlength++;
                     if (outlength > 8) {
@@ -55,9 +56,9 @@ public class CompressedWhitespace extends WhitespaceString {
         int ix = 0;
         runlength = 1;
         int[] out = new int[outlength];
-        for (int i = 0; i < len; i++) {
+        for (int i = start; i < end; i++) {
             final char c = in[i];
-            if (i == len - 1 || c != in[i + 1] || runlength == 63) {
+            if (i == end - 1 || c != in[i + 1] || runlength == 63) {
                 out[ix++] = (CODES[c] << 6) | runlength;
                 runlength = 1;
             } else {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,9 +25,9 @@ import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.type.FunctionItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.value.IntegerValue;
 
 /**
  * A call to a system-defined function (specifically, a function implemented as an instance
@@ -63,6 +63,10 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
     @Override
     public Expression preEvaluate(ExpressionVisitor visitor) throws XPathException {
         SystemFunction target = getTargetFunction();
+        if (visitor.isOptimizeForExport() && target.getResultItemType() instanceof FunctionItemType) {
+            // suppress early evaluation if the result needs to be exported to a SEF file
+            return this;
+        }
         if ((target.getDetails().properties & BuiltInFunctionSet.LATE) == 0) {
             return super.preEvaluate(visitor);
         } else {
@@ -90,14 +94,6 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
         }
         return this;
     }
-
-//    public void allocateArgumentEvaluators(Expression[] arguments) {
-//        int lastExplicitArg = Math.min(arguments.length, getTargetFunction().getDetails().argumentTypes.length)-1;
-//        for (int i = 0; i < arguments.length; i++) {
-//            Expression arg = arguments[i];
-//            argumentEvaluators[i] = Elaborator.makeElaborator(arg).lazily(false);
-//        }
-//    }
 
     @Override
     public SystemFunction getTargetFunction() {
@@ -140,7 +136,8 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
         if ((properties & BuiltInFunctionSet.DCOLL) != 0) {
             dep |= StaticProperty.DEPENDS_ON_STATIC_CONTEXT;
         }
-        if (isCallOn(RegexGroup.class) || isCallOn(CurrentMergeGroup.class) || isCallOn(CurrentMergeKey.class)) {
+        if (isCallOn(RegexGroup.class) || isCallOn(CurrentMergeGroup.class)
+                || isCallOn(CurrentMergeKey.class) || isCallOn(CurrentMergeKeyArray.class)) {
             dep |= StaticProperty.DEPENDS_ON_CURRENT_GROUP;
         }
         return dep;
@@ -214,7 +211,9 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
         // an inelegant solution because it's being handled differently from other context
         // dependencies, but it works.
         return super.isLiftable(forStreaming) &&
-                !isCallOn(CurrentMergeGroup.class) && !isCallOn(CurrentMergeKey.class) &&
+                !isCallOn(CurrentMergeGroup.class) &&
+                !isCallOn(CurrentMergeKey.class) &&
+                !isCallOn(CurrentMergeKeyArray.class) &&
                 (!forStreaming || !isCallOn(MapFunctionSet.MapEntry.class));
     }
 
@@ -305,29 +304,9 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
         if (target instanceof StatefulSystemFunction) {
             target = ((StatefulSystemFunction) target).copy();
         }
-        return target.makeFunctionCall(args);
-    }
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     * unknown or not applicable.
-     */
-    //@Override
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        SystemFunction fn = getTargetFunction();
-        if ((fn.getDetails().properties & BuiltInFunctionSet.FILTER) != 0) {
-            return getArg(0).getIntegerBounds();
-        }
-        return fn.getIntegerBounds();
+        Expression e = target.makeFunctionCall(args);
+        ExpressionTool.copyLocationInfo(this, e);
+        return e;
     }
 
     /**
@@ -390,45 +369,15 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
     }
 
     /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNodeSet representing the points in the source document that are both reachable by this
-     * expression, and that represent possible results of this expression. For an expression that does
-     * navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     * expressions, it is the same as the input pathMapNode.
-     */
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        if (isCallOn(Doc.class) || isCallOn(DocumentFn.class) || isCallOn(CollectionFn.class)) {
-            getArg(0).addToPathMap(pathMap, pathMapNodeSet);
-            return new PathMap.PathMapNodeSet(pathMap.makeNewRoot(this));
-        } else if (isCallOn(KeyFn.class)) {
-            return ((KeyFn) getTargetFunction()).addToPathMap(pathMap, pathMapNodeSet);
-        } else {
-            return super.addToPathMap(pathMap, pathMapNodeSet);
-        }
-    }
-
-    /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath
      * @return the equivalent pattern
      * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
         SystemFunction fn = getTargetFunction();
         if (fn instanceof Root_1) {
             if (getArg(0) instanceof ContextItemExpression ||
@@ -437,7 +386,7 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
                 return new NodeSetPattern(this);
             }
         }
-        return super.toPattern(config);
+        return super.toPattern(config, firstInPath);
     }
 
 //    @Override
@@ -506,7 +455,7 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
             getTargetFunction().exportAttributes(out);
             if (localPart.equals("concat")
                     && "JS".equals(out.getOptions().target)
-                    && out.getOptions().targetVersion == 2
+                    && out.getOptions().targetVersion >= 2
                     && getArity() == 1
                     && getArg(0) instanceof Block) {
                 // We've reduced concat to a single sequence-valued argument; now we need to spread it out to multiple
@@ -589,93 +538,154 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
 
         public PullEvaluator elaborateForPull() {
             final SystemFunctionCall expr = (SystemFunctionCall) getExpression();
+            final int arity = expr.getArity();
             final SystemFunction fn = expr.getTargetFunction();
-            switch (argumentEvaluators.length) {
-                case 0:
-                    return context -> {
-                        try {
-                            return fn.call(context, StackFrame.EMPTY_ARRAY_OF_SEQUENCE).iterate();
-                        } catch (XPathException err) {
-                            throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-                    };
-                case 1:
-                    return context -> {
-                        try {
-                            return fn.call(context, new Sequence[]{argumentEvaluators[0].evaluate(context)}).iterate();
-                        } catch (XPathException err) {
-                            throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-                    };
-                case 2:
-                    return context -> {
-                        try {
-                            return fn.call(context,
-                                           new Sequence[]{
-                                                   argumentEvaluators[0].evaluate(context),
-                                                   argumentEvaluators[1].evaluate(context)
-                                           }).iterate();
-                        } catch (XPathException err) {
-                            throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-                    };
-                default:
-                    return context -> {
-                        try {
-                            return fn.call(context, evaluateArguments(context)).iterate();
-                        } catch (XPathException err) {
-                            throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-                    };
+            if (arity == 0 && fn instanceof ArityZeroFunction fn0) {
+                return context -> {
+                    try {
+                        return fn0.call0(context).iterate();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+            } else if (arity == 1 && fn instanceof ArityOneFunction fn1) {
+                final SequenceEvaluator eval0 = argumentEvaluators[0];
+                return context -> {
+                    try {
+                        return fn1.call1(context, eval0.evaluate(context)).iterate();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+            } else if (arity == 2 && fn instanceof ArityTwoFunction fn2) {
+                final SequenceEvaluator eval0 = argumentEvaluators[0];
+                final SequenceEvaluator eval1 = argumentEvaluators[1];
+                return context -> {
+                    try {
+                        return fn2.call2(context,
+                                         eval0.evaluate(context),
+                                         eval1.evaluate(context)).iterate();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
             }
+            return switch (argumentEvaluators.length) {
+                case 0 -> context -> {
+                    try {
+                        return fn.call(context, StackFrame.EMPTY_ARRAY_OF_SEQUENCE).iterate();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+                case 1 -> context -> {
+                    final SequenceEvaluator eval0 = argumentEvaluators[0];
+                    try {
+                        return fn.call(context, new Sequence[]{eval0.evaluate(context)}).iterate();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+                case 2 -> context -> {
+                    final SequenceEvaluator eval0 = argumentEvaluators[0];
+                    final SequenceEvaluator eval1 = argumentEvaluators[1];
+                    try {
+                        return fn.call(context,
+                                       new Sequence[]{
+                                               eval0.evaluate(context),
+                                               eval1.evaluate(context)
+                                       }).iterate();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+                default -> context -> {
+                    try {
+                        return fn.call(context, evaluateArguments(context)).iterate();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+            };
         }
 
         @Override
         public ItemEvaluator elaborateForItem() {
             final SystemFunctionCall expr = (SystemFunctionCall) getExpression();
             final SystemFunction fn = expr.getTargetFunction();
-            switch (argumentEvaluators.length) {
-                case 0:
-                    return context -> {
-                        try {
-                            return fn.call(context,
-                                           StackFrame.EMPTY_ARRAY_OF_SEQUENCE).head();
-                        } catch (XPathException e) {
-                            throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-
-                    };
-                case 1:
-                    return context -> {
-                        try {
-                            return fn.call(context, new Sequence[]{
-                                    argumentEvaluators[0].evaluate(context)
-                            }).head();
-                        } catch (XPathException e) {
-                            throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-                    };
-                case 2:
-                    return context -> {
-                        try {
-                            return fn.call(context,
-                                    new Sequence[]{
-                                            argumentEvaluators[0].evaluate(context),
-                                            argumentEvaluators[1].evaluate(context)
-                                    }).head();
-                        } catch (XPathException e) {
-                            throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-                    };
-                default:
-                    return context -> {
-                        try {
-                            return fn.call(context, evaluateArguments(context)).head();
-                        } catch (XPathException e) {
-                            throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
-                        }
-                    };
+            final int arity = expr.getArity();
+            if (arity == 0 && fn instanceof ArityZeroFunction fn0) {
+                return context -> {
+                    try {
+                        return fn0.call0(context).head();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+            } else if (arity == 1 && fn instanceof ArityOneFunction fn1) {
+                final SequenceEvaluator eval0 = argumentEvaluators[0];
+                return context -> {
+                    try {
+                        Sequence seq = fn1.call1(context, eval0.evaluate(context));
+                        return seq.head();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+            } else if (arity == 2 && fn instanceof ArityTwoFunction fn2) {
+                final SequenceEvaluator eval0 = argumentEvaluators[0];
+                final SequenceEvaluator eval1 = argumentEvaluators[1];
+                return context -> {
+                    try {
+                        return fn2.call2(context,
+                                         eval0.evaluate(context),
+                                         eval1.evaluate(context)).head();
+                    } catch (XPathException err) {
+                        throw err.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
             }
+            return switch (argumentEvaluators.length) {
+                case 0 -> context -> {
+                    try {
+                        return fn.call(context,
+                                       StackFrame.EMPTY_ARRAY_OF_SEQUENCE).head();
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+
+                };
+                case 1 -> context -> {
+                    final SequenceEvaluator eval0 = argumentEvaluators[0];
+                    try {
+                        return fn.call(context, new Sequence[]{
+                                eval0.evaluate(context)
+                        }).head();
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+                case 2 -> context -> {
+                    final SequenceEvaluator eval0 = argumentEvaluators[0];
+                    final SequenceEvaluator eval1 = argumentEvaluators[1];
+                    try {
+                        return fn.call(context,
+                                       new Sequence[]{
+                                               eval0.evaluate(context),
+                                               eval1.evaluate(context)
+                                       }).head();
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+                default -> context -> {
+                    try {
+                        return fn.call(context, evaluateArguments(context)).head();
+                    } catch (XPathException e) {
+                        throw e.maybeWithLocation(expr.getLocation()).maybeWithContext(context);
+                    }
+                };
+            };
         }
 
         @Override
@@ -707,7 +717,7 @@ public class SystemFunctionCall extends StaticFunctionCall implements Negatable 
                 PullEvaluator eval = elaborateForPull();
                 return (context, pul) -> {
                     eval.iterate(context).next();
-                };
+                }; 
             } else {
                 throw new UnsupportedOperationException("Expression " + expr.toShortString() + " is not an updating expression");
             }

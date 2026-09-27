@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,8 +14,11 @@ import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.coercion.CoercionPlan;
+import net.sf.saxon.type.coercion.ItemCheckingPlan;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -26,19 +29,7 @@ import java.util.function.Supplier;
  */
 public class AnyFunctionType implements FunctionItemType {
 
-    /*@NotNull*/ public final static AnyFunctionType ANY_FUNCTION = new AnyFunctionType();
-
-    /**
-     * Get the singular instance of this type (Note however that subtypes of this type
-     * may have any number of instances)
-     *
-     * @return the singular instance of this type
-     */
-
-    /*@NotNull*/
-    public static AnyFunctionType getInstance() {
-        return ANY_FUNCTION;
-    }
+    /*@NotNull*/ public final static AnyFunctionType INSTANCE = new AnyFunctionType();
 
     /**
      * Get the corresponding {@link net.sf.saxon.type.UType}. A UType is a union of primitive item
@@ -118,6 +109,17 @@ public class AnyFunctionType implements FunctionItemType {
     }
 
     /**
+     * Get the coercion plan for use when this type is the required type for (say) coercion
+     * of arguments in a function call
+     *
+     * @param version the XPath langauge version (40 or 31)
+     */
+    @Override
+    public CoercionPlan getCoercionPlan(int version) {
+        return ItemCheckingPlan.INSTANCE;
+    }
+
+    /**
      * Get the argument types of the function
      *
      * @return the argument types, as an array of SequenceTypes, or null if this is the generic function
@@ -142,14 +144,11 @@ public class AnyFunctionType implements FunctionItemType {
     /**
      * Test whether a given item conforms to this type
      *
-     *
-     *
-     * @param item    The item to be tested
-     * @param th   The type hierarchy cache
+     * @param item The item to be tested
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) {
+    public boolean matches(Item item) {
         return item instanceof FunctionItem;
     }
 
@@ -167,7 +166,7 @@ public class AnyFunctionType implements FunctionItemType {
     /*@NotNull*/
     @Override
     public final ItemType getPrimitiveItemType() {
-        return ANY_FUNCTION;
+        return this;
     }
 
     /**
@@ -230,7 +229,7 @@ public class AnyFunctionType implements FunctionItemType {
      */
 
     @Override
-    public Affinity relationship(FunctionItemType other, TypeHierarchy th) {
+    public Affinity relationship(FunctionItemType other) {
         if (other == this) {
             return Affinity.SAME_TYPE;
         } else {
@@ -265,5 +264,9 @@ public class AnyFunctionType implements FunctionItemType {
         return SequenceType.ANY_SEQUENCE;
     }
 
+    @Override
+    public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
+        return Optional.empty();
+    }
 }
 

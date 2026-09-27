@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,6 +18,7 @@ import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.type.Type;
 import net.sf.saxon.value.Whitespace;
 
 import javax.xml.transform.OutputKeys;
@@ -138,8 +139,8 @@ public class UncommittedSerializer extends ProxyReceiver {
             if (name.equalsIgnoreCase("html") && uri.isEmpty()) {
                 switchToMethod("html");
             } else if (name.equals("html") && uri.equals(NamespaceUri.XHTML)) {
-                String version = this.properties.getProperties().getProperty(SaxonOutputKeys.STYLESHEET_VERSION);
-                if ("10".equals(version)) {
+                String version = this.properties.getProperties().getProperty(SaxonOutputKeys.SPEC_VERSION);
+                if ("10".equals(version) || "1.0".equals(version)) {
                     switchToMethod("xml");
                 } else {
                     switchToMethod("xhtml");
@@ -204,7 +205,11 @@ public class UncommittedSerializer extends ProxyReceiver {
     @Override
     public void append(Item item, Location locationId, int copyNamespaces) throws XPathException {
         if (item instanceof NodeInfo) {
-            ((NodeInfo) item).copy(this, CopyOptions.ALL_NAMESPACES, locationId);
+            NodeInfo node = (NodeInfo) item;
+            if (node.getNodeKind() == Type.ATTRIBUTE || node.getNodeKind() == Type.NAMESPACE) {
+                throw new XPathException("Cannot write a free-standing attribute or namespace node directly to the serializer", "SENR0001");
+            }
+            node.copy(this, CopyOptions.ALL_NAMESPACES | CopyOptions.TYPE_ANNOTATIONS, locationId);
         } else {
             if (!committed) {
                 switchToMethod("xml");

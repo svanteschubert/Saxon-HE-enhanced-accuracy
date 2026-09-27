@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 
 import java.util.List;
 import java.util.Map;
@@ -83,9 +84,9 @@ public class OnDemandFunctionSet implements FunctionLibrary {
     }
 
     @Override
-    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
+    public boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel) {
         boolean match = load(functionName, null);
-        return match && library.isAvailable(functionName, languageLevel);
+        return match && library.isAvailable(functionName, schema, languageLevel);
     }
 
     @Override

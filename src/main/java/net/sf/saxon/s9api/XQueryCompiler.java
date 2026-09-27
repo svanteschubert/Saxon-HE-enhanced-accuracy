@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,11 +26,11 @@ import java.net.URISyntaxException;
 import java.util.List;
 
 /**
- * An {@code XQueryCompiler} object allows XQuery 1.0 queries to be compiled. The compiler holds information that
+ * An {@code XQueryCompiler} object allows XQuery queries to be compiled. The compiler holds information that
  * represents the static context for the compilation.
  * <p>To construct an {@code XQueryCompiler}, use the factory method {@link Processor#newXQueryCompiler}.</p>
  * <p>An {@code XQueryCompiler} may be used repeatedly to compile multiple queries. Any changes made to the
- * XQueryCompiler (that is, to the static context) do not affect queries that have already been compiled.
+ * {@code XQueryCompiler} (that is, to the static context) do not affect queries that have already been compiled.
  * An {@code XQueryCompiler} may in principle be used concurrently in multiple threads, but in practice this
  * is best avoided because all instances will share the same {@code ErrorReporter} or {@code ErrorListener}
  * and it will therefore be difficult to establish which error messages are associated with each compilation.</p>
@@ -62,12 +62,16 @@ public class XQueryCompiler {
     protected XQueryCompiler(Processor processor) {
         this.processor = processor;
         this.staticQueryContext = processor.getUnderlyingConfiguration().newStaticQueryContext();
+        XsdSchema legacySchema = processor.getLegacySchema();
+        if (legacySchema != null) {
+            useSchema(legacySchema);
+        }
     }
 
     /**
-     * Get the Processor from which this XQueryCompiler was constructed
+     * Get the {@link Processor} from which this {@code XQueryCompiler} was constructed
      *
-     * @return the Processor to which this XQueryCompiler belongs
+     * @return the {@code Processor} to which this {@code XQueryCompiler} belongs
      * @since 9.3
      */
 
@@ -107,6 +111,22 @@ public class XQueryCompiler {
         } catch (URISyntaxException err) {
             throw new IllegalStateException("Invalid base URI for query: " + staticQueryContext.getBaseURI());
         }
+    }
+
+    /**
+     * Set the {@link XsdSchema} to be used with this XQueryCompiler.
+     *
+     * <p>This is equivalent to importing the schema from within the query.
+     * Any <code>import schema</code> declarations within the query itself
+     * must be consistent with the supplied schema.</p>
+     *
+     * @param schema the schema to be imported
+     * @since 13.0
+     */
+
+    public void useSchema(XsdSchema schema) {
+        staticQueryContext.setSchemaAware(true);
+        staticQueryContext.preLoadSchema(schema.getUnderlyingSchema());
     }
 
     /**
@@ -198,11 +218,11 @@ public class XQueryCompiler {
     }
 
     /**
-     * Set a user-defined ModuleURIResolver for resolving URIs used in <code>import module</code>
+     * Set a user-defined {@link ModuleURIResolver} for resolving URIs used in <code>import module</code>
      * declarations in the XQuery prolog.
-     * This will override any ModuleURIResolver that was specified as part of the configuration.
+     * This will override any {@code ModuleURIResolver} that was specified as part of the configuration.
      *
-     * @param resolver the ModuleURIResolver to be used
+     * @param resolver the {@code ModuleURIResolver} to be used
      */
 
     public void setModuleURIResolver(ModuleURIResolver resolver) {
@@ -210,11 +230,11 @@ public class XQueryCompiler {
     }
 
     /**
-     * Get the user-defined ModuleURIResolver for resolving URIs used in <code>import module</code>
+     * Get the user-defined {@link ModuleURIResolver} for resolving URIs used in <code>import module</code>
      * declarations in the XQuery prolog; returns null if none has been explicitly set either
      * here or in the Saxon Configuration.
      *
-     * @return the registered ModuleURIResolver
+     * @return the registered {@code ModuleURIResolver}
      */
 
     /*@Nullable*/
@@ -283,16 +303,18 @@ public class XQueryCompiler {
 
     /**
      * Say that the query must be compiled to be schema-aware, even if it contains no
-     * "import schema" declarations. Normally a query is treated as schema-aware
-     * only if it contains one or more "import schema" declarations. If it is not schema-aware,
-     * then all input documents must be untyped (or xs:anyType), and validation of temporary nodes is disallowed
+     * {@code import schema} declarations. Normally a query is treated as schema-aware
+     * only if it contains one or more {@code import schema} declarations. If it is not schema-aware,
+     * then all input documents must be untyped (or {@code xs:anyType}), and
+     * validation of temporary nodes is disallowed
      * (though validation of the final result tree is permitted). Setting the argument to true
      * means that schema-aware code will be compiled regardless.
      *
-     * @param schemaAware If true, the stylesheet will be compiled with schema-awareness
-     *                    enabled even if it contains no xsl:import-schema declarations. If false, the stylesheet
-     *                    is treated as schema-aware only if it contains one or more xsl:import-schema declarations.
-     *                    Note that setting the value to false does not disable use of an import-schema declaration.
+     * @param schemaAware If true, the query will be compiled with schema-awareness
+     *                    enabled even if it contains no {@code import schema} declarations. If false, the query
+     *                    is treated as schema-aware only if it contains one or more {@code import schema} declarations.
+     *                    Note that setting the value to false does not disable use of an
+     *                    {@code import schema} declaration.
      * @since 9.2
      */
 
@@ -305,8 +327,7 @@ public class XQueryCompiler {
     }
 
     /**
-     * Ask whether schema-awareness has been requested either by means of a call on
-     * {@link #setSchemaAware}
+     * Ask whether schema-awareness has been requested.
      *
      * @return true if schema-awareness has been requested
      * @since 9.2
@@ -358,7 +379,12 @@ public class XQueryCompiler {
     /**
      * Say which version of XQuery should be used
      *
-     * @param version "3.1" or "4.0" in the current Saxon release.
+     * @param version "3.1" or "4.0" in the current Saxon release. Setting the value to "3.1"
+     *                will allow the vast majority of XQuery 1.0 or XQuery 3.0 to be accepted and
+     *                executed correctly, but it is not possible to force the compiler to reject
+     *                features introduced in later releases of the language specification. The value
+     *                "4.0" enables support for experimental features in the draft XQuery 4.0
+     *                specification: these are subject to change as the specification evolves.
      */
 
     public void setLanguageVersion(String version) {
@@ -388,7 +414,7 @@ public class XQueryCompiler {
 
     /**
      * Declare a namespace binding as part of the static context for queries compiled using this
-     * XQueryCompiler. This binding may be overridden by a binding that appears in the query prolog.
+     * {@code XQueryCompiler}. This binding may be overridden by a binding that appears in the query prolog.
      * The namespace binding will form part of the static context of the query, but it will not be copied
      * into result trees unless the prefix is actually used in an element or attribute name.
      *
@@ -428,22 +454,15 @@ public class XQueryCompiler {
      * <p>Note that any setting other than the default causes the query to behave in a way that
      * is not conformant with the W3C XQuery 3.1 specifications.</p>
      *
-     * <p>The chosen policy affects:</p>
-     * <ul>
-     *     <li>Any NCName used as a node-test in an axis step (production <code>ForwardStep</code>
-     *     or <code>ReverseStep</code>) in an XPath expression within the stylesheet, other than an
-     *     axis step using the attribute or namespace axis</li>
-     *     <li>Any NCName used as a node-test in an axis step (production <code>ForwardStepP</code>
-     *     in a pattern within the stylesheet, other than an axis step using the attribute or namespace
-     *     axis</li>
-     * </ul>
+     * <p>The chosen policy affects any NCName used as a node-test in an axis step
+     * (production <code>ForwardStep</code> or <code>ReverseStep</code>)
+     * in an path expression within the query, other than an
+     * axis step using the attribute or namespace axis.</p>
      *
      * <p>It does not affect names appearing in other contexts (for example, names used in
-     * {@code xsl:strip-space/@elements}), and it does not affect name tests expressed in a form
+     * element constructors), and it does not affect name tests expressed in a form
      * other than a simple NCName (for example tests of the form <code>Q{}local</code>, or
      * <code>*:local</code>, or <code>element(local)</code>).</p>
-     *
-     * <p>It does not affect XPath expressions evaluated dynamically using <code>xsl:evaluate</code>.</p>
      *
      * @param unprefixedElementMatchingPolicy the policy for handling unprefixed elements.
      */
@@ -451,7 +470,6 @@ public class XQueryCompiler {
     public void setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy) {
         staticQueryContext.setUnprefixedElementMatchingPolicy(unprefixedElementMatchingPolicy);
     }
-
 
     /**
      * Declare the default collation
@@ -539,7 +557,7 @@ public class XQueryCompiler {
 
     /**
      * Compile a library module supplied as a string. The code generated by compiling the library is available
-     * for importing by all subsequent compilations using the same XQueryCompiler; it is identified by an
+     * for importing by all subsequent compilations using the same {@code XQueryCompiler}; it is identified by an
      * "import module" declaration that specifies the module URI of the library module. No module location
      * hint is required, and if one is present, it is ignored.
      * <p>The base URI of the query should be supplied by calling {@link #setBaseURI(java.net.URI)} </p>
@@ -588,8 +606,8 @@ public class XQueryCompiler {
     }
 
     /**
-     * Compile a library module supplied as a Reader. The code generated by compiling the library is available
-     * for importing by all subsequent compilations using the same XQueryCompiler; it is identified by an
+     * Compile a library module supplied as a {@link Reader}. The code generated by compiling the library is available
+     * for importing by all subsequent compilations using the same {@code XQueryCompiler}; it is identified by an
      * "import module" declaration that specifies the module URI of the library module. No module location
      * hint is required, and if one is present, it is ignored.
      * <p>The base URI of the query should be supplied by calling {@link #setBaseURI(java.net.URI)} </p>
@@ -609,8 +627,8 @@ public class XQueryCompiler {
     }
 
     /**
-     * Compile a library module supplied as an InputStream. The code generated by compiling the library is available
-     * for importing by all subsequent compilations using the same XQueryCompiler; it is identified by an
+     * Compile a library module supplied as an {@link InputStream}. The code generated by compiling the library is available
+     * for importing by all subsequent compilations using the same {@code XQueryCompiler}; it is identified by an
      * "import module" declaration that specifies the module URI of the library module. No module location
      * hint is required, and if one is present, it is ignored.
      * <p>The encoding of the input stream may be specified using {@link #setEncoding(String)};
@@ -641,7 +659,7 @@ public class XQueryCompiler {
      * {@link ErrorListener} writes details of each error to the <code>System.err</code> output stream.</p>
      *
      * @param query the text of the query
-     * @return an XQueryExecutable representing the compiled query
+     * @return an {@link XQueryExecutable} representing the compiled query
      * @throws SaxonApiException if the query compilation fails with a static error
      * @since 9.0
      */
@@ -662,7 +680,7 @@ public class XQueryCompiler {
      * @param query the file containing the query. The URI corresponding to this file will be used as the
      *              base URI of the query, overriding any URI supplied using {@link #setBaseURI(java.net.URI)} (but not
      *              overriding any base URI specified within the query prolog)
-     * @return an XQueryExecutable representing the compiled query
+     * @return an {@link XQueryExecutable} representing the compiled query
      * @throws SaxonApiException if the query compilation fails with a static error
      * @throws IOException       if the file does not exist or cannot be read
      * @since 9.1
@@ -684,11 +702,11 @@ public class XQueryCompiler {
     }
 
     /**
-     * Compile a query supplied as an InputStream
+     * Compile a query supplied as an {@link InputStream}
      * <p>The base URI of the query should be supplied by calling {@link #setBaseURI(java.net.URI)} </p>
      *
      * @param query the input stream on which the query is supplied. This will be consumed by this method
-     * @return an XQueryExecutable representing the compiled query
+     * @return an {@link XQueryExecutable} representing the compiled query
      * @throws SaxonApiException if the query compilation fails with a static error
      * @since 9.1
      */
@@ -704,11 +722,11 @@ public class XQueryCompiler {
     }
 
     /**
-     * Compile a query supplied as a Reader
+     * Compile a query supplied as a {@link Reader}
      * <p>The base URI of the query should be supplied by calling {@link #setBaseURI(java.net.URI)} </p>
      *
-     * @param query the input stream on which the query is supplied. This will be consumed by this method
-     * @return an XQueryExecutable representing the compiled query
+     * @param query the {@code Reader} on which the query is supplied. This will be consumed by this method.
+     * @return an {@link XQueryExecutable} representing the compiled query
      * @throws SaxonApiException if the query compilation fails with a static error
      * @throws IOException       if the file does not exist or cannot be read
      * @since 9.1

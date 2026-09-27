@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,9 @@ package net.sf.saxon.regex;
 
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.functions.Count;
-import net.sf.saxon.str.EmptyUnicodeString;
-import net.sf.saxon.str.StringView;
-import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.z.IntHashMap;
 import net.sf.saxon.z.IntToIntHashMap;
 
@@ -235,13 +232,13 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
                 }
 
             }
-            UnicodeBuilder buff = new UnicodeBuilder();
+            TwineBuilder tb = TwineBuilder.make(256);
             for (int i = 0; i < current.length() + 1; i++) {
                 List<Integer> events = actions.get(i);
                 if (events != null) {
-                    if (buff.length() > 0) {
-                        action.characters(buff.toUnicodeString());
-                        buff.clear();
+                    if (tb.length() > 0) {
+                        action.characters(tb.toUnicodeString());
+                        tb = TwineBuilder.make(256);
                     }
                     for (int group : events) {
                         if (group > 0) {
@@ -252,11 +249,11 @@ public class JRegexIterator implements RegexIterator, LastPositionFinder {
                     }
                 }
                 if (i < current.length()) {
-                    buff.append(current.charAt(i));
+                    tb = tb.append(current.charAt(i));
                 }
             }
-            if (buff.length() > 0) {
-                action.characters(buff.toUnicodeString());
+            if (tb.length() > 0) {
+                action.characters(tb.toUnicodeString());
             }
         }
 

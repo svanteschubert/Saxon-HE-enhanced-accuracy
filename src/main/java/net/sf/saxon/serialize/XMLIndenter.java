@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,8 +14,8 @@ import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.str.BMPString;
 import net.sf.saxon.str.IndentWhitespace;
+import net.sf.saxon.str.StringConstants;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyType;
@@ -128,7 +128,7 @@ public class XMLIndenter extends ProxyReceiver {
                 suppressedAtLevel = level;
             }
         }
-
+        
         sameline = true;
         afterStartTag = true;
         afterEndTag = false;
@@ -136,11 +136,13 @@ public class XMLIndenter extends ProxyReceiver {
         if (suppressedElements != null && suppressedAtLevel == -1 && suppressedElements.contains(nameCode)) {
             suppressedAtLevel = level;
         }
-        if (type != AnyType.getInstance() && type != Untyped.getInstance() && suppressedAtLevel < 0
-            && type.isComplexType() && ((ComplexType) type).isMixedContent()) {
-            // suppress indentation for elements with mixed content. (Note this also suppresses
-            // indentation for all descendants of such elements. We could be smarter than this.)
-            suppressedAtLevel = level;
+        if (type != AnyType.INSTANCE) {
+            if (type != Untyped.INSTANCE && suppressedAtLevel < 0
+                    && type.isComplexType() && ((ComplexType) type).isMixedContent()) {
+                // suppress indentation for elements with mixed content. (Note this also suppresses
+                // indentation for all descendants of such elements. We could be smarter than this.)
+                suppressedAtLevel = level;
+            }
         }
 
         // Calculate indentation to be applied to attributes/namespaces
@@ -217,6 +219,9 @@ public class XMLIndenter extends ProxyReceiver {
     @Override
     public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
         if (suppressedAtLevel < 0 && Whitespace.isAllWhite(chars)) {
+            if (pendingWhitespace != null) {
+                flushPendingWhitespace(); // bug 6494
+            }
             pendingWhitespace = new Event.Text(chars, locationId, properties);
         } else {
             flushPendingWhitespace();
@@ -301,7 +306,7 @@ public class XMLIndenter extends ProxyReceiver {
     @Override
     public void endDocument() throws XPathException {
         if (afterEndTag) {
-            emitter.characters(BMPString.of("\n"), Loc.NONE, ReceiverOption.NONE);  // if permitted, output a trailing newline, for tidier console output
+            emitter.characters(StringConstants.NEWLINE, Loc.NONE, ReceiverOption.NONE);  // if permitted, output a trailing newline, for tidier console output
         }
         super.endDocument();
     }

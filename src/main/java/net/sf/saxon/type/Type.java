@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,20 @@
 
 package net.sf.saxon.type;
 
-import net.sf.saxon.expr.parser.Token;
+//import com.saxonica.functions.qt4.pin.LabeledItem;
+import net.sf.saxon.Configuration;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
+import net.sf.saxon.ma.jnode.AnyJNodeType;
+import net.sf.saxon.ma.jnode.JNode;
+import net.sf.saxon.ma.jnode.SpecificJNodeType;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.pattern.qname.SpecificQNameTest;
+import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.type.gnode.*;
 import net.sf.saxon.value.*;
 
 
@@ -79,12 +86,15 @@ public abstract class Type {
     public static final short TEXTUAL_ELEMENT = 17; // Chosen so kind & 0x0f = Type.ELEMENT
 
     /**
-     * An item type that matches any node
+     * An item type that matches any XNode
      */
 
-    public static final short NODE = 0;
+    public static final short XNODE = 0;
 
-    public static final ItemType NODE_TYPE = AnyNodeTest.getInstance();
+    public static final ItemType XNODE_TYPE = AnyXNodeType.getInstance();
+
+    public static final int GNODE = 22;
+    public static final int JNODE = 23;
 
     /**
      * An item type that matches any item
@@ -92,7 +102,11 @@ public abstract class Type {
 
     public static final short ITEM = 88;
 
-    /*@NotNull*/ public static final ItemType ITEM_TYPE = AnyItemType.getInstance();
+    /*@NotNull*/ public static final ItemType ITEM_TYPE;
+
+    static {
+        ITEM_TYPE = AnyItemType.getInstance();
+    }
 
     /**
      * A type number for function()
@@ -130,13 +144,15 @@ public abstract class Type {
      */
 
     /*@NotNull*/
-    public static ItemType getItemType(/*@NotNull*/ Item item, /*@Nullable*/ TypeHierarchy th) {
+    public static ItemType getItemType(Item item, TypeHierarchy th) {
+
         if (item == null) {
             return AnyItemType.getInstance();
-        } else if (item instanceof AtomicValue) {
+        }
+        item = unlabelItem(item);
+        if (item instanceof AtomicValue) {
             return ((AtomicValue) item).getItemType();
-        } else if (item instanceof NodeInfo) {
-            NodeInfo node = (NodeInfo) item;
+        } else if (item instanceof NodeInfo node) {
             if (th == null) {
                 th = node.getConfiguration().getTypeHierarchy();
             }
@@ -144,7 +160,8 @@ public abstract class Type {
                 case Type.DOCUMENT:
                     // Need to know whether the document is well-formed and if so what the element type is
                     ItemType elementType = null;
-                    for (NodeInfo n : node.children()) {
+                    SequenceIterator children = node.iterateChildAxis(null);
+                    for (NodeInfo n; (n = (NodeInfo) children.next()) != null; ) {
                         int kind = n.getNodeKind();
                         if (kind == Type.TEXT) {
                             elementType = null;
@@ -158,44 +175,34 @@ public abstract class Type {
                         }
                     }
                     if (elementType == null) {
-                        return NodeKindTest.DOCUMENT;
+                        return NodeKindType.DOCUMENT;
                     } else {
-                        return new DocumentNodeTest((NodeTest) elementType);
+                        return new DocumentNodeType((XNodeType) elementType);
                     }
 
-                case Type.ELEMENT:
+                case Type.ELEMENT: {
                     SchemaType eltype = node.getSchemaType();
-                    if (eltype.equals(Untyped.getInstance()) || eltype.equals(AnyType.getInstance())) {
-                        return new SameNameTest(node);
-                    } else {
-                        return new CombinedNodeTest(
-                                new SameNameTest(node),
-                                Token.INTERSECT,
-                                new ContentTypeTest(Type.ELEMENT, eltype, node.getConfiguration(), false));
-                    }
-
-                case Type.ATTRIBUTE:
-                    SchemaType attype = node.getSchemaType();
-                    if (attype.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
-                        return new SameNameTest(node);
-                    } else {
-                        return new CombinedNodeTest(
-                                new SameNameTest(node),
-                                Token.INTERSECT,
-                                new ContentTypeTest(Type.ATTRIBUTE, attype, node.getConfiguration(), false));
-                    }
-
+                    Configuration config = node.getConfiguration();
+                    return new NamedXNodeType(Type.ELEMENT, new SpecificQNameTest(node.getQName(), config.getNamePool()),
+                                              eltype, true, config);
+                }
+                case Type.ATTRIBUTE: {
+                    SchemaType attType = node.getSchemaType();
+                    Configuration config = node.getConfiguration();
+                    return new NamedXNodeType(Type.ATTRIBUTE, new SpecificQNameTest(node.getQName(), config.getNamePool()),
+                                              attType, true, config);
+                }
                 case Type.TEXT:
-                    return NodeKindTest.TEXT;
+                    return NodeKindType.TEXT;
 
                 case Type.COMMENT:
-                    return NodeKindTest.COMMENT;
+                    return NodeKindType.COMMENT;
 
                 case Type.PROCESSING_INSTRUCTION:
-                    return NodeKindTest.PROCESSING_INSTRUCTION;
+                    return NodeKindType.PROCESSING_INSTRUCTION;
 
                 case Type.NAMESPACE:
-                    return NodeKindTest.NAMESPACE;
+                    return NodeKindType.NAMESPACE;
 
                 default:
                     throw new IllegalArgumentException("Unknown node kind " + node.getNodeKind());
@@ -209,6 +216,10 @@ public abstract class Type {
             return th == null ? MapType.ANY_MAP_TYPE : ((MapItem)item).getItemType(th);
         } else if (item instanceof ArrayItem) {
             return th == null ? ArrayItemType.ANY_ARRAY_TYPE : new ArrayItemType(((ArrayItem) item).getMemberType(th));
+        } else if (item instanceof JNode) {
+            return th == null
+                    ? AnyJNodeType.getInstance()
+                    : new SpecificJNodeType(SequenceTool.getSequenceType(((JNode)item).getContent(), th));
         } else { //if (item instanceof FunctionItem) {
             return ((FunctionItem) item).getFunctionItemType();
         }
@@ -224,27 +235,26 @@ public abstract class Type {
      */
 
     public static String displayTypeName(/*@NotNull*/ Item item) {
-        if (item instanceof NodeInfo) {
-            NodeInfo node = (NodeInfo) item;
+        if (item instanceof NodeInfo node) {
             switch (node.getNodeKind()) {
                 case DOCUMENT:
                     return "document-node()";
                 case ELEMENT:
                     SchemaType annotation = node.getSchemaType();
                     if (annotation.isAnonymousType()) {
-                        return "element(" + ((NodeInfo) item).getDisplayName() + ')';
+                        return "element(" + node.getDisplayName() + ')';
                     } else {
                         return "element(" +
-                                ((NodeInfo) item).getDisplayName() + ", " +
+                                node.getDisplayName() + ", " +
                                 annotation.getDisplayName() + ')';
                     }
                 case ATTRIBUTE:
                     SchemaType annotation2 = node.getSchemaType();
                     if (annotation2.isAnonymousType()) {
-                        return "attribute(" + ((NodeInfo) item).getDisplayName() + ')';
+                        return "attribute(" + node.getDisplayName() + ')';
                     } else {
                         return "attribute(" +
-                                ((NodeInfo) item).getDisplayName() + ", " +
+                                node.getDisplayName() + ", " +
                                 annotation2.getDisplayName() + ')';
                     }
                 case TEXT:
@@ -318,6 +328,11 @@ public abstract class Type {
     public static boolean isSubType(AtomicType one, AtomicType two) {
         while (true) {
             if (one.getFingerprint() == two.getFingerprint()) {
+                if (one != two && !one.isBuiltInType() && !two.isBuiltInType()) {
+                    throw new UncheckedXPathException("There are two different types with the same name " + one.getEQName() +
+                            "; this probably means the schema has been loaded twice, once to validate a source document, " +
+                            "and once as a static schema import.", "XTSE0220");
+                }
                 return true;
             }
             SchemaType s = one.getBaseType();
@@ -406,8 +421,8 @@ public abstract class Type {
         if (t2 instanceof ErrorType) {
             return t1;
         }
-        if (t1 == AnyItemType.getInstance() || t2 == AnyItemType.getInstance()) {
-            return AnyItemType.getInstance();
+        if (t1 == AnyItemType.INSTANCE || t2 == AnyItemType.INSTANCE) {
+            return AnyItemType.INSTANCE;
         }
         ItemType p1 = t1.getPrimitiveItemType();
         ItemType p2 = t2.getPrimitiveItemType();
@@ -432,14 +447,14 @@ public abstract class Type {
             return BuiltInAtomicType.ANY_ATOMIC;
         }
         if (t1 instanceof NodeTest && t2 instanceof NodeTest) {
-            return AnyNodeTest.getInstance();
+            return AnyXNodeType.getInstance();
         }
         if (t1 instanceof JavaExternalObjectType && t2 instanceof JavaExternalObjectType) {
             Class<?> c1 = ((JavaExternalObjectType) t1).getJavaClass();
             Class<?> c2 = ((JavaExternalObjectType) t2).getJavaClass();
             return JavaExternalObjectType.of(leastCommonSuperClass(c1, c2));
         }
-        return AnyItemType.getInstance();
+        return AnyItemType.INSTANCE;
 
         // Note: for function items, the result is always AnyFunctionType, since all functions have the same primitive type
 
@@ -556,15 +571,15 @@ public abstract class Type {
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
      * @param t2      the second type to compare.
      *                This must be a primitive atomic type as defined by {@link ItemType#getPrimitiveType}
-     * @param version the XPath language level (either 20, 30, 305, 31 or 40)
+     * @param allow40 true if the XPath language level is 4.0
      * @return true if the types are guaranteed comparable, as defined by the rules of the "eq" operator,
      *         or if we don't yet know (because some subtypes of the static type are comparable
      *         and others are not). False if they are definitely not comparable.
      */
 
-    public static boolean isPossiblyComparable(/*@NotNull*/ BuiltInAtomicType t1, /*@NotNull*/ BuiltInAtomicType t2, int version) {
+    public static boolean isPossiblyComparable(/*@NotNull*/ BuiltInAtomicType t1, /*@NotNull*/ BuiltInAtomicType t2, boolean ordered, boolean allow40) {
         if (t1 == t2) {
-            return true; // short cut
+            return true; // shortcut
         }
         if (t1.equals(BuiltInAtomicType.ANY_ATOMIC) || t2.equals(BuiltInAtomicType.ANY_ATOMIC)) {
             return true; // meaning we don't actually know at this stage
@@ -590,7 +605,7 @@ public abstract class Type {
         if (t2.equals(BuiltInAtomicType.YEAR_MONTH_DURATION)) {
             t2 = BuiltInAtomicType.DURATION;
         }
-        if (version >= 40) {
+        if (allow40) {
             if (t1.equals(BuiltInAtomicType.BASE64_BINARY)) {
                 t1 = BuiltInAtomicType.HEX_BINARY;
             }
@@ -640,6 +655,11 @@ public abstract class Type {
     public static boolean isGuaranteedGenerallyComparable(/*@NotNull*/ BuiltInAtomicType t1, /*@NotNull*/ BuiltInAtomicType t2, boolean ordered) {
         return !(t1.equals(BuiltInAtomicType.ANY_ATOMIC) || t2.equals(BuiltInAtomicType.ANY_ATOMIC))
                 && isGenerallyComparable(t1, t2, ordered);
+    }
+
+
+    public static Item unlabelItem(Item item) {
+        return item;
     }
 
 

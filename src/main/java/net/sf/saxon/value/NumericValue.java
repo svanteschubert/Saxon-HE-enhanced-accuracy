@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,13 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.TransitiveNumericComparable;
 import net.sf.saxon.expr.sort.XPathComparable;
+import net.sf.saxon.functions.Round;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.AtomicType;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.type.ValidationException;
 import net.sf.saxon.type.ValidationFailure;
@@ -25,9 +27,9 @@ import java.math.BigDecimal;
  */
 
 public abstract class NumericValue extends AtomicValue
-        implements XPathComparable, AtomicMatchKey, ContextFreeAtomicValue {
+        implements XPathComparable, AtomicMatchKey {
 
-    public NumericValue(AtomicType typeLabel) {
+    public NumericValue(AtomicMetadata typeLabel) {
         super(typeLabel);
     }
 
@@ -83,13 +85,26 @@ public abstract class NumericValue extends AtomicValue
     public abstract float getFloatValue();
 
     /**
-     * Get the numeric value converted to a decimal
+     * Get the numeric value converted to a decimal. This method implements the casting rules,
+     * which may lose some precision.
      *
      * @return a decimal representing this numeric value;
      * @throws ValidationException if the value cannot be converted, for example if it is NaN or infinite
      */
 
     public abstract BigDecimal getDecimalValue() throws ValidationException;
+
+    /**
+     * Get the numeric value converted to a decimal. This method gets the exact value
+     * as needed for map keys and fn:compare, to give transitive comparison semantics
+     *
+     * @return a decimal representing this numeric value;
+     * @throws ValidationException if the value cannot be converted, for example if it is NaN or infinite
+     */
+
+    public BigDecimal getExactDecimalValue() throws ValidationException {
+        return getDecimalValue();
+    }
 
     /**
      * Get the effective boolean value of the value. This override of this method throws no exceptions.
@@ -160,16 +175,16 @@ public abstract class NumericValue extends AtomicValue
     public abstract NumericValue round(int scale);
 
     /**
-     * Implement the XPath 2.0 round-half-to-even() function
+     * Implement the XPath 2.0 round-half-to-even() and XPath 4.0 round#3 functions
      *
-     * @param scale the decimal position for rounding: e.g. 2 rounds to a
-     *              multiple of 0.01, while -2 rounds to a multiple of 100
-     * @return a value, of the same type as the original, rounded towards the
-     *         nearest multiple of 10**(-scale), with rounding towards the nearest
-     *         even number if two values are equally near
+     * @param scale        the decimal position for rounding: e.g. 2 rounds to a
+     *                     multiple of 0.01, while -2 rounds to a multiple of 100
+     * @param roundingRule the rule to be used for rounding (up, down, towards zero, etc)
+     * @return a value, of the same type as the original, rounded to
+     * a multiple of 10^(-scale), according to the rounding rules requested
      */
 
-    public abstract NumericValue roundHalfToEven(int scale);
+    public abstract NumericValue round(int scale, Round.RoundingRule roundingRule);
 
     /**
      * Ask whether the value is negative, zero, or positive
@@ -217,28 +232,44 @@ public abstract class NumericValue extends AtomicValue
     /**
      * Get a Comparable value that implements the XPath ordering comparison semantics for this value.
      * Returns null if the value is not comparable according to XPath rules. The implementation
-     * for all kinds of NumericValue returns the value itself.
+     * for all kinds of NumericValue returns the value itself in 3.1, but not in 4.0.
      *
-     * @param collator the collation to be used when comparing strings
-     * @param implicitTimezone  the implicit timezone in the dynamic context, used when comparing
-     * dates/times with and without timezone
-     * @return a collation key that implements the comparison semantics
+     * @param collator         the collation to be used when comparing strings
+     * @param implicitTimezone the implicit timezone in the dynamic context, used when comparing
+     *                         dates/times with and without timezone
+     * @param specVersion the XPath specification version
+     * @return a match key that implements the comparison semantics
      */
 
     /*@NotNull*/
     @Override
-    public final AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
-        return this;
+    public final AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone, int specVersion) {
+        return specVersion >= 40 ? asMapKey(40) : this;
     }
 
-    @Override
-    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
-        return this;
-    }
+    /**
+     * Get a value whose {@code equals()} and {@code hashcode()} methods follows the "same key"
+     * rules for comparing the keys of a map. For numeric values, this is done as follows:
+     * <ul>
+     *     <li>For NaN, return {@code AtomicSortComparer.COLLATION_KEY_NaN;}</li>
+     *     <li>For +INF and -INF, call {@code java.lang.Double.hashcode()}</li>
+     *     <li>For any value that is numerically equal to some 32-bit signed integer, return
+     *         a {@link net.sf.saxon.ma.map.Int32MapKey}</li>
+     *     <li>For any other value, return a {@link net.sf.saxon.ma.map.BigDecimalMapKey}</li>
+     * </ul>
+     *
+     * @return a value with the property that the {@code equals()} and {@code hashcode()} methods follow the rules for comparing
+     * keys in maps.
+     */
+
+    public abstract AtomicMatchKey asMapKey(int specVersion);
 
     @Override
-    public XPathComparable getXPathComparable() {
-        return this;
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone, int specVersion) throws NoDynamicContextException {
+        if (specVersion < 40) {
+            return this;
+        }
+        return new TransitiveNumericComparable(this);
     }
 
     /**
@@ -253,7 +284,8 @@ public abstract class NumericValue extends AtomicValue
      *                            interface)
      */
 
-    // This is the default implementation. Subclasses of number avoid the conversion to double
+    // This is the default implementation. This implements the 3.1 semantics whereby values are promoted
+    // to xs:double and compared as doubles. Subclasses of number avoid the conversion to double
     // when comparing with another number of the same type.
     @Override
     public int compareTo(/*@NotNull*/ XPathComparable other) {
@@ -277,6 +309,17 @@ public abstract class NumericValue extends AtomicValue
     }
 
     /**
+     * Comparison method using transitive semantics (for 4.0). When comparing
+     * mixed data types, doubles and floats are converted to an exact decimal.
+     * <p>Where NaN values are involved, they should be handled by the caller
+     * before invoking this method.</p>
+     * @param other the other comparand
+     * @return -1, 0, or +1 depending on the magnitude relationship.
+     */
+    public abstract int transitiveCompareTo(NumericValue other);
+
+
+    /**
      * Compare the value to a long
      *
      * @param other the value to be compared with
@@ -287,7 +330,7 @@ public abstract class NumericValue extends AtomicValue
 
     /**
      * The equals() function compares numeric equality among integers, decimals, floats, doubles, and
-     * their subtypes.
+     * their subtypes. 
      *
      * @param other the value to be compared with this one
      * @return true if the two values are numerically equal
@@ -306,6 +349,12 @@ public abstract class NumericValue extends AtomicValue
      * values outside that range, we convert to a double and take the hashCode of
      * the double. This method needs to have a compatible implementation in
      * each subclass.
+     *
+     * <p>Note that this method is not used (in general) when comparing keys in
+     * maps. When we build a map, we use {@link #asMapKey(int)} to generate
+     * a key for comparison purposes; in the case of numeric values this will
+     * in most cases be either a {@link net.sf.saxon.ma.map.Int32MapKey}
+     * or a {@link net.sf.saxon.ma.map.BigDecimalMapKey}.</p>
      *
      * @return the hash code of the numeric value
      */

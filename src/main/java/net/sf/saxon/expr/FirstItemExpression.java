@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,9 +17,11 @@ import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.GeneralNodePattern;
+import net.sf.saxon.pattern.NodeTestPattern;
+import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.pattern.SimplePositionalPattern;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.Cardinality;
 
 
@@ -86,26 +88,20 @@ public final class FirstItemExpression extends SingleItemFilter {
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath
      * @return the equivalent pattern
-     * @throws net.sf.saxon.trans.XPathException
-     *          if conversion is not possible
+     * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
-        Pattern basePattern = getBaseExpression().toPattern(config);
-        ItemType type = basePattern.getItemType();
-        if (type instanceof NodeTest) {
-            Expression baseExpr = getBaseExpression();
-            if (baseExpr instanceof AxisExpression &&
-                ((AxisExpression)baseExpr).getAxis() == AxisInfo.CHILD && basePattern instanceof NodeTestPattern) {
-                    return new SimplePositionalPattern((NodeTest) type, 1);
-            } else {
-                return new GeneralNodePattern(this, (NodeTest) type);
-            }
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
+        Pattern basePattern = getBaseExpression().toPattern(config, firstInPath);
+        Expression baseExpr = getBaseExpression();
+        if (baseExpr instanceof AxisExpression &&
+                ((AxisExpression) baseExpr).getAxis() == AxisInfo.CHILD && basePattern instanceof NodeTestPattern ntp) {
+            return new SimplePositionalPattern(ntp.getNodeTest(), 1);
         } else {
-            // For a non-node pattern, the predicate [1] is always true
-            return basePattern;
+            return new GeneralNodePattern(this, basePattern.getItemType());
         }
     }
 

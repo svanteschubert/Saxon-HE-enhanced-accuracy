@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,19 +7,18 @@
 
 package net.sf.saxon.expr.parser;
 
-import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.LocalBinding;
-import net.sf.saxon.expr.VariableReference;
-import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.*;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.query.QueryModule;
 import net.sf.saxon.query.XQueryFunction;
 import net.sf.saxon.query.XQueryParser;
 import net.sf.saxon.style.SourceBinding;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.List;
 
 /**
  * Dummy Parser extension for syntax in XPath that is accepted only in particular product variants.
@@ -31,7 +30,20 @@ public class ParserExtension {
     public ParserExtension() {
     }
 
+    /**
+     * Supporting code for lookup expressions (A?B) where B is the wildcard "*"
+     *
+     * @param lhs     the LHS operand of the lookup expression
+     * @param allow40
+     * @return the result of parsing the expression
+     */
 
+    public Expression lookupStar(Expression lhs,
+                                 SequenceType type,
+                                 boolean allow40) {
+        return new LookupAllExpression(lhs);
+    }
+    
 
     public void needExtension(XPathParser p, String what) throws XPathException {
         p.grumble(what + " require support for Saxon extensions, available in Saxon-PE or higher");
@@ -117,11 +129,6 @@ public class ParserExtension {
         }
 
         @Override
-        public IntegerValue[] getIntegerBoundsForVariable() {
-            return null;
-        }
-
-        @Override
         public void setIndexedVariable() {
         }
 
@@ -167,6 +174,16 @@ public class ParserExtension {
 
     protected Expression parseExtendedExprSingle(XPathParser p) throws XPathException {
         return null;
+    }
+
+
+    public void processSchemaImports(QueryModule module, List<XQueryParser.Import> schemaImports) throws XPathException {
+        throw new XPathException("Import schema requires Saxon-EE");
+    }
+    public Expression parseDeepUpdateExpression(XQueryParser parser) throws XPathException {
+        parser.grumble("update map/array expressions are not allowed in SaxonHE");
+        return new ErrorExpression();
+
     }
 
 

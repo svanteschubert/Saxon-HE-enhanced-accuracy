@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,7 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.type.SchemaException;
 import net.sf.saxon.type.Type;
 import org.xml.sax.InputSource;
@@ -155,6 +153,28 @@ public class XPathEvaluator implements XPath {
     }
 
     /**
+     * Set XPath 1.0 backwards compatibility mode. Note that this does not disable use
+     * of features defined in XPath 2.0 or later versions; it merely causes selected
+     * features (as defined in the XPath specification) to retain 1.0 behavior
+     * @param enabled set to true to enable 1.0 compatibility mode (default is false).
+     * @since 13.0
+     */
+
+    public void setBackwardsCompatibilityMode(boolean enabled) {
+        staticContext.setBackwardsCompatibilityMode(enabled);
+    }
+
+    /**
+     * Ask if XPath 1.0 backwards compatibility mode is enabled.
+     * @return true if 1.0 compatibility mode is enabled (default is false).
+     * @since 13.0
+     */
+
+    public boolean isBackwardsCompatibilityMode() {
+        return staticContext.isInBackwardsCompatibleMode();
+    }
+
+    /**
      * Get the namespace context, if one has been set using {@link #setNamespaceContext}
      *
      * @return the namespace context if set, or null otherwise
@@ -197,13 +217,15 @@ public class XPathEvaluator implements XPath {
             throw new NullPointerException("expr");
         }
         try {
-            Executable exec = new Executable(getConfiguration());
+            Configuration config = getConfiguration();
+            Executable exec = new Executable(config);
             exec.setSchemaAware(staticContext.getPackageData().isSchemaAware());
-            Expression exp = ExpressionTool.make(expr, staticContext, 0, -1, null);
+            Expression exp = ExpressionTool.make(expr, staticContext, 0, Tokenizer.END_OF_INPUT, null);
             ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
-            final ContextItemStaticInfo contextItemType = getConfiguration().makeContextItemStaticInfo(Type.ITEM_TYPE, true);
+            final ContextItemStaticInfo contextItemType =
+                    config.makeContextItemStaticInfo(Type.ITEM_TYPE, Optionality.OPTIONAL);
             exp = exp.typeCheck(visitor, contextItemType).optimize(visitor, contextItemType);
-            SlotManager map = staticContext.getConfiguration().makeSlotManager();
+            SlotManager map = config.makeSlotManager();
             ExpressionTool.allocateSlots(exp, 0, map);
             XPathExpressionImpl xpe = new XPathExpressionImpl(exp, exec);
             xpe.setStackFrameMap(map);

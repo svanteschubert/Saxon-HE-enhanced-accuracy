@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,18 +14,16 @@ import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.instruct.ValueOf;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.transpile.CSharpSimpleEnum;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.type.Affinity;
-import net.sf.saxon.type.ItemType;
-import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.type.UType;
+import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
@@ -216,6 +214,8 @@ public class SourceBinding {
                 setProperty(BindingProperty.TUNNEL, tunnel);
             } else if (NamespaceUri.SAXON.equals(attName.getNamespaceUri())) {
                 if (attName.getLocalPart().equals("as")) {
+                    sourceElement.compileWarning("saxon:as is deprecated",
+                                                 SaxonErrorCode.SXWN9053);
                     extraAsAtt = att.getValue();
                 }
             }
@@ -250,7 +250,7 @@ public class SourceBinding {
                 extraResultType = SequenceType.ANY_SEQUENCE;
             }
             if (asAtt != null) {
-                Affinity rel = sourceElement.getConfiguration().getTypeHierarchy().sequenceTypeRelationship(extraResultType, declaredType);
+                Affinity rel = Subsumption.sequenceTypeRelationship(extraResultType, declaredType);
                 if (rel == Affinity.SAME_TYPE || rel == Affinity.SUBSUMED_BY) {
                     declaredType = extraResultType;
                 } else {
@@ -357,8 +357,8 @@ public class SourceBinding {
         checkAgainstRequiredType(declaredType);
 
         if (select == null && !hasProperty(BindingProperty.DISALLOWS_CONTENT) && visibility != Visibility.ABSTRACT) {
-            AxisIterator kids = sourceElement.iterateAxis(AxisInfo.CHILD);
-            NodeInfo first = kids.next();
+            SequenceIterator kids = sourceElement.iterateChildAxis(AnyGNode.TEST);
+            NodeInfo first = (NodeInfo)kids.next();
             if (first == null) {
                 if (declaredType == null) {
                     select = new StringLiteral(StringValue.EMPTY_STRING);
@@ -508,19 +508,32 @@ public class SourceBinding {
         // to construct and return a document node.
         if (sourceElement.hasChildNodes()) {
             if (declaredType == null) {
+                boolean makeDocNode = true;
+                if (compilation.getCompilerInfo().getXsltVersion() >= 40) {
+                    for (NodeInfo child : sourceElement.children()) {
+                        if (child instanceof AutoDocumentInhibitor) {
+                            makeDocNode = false;
+                            break;
+                        }
+                    }
+                }
                 Expression b = sourceElement.compileSequenceConstructor(compilation, decl, true);
                 if (b == null) {
                     b = Literal.makeEmptySequence();
                 }
-                boolean textonly = UType.TEXT.subsumes(b.getItemType().getUType());
-                UnicodeString constant = null;  // bug 3748
-                if (textonly && b instanceof ValueOf && ((ValueOf) b).getSelect() instanceof StringLiteral) {
-                    constant = ((StringLiteral) ((ValueOf) b).getSelect()).getString();
+                if (makeDocNode) {
+                    boolean textonly = UType.TEXT.subsumes(b.getItemType().getUType());
+                    UnicodeString constant = null;  // bug 3748
+                    if (textonly && b instanceof ValueOf && ((ValueOf) b).getSelect() instanceof StringLiteral) {
+                        constant = ((StringLiteral) ((ValueOf) b).getSelect()).getUnicodeString();
+                    }
+                    DocumentInstr doc = new DocumentInstr(textonly, constant);
+                    doc.setContentExpression(b);
+                    doc.setRetainedStaticContext(sourceElement.makeRetainedStaticContext());
+                    select = doc;
+                } else {
+                    select = b;
                 }
-                DocumentInstr doc = new DocumentInstr(textonly, constant);
-                doc.setContentExpression(b);
-                doc.setRetainedStaticContext(sourceElement.makeRetainedStaticContext());
-                select = doc;
             } else {
                 select = sourceElement.compileSequenceConstructor(compilation, decl, true);
                 if (select == null) {
@@ -616,7 +629,29 @@ public class SourceBinding {
         if (useContentRules) {
             if (sourceElement.hasChildNodes()) {
                 if (declaredType == null) {
-                    return SequenceType.makeSequenceType(NodeKindTest.DOCUMENT, StaticProperty.EXACTLY_ONE);
+                    if (getSourceElement().getCompilation().getCompilerInfo().getXsltVersion() >= 40) {
+                        ItemType atype = null;
+                        int count = 0;
+                        for (NodeInfo child : sourceElement.children()) {
+                            count++;
+                            if (child instanceof AutoDocumentInhibitor) {
+                                ItemType instructionType = ((AutoDocumentInhibitor) child).getItemType();
+                                atype = atype == null
+                                        ? instructionType
+                                        : ChoiceItemType.of(atype, instructionType);
+                                if (atype == AnyItemType.INSTANCE) {
+                                    break;
+                                }
+                            }
+                        }
+                        if (atype != null) {
+                            return count == 1 ? SequenceType.one(atype) : SequenceType.zeroOrMore(atype);
+                        } else {
+                            return SequenceType.one(NodeKindType.DOCUMENT);
+                        }
+                    } else {
+                        return SequenceType.one(NodeKindType.DOCUMENT);
+                    }
                 } else {
                     return declaredType;
                 }
@@ -674,15 +709,6 @@ public class SourceBinding {
         //GroundedValue constantValue = null;
         int properties = 0;
         if (!hasProperty(BindingProperty.ASSIGNABLE) && !hasProperty(BindingProperty.PARAM) && !(visibility == Visibility.PUBLIC || visibility == Visibility.ABSTRACT)) {
-            /*if (select instanceof Literal) {
-                // we can't rely on the constant value because it hasn't yet been type-checked,
-                // which could change it (eg by numeric promotion). Rather than attempt all the type-checking
-                // now, we do a quick check. See test bug64
-                int relation = th.relationship(select.getItemType(), type.getPrimaryType());
-                if (relation == TypeHierarchy.SAME_TYPE || relation == TypeHierarchy.SUBSUMED_BY) {
-                    constantValue = ((Literal) select).getValue();
-                }
-            } */
             if (select != null) {
                 properties = select.getSpecialProperties();
             }

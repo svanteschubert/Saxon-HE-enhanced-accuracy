@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,12 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.lib.ConversionRules;
+import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.StructuredQName;
@@ -20,7 +22,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Converter;
-import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.QNameValue;
 import net.sf.saxon.value.SequenceType;
@@ -43,8 +45,11 @@ public class OptionsParameter {
     private String errorCodeForDisallowedValue;
     private String errorCodeForAbsentValue = "SXJE9999";
     private boolean allowCastFromString = false;
+    private final int languageVersion;
 
-    public OptionsParameter() {}
+    public OptionsParameter(int version) {
+        this.languageVersion = version;
+    }
 
     /**
      * Register a permitted option keyword, and the associated type of value, without defining
@@ -100,15 +105,18 @@ public class OptionsParameter {
      * Process an XPath map containing the supplied values. Options that are recognized are copied
      * into the result map, after validation and expansion of defaults. Unrecognized options are
      * ignored, in accordance with the option parameter conventions
+     *
      * @param supplied the supplied options as an XPath map object
-     * @param context the dynamic evaluation context
+     * @param context  the dynamic evaluation context
+     * @param version the XPath language version (times 10)
      * @return the validated options as a Java map
      * @throws XPathException if any supplied options are invalid
      */
 
-    public Map<String, GroundedValue> processSuppliedOptions(MapItem supplied, XPathContext context) throws XPathException {
+    public Map<String, GroundedValue> processSuppliedOptions(MapItem supplied, XPathContext context, int version) throws XPathException {
         Map<String, GroundedValue> result = new HashMap<>();
-        TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
+        Configuration config = context.getConfiguration();
+        CoercionRules coercionRules = CoercionRules.forVersion(config, languageVersion);
 
         for (String req : requiredOptions) {
             if (supplied.get(new StringValue(req)) == null) {
@@ -116,18 +124,28 @@ public class OptionsParameter {
             }
         }
 
-        for (Map.Entry<String, SequenceType> allowed : allowedOptions.entrySet()) {
-            String nominalKey = allowed.getKey();
+        // A 4.0 rule: reject mis-spelt option names
+        if (version >= 40) {
+            for (KeyValuePair kvp : supplied.keyValuePairs()) {
+                if (!(kvp.key() instanceof StringValue && allowedOptions.containsKey(kvp.key().getStringValue())) &&
+                        !(kvp.key() instanceof QNameValue && !((QNameValue) kvp.key()).getNamespaceURI().isEmpty())) {
+                    throw new XPathException("Unrecognized option: " + Err.depict(kvp.key()), "XPTY0004").asTypeError();
+                }
+            }
+        }
+
+        for (Map.Entry<String, SequenceType> allowedoptions : allowedOptions.entrySet()) {
+            String nominalKey = allowedoptions.getKey();
             AtomicValue actualKey;
             if (nominalKey.startsWith("Q{")) {
-                actualKey = new QNameValue(StructuredQName.fromEQName((nominalKey)), BuiltInAtomicType.QNAME);
+                actualKey = new QNameValue(StructuredQName.fromEQName40((nominalKey)), BuiltInAtomicType.QNAME);
             } else {
                 actualKey = new StringValue(nominalKey);
             }
-            SequenceType required = allowed.getValue();
+            SequenceType required = allowedoptions.getValue();
             GroundedValue actual = supplied.get(actualKey);
             if (actual != null) {
-                if (!required.matches(actual, th)) {
+                if (!required.matches(actual)) {
                     boolean ok = false;
                     if (actual instanceof StringValue && allowCastFromString
                             && required.getPrimaryType() instanceof AtomicType) {
@@ -141,8 +159,8 @@ public class OptionsParameter {
                     if (!ok) {
                         Supplier<RoleDiagnostic> role =
                                 () -> new RoleDiagnostic(RoleDiagnostic.OPTION, nominalKey, 0, "XPTY0004");
-                        actual = th.applyFunctionConversionRules(
-                                actual, required, role, Loc.NONE);
+                        actual = coercionRules.coerce(
+                                actual, required, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE).materialize();
                     }
                 }
                 actual = actual.materialize();
@@ -174,7 +192,6 @@ public class OptionsParameter {
      * Get a Java map containing the default values of registered options
      * @return a map containing the default values
      */
-
 
     public Map<String, GroundedValue> getDefaultOptions()  {
         return new HashMap<>(defaultValues);

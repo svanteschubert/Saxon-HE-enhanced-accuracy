@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.xpath;
 
 import net.sf.saxon.functions.CallableFunction;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
@@ -128,7 +129,7 @@ public class XPathFunctionLibrary implements FunctionLibrary {
         SequenceType[] argTypes = new SequenceType[arity];
         Arrays.fill(argTypes, SequenceType.ANY_SEQUENCE);
         FunctionItemType functionType = new SpecificFunctionType(argTypes, SequenceType.ANY_SEQUENCE);
-        return new CallableFunction(symbolicName, functionCall, functionType);
+        return new CallableFunction(symbolicName, functionCall::call, functionType);
     }
 
     /**
@@ -136,11 +137,12 @@ public class XPathFunctionLibrary implements FunctionLibrary {
      * <p>This supports the function-available() function in XSLT.</p>
      *
      * @param functionName  the qualified name of the function being called
+     * @param schema
      * @param languageLevel the XPath language level (times 10, e.g. 31 for XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
+    public boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel) {
         return resolver != null &&
                 resolver.resolveFunction(
                         new QName(functionName.getComponentName().getNamespaceUri().toString(),

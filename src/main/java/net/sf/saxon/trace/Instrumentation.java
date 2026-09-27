@@ -7,6 +7,8 @@
 
 package net.sf.saxon.trace;
 
+import net.sf.saxon.transpile.CSharpSuppressCompilerWarnings;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -15,6 +17,7 @@ import java.util.Map;
  * The counters are output by calling {@code Instrumentation.report()}, typically at the end of a run.
  */
 
+@CSharpSuppressCompilerWarnings(0162)   // suppress "unreachable code" warning
 public class Instrumentation {
 
     // Set this flag to true to enable counters to be maintained

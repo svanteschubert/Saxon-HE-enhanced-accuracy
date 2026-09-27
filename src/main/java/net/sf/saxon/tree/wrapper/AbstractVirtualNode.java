@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,13 +8,10 @@
 package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 
-import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.SchemaType;
 
 
@@ -233,7 +230,7 @@ public abstract class AbstractVirtualNode implements VirtualNode {
      */
 
     @Override
-    public int compareOrder(/*@NotNull*/ NodeInfo other) {
+    public int compareOrder(/*@NotNull*/ GNode other) {
         if (other instanceof AbstractVirtualNode) {
             return node.compareOrder(((AbstractVirtualNode) other).node);
         } else {
@@ -306,20 +303,6 @@ public abstract class AbstractVirtualNode implements VirtualNode {
     }
 
     /**
-     * Return an iteration over the nodes reached by the given axis from this node
-     *
-     * @param axisNumber the axis to be used
-     * @param nodeTest   A pattern to be matched by the returned nodes
-     * @return a SequenceIterator that scans the nodes reached by the axis in turn.
-     */
-
-    /*@NotNull*/
-    @Override
-    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
-        return new Navigator.AxisFilter(iterateAxis(axisNumber), nodeTest);
-    }
-
-    /**
      * Get the string value of a given attribute of this node
      *
      * @param uri   the namespace URI of the attribute name. Supply the empty string for an attribute
@@ -344,7 +327,7 @@ public abstract class AbstractVirtualNode implements VirtualNode {
     public NodeInfo getRoot() {
         NodeInfo p = this;
         while (true) {
-            NodeInfo q = p.getParent();
+            NodeInfo q = (NodeInfo)p.getParent();
             if (q == null) {
                 return p;
             }

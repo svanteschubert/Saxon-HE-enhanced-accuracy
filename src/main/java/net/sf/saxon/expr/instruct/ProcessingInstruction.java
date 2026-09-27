@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import net.sf.saxon.om.NameChecker;
 import net.sf.saxon.om.NoNamespaceName;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.StringConstants;
 import net.sf.saxon.str.Twine8;
@@ -78,7 +78,7 @@ public class ProcessingInstruction extends SimpleNodeConstructor {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return NodeKindTest.PROCESSING_INSTRUCTION;
+        return NodeKindType.PROCESSING_INSTRUCTION;
     }
 
     @Override
@@ -107,7 +107,7 @@ public class ProcessingInstruction extends SimpleNodeConstructor {
         StaticContext env = visitor.getStaticContext();
         nameOp.typeCheck(visitor, contextItemType);
 
-        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "processing-instruction/name", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:processing-instruction/name", 0);
         // See bug 2110. XQuery does not use the function conversion rules here, and disallows xs:anyURI.
         // In XSLT the name is an AVT so we automatically get a string; in XQuery we'll use the standard
         // mechanism to get an atomic value, and then check the type "by hand" at run time.

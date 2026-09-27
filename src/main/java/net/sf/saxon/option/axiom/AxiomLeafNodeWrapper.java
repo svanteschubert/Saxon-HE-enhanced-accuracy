@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,21 +7,18 @@
 
 package net.sf.saxon.option.axiom;
 
-import net.sf.saxon.om.NamespaceBinding;
-import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.NamespaceNode;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.wrapper.AbstractNodeWrapper;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 import org.apache.axiom.om.*;
 
 import java.util.Iterator;
@@ -58,6 +55,7 @@ public class AxiomLeafNodeWrapper extends AbstractNodeWrapper implements Sibling
         int kind = node.getType();
         switch (kind) {
             case OMNode.TEXT_NODE:
+            case OMNode.CDATA_SECTION_NODE:
             case OMNode.SPACE_NODE:
                 nodeKind = Type.TEXT;
                 break;
@@ -137,7 +135,7 @@ public class AxiomLeafNodeWrapper extends AbstractNodeWrapper implements Sibling
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         if (other instanceof AxiomDocument) {
             return +1;
         } else if (other instanceof AxiomAttributeWrapper) {
@@ -272,36 +270,36 @@ public class AxiomLeafNodeWrapper extends AbstractNodeWrapper implements Sibling
     }
 
     @Override
-    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
-        return EmptyIterator.ofNodes();
+    protected SequenceIterator iterateAttributes(NodePredicate nodeTest) {
+        return EmptyIterator.INSTANCE;
     }
 
     @Override
-    protected AxisIterator iterateChildren(NodeTest nodeTest) {
-        return EmptyIterator.ofNodes();
+    protected SequenceIterator iterateChildren(NodePredicate nodeTest) {
+        return EmptyIterator.INSTANCE;
     }
 
     @Override
-    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
+    protected SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards) {
         if (forwards) {
-            if (nodeTest instanceof AnyNodeTest) {
+            if (nodeTest == AnyGNodeType.getInstance()) {
                 return new AxiomDocument.FollowingSiblingIterator(node, parent, docWrapper);
             } else {
-                return new Navigator.AxisFilter(
+                return Navigator.filter(
                         new AxiomDocument.FollowingSiblingIterator(node, parent, docWrapper), nodeTest);
             }
         } else {
-            if (nodeTest instanceof AnyNodeTest) {
+            if (nodeTest == AnyGNodeType.getInstance()) {
                 return new AxiomDocument.PrecedingSiblingIterator(node, parent, docWrapper);
             } else {
-                return new Navigator.AxisFilter(
+                return Navigator.filter(
                         new AxiomDocument.PrecedingSiblingIterator(node, parent, docWrapper), nodeTest);
             }
         }
     }
 
     @Override
-    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
+    protected SequenceIterator iterateDescendants(NodePredicate predicate, boolean includeSelf) {
         throw new UnsupportedOperationException(); // shouldn't be called on this kind of node
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,9 @@ import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.type.MinimalSchema;
+import net.sf.saxon.type.Schema;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
 import java.io.IOException;
@@ -24,12 +27,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * An XsltExecutable represents the compiled form of a stylesheet.
+ * An {@code XsltExecutable} represents the compiled form of a stylesheet.
  * To execute the stylesheet, it must first be loaded to form an {@link XsltTransformer}.
- * <p>An XsltExecutable is immutable, and therefore thread-safe.
- * It is simplest to load a new XsltTransformer each time the stylesheet is to be run.
- * However, the XsltTransformer is serially reusable within a single thread. </p>
- * <p>An XsltExecutable is created by using one of the <code>compile</code> methods on the
+ * <p>An {@code XsltExecutable} is immutable, and therefore thread-safe.
+ * It is simplest to use the {@link #load()} or {@link #load30} method to
+ * load a new {@link XsltTransformer} each time the stylesheet is to be run.
+ * However, the {@code XsltTransformer} is serially reusable within a single thread. </p>
+ * <p>An {@code XsltExecutable} is created by using one of the <code>compile</code> methods on the
  * {@link XsltCompiler} class.</p>
  */
 @CSharpModifiers(code = {"internal"})
@@ -37,21 +41,33 @@ public class XsltExecutable {
 
     private final Processor processor;
     private final PreparedStylesheet preparedStylesheet;
+    private final int xsltVersion;
 
-    protected XsltExecutable(Processor processor, PreparedStylesheet preparedStylesheet) {
+    protected XsltExecutable(Processor processor, PreparedStylesheet preparedStylesheet, int xsltVersion) {
         this.processor = processor;
         this.preparedStylesheet = preparedStylesheet;
+        this.xsltVersion = xsltVersion;
     }
 
     /**
-     * Get the Processor that was used to create this XsltExecutable
+     * Get the {@link Processor} that was used to create this {@code XsltExecutable}
      *
-     * @return the original Processor object
+     * @return the original {@code Processor} object
      * @since 9.6
      */
 
     public Processor getProcessor() {
         return processor;
+    }
+
+    /**
+     * Get the XSLT language version. This is the version as configured for the XSLT Compiler,
+     * which is not necessarily the same as the version contained in the XSLT source code.
+     * @return 30 for XSLT 3.0, 40 for XSLT 4.0
+     */
+
+    public int getXsltVersion() {
+        return xsltVersion;
     }
 
     /**
@@ -79,20 +95,42 @@ public class XsltExecutable {
     }
 
     /**
-     * Load the stylesheet to prepare it for execution. This version of the load() method
-     * creates an <code>Xslt30Transformer</code> which offers interfaces for stylesheet
+     * Load the stylesheet to prepare it for execution. This version of the {@code load()} method
+     * creates an {@link Xslt30Transformer} which offers interfaces for stylesheet
      * invocation corresponding to those described in the XSLT 3.0 specification. It can be used
      * with XSLT 2.0 or XSLT 3.0 stylesheets, and in both cases it offers new XSLT 3.0 functionality such
      * as the ability to supply parameters to the initial template, or the ability to invoke
      * stylesheet-defined functions, or the ability to return an arbitrary sequence as a result
      * without wrapping it in a document node.
      *
-     * @return An Xslt30Transformer. The returned Xslt30Transformer can be used to set up the
-     *         dynamic context for stylesheet evaluation, and to run the stylesheet.
+     * @return An {@code Xslt30Transformer}. The returned {@code Xslt30Transformer}
+     * can be used to set up the dynamic context for stylesheet evaluation, and to run the stylesheet.
      */
 
     public Xslt30Transformer load30() {
         return new Xslt30Transformer(processor, preparedStylesheet.newController(), preparedStylesheet.getCompileTimeParams());
+    }
+
+    /**
+     * Get the schema used as the static context of the top-level package in the stylesheet. This will typically
+     * include schema components preloaded using {@link XsltCompiler#useSchema(String, XsdSchema)}, plus schema components
+     * loaded using <code>xsl:import-schema</code> declarations within the stylesheet itself.
+     *
+     * <p>This schema can usefully be used for validating source documents that are to be supplied as input to
+     * the stylesheet.</p>
+     *
+     * @param role the role-name of the schema: supply null or "" for the default/unnamed role
+     * @return the schema used by the top-level package of the stylesheet, or null if there is no imported
+     * schema and no externally-supplied schema
+     * @since 13.0
+     */
+
+    public XsdSchema getImportedSchema(String role) {
+        Schema schema = preparedStylesheet.getTopLevelPackage().getImportedSchema(role);
+        if (schema == null || schema instanceof MinimalSchema) {
+            return null;
+        }
+        return processor.newXsdCompiler().wrapInternalSchema(schema);
     }
 
     /**
@@ -148,8 +186,7 @@ public class XsltExecutable {
      *
      * @param destination the destination for the XML document containing the diagnostic representation
      *                    of the compiled stylesheet. The stream will be closed when writing has finished.
-     * @param target the target environment. The only value currently recognized is "JS",
-     *               which exports the package for running under SaxonJS 2.
+     * @param target the target environment (for example "EE" or "JS")
      * @throws SaxonApiException if an error is detected, including the case where
      *         the stylesheet was compiled with just-in-time compilation enabled.
      * @since 9.7
@@ -182,7 +219,8 @@ public class XsltExecutable {
      * of this stylesheet
      *
      * @return a newly constructed WhitespaceStrippingPolicy based on the declarations in
-     * the top-level package of this stylesheet. This policy can be used as input to a {@link DocumentBuilder}.
+     * the top-level package of this stylesheet. This policy can be used as input to
+     * a {@link DocumentBuilder}.
      */
 
     public WhitespaceStrippingPolicy getWhitespaceStrippingPolicy() {
@@ -252,7 +290,7 @@ public class XsltExecutable {
          */
 
         public OccurrenceIndicator getDeclaredCardinality() {
-            return OccurrenceIndicator.getOccurrenceIndicator(type.getCardinality());
+            return Cardinality.getOccurrenceIndicatorForCardinality(type.getCardinality());
         }
 
         /**

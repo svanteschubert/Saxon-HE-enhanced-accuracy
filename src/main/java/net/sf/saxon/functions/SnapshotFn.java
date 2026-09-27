@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,10 +15,10 @@ import net.sf.saxon.expr.ItemMappingIterator;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.transpile.CSharpSuppressWarnings;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.tiny.TinyBuilder;
 import net.sf.saxon.tree.wrapper.SnapshotNode;
 import net.sf.saxon.tree.wrapper.VirtualCopy;
@@ -84,8 +84,8 @@ public class SnapshotFn extends SystemFunction {
 
     public static List<NodeInfo> makeAncestorList(NodeInfo origin) {
         List<NodeInfo> ancestors = new ArrayList<>(20);
-        AxisIterator iter = origin.iterateAxis(AxisInfo.ANCESTOR);
-        for (NodeInfo item; (item = iter.next()) != null; ) {
+        SequenceIterator iter = origin.iterateAncestorAxis(AnyGNode.TEST);
+        for (NodeInfo item; (item = (NodeInfo)iter.next()) != null; ) {
             ancestors.add(item);
         }
         return ancestors;
@@ -112,9 +112,9 @@ public class SnapshotFn extends SystemFunction {
 
         SchemaType ancestorType;
         if (context.getController().getExecutable().isSchemaAware()) {
-            ancestorType = AnyType.getInstance();
+            ancestorType = AnyType.INSTANCE;
         } else {
-            ancestorType = Untyped.getInstance();
+            ancestorType = Untyped.INSTANCE;
         }
         for (int i = ancestors.size() - 1; i >= 0; i--) {
             NodeInfo anc = ancestors.get(i);

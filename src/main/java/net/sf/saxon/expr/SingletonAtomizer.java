@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,11 +19,11 @@ import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.XNodeType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Cardinality;
 
@@ -112,9 +112,11 @@ public final class SingletonAtomizer extends UnaryExpression {
                 err = new XPathException("Cannot atomize a map (" + toShortString() + ")", "FOTY0013");
             } else if (operandType instanceof FunctionItemType) {
                 err = new XPathException("Cannot atomize a function item", "FOTY0013");
-            } else {
+            } else if (operandType instanceof XNodeType && visitor.getStaticContext().getPackageData().isSchemaAware()) {
                 err = new XPathException(
                         "Cannot atomize an element that is defined in the schema to have element-only content", "FOTY0012");
+            } else {
+                err = new XPathException("Type " + operandType + " is not atomizable", "XPTY0004");
             }
             throw err.asTypeError()
                     .withLocation(getLocation())
@@ -203,21 +205,6 @@ public final class SingletonAtomizer extends UnaryExpression {
         return roleSupplier.get();
     }
 
-
-    /*@Nullable*/
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet result = getBaseExpression().addToPathMap(pathMap, pathMapNodeSet);
-        if (result != null) {
-            TypeHierarchy th = getConfiguration().getTypeHierarchy();
-            ItemType operandItemType = getBaseExpression().getItemType();
-            if (th.relationship(NodeKindTest.ELEMENT, operandItemType) != Affinity.DISJOINT ||
-                    th.relationship(NodeKindTest.DOCUMENT, operandItemType) != Affinity.DISJOINT) {
-                result.setAtomized();
-            }
-        }
-        return null;
-    }
 
     /**
      * Evaluate as an Item. This should only be called if a singleton or empty sequence is required;

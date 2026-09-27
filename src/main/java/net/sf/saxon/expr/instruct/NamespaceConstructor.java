@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StandardURIChecker;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -71,7 +71,7 @@ public class NamespaceConstructor extends SimpleNodeConstructor {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return NodeKindTest.NAMESPACE;
+        return NodeKindType.NAMESPACE;
     }
 
     @Override
@@ -84,7 +84,7 @@ public class NamespaceConstructor extends SimpleNodeConstructor {
         StaticContext env = visitor.getStaticContext();
         nameOp.typeCheck(visitor, contextItemType);
 
-        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "namespace/name", 0);
+        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:namespace/name", 0);
         // See bug 2110. XQuery does not use the function conversion rules here, and disallows xs:anyURI.
         // In XSLT the name is an AVT so we automatically get a string; in XQuery we'll use the standard
         // mechanism to get an atomic value, and then check the type "by hand" at run time.

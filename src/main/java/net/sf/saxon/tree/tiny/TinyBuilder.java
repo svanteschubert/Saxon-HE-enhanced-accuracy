@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,6 +21,7 @@ import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.Untyped;
 
 import java.util.Arrays;
 import java.util.Stack;
@@ -48,9 +49,9 @@ public class TinyBuilder extends Builder {
     private boolean ended = false;
     private boolean noNewNamespaces = true;
     private Statistics statistics;
-    private boolean markDefaultedAttributes = false;
+    private final boolean markDefaultedAttributes;
     private Eligibility textualElementEligibilityState = Eligibility.INELIGIBLE;
-    private UnicodeBuilder commentBuilder = new UnicodeBuilder();
+    private final UnicodeBuilder commentBuilder = new UnicodeBuilder();
 
     /**
      * Create a TinyTree builder
@@ -64,6 +65,10 @@ public class TinyBuilder extends Builder {
         statistics = config.getTreeStatistics().TEMPORARY_TREE_STATISTICS;
         markDefaultedAttributes = config.isExpandAttributeDefaults() && config.getBooleanProperty(Feature.MARK_DEFAULTED_ATTRIBUTES);
         //System.err.println("TinyBuilder " + this);
+    }
+
+    protected String getTreeKind() {
+        return "tiny";
     }
 
     /**
@@ -136,8 +141,8 @@ public class TinyBuilder extends Builder {
         }
         if (useEventLocation) {
             Object copier = getPipelineConfiguration().getComponent(CopyInformee.class.getName());
-            if (copier instanceof LocationCopier) {
-                setSystemId(((LocationCopier) copier).getSystemId());
+            if (copier instanceof LocationCopier locCopier) {
+                setSystemId(locCopier.getSystemId());
             }
         }
         super.open();
@@ -254,77 +259,82 @@ public class TinyBuilder extends Builder {
         // of a pseudo-node
 
         //System.err.println(this + " startElement " + elemName + " " + currentDepth);
-        TinyTree tt = tree;
-        assert tt != null;
+        assert tree != null;
         textualElementEligibilityState = Eligibility.INELIGIBLE;
 
         startElementSetupNamespaces(namespaces);
 
-        startElementSetupSiblings(tt);
+        startElementSetupSiblings();
 
-        startElementAddNode(elemName, type, tt, properties);
+        startElementAddNode(elemName, type, properties);
 
-        startElementCalculateDepth(tt);
+        startElementCalculateDepth();
 
-        startElementLocalSystemId(tt, location);
+        startElementLocalSystemId(location);
 
         if (lineNumbering) {
-            tt.setLineNumber(nodeNr, location.getLineNumber(), location.getColumnNumber());
+            tree.setLineNumber(nodeNr, location.getLineNumber(), location.getColumnNumber());
         }
-        if (location instanceof ReceivingContentHandler.LocalLocator &&
-                ((ReceivingContentHandler.LocalLocator)location).levelInEntity == 0 && currentDepth >= 1) {
-            tt.markTopWithinEntity(nodeNr);
+        if ((properties & ReceiverOption.TOP_IN_ENTITY) != 0 && currentDepth >= 1) {
+            tree.markTopWithinEntity(nodeNr);
         }
-        for (AttributeInfo att : attributes) {
-            attribute2(att.getNodeName(), att.getType(),
-                      getAttValue(att), location, att.getProperties());
+//        //#if CSHARP==false
+//        if (location instanceof ReceivingContentHandler.LocalLocator &&
+//                ((ReceivingContentHandler.LocalLocator)location).levelInEntity == 0 && currentDepth >= 1) {
+//            tree.markTopWithinEntity(nodeNr);
+//        }
+//        //#endif
+        if (attributes instanceof SingletonAttributeMap) {
+            // Common enough to handle specially
+            AttributeInfo att = (AttributeInfo)attributes;
+            addAttributeToTree(att.getNodeName(), att.getType(),
+                               getAttValue(att), att.getProperties());
+        } else {
+            for (AttributeInfo att : attributes) {
+                addAttributeToTree(att.getNodeName(), att.getType(),
+                                   getAttValue(att), att.getProperties());
+            }
         }
-        textualElementEligibilityState = noNewNamespaces ? Eligibility.PRIMED : Eligibility.INELIGIBLE;
+        textualElementEligibilityState = (noNewNamespaces && !lineNumbering) ? Eligibility.PRIMED : Eligibility.INELIGIBLE;
         tree.addNamespaces(nodeNr, namespaceStack.peek());
         nodeNr++;
     }
 
-    private void startElementSetupNamespaces(NamespaceMap namespaces)
-    {
-        noNewNamespaces = true;
-        if (namespaceStack.isEmpty()) {
-            noNewNamespaces = false;
-            namespaceStack.push(namespaces);
-        } else {
-            noNewNamespaces = namespaces == namespaceStack.peek();
-            namespaceStack.push(namespaces);
-        }
+    private void startElementSetupNamespaces(NamespaceMap namespaces) {
+        noNewNamespaces = !namespaceStack.isEmpty() && namespaces == namespaceStack.peek();
+        namespaceStack.push(namespaces);
     }
 
-    private void startElementSetupSiblings(TinyTree tt)
-    {
+    private void startElementSetupSiblings() {
         if (siblingsAtDepth[currentDepth] > PARENT_POINTER_INTERVAL) {
-            nodeNr = tt.addNode(Type.PARENT_POINTER, currentDepth, prevAtDepth[currentDepth - 1], 0, 0);
+            nodeNr = tree.addNode(Type.PARENT_POINTER, currentDepth, prevAtDepth[currentDepth - 1], 0, 0);
             int prev = prevAtDepth[currentDepth];
             if (prev > 0) {
-                tt.next[prev] = nodeNr;
+                tree.next[prev] = nodeNr;
             }
-            tt.next[nodeNr] = prevAtDepth[currentDepth - 1];
+            tree.next[nodeNr] = prevAtDepth[currentDepth - 1];
             prevAtDepth[currentDepth] = nodeNr;
             siblingsAtDepth[currentDepth] = 0;
         }
     }
 
-    private void startElementAddNode(NodeName elemName, SchemaType type, TinyTree tt, int properties)
+    private void startElementAddNode(NodeName elemName, SchemaType type, int properties)
     {
-        // now add the element node itself
-        int fp = elemName.obtainFingerprint(namePool);
-        int prefixCode = tree.prefixPool.obtainPrefixCode(elemName.getPrefix());
-        int nameCode = (prefixCode << 20) | fp;
-        nodeNr = tt.addNode(Type.ELEMENT, currentDepth, -1, -1, nameCode);
+        int nameCode;
+        if (elemName instanceof NoNamespaceName) {
+            nameCode = elemName.obtainFingerprint(namePool);
+        } else {
+            int fp = elemName.obtainFingerprint(namePool);
+            int prefixCode = tree.prefixPool.obtainPrefixCode(elemName.getPrefix());
+            nameCode = (prefixCode << 20) | fp;
+        }
+        nodeNr = tree.addNode(Type.ELEMENT, currentDepth, -1, -1, nameCode);
 
         isIDElement = ReceiverOption.contains(properties, ReceiverOption.IS_ID);
-        int typeCode = type.getFingerprint();
-        if (typeCode != StandardNames.XS_UNTYPED) {
-
-            tt.setElementAnnotation(nodeNr, type);
+        if (type != Untyped.INSTANCE) {
+            tree.setElementAnnotation(nodeNr, type);
             if (ReceiverOption.contains(properties, ReceiverOption.NILLED_ELEMENT)) {
-                tt.setNilled(nodeNr);
+                tree.setNilled(nodeNr);
             }
             if (!isIDElement && type.isIdType()) {
                 isIDElement = true;
@@ -332,18 +342,17 @@ public class TinyBuilder extends Builder {
         }
     }
 
-    private void startElementCalculateDepth(TinyTree tt)
-    {
+    private void startElementCalculateDepth() {
         if (currentDepth == 0) {
             prevAtDepth[0] = nodeNr;
             prevAtDepth[1] = -1;
-            currentRoot = tt.getNode(nodeNr);
+            currentRoot = tree.getNode(nodeNr);
         } else {
             int prev = prevAtDepth[currentDepth];
             if (prev > 0) {
-                tt.next[prev] = nodeNr;
+                tree.next[prev] = nodeNr;
             }
-            tt.next[nodeNr] = prevAtDepth[currentDepth - 1];   // *O* owner pointer in last sibling
+            tree.next[nodeNr] = prevAtDepth[currentDepth - 1];   // *O* owner pointer in last sibling
             prevAtDepth[currentDepth] = nodeNr;
             siblingsAtDepth[currentDepth]++;
         }
@@ -357,17 +366,16 @@ public class TinyBuilder extends Builder {
         siblingsAtDepth[currentDepth] = 0;
     }
 
-    private void startElementLocalSystemId(TinyTree tt, Location location)
-    {
+    private void startElementLocalSystemId(Location location) {
         String localSystemId = location.getSystemId();
         if (isUseEventLocation() && localSystemId != null) {
-            tt.setSystemId(nodeNr, localSystemId);
+            tree.setSystemId(nodeNr, localSystemId);
         } else if (currentDepth == 1) {
-            tt.setSystemId(nodeNr, systemId);
+            tree.setSystemId(nodeNr, systemId);
         }
         if (uniformBaseURI && localSystemId != null && !localSystemId.equals(baseURI)) {
             uniformBaseURI = false;
-            tt.setUniformBaseUri(null);
+            tree.setUniformBaseUri(null);
         }
     }
 
@@ -377,8 +385,7 @@ public class TinyBuilder extends Builder {
     }
 
 
-    private void attribute2(/*@NotNull*/ NodeName attName, SimpleType type, String value, Location locationId, int properties)
-            throws XPathException {
+    private void addAttributeToTree(NodeName attName, SimpleType type, String value, int properties) {
         // System.err.println("attribute " + nameCode + "=" + value);
         int fp = attName.obtainFingerprint(namePool);
         String prefix = attName.getPrefix();
@@ -414,11 +421,11 @@ public class TinyBuilder extends Builder {
             // we're relying on the fact that an ID element has no element children!
             tree.indexIDElement(currentRoot, prevAtDepth[currentDepth]);
             isIDElement = false;
-        } else if (eligibleAsTextualElement &&
+        } else if (noNewNamespaces &&
+                eligibleAsTextualElement &&
                 tree.nodeKind[nodeNr] == Type.TEXT &&
                 tree.nodeKind[nodeNr-1] == Type.ELEMENT &&
-                tree.alpha[nodeNr-1] == -1 &&
-                noNewNamespaces) {
+                tree.alpha[nodeNr-1] == -1) {
             // Collapse a simple element with text content and no attributes or namespaces into a single node
             // of type TRIVIAL_ELEMENT
             //System.err.println("Created textual element");

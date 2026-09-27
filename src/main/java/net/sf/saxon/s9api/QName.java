@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,7 @@ import net.sf.saxon.trans.XPathException;
 import java.util.Objects;
 
 /**
- * The QName class represents an instance of xs:QName, as defined in the XPath 2.0 data model.
+ * The QName class represents an instance of {@code xs:QName}, as defined in the XPath data model.
  * Internally, it has three components, a namespace URI, a local name, and a prefix. The prefix
  * is intended to be used only when converting the value back to a string.
  * <p>This class also defines a number of QName-valued constants relating to built-in types in
@@ -113,7 +113,8 @@ public class QName {
      *
      * @param lexicalQName The lexical QName, in the form <code>prefix:local</code>
      *                     or simply <code>local</code>. The EQName syntax "Q{uri}local"
-     *                     and the ClarkName syntax "{uri}local" are also accepted.
+     *                     and the ClarkName syntax "{uri}local" are also accepted,
+     *                     including the 4.0 extension "Q{uri}prefix:local"
      * @param element      The element node whose in-scope namespaces are to be used
      *                     to resolve the prefix part of the lexical QName.
      * @throws IllegalArgumentException If the prefix of the lexical QName is not in scope
@@ -127,7 +128,7 @@ public class QName {
         try {
             NodeInfo node = element.getUnderlyingValue();
             sqName = StructuredQName.fromLexicalQName((lexicalQName), true,
-                                                      true, node.getAllNamespaces());
+                                                      StructuredQName.QUPL, node.getAllNamespaces());
 
         } catch (XPathException err) {
             throw new IllegalArgumentException(err);
@@ -143,7 +144,7 @@ public class QName {
     public QName(javax.xml.namespace.QName qName) {
         sqName = new StructuredQName(qName.getPrefix(), NamespaceUri.of(qName.getNamespaceURI()), qName.getLocalPart());
     }
-
+    
     /**
      * Construct a QName from a StructuredQName
      *

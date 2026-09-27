@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,11 @@
 package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.transpile.CSharpModifiers;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.tiny.TinyTree;
 import net.sf.saxon.type.ComplexType;
 import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.type.gnode.NodeKindType;
 
 import java.util.Iterator;
 
@@ -140,9 +139,9 @@ public class SpaceStrippedDocument extends GenericTreeInfo {
             // Optimisation - see bug 2929. Makes a vast difference especially if there are few attributes in the tree
             return ((TinyTree) doc).hasXmlSpacePreserveAttribute();
         } else {
-            AxisIterator iter = doc.getRootNode().iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
+            SequenceIterator iter = doc.getRootNode().iterateDescendantAxis(NodeKindType.ELEMENT);
             NodeInfo node;
-            while ((node = iter.next()) != null) {
+            while ((node = (NodeInfo)iter.next()) != null) {
                 String val = node.getAttributeValue(NamespaceUri.XML, "space");
                 if ("preserve".equals(val)) {
                     return true;
@@ -162,9 +161,9 @@ public class SpaceStrippedDocument extends GenericTreeInfo {
 
     private static boolean findAssertions(/*@NotNull*/ TreeInfo doc) {
         if (doc.isTyped()) {
-            AxisIterator iter = doc.getRootNode().iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
+            SequenceIterator iter = doc.getRootNode().iterateDescendantAxis(NodeKindType.ELEMENT);
             while (true) {
-                NodeInfo node = iter.next();
+                NodeInfo node = (NodeInfo)iter.next();
                 if (node == null) {
                     return false;
                 }

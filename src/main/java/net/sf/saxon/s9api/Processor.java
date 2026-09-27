@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,6 +24,7 @@ import net.sf.saxon.trans.CommandLineOptions;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
 import javax.xml.transform.Source;
@@ -39,11 +40,16 @@ import java.util.Objects;
  * The <code>Processor</code> class serves three purposes: it allows global Saxon configuration options to be set;
  * it acts as a factory for generating XQuery, XPath, and XSLT compilers; and it owns certain shared
  * resources such as the Saxon NamePool and compiled schemas. This is the first object that a
- * Saxon application should create. Once established, a Processor may be used in multiple threads.
- * <p>It is possible to run more than one Saxon Processor concurrently, but only when running completely
+ * Saxon application should create. Once established, a {@code Processor} may be used in multiple threads.
+ *
+ * <p>It is possible to run more than one Saxon {@code Processor} concurrently, but only when running completely
  * independent workloads. Nothing can be shared between Processor instances. Within a query or transformation,
- * all source documents and schemas must be built using the same Processor, which must also be used to
+ * all source documents and schemas must be built using the same {@code Processor}, which must also be used to
  * compile the query or stylesheet.</p>
+ *
+ * <p>Internally, the {@code Processor} is a wrapper around a Saxon {@link Configuration} object, and the underlying
+ * {@code Configuration} is available via the {@link #getUnderlyingConfiguration()} method. This exposes additional
+ * Saxon functionality; however, the details may be subject to change from one release to the next.</p>
  */
 
 @CSharpModifiers(code={"internal"})
@@ -54,7 +60,7 @@ public class Processor implements Configuration.ApiProvider {
 
 
     /**
-     * Create a Processor according to the capabilities available.
+     * Create a {@code Processor} according to the capabilities available.
      * <p>This will examine what software is installed, and whether or not a license key is available,
      * and return the most capable configuration available within these constraints. For example
      * if the software is Saxon-EE but the license only allows PE capability, it will return
@@ -67,7 +73,7 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a Processor, specifying whether a licensed configuration is required
+     * Create a {@code Processor}, specifying whether a licensed configuration is required
      *
      * @param licensedEdition indicates whether the Processor requires features of Saxon that need a license
      *                        file (that is, features not available in Saxon HE (Home Edition). If true, the method will create
@@ -91,14 +97,14 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a Processor based on an existing Configuration. This constructor is useful
+     * Create a {@code Processor} based on an existing {@link Configuration}. This constructor is useful
      * when new components of an application are to use s9api interfaces but existing
      * components use older interfaces (for example, JAXP). It is also useful in cases where,
      * for example, multiple configurations need to be built using the same configuration file
-     * or sharing license data: in such cases, the Configuration can be manually built, and
-     * then wrapped in a Processor.
+     * or sharing license data: in such cases, the {@code Configuration} can be manually built, and
+     * then wrapped in a {@code Processor}.
      *
-     * @param config the Configuration to be used by this processor
+     * @param config the {@link Configuration} to be used by this {@code Processor}
      * @since 9.3
      */
 
@@ -110,9 +116,9 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a Processor configured according to the settings in a supplied configuration file.
+     * Create a {@code Processor} configured according to the settings in a supplied configuration file.
      *
-     * @param source the Source of the configuration file
+     * @param source the Source of the configuration file (which is an XML document)
      * @throws SaxonApiException if the configuration file cannot be read, or its contents are invalid
      * @since 9.2
      */
@@ -120,7 +126,9 @@ public class Processor implements Configuration.ApiProvider {
     public Processor(Source source) throws SaxonApiException {
         try {
             config = Configuration.readConfiguration(source);
-            schemaManager = makeSchemaManager();
+            if (config.getEditionCode().equals("EE")) {
+                schemaManager = makeSchemaManager();
+            }
         } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
@@ -128,9 +136,9 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a {@code DocumentBuilder}. A DocumentBuilder is used to load source XML documents.
+     * Create a {@link DocumentBuilder}. A {@code DocumentBuilder} is used to load source XML documents.
      *
-     * @return a newly created DocumentBuilder
+     * @return a newly created {@code DocumentBuilder}
      */
 
     /*@NotNull*/
@@ -139,7 +147,7 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a {@code JsonBuilder}. A {@code JsonBuilder} is used to load source JSON documents.
+     * Create a {@link JsonBuilder}. A {@code JsonBuilder} is used to load source JSON documents.
      *
      * @return a newly created {@code JsonBuilder}
      * @since 11
@@ -151,9 +159,9 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create an XPathCompiler. An XPathCompiler is used to compile XPath expressions.
+     * Create an {@link XPathCompiler}. An {@code XPathCompiler} is used to compile XPath expressions.
      *
-     * @return a newly created XPathCompiler
+     * @return a newly created {@code XPathCompiler}
      */
 
     /*@NotNull*/
@@ -162,10 +170,9 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create an XsltCompiler. An XsltCompiler is used to compile XSLT stylesheets.
+     * Create an {@link XsltCompiler}. An {@code XsltCompiler} is used to compile XSLT stylesheets.
      *
-     * @return a newly created XsltCompiler
-     * @throws UnsupportedOperationException if this version of the Saxon product does not support XSLT processing
+     * @return a newly created {@code XsltCompiler}
      */
 
     /*@NotNull*/
@@ -174,10 +181,9 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create an XQueryCompiler. An XQueryCompiler is used to compile XQuery queries.
+     * Create an {@link XQueryCompiler}. An {@code XQueryCompiler} is used to compile XQuery queries.
      *
-     * @return a newly created XQueryCompiler
-     * @throws UnsupportedOperationException if this version of the Saxon product does not support XQuery processing
+     * @return a newly created {@code XQueryCompiler}
      */
 
     /*@NotNull*/
@@ -186,9 +192,10 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a Serializer
+     * Create a {@link Serializer}. A {@code Serializer} is a {@link Destination} for processes
+     * such as XSLT transformation, that renders the output as a readable file.
      *
-     * @return a new Serializer
+     * @return a new {@code Serializer}
      * @since 9.3
      */
 
@@ -198,11 +205,11 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a Serializer initialized to write to a given OutputStream.
+     * Create a {@link Serializer} initialized to write to a given {@link OutputStream}.
      * <p>Closing the output stream after use is the responsibility of the caller.</p>
      *
-     * @param stream The OutputStream to which the Serializer will write
-     * @return a new Serializer
+     * @param stream The {@link OutputStream} to which the {@code Serializer} will write
+     * @return a new {@code Serializer}
      * @since 9.3
      */
 
@@ -214,11 +221,11 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a Serializer initialized to write to a given Writer.
+     * Create a {@link Serializer} initialized to write to a given {@link Writer}.
      * <p>Closing the writer after use is the responsibility of the caller.</p>
      *
-     * @param writer The Writer to which the Serializer will write
-     * @return a new Serializer
+     * @param writer The {@link Writer} to which the {@code Serializer} will write
+     * @return a new {@code Serializer}
      * @since 9.3
      */
 
@@ -230,10 +237,10 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Create a Serializer initialized to write to a given File.
+     * Create a {@link Serializer} initialized to write to a given File.
      *
-     * @param file The File to which the Serializer will write
-     * @return a new Serializer
+     * @param file The {@link File} to which the Serializer will write
+     * @return a new {@code Serializer}
      * @since 9.3
      */
 
@@ -298,13 +305,37 @@ public class Processor implements Configuration.ApiProvider {
 
 
     /**
-     * Get the associated SchemaManager. The SchemaManager provides capabilities to load and cache
-     * XML schema definitions. There is exactly one SchemaManager in a schema-aware Processor, and none
-     * in a Processor that is not schema-aware. The SchemaManager is created automatically by the system.
+     * Create an {@link XsdCompiler}. This provides capabilities to load
+     * XML schema definitions.
      *
-     * @return the associated SchemaManager, or null if the Processor is not schema-aware.
+     * @return a new {@code XsdCompiler}, provided the Saxon configuration is a licensed Saxon-EE
+     * configuration. In other cases, the method throws an exception.
+     * @throws UnsupportedOperationException if this is not a licensed Saxon-EE configuration.
+     * @since 13.0.
      */
 
+    public XsdCompiler newXsdCompiler() {
+        return config.makeXsdCompiler(this);
+    }
+
+    /**
+     * Get the associated {@code SchemaManager}. The {@code SchemaManager} provides capabilities to load and cache
+     * XML schema definitions. There is exactly one {@code SchemaManager} in a schema-aware Processor, and none
+     * in a Processor that is not schema-aware. The {@code SchemaManager} is created automatically by the system.
+     *
+     * <p>The {@code SchemaManager} is retained in Saxon 13 to provide a degree of compatibility with
+     * older releases. However, the model of schema processing has changed. In previous releases, all
+     * compiled schema information was held globally in the {@link Configuration} (that is, at the
+     * level of the {@link Processor}. From Saxon 13, schemas are more modular, which means that
+     * it becomes an application responsibility to ensure that the correct schema is used for each
+     * aspect of processing. To take advantage of this flexibility, use of the central {@link SchemaManager}
+     * should be replaced with the {@link XsdCompiler}.</p>
+     *
+     * @return the associated SchemaManager, or null if the Processor is not schema-aware.
+     * @deprecated since 13.0. Use {@link #newXsdCompiler}.
+     */
+
+    @Deprecated
     public SchemaManager getSchemaManager() {
         return schemaManager;
     }
@@ -312,7 +343,7 @@ public class Processor implements Configuration.ApiProvider {
     /**
      * Test whether this processor is schema-aware
      *
-     * @return true if this this processor is licensed for schema processing, false otherwise
+     * @return true if this processor is licensed for schema processing, false otherwise
      */
 
     public boolean isSchemaAware() {
@@ -354,14 +385,9 @@ public class Processor implements Configuration.ApiProvider {
 
     public void setXmlVersion(/*@NotNull*/ String version) {
         switch (version) {
-            case "1.0":
-                config.setXMLVersion(Configuration.XML10);
-                break;
-            case "1.1":
-                config.setXMLVersion(Configuration.XML11);
-                break;
-            default:
-                throw new IllegalArgumentException("XmlVersion");
+            case "1.0" -> config.setXMLVersion(Configuration.XML10);
+            case "1.1" -> config.setXMLVersion(Configuration.XML11);
+            default -> throw new IllegalArgumentException("XmlVersion");
         }
     }
 
@@ -384,18 +410,20 @@ public class Processor implements Configuration.ApiProvider {
     }
 
     /**
-     * Set a configuration property
+     * Set a configuration property. This method is useful when it is necessary to identify
+     * configuration properties by name; however, the method {@link #setConfigurationProperty(Feature, Object)}
+     * is preferred because it is more efficient and offers better type safety.
      *
      * @param name  the name of the option to be set. The names of the options available are listed
      *              as constants in class {@link net.sf.saxon.lib.FeatureKeys}.
      * @param value the value of the option to be set.
      * @throws IllegalArgumentException if the property name is not recognized or if the supplied value
      *                                  is not a valid value for the named property.
-     * @deprecated since 9.9 - use {@link #setConfigurationProperty(Feature, Object)}
      */
 
-    @Deprecated
-    public void setConfigurationProperty(/*@NotNull*/ String name, /*@NotNull*/ Object value) {
+    public void setConfigurationProperty(String name, Object value) {
+        Objects.requireNonNull(name, "feature name");
+        Objects.requireNonNull(value, "feature value");
         if (name.equals(FeatureKeys.CONFIGURATION)) {
             config = (Configuration) value;
         } else {
@@ -482,7 +510,10 @@ public class Processor implements Configuration.ApiProvider {
             throw new IllegalArgumentException("Cannot redeclare the Unicode codepoint collation URI");
         }
         if (uri.equals(NamespaceConstant.HTML5_CASE_BLIND_COLLATION_URI)) {
-            throw new IllegalArgumentException("Cannot redeclare the HTML5 caseblind collation URI");
+            throw new IllegalArgumentException("Cannot redeclare the HTML5 case-blind collation URI");
+        }
+        if (uri.equals(NamespaceConstant.UNICODE_CASE_BLIND_COLLATION_URI)) {
+            throw new IllegalArgumentException("Cannot redeclare the HTML5 case-blind collation URI");
         }
         StringCollator saxonCollation = makeStringCollator(uri, collation);
         config.registerCollation(uri, saxonCollation);
@@ -641,9 +672,10 @@ public class Processor implements Configuration.ApiProvider {
             net.sf.saxon.s9api.SequenceType[] declaredArgs = function.getArgumentTypes();
             net.sf.saxon.value.SequenceType[] types = new net.sf.saxon.value.SequenceType[declaredArgs.length];
             for (int i = 0; i < declaredArgs.length; i++) {
+                OccurrenceIndicator occurrenceIndicator = declaredArgs[i].getOccurrenceIndicator();
                 types[i] = net.sf.saxon.value.SequenceType.makeSequenceType(
                         declaredArgs[i].getItemType().getUnderlyingItemType(),
-                        declaredArgs[i].getOccurrenceIndicator().getCardinality());
+                        Cardinality.staticPropertyFromOccurrenceIndicator(occurrenceIndicator));
             }
             return types;
         }
@@ -660,9 +692,10 @@ public class Processor implements Configuration.ApiProvider {
         @Override
         public SequenceType getResultType(SequenceType[] suppliedArgumentTypes) {
             net.sf.saxon.s9api.SequenceType declaredResult = function.getResultType();
+            OccurrenceIndicator occurrenceIndicator = declaredResult.getOccurrenceIndicator();
             return net.sf.saxon.value.SequenceType.makeSequenceType(
                     declaredResult.getItemType().getUnderlyingItemType(),
-                    declaredResult.getOccurrenceIndicator().getCardinality());
+                    Cardinality.staticPropertyFromOccurrenceIndicator(occurrenceIndicator));
         }
 
         /**
@@ -673,7 +706,8 @@ public class Processor implements Configuration.ApiProvider {
          *         be an instance of the declared result type. The default value is false, in which case
          *         the result will be checked at run-time to ensure that it conforms to the declared type.
          *         If the value true is returned, but the function returns a value of the wrong type, the
-         *         consequences are unpredictable.
+         *         consequences are unpredictable. No attempt is made to coerce the returned value to
+         *         the declared result type.
          */
         @Override
         public boolean trustResultType() {
@@ -742,6 +776,17 @@ public class Processor implements Configuration.ApiProvider {
     private SchemaManager makeSchemaManager() {
         SchemaManager manager = null;
         return manager;
+    }
+
+    /**
+     * Get any schema that has been created using the now-deprecated SchemaManager API
+     * @return any schema that has been created using the SchemaManager API, or null if absent
+     */
+    protected XsdSchema getLegacySchema() {
+        if (schemaManager != null && schemaManager.hasLoadedSchema) {
+            return schemaManager.getXsdSchema();
+        }
+        return null;
     }
 
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -34,6 +34,7 @@ public class AtomicSortComparer implements AtomicComparer {
     private StringCollator collator;
     private final transient XPathContext context;
     private final int itemType;
+    private final int specVersion;
 
     /**
      * Factory method to get an atomic comparer suitable for sorting or for grouping (operations in which
@@ -43,11 +44,13 @@ public class AtomicSortComparer implements AtomicComparer {
      *                 if the itemType excludes the possibility of comparing strings. If the method is called at compile
      *                 time, this should be a SimpleCollation so that it can be cloned at run-time.
      * @param itemType the primitive item type of the values to be compared
-     * @param context  Dynamic context (may be an EarlyEvaluationContext)
+     * @param specVersion the XPath language version
+     * @param context  Dynamic context (this may be an EarlyEvaluationContext)
      * @return a suitable AtomicComparer
      */
 
-    public static AtomicComparer makeSortComparer(StringCollator collator, int itemType, XPathContext context) {
+    public static AtomicComparer makeSortComparer(
+            StringCollator collator, int itemType, int specVersion, XPathContext context) {
         switch (itemType) {
             case StandardNames.XS_STRING:
             case StandardNames.XS_UNTYPED_ATOMIC:
@@ -70,18 +73,20 @@ public class AtomicSortComparer implements AtomicComparer {
                 return new CalendarValueComparer(context);
             default:
                 // use the general-purpose comparer that handles all types
-                return new AtomicSortComparer(collator, itemType, context);
+                return new AtomicSortComparer(collator, itemType, specVersion, context);
         }
 
     }
 
-    protected AtomicSortComparer(/*@Nullable*/ StringCollator collator, int itemType, XPathContext context) {
+    protected AtomicSortComparer(
+            StringCollator collator, int itemType, int specVersion, XPathContext context) {
         this.collator = collator;
         if (collator == null) {
             this.collator = CodepointCollator.getInstance();
         }
         this.context = context;
         this.itemType = itemType;
+        this.specVersion = specVersion;
     }
 
     @Override
@@ -99,7 +104,7 @@ public class AtomicSortComparer implements AtomicComparer {
 
     @Override
     public AtomicComparer provideContext(XPathContext context) {
-        return new AtomicSortComparer(collator, itemType, context);
+        return new AtomicSortComparer(collator, itemType, specVersion, context);
     }
 
     /**
@@ -168,16 +173,18 @@ public class AtomicSortComparer implements AtomicComparer {
             return collator.compareStrings(a.getUnicodeStringValue(), b.getUnicodeStringValue());
         } else {
             int implicitTimezone = context.getImplicitTimezone();
-            XPathComparable ac = a.getXPathComparable(collator, implicitTimezone);
-            XPathComparable bc = b.getXPathComparable(collator, implicitTimezone);
+            XPathComparable ac = a.getXPathComparable(collator, implicitTimezone, specVersion);
+            XPathComparable bc = b.getXPathComparable(collator, implicitTimezone, specVersion);
             if (ac == null || bc == null) {
                 return compareNonComparables(a, b);
             } else {
                 try {
                     return ac.compareTo(bc);
                 } catch (ClassCastException e) {
-                    String message = "Cannot compare " + a.getPrimitiveType().getDisplayName() +
-                            " with " + b.getPrimitiveType().getDisplayName();
+                    String message = e.getMessage().startsWith("Cannot compare")
+                            ? e.getMessage()
+                            : "Cannot compare " + a.getPrimitiveType().getDisplayName() +
+                                " with " + b.getPrimitiveType().getDisplayName();
                     // Direct users to bug 3450 which explains a 2017 bug fix that may cause previously
                     // working applications to fail
                     if (a.isUntypedAtomic() || b.isUntypedAtomic()) {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,23 +7,21 @@
 
 package net.sf.saxon.option.axiom;
 
-import net.sf.saxon.om.NamespaceBinding;
-import net.sf.saxon.om.NamespaceMap;
-import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.pattern.qname.QNameTest;
 import net.sf.saxon.tree.NamespaceNode;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.SingleNodeIterator;
+import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.Untyped;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import org.apache.axiom.om.*;
 
 import javax.xml.namespace.QName;
@@ -88,7 +86,7 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
 
     @Override
     public SchemaType getSchemaType() {
-        return Untyped.getInstance();
+        return Untyped.INSTANCE;
     }
 
 
@@ -105,7 +103,7 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         if (other instanceof AxiomDocument) {
             return +1;
         } else if (other instanceof AxiomAttributeWrapper) {
@@ -200,17 +198,17 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
 
 
     @Override
-    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
+    protected SequenceIterator iterateAttributes(NodePredicate nodeTest) {
         if (!((OMElement) node).getAllAttributes().hasNext()) {
-            return EmptyIterator.ofNodes();
-        } else if (nodeTest instanceof NameTest) {
-            String uri = ((NameTest) nodeTest).getNamespaceURI().toString();
-            String local = ((NameTest) nodeTest).getLocalPart();
+            return EmptyIterator.INSTANCE;
+        } else if (nodeTest instanceof NamedXNodePredicate nxp && nxp.getMatchingNodeName() != null) {
+            String uri = nxp.getMatchingNodeName().getURI();
+            String local = nxp.getMatchingNodeName().getLocalPart();
             OMAttribute att = ((OMElement) node).getAttribute(new QName(uri, local));
             if (att == null) {
-                return EmptyIterator.ofNodes();
+                return EmptyIterator.INSTANCE;
             } else {
-                return SingleNodeIterator.makeIterator(new AxiomAttributeWrapper(att, this, -1));
+                return SingletonIterator.makeIterator(new AxiomAttributeWrapper(att, this, -1));
             }
         } else {
             return new AttributeAxisIterator(this, nodeTest);
@@ -218,19 +216,19 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
     }
 
     @Override
-    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
+    protected SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards) {
         if (forwards) {
-            if (nodeTest instanceof AnyNodeTest) {
+            if (nodeTest == AnyGNodeType.getInstance()) {
                 return new AxiomDocument.FollowingSiblingIterator((OMElement) node, parent, docWrapper);
             } else {
-                return new Navigator.AxisFilter(
+                return Navigator.filter(
                         new AxiomDocument.FollowingSiblingIterator((OMElement) node, parent, docWrapper), nodeTest);
             }
         } else {
-            if (nodeTest instanceof AnyNodeTest) {
+            if (nodeTest == AnyGNodeType.getInstance()) {
                 return new AxiomDocument.PrecedingSiblingIterator((OMElement) node, parent, docWrapper);
             } else {
-                return new Navigator.AxisFilter(
+                return Navigator.filter(
                         new AxiomDocument.PrecedingSiblingIterator((OMElement) node, parent, docWrapper), nodeTest);
             }
         }
@@ -334,7 +332,7 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
     /**
      * Handles the attribute axis
      */
-    private final class AttributeAxisIterator implements AxisIterator {
+    private static final class AttributeAxisIterator implements SequenceIterator {
 
         private final AxiomElementNodeWrapper element;
         private final Iterator base;
@@ -342,11 +340,11 @@ public class AxiomElementNodeWrapper extends AxiomParentNodeWrapper {
         private NodeInfo current;
         private int index;
 
-        private final NodeTest nodeTest;
+        private final NodePredicate nodeTest;
 
-        public AttributeAxisIterator(AxiomElementNodeWrapper element, NodeTest test) {
+        public AttributeAxisIterator(AxiomElementNodeWrapper element, NodePredicate test) {
             this.element = element;
-            if (test == AnyNodeTest.getInstance() || test == NodeKindTest.ATTRIBUTE) {
+            if (test == AnyGNodeType.getInstance() || test == NodeKindType.ATTRIBUTE) {
                 test = null;
             }
             base = ((OMElement) element.node).getAllAttributes();

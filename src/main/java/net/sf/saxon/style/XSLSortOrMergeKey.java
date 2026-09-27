@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -109,7 +109,7 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
         if (select != null) {
             try {
                 Supplier<RoleDiagnostic> role = () ->
-                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, getDisplayName() + "//select", 0);
+                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:" + getLocalPart() + "/select", 0);
                 select = getConfiguration().getTypeChecker(false).staticTypeCheck(select,
                         SequenceType.ATOMIC_SEQUENCE, role, makeExpressionVisitor());
             } catch (XPathException err) {
@@ -117,7 +117,7 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
             }
         }
 
-        sortKeyDefinition = new SortKeyDefinition();
+        sortKeyDefinition = new SortKeyDefinition(getCompilation().getCompilerInfo().getXsltVersion());
         sortKeyDefinition.setOrder(order);
         sortKeyDefinition.setCaseOrder(caseOrder);
         sortKeyDefinition.setLanguage(lang);
@@ -206,7 +206,7 @@ public abstract class XSLSortOrMergeKey extends StyleElement {
         } else {
             useDefaultCollation = false;
             if (lang instanceof StringLiteral) {
-                UnicodeString s = ((StringLiteral) lang).getString();
+                UnicodeString s = ((StringLiteral) lang).getUnicodeString();
                 if (!s.isEmpty()) {
                     ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(s);
                     if (vf != null) {

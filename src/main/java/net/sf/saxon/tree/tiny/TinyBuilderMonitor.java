@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -98,7 +98,7 @@ public class TinyBuilderMonitor extends BuilderMonitor {
 //            NamePool pool = builder.getConfiguration().getNamePool();
 //            String prefix = nscode.getPrefix();
 //            NodeInfo parent = builder.getTree().getNode(builder.getTree().namespaceParent[markedNamespace]);
-//            NameTest test = new NameTest(Type.NAMESPACE, "", prefix, pool);
+//            NameTest test = NameTest.make(Type.NAMESPACE, "", prefix, pool);
 //            AxisIterator iter = parent.iterateAxis(AxisInfo.NAMESPACE, test);
 //            return iter.next();
         } else {

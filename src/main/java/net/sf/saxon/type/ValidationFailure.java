@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,11 +23,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * This exception indicates a failure when validating an instance against a type
- * defined in a schema.
+ * This object holds details of a failure when validating an instance against a type
+ * defined in a schema (or a built-in type).
  * <p>This class holds the same information as a ValidationException, except that it is not an exception,
  * and does not carry system overheads such as a stack trace. It is used because operations such as "castable",
- * and validation of values in a union, cause validation failures on a success path and it is costly to throw,
+ * and validation of values in a union, cause validation failures on a success path; and it is costly to throw,
  * or even to create, exception objects on a success path.</p>
  */
 

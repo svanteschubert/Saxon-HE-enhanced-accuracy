@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,10 +17,11 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.functions.DocumentFn;
 import net.sf.saxon.functions.ExecutableFunctionLibrary;
+import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.qname.SpecificQNameTest;
 import net.sf.saxon.query.XQueryFunction;
 import net.sf.saxon.query.XQueryFunctionLibrary;
 import net.sf.saxon.serialize.CharacterMap;
@@ -28,9 +29,8 @@ import net.sf.saxon.serialize.CharacterMapIndex;
 import net.sf.saxon.trans.Timer;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.rules.RuleManager;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.linked.DocumentImpl;
-import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.Whitespace;
 import net.sf.saxon.z.IntHashMap;
 
@@ -49,6 +49,9 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
 
     private final StylesheetPackage stylesheetPackage;
     private final boolean declaredModes;
+
+    private record ModuleKeyAndPrecedence(DocumentKey key, int precedence) {};
+    private final HashSet<ModuleKeyAndPrecedence> modulePrecedenceIndex = new HashSet<>();
 
 
     // table of functions imported from XQuery library modules
@@ -170,6 +173,14 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
     @Override
     public PrincipalStylesheetModule getPrincipalStylesheetModule() {
         return this;
+    }
+
+    public void registerModule(DocumentKey key, int precedence) {
+        modulePrecedenceIndex.add(new ModuleKeyAndPrecedence(key, precedence));
+    }
+
+    public boolean containsModuleWithPrecedence(DocumentKey key, int precedence) {
+        return modulePrecedenceIndex.contains(new ModuleKeyAndPrecedence(key, precedence));
     }
 
     /**
@@ -301,9 +312,10 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
 
     public XSLModuleRoot getStylesheetDocument(DocumentKey key) {
         XSLModuleRoot sheet = moduleCache.get(key);
-        if (sheet != null) {
+        if (sheet != null && sheet.getCompilation().getCompilerInfo().getXsltVersion() < 40) {
             sheet.issueWarning("Stylesheet module " + key + " is included or imported more than once. " +
-                                       "This is permitted, but may lead to errors or unexpected behavior", SaxonErrorCode.SXWN9019);
+                                       "This is permitted, but may lead to errors or unexpected behavior. " +
+                                       "Furthermore, the effect in XSLT 4.0 may be different.", SaxonErrorCode.SXWN9019);
         }
         return sheet;
     }
@@ -324,7 +336,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
 
         // process any xsl:use-package, xsl:include and xsl:import elements
 
-        spliceUsePackages((XSLPackage) getRootElement(), getRootElement().getCompilation());
+        spliceUsePackages((XSLPackage) getRootElement(), compilation);
 
         if (Compilation.TIMING) {
             timer.report("spliceIncludes");
@@ -406,7 +418,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
         // Gather the output properties
 
         Properties props = gatherOutputProperties(null);
-        props.setProperty(SaxonOutputKeys.STYLESHEET_VERSION, top.getEffectiveVersion() + "");
+        props.setProperty(SaxonOutputKeys.SPEC_VERSION, top.getEffectiveVersion() + "");
         getStylesheetPackage().setDefaultOutputProperties(props);
 
         // Handle named output formats for use at run-time
@@ -513,13 +525,20 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
                 declarations.add((XSLUsePackage) use);
             } else if (use instanceof XSLInclude) {
                 String href = Whitespace.trim(use.getAttributeValue(NamespaceUri.NULL, "href"));
-                DocumentKey key = DocumentFn.computeDocumentKey(href, use.getBaseURI(), compilation.getPackageData(), false);
+                ParseOptions options = new ParseOptions(); //.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                DocumentKey key = DocumentFn.computeStylesheetDocumentKey(href, use.getBaseURI(), compilation.getPackageData());
                 TreeInfo includedTree = compilation.getStylesheetModules().get(key);
                 if (includedTree == null) {
-                    throw new XPathException("Internal problem: the included stylesheet module '" + href + "' should be in the compiler's module store, but was not found");
-                }
-                StyleElement incWrapper = (StyleElement) ((DocumentImpl) includedTree.getRootNode()).getDocumentElement();
-                gatherUsePackageDeclarations(compilation, incWrapper, declarations);
+                    // In 4.0, this can be due to an ignored redundant include
+                    //throw new XPathException("Internal problem: the included stylesheet module '" + href + "' should be in the compiler's module store, but was not found");
+                } else {
+                	                	
+                    StyleElement incWrapper = (StyleElement) ((DocumentImpl) includedTree.getRootNode()).getDocumentElement();
+                    if (incWrapper == null) { // Can happen when the URI Reference includes a fragment ID that hasn't been found in the target document
+                     	throw new XPathException("Included document " + href + " is not a stylesheet", "XTSE0165");
+                     }                    
+                    gatherUsePackageDeclarations(compilation, incWrapper, declarations);
+                }                
             }
         }
     }
@@ -567,7 +586,6 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
     /**
      * Process the attributes of every node in the stylesheet
      *
-     * @throws net.sf.saxon.trans.XPathException if static errors are found in the stylesheet
      */
 
     public void processAllAttributes() {
@@ -815,7 +833,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
 
 
     private static void setLocalParamDetails(XSLTemplate source, NamedTemplate nt) {
-        AxisIterator kids = source.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+        SequenceIterator kids = source.iterateChildAxis(NodeKindType.ELEMENT);
         List<NamedTemplate.LocalParamInfo> details = new ArrayList<>();
         SequenceTool.supply(kids, (ItemConsumer<? super Item>) child -> {
             if (child instanceof XSLLocalParam) {
@@ -1036,7 +1054,7 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
             if (!(parent instanceof XSLOverride)) {
                 bad = true;
             } else {
-                NodeInfo grandParent = parent.getParent();
+                NodeInfo grandParent = (NodeInfo)parent.getParent();
                 if (!(grandParent instanceof XSLUsePackage)) {
                     bad = true;
                 } else {
@@ -1221,15 +1239,12 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
 
             Timer timer = compilation.timer;
 
-            //PreparedStylesheet pss = getPreparedStylesheet();
             Configuration config = getConfiguration();
 
             // If any XQuery functions were imported, fix up all function calls
             // registered against these functions.
             XQueryFunctionLibrary queryFunctions = stylesheetPackage.getXQueryFunctionLibrary();
-            for (XQueryFunction f : queryFunctions.getFunctionDefinitions()) {
-                f.fixupReferences();
-            }
+            queryFunctions.processAllFunctions(XQueryFunction::fixupReferences);
 
             if (Compilation.TIMING) {
                 timer.report("fixup Query functions");
@@ -1483,8 +1498,8 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
             }
         }
         NodeInfo child;
-        AxisIterator kids = element.iterateAxis(AxisInfo.CHILD);
-        while ((child = kids.next()) != null) {
+        SequenceIterator kids = element.iterateChildAxis(AnyGNode.TEST);
+        while ((child = (NodeInfo)kids.next()) != null) {
             if (child instanceof StyleElement) {
                 registerImplicitModes((StyleElement) child, manager);
             }
@@ -1506,27 +1521,6 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
                 ((XSLTemplate) node).allocatePatternSlotNumbers();
             }
         }
-    }
-
-
-    /**
-     * Get an imported schema with a given namespace
-     *
-     * @param targetNamespace The target namespace of the required schema.
-     *                        Supply an empty string for the default namespace
-     * @return the required Schema, or null if no such schema has been imported
-     */
-
-    protected boolean isImportedSchema(NamespaceUri targetNamespace) {
-        return stylesheetPackage.getSchemaNamespaces().contains(targetNamespace);
-    }
-
-    protected void addImportedSchema(NamespaceUri targetNamespace) {
-        stylesheetPackage.getSchemaNamespaces().add(targetNamespace);
-    }
-
-    protected Set<NamespaceUri> getImportedSchemaTable() {
-        return stylesheetPackage.getSchemaNamespaces();
     }
 
     /**
@@ -1576,14 +1570,12 @@ public class PrincipalStylesheetModule extends StylesheetModule implements Globa
             }
             ComponentTest exactNameTest =
                     new ComponentTest(fp,
-                                      new NameTest(Type.ELEMENT, new FingerprintedQName(component.getActor().getComponentName(), pool), pool), -1);
+                                      new SpecificQNameTest(component.getActor().getComponentName(), pool), -1);
             ComponentTest exactFunctionTest = null;
             if (fp == StandardNames.XSL_FUNCTION) {
                 FunctionItem fn = (FunctionItem) component.getActor();
                 exactFunctionTest =
-                        new ComponentTest(fp,
-                                          new NameTest(Type.ELEMENT,
-                                                       new FingerprintedQName(fn.getFunctionName(), pool), pool), fn.getArity());
+                        new ComponentTest(fp, new SpecificQNameTest(fn.getFunctionName(), pool), fn.getArity());
             }
             boolean matched = false;
             for (XSLExpose exposure : exposeDeclarations) {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,8 @@ package net.sf.saxon.tree.iter;
 
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.value.AtomicValue;
+
+import java.util.Objects;
 
 
 /**
@@ -35,17 +37,13 @@ public class SingleAtomicIterator
      * Factory method.
      *
      * @param item the item to iterate over
-     * @return a SingletonIterator over the supplied item, or an EmptyIterator
-     * if the supplied item is null.
+     * @return a SingletonIterator over the supplied item
      */
 
     /*@NotNull*/
     public static AtomicIterator makeIterator(AtomicValue item) {
-        if (item == null) {
-            return EmptyIterator.ofAtomic();
-        } else {
-            return new SingleAtomicIterator(item);
-        }
+        Objects.requireNonNull(item);
+        return new SingleAtomicIterator(item);
     }
 
     /*@NotNull*/

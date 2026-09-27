@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,13 +10,11 @@ package net.sf.saxon.serialize;
 import net.sf.saxon.expr.instruct.ResultDocument;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntHashMap;
 
@@ -70,16 +68,16 @@ public class SerializationParamsHandler {
             throw new XPathException("Serialization params: node must be a document or element node");
         }
         if (!node.getLocalPart().equals("serialization-parameters")) {
-            throw new XPathException("Serialization params: element name must be 'serialization-parameters");
+            throw new XPathException("Serialization params: element name must be 'serialization-parameters'");
         }
         if (!node.getNamespaceUri().equals(NAMESPACE)) {
             throw new XPathException("Serialization params: element namespace must be " + NAMESPACE);
         }
         restrictAttributes(node);
         Set<NodeName> nodeNames = new HashSet<>();
-        AxisIterator kids = node.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+        SequenceIterator kids = node.iterateChildAxis(NodeKindType.ELEMENT);
         NodeInfo child;
-        while ((child = kids.next()) != null) {
+        while ((child = (NodeInfo)kids.next()) != null) {
             if (!nodeNames.add(NameOfNode.makeName(child))) {
                 throw new XPathException("Duplicated serialization parameter " + child.getDisplayName(), "SEPM0019");
             }
@@ -93,10 +91,10 @@ public class SerializationParamsHandler {
             }
             if (uri.isEmpty() && lname.equals("use-character-maps")) {
                 restrictAttributes(child);
-                AxisIterator gKids = child.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+                SequenceIterator gKids = child.iterateChildAxis(NodeKindType.ELEMENT);
                 NodeInfo gChild;
                 IntHashMap<String> map = new IntHashMap<>();
-                while ((gChild = gKids.next()) != null) {
+                while ((gChild = (NodeInfo)gKids.next()) != null) {
                     restrictAttributes(gChild, "character", "map-string");
                     if (!(gChild.getNamespaceUri().equals(NAMESPACE) && gChild.getLocalPart().equals("character-map"))) {
                         if (gChild.getNamespaceUri().equals(NAMESPACE) || gChild.getNamespaceUri().isEmpty()) {
@@ -128,10 +126,9 @@ public class SerializationParamsHandler {
                 } catch (XPathException err) {
                     if (err.hasErrorCode("XQST0109", "SEPM0016")) {
                         if (uri.isEmpty()) {
-                            throw new XPathException("Unknown serialization parameter " +
-                                Err.depict(child), "SEPM0017", locator);
+                            throw err.withErrorCode("SEPM0017").maybeWithLocation(locator);
                         }
-                        // Unknown serialization parameter - no action, ignore the error
+                        // Unknown serialization parameter in a namespace - no action, ignore the error
                     } else {
                         throw err;
                     }

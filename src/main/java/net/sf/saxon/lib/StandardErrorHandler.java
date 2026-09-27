@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -102,6 +102,7 @@ public class StandardErrorHandler implements org.xml.sax.ErrorHandler {
             XmlProcessingIncident err = new XmlProcessingIncident(" Error reported by XML parser: "+ e.getMessage(), SaxonErrorCode.SXXP0003, loc);
             err.setCause(e);
             errorReporter.report(err);
+            err.setAlreadyReported(true);
         } catch (Exception unexpected) {
             throw new AssertionError(unexpected);
         }

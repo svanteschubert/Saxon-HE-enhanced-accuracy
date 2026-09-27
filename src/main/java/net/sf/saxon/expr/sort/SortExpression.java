@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -50,7 +50,7 @@ public class SortExpression extends Expression
 
     public SortExpression(Expression select, SortKeyDefinitionList sortKeys) {
         selectOp = new Operand(this, select, OperandRole.FOCUS_CONTROLLING_SELECT);
-        sortOp = new Operand(this, sortKeys, OperandRole.ATOMIC_SEQUENCE);
+        sortOp = new Operand(this, sortKeys, OperandRole.CONSTRAINED_ATOMIC_SEQUENCE);
         adoptChildExpression(select);
         adoptChildExpression(sortKeys);
     }
@@ -111,63 +111,6 @@ public class SortExpression extends Expression
         return operandList(selectOp, sortOp);
     }
 
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     *         expression is the first operand of a path expression or filter expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet target = getSelect().addToPathMap(pathMap, pathMapNodeSet);
-        for (SortKeyDefinition sortKeyDefinition : getSortKeyDefinitionList()) {
-            if (sortKeyDefinition.isSetContextForSortKey()) {
-                sortKeyDefinition.getSortKey().addToPathMap(pathMap, target);
-            } else {
-                sortKeyDefinition.getSortKey().addToPathMap(pathMap, pathMapNodeSet);
-            }
-            addSortKeyDetailsToPathMap(pathMap, pathMapNodeSet, sortKeyDefinition);
-        }
-        return target;
-    }
-
-
-    public static void addSortKeyDetailsToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet, SortKeyDefinition skd) {
-        Expression e = skd.getOrder();
-        if (e != null) {
-            e.addToPathMap(pathMap, pathMapNodeSet);
-        }
-        e = skd.getCaseOrder();
-        if (e != null) {
-            e.addToPathMap(pathMap, pathMapNodeSet);
-        }
-        e = skd.getDataTypeExpression();
-        if (e != null) {
-            e.addToPathMap(pathMap, pathMapNodeSet);
-        }
-        e = skd.getLanguage();
-        if (e != null) {
-            e.addToPathMap(pathMap, pathMapNodeSet);
-        }
-        e = skd.getCollationNameExpression();
-        if (e != null) {
-            e.addToPathMap(pathMap, pathMapNodeSet);
-        }
-    }
 
     /**
      * Type-check the expression
@@ -207,18 +150,18 @@ public class SortExpression extends Expression
             SortKeyDefinition sortKeyDef = getSortKeyDefinition(i);
             Expression sortKey = sortKeyDef.getSortKey();
             if (sortKeyDef.isSetContextForSortKey()) {
-                ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(sortedItemType, false);
+                ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(sortedItemType);
                 sortKey = sortKey.typeCheck(visitor, cit);
             } else {
                 sortKey = sortKey.typeCheck(visitor, contextInfo);
             }
             if (sortKeyDef.isBackwardsCompatible()) {
                 sortKey = FirstItemExpression.makeFirstItemExpression(sortKey);
-            } else {
+            } else /*if (getRetainedStaticContext().getPackageData().getHostLanguageVersion() < 40 )*/ {
+                // TODO: allow composite sort keys in 4.0
                 Supplier<RoleDiagnostic> role = () ->
                         new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:sort/select", 0, "XTTE1020");
                 sortKey = tc.staticTypeCheck(sortKey, SequenceType.OPTIONAL_ATOMIC, role, visitor);
-                //sortKey = CardinalityChecker.makeCardinalityChecker(sortKey, StaticProperty.ALLOWS_ZERO_OR_ONE, role);
             }
             sortKeyDef.setSortKey(sortKey, sortKeyDef.isSetContextForSortKey());
             sortKeyDef.typeCheck(visitor, contextInfo);
@@ -264,7 +207,7 @@ public class SortExpression extends Expression
         ContextItemStaticInfo cit;
         if (getSortKeyDefinition(0).isSetContextForSortKey()) {
             ItemType sortedItemType = getSelect().getItemType();
-            cit = visitor.getConfiguration().makeContextItemStaticInfo(sortedItemType, false);
+            cit = visitor.getConfiguration().makeContextItemStaticInfo(sortedItemType);
         } else {
             cit = contextItemType;
         }

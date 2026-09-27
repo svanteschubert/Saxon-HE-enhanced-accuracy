@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.style;
 
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.parser.Token;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.BooleanValue;
@@ -65,7 +65,7 @@ public class XSLSwitch extends XSLChooseOrSwitch {
         for (NodeInfo curr : children()) {
             if (curr instanceof XSLWhen) {
                 Expression values = ((XSLWhen) curr).getCondition();
-                conditions[w] = new GeneralComparison20(new LocalVariableReference(switchVar), Token.EQUALS, values);
+                conditions[w] = new GeneralComparison20(new LocalVariableReference(switchVar), OperatorSymbol.EQUALS, values);
                 w++;
             } else if (curr instanceof XSLOtherwise) {
                 Expression otherwise = Literal.makeLiteral(BooleanValue.TRUE);

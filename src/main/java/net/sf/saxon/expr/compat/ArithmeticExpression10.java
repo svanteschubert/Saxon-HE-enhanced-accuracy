@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -41,7 +41,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
      * @param p1       the second operand
      */
 
-    public ArithmeticExpression10(Expression p0, int operator, Expression p1) {
+    public ArithmeticExpression10(Expression p0, OperatorSymbol operator, Expression p1) {
         super(p0, operator, p1);
     }
 
@@ -75,10 +75,10 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
         SequenceType atomicType = SequenceType.OPTIONAL_ATOMIC;
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(true);
 
-        Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+        Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 0);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), atomicType, role0, visitor));
 
-        Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
+        Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), atomicType, role1, visitor));
 
         final ItemType itemType0 = getLhsExpression().getItemType();
@@ -96,7 +96,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
         // If both operands are integers, use integer arithmetic and convert the result to a double
         if (th.isSubType(type0, BuiltInAtomicType.INTEGER) &&
                 th.isSubType(type1, BuiltInAtomicType.INTEGER) &&
-                (operator == Token.PLUS || operator == Token.MINUS || operator == Token.MULT)) {
+                (operator == OperatorSymbol.PLUS || operator == OperatorSymbol.MINUS || operator == OperatorSymbol.TIMES)) {
             ArithmeticExpression arith = new ArithmeticExpression(getLhsExpression(), operator, getRhsExpression());
             Expression n = SystemFunction.makeCall("number", getRetainedStaticContext(), arith);
             return n.typeCheck(visitor, contextInfo);
@@ -124,7 +124,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
             adoptChildExpression(getRhsExpression());
         }
 
-        if (operator == Token.NEGATE) {
+        if (operator == OperatorSymbol.NEGATE) {
             if (getRhsExpression() instanceof Literal) {
                 GroundedValue v = ((Literal) getRhsExpression()).getGroundedValue();
                 if (v instanceof NumericValue) {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -57,22 +57,30 @@ public class FunctionAvailable extends SystemFunction {
             boolean b = false;
 
             QNameParser qp = new QNameParser(getRetainedStaticContext())
-                    .withAcceptEQName(true)
+                    .withAcceptEQName(true, env.getXPathVersion())
                     .withErrorOnBadSyntax("XTDE1400")
                     .withErrorOnUnresolvedPrefix("XTDE1400");
 
             StructuredQName functionName = qp.parse(lexicalQName, env.getDefaultFunctionNamespace());
 
+            if (env.getConfiguration().isDisabledFunction(functionName)) {
+                return Literal.makeLiteral(BooleanValue.FALSE);
+            }
+
             int minArity = 0;
             int maxArity = 20;
             if (getArity() == 2) {
-                minArity = (int) ((NumericValue) arguments[1].evaluateItem(env.makeEarlyEvaluationContext())).longValue();
-                maxArity = minArity;
+                NumericValue arg2 = ((NumericValue) arguments[1].evaluateItem(env.makeEarlyEvaluationContext()));
+                if (arg2 != null) {
+                    // empty sequence is allowed in 4.0
+                    minArity = (int) ((NumericValue) arguments[1].evaluateItem(env.makeEarlyEvaluationContext())).longValue();
+                    maxArity = minArity;
+                }
             }
 
             for (int i = minArity; i <= maxArity; i++) {
                 SymbolicName.F sn = new SymbolicName.F(functionName, i);
-                if (env.getFunctionLibrary().isAvailable(sn, env.getXPathVersion())) {
+                if (env.getFunctionLibrary().isAvailable(sn, env.getImportedSchema(), env.getXPathVersion())) {
                     b = true;
                     break;
                 }
@@ -100,11 +108,15 @@ public class FunctionAvailable extends SystemFunction {
                 qName = new StructuredQName("", NamespaceUri.FN, lexicalName);
             } else {
                 qName = StructuredQName.fromLexicalQName(lexicalName,
-                        false, true,
+                        false, StructuredQName.QUPL,
                         getRetainedStaticContext());
             }
         } catch (XPathException e) {
             throw e.withErrorCode("XTDE1400").withXPathContext(context);
+        }
+
+        if (context.getConfiguration().isDisabledFunction(qName)) {
+            return false;
         }
 
         final FunctionLibrary lib = context.getController().getExecutable().getFunctionLibrary();
@@ -120,7 +132,7 @@ public class FunctionAvailable extends SystemFunction {
 //                // TODO: some further functions are not available in SaxonJS
 //            }
 //        }
-        return lib.isAvailable(sn, rsc.getPackageData().getHostLanguageVersion());
+        return lib.isAvailable(sn, rsc.getImportedSchema(), rsc.getPackageData().getHostLanguageVersion());
     }
 
     /**
@@ -137,7 +149,11 @@ public class FunctionAvailable extends SystemFunction {
         String lexicalQName = arguments[0].head().getStringValue();
         int arity = -1;
         if (arguments.length == 2) {
-            arity = (int) ((NumericValue) arguments[1].head()).longValue();
+            NumericValue arg2 = ((NumericValue) arguments[1].head());
+            if (arg2 != null) {
+                // Empty sequence is allowed in 4.0
+                arity = (int) arg2.longValue();
+            }
         }
         return BooleanValue.get(
                 isFunctionAvailable(lexicalQName, getRetainedStaticContext(), arity, context));

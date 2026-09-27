@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,6 +21,8 @@ import net.sf.saxon.z.IntIterator;
 
 import javax.xml.transform.OutputKeys;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Properties;
 import java.util.Stack;
@@ -47,7 +49,7 @@ public class XMLEmitter extends Emitter {
     protected boolean undeclareNamespaces = false;
     protected boolean unfailing = false;
     protected String internalSubset = null;
-    protected char delimiter = '"';
+    protected int delimiter = '\"';
     protected boolean[] attSpecials = specialInAtt;
 
     // The element stack holds the display names (lexical QNames) of elements that
@@ -130,7 +132,7 @@ public class XMLEmitter extends Emitter {
      * @param escape true if all non ASCII characters should be escaped
      */
 
-    public void setEscapeNonAscii(Boolean escape) {
+    public void setEscapeNonAscii(boolean escape) {
         // no action (not currently supported for this output method
     }
 
@@ -240,6 +242,7 @@ public class XMLEmitter extends Emitter {
 
             if (canonical) {
                 omitXMLDeclaration = "yes";
+                requireWellFormed = true;
             }
 
             String version = outputProperties.getProperty(OutputKeys.VERSION);
@@ -296,15 +299,19 @@ public class XMLEmitter extends Emitter {
 
             if (omitXMLDeclaration.equals("no")) {
                 writer.writeAscii(XML_DECL_VERSION);
+                writer.writeAscii(delimiter);
                 writer.write(version);
-                writer.writeAscii(QUOTE_SPACE);
+                writer.writeAscii(delimiter);
+                writer.writeAscii(' ');
                 writer.writeAscii(XML_DECL_ENCODING);
+                writer.writeAscii(delimiter);
                 writer.write(encoding);
-                writer.writeCodePoint('"');
+                writer.writeAscii(delimiter);
                 if (standalone != null) {
                     writer.writeAscii(XML_DECL_STANDALONE);
+                    writer.writeAscii(delimiter);
                     writer.write(standalone);
-                    writer.writeCodePoint('"');
+                    writer.writeAscii(delimiter);
                 }
                 writer.writeAscii(StringConstants.PI_END);
 //                writer.write("<?xml version=\"" + version + "\" " + "encoding=\"" + encoding + '\"' +
@@ -317,13 +324,14 @@ public class XMLEmitter extends Emitter {
         }
     }
 
-    private static final byte[] XML_DECL_VERSION = StringConstants.bytes("<?xml version=\"");
-    private static final byte[] XML_DECL_ENCODING = StringConstants.bytes("encoding=\"");
-    private static final byte[] XML_DECL_STANDALONE = StringConstants.bytes(" standalone=\"");
-    private static final byte[] QUOTE_SPACE = StringConstants.bytes("\" ");
+    private static final byte[] XML_DECL_VERSION = StringConstants.bytes("<?xml version=");
+    private static final byte[] XML_DECL_ENCODING = StringConstants.bytes("encoding=");
+    private static final byte[] XML_DECL_STANDALONE = StringConstants.bytes(" standalone=");
+    private static final UnicodeChar RIGHT_ANGLE_BRACKET = new UnicodeChar('>');
+    private static final UnicodeString NL = StringConstants.NEWLINE;
     protected static final byte[] DOCTYPE = StringConstants.bytes("<!DOCTYPE ");
     private static final byte[] SYSTEM = StringConstants.bytes("  SYSTEM ");
-    private static final byte[] PUBLIC = StringConstants.bytes("  PUBLIC \"");
+    private static final byte[] PUBLIC = StringConstants.bytes("  PUBLIC ");
     protected static final byte[] RIGHT_ANGLE_NEWLINE = StringConstants.bytes(">\n");
 
     /**
@@ -341,14 +349,14 @@ public class XMLEmitter extends Emitter {
             if (!canonical) {
                 if (declarationIsWritten && !indenting) {
                     // don't add a newline if indenting, because the indenter will already have done so
-                    writer.writeCodePoint(0x0A);
+                    writer.writeAscii('\n');
                 }
                 writer.writeAscii(DOCTYPE);
                 writer.write(displayName);
-                writer.writeCodePoint(0x0A);
+                writer.writeAscii('\n');
                 String quotedSystemId = null;
                 if (systemId != null) {
-                    if (systemId.contains("\"")) {
+                    if (systemId.contains("\"") || (delimiter == '\'' && !systemId.contains("'"))) {
                         quotedSystemId = "'" + systemId + "'";
                     } else {
                         quotedSystemId = '"' + systemId + '"';
@@ -359,20 +367,23 @@ public class XMLEmitter extends Emitter {
                     writer.write(quotedSystemId);
                 } else if (systemId == null && publicId != null) {     // handles the HTML case
                     writer.writeAscii(PUBLIC);
+                    writer.writeAscii(delimiter);
                     writer.write(publicId);
-                    writer.writeCodePoint('"');
+                    writer.writeAscii(delimiter);
                 } else if (publicId != null) {
                     writer.writeAscii(PUBLIC);
+                    writer.writeAscii(delimiter);
                     writer.write(publicId);
-                    writer.writeAscii(QUOTE_SPACE);
+                    writer.writeAscii(delimiter);
+                    writer.writeAscii(' ');
                     writer.write(quotedSystemId);
                 }
                 if (internalSubset != null) {
-                    writer.writeCodePoint('[');
-                    writer.writeCodePoint(0x0A);
+                    writer.writeAscii('[');
+                    writer.writeAscii('\n');
                     writer.write(internalSubset);
-                    writer.writeCodePoint(0x0A);
-                    writer.writeCodePoint(']');
+                    writer.writeAscii('\n');
+                    writer.writeAscii(']');
                 }
                 writer.writeAscii(RIGHT_ANGLE_NEWLINE);
             }
@@ -423,7 +434,7 @@ public class XMLEmitter extends Emitter {
         if (!started) {
             openDocument();
         } else if (requireWellFormed && elementStack.isEmpty() && startedElement && !unfailing) {
-            throw new XPathException("When 'standalone' or 'doctype-system' is specified, " +
+            throw new XPathException("When 'standalone' or 'doctype-system' or 'canonical' is specified, " +
                                                             "the document must be well-formed; but this document contains more than one top-level element")
                     .withErrorCode("SEPM0004");
         }
@@ -464,7 +475,7 @@ public class XMLEmitter extends Emitter {
             if (openStartTag) {
                 closeStartTag();
             }
-            writer.writeCodePoint('<');
+            writer.writeAscii('<');
             writer.write(displayName);
 
             if (indentForNextAttribute >= 0) {
@@ -474,6 +485,19 @@ public class XMLEmitter extends Emitter {
             boolean isFirst = true;
 
             for (NamespaceBinding ns : namespaces) {
+                if (canonical) {
+                    // Perversely, the namespace need not be a valid URI, but if it is a valid
+                    // URI, it must not be relative
+                    try {
+                        URI uri = new URI(ns.getNamespaceUri().toString());
+                        if (!uri.isAbsolute()) {
+                            throw new XPathException("Canonical XML does not allow namespace URIs to be relative: "
+                                                             + ns.getNamespaceUri(), "SERE0024");
+                        }
+                    } catch (URISyntaxException err) {
+                        // no action
+                    }
+                }
                 namespace(ns.getPrefix(), ns.getNamespaceUri(), isFirst);
                 isFirst = false;
             }
@@ -499,7 +523,7 @@ public class XMLEmitter extends Emitter {
         try {
             if (nsprefix.isEmpty()) {
                 if (isFirst) {
-                    writer.writeCodePoint(' ');
+                    writer.writeAscii(' ');
                 } else {
                     writeAttributeIndentString();
                 }
@@ -516,7 +540,7 @@ public class XMLEmitter extends Emitter {
                 }
                 if (undeclareNamespaces || !nsuri.isEmpty()) {
                     if (isFirst) {
-                        writer.writeCodePoint(' ');
+                        writer.writeAscii(' ');
                     } else {
                         writeAttributeIndentString();
                     }
@@ -558,7 +582,7 @@ public class XMLEmitter extends Emitter {
 
         try {
             if (isFirst) {
-                writer.writeCodePoint(' ');
+                writer.writeAscii(' ');
             } else {
                 writeAttributeIndentString();
             }
@@ -578,9 +602,9 @@ public class XMLEmitter extends Emitter {
 
     protected void writeAttributeIndentString() throws IOException {
         if (indentForNextAttribute < 0) {
-            writer.writeCodePoint(' ');
+            writer.writeAscii(' ');
         } else {
-            writer.writeCodePoint('\n');
+            writer.writeAscii('\n');
             writer.writeRepeatedAscii((byte)0x20, indentForNextAttribute);
         }
     }
@@ -595,7 +619,7 @@ public class XMLEmitter extends Emitter {
     public void closeStartTag() throws XPathException {
         try {
             if (openStartTag) {
-                writer.writeCodePoint('>');
+                writer.writeAscii('>');
                 openStartTag = false;
             }
         } catch (java.io.IOException err) {
@@ -612,10 +636,10 @@ public class XMLEmitter extends Emitter {
 
     protected void writeEmptyElementTagCloser(String displayName, NodeName nameCode) throws IOException {
         if (canonical) {
-            writer.writeCodePoint('>');
+            writer.writeAscii('>');
             writer.writeAscii(StringConstants.END_TAG_START);
             writer.write(displayName);
-            writer.writeCodePoint('>');
+            writer.writeAscii('>');
         } else {
             writer.writeAscii(StringConstants.EMPTY_TAG_END);
         }
@@ -637,27 +661,27 @@ public class XMLEmitter extends Emitter {
         try {
             writer.write(attname);
             if (ReceiverOption.contains(properties, ReceiverOption.NO_SPECIAL_CHARS)) {
-                writer.writeCodePoint('=');
-                writer.writeCodePoint(delimiter);
+                writer.writeAscii('=');
+                writer.writeAscii(delimiter);
                 writer.write(value);
-                writer.writeCodePoint(delimiter);
+                writer.writeAscii(delimiter);
             } else if (ReceiverOption.contains(properties, ReceiverOption.USE_NULL_MARKERS)) {
                 // null (0) characters will be used before and after any section of
                 // the value generated from a character map
-                writer.writeCodePoint('=');
-                char delim = value.indexOf('"') >= 0 && value.indexOf('\'') < 0 ? '\'' : delimiter;
-                writer.writeCodePoint(delim);
+                writer.writeAscii('=');
+                int delim = value.indexOf('"') >= 0 && value.indexOf('\'') < 0 ? '\'' : delimiter;
+                writer.writeAscii(delim);
                 writeEscape(StringView.tidy(value), true);
-                writer.writeCodePoint(delim);
+                writer.writeAscii(delim);
             } else {
-                writer.writeCodePoint('=');
-                writer.writeCodePoint(delimiter);
+                writer.writeAscii('=');
+                writer.writeAscii(delimiter);
                 if (ReceiverOption.contains(properties, ReceiverOption.DISABLE_ESCAPING)) {
                     writer.write(value);
                 } else {
                     writeEscape(StringView.tidy(value), true);
                 }
-                writer.writeCodePoint(delimiter);
+                writer.writeAscii(delimiter);
             }
         } catch (java.io.IOException err) {
             throw new XPathException("Failure writing to " + getSystemId(), err);
@@ -689,17 +713,17 @@ public class XMLEmitter extends Emitter {
      */
 
     protected UnicodeString convertToAscii(UnicodeString chars) {
-        UnicodeBuilder buff = new UnicodeBuilder();
+        TwineBuilder tb = TwineBuilder.make(chars.length32());
         IntIterator iter = chars.codePoints();
         while (iter.hasNext()) {
             int c = iter.next();
             if (c >= 20 && c < 127) {
-                buff.append(c);
+                tb = tb.append(c);
             } else {
-                buff.append("_" + c + "_");
+                tb.append('_').append(c).append('_');
             }
         }
-        return buff.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     /**
@@ -716,7 +740,7 @@ public class XMLEmitter extends Emitter {
             } else {
                 writer.writeAscii(StringConstants.END_TAG_START);
                 writer.write(displayName);
-                writer.writeCodePoint('>');
+                writer.writeAscii('>');
             }
         } catch (java.io.IOException err) {
             throw new XPathException("Failure writing to " + getSystemId(), err);
@@ -743,7 +767,26 @@ public class XMLEmitter extends Emitter {
             if (openStartTag) {
                 closeStartTag();
             }
-            if (chars instanceof WhitespaceString) {
+            if (ReceiverOption.contains(properties, ReceiverOption.USE_CDATA)) {
+                writer.write(CDATAFilter.CDATA_OPEN);
+
+                // Check that the character data doesn't include the substring "]]>"
+                // Also get rid of any zero bytes inserted by character map expansion
+
+                long i = 0;
+                long doneto = 0;
+                long len = chars.length();
+                while (i < len - 2) {
+                    if (chars.codePointAt(i) == ']' && chars.codePointAt(i + 1) == ']' && chars.codePointAt(i + 2) == '>') {
+                        writer.write(chars.substring(doneto, i + 2));
+                        writer.write(CDATAFilter.CDATA_CLOSE_AND_REOPEN);
+                        doneto = i + 2;
+                    }
+                    i++;
+                }
+                writer.write(chars.substring(doneto, len));
+                writer.write(CDATAFilter.CDATA_CLOSE);
+            } else if (chars instanceof WhitespaceString) {
                 ((WhitespaceString) chars).write(writer);
             } else if (ReceiverOption.contains(properties, ReceiverOption.NO_SPECIAL_CHARS)) {
                 writer.write(chars);
@@ -826,7 +869,7 @@ public class XMLEmitter extends Emitter {
             writer.writeAscii(StringConstants.PI_START);
             writer.write(target);
             if (!data.isEmpty()) {
-                writer.writeCodePoint(0x20);
+                writer.writeAscii(' ');
                 writer.write(data);
             }
             writer.writeAscii(StringConstants.PI_END);
@@ -889,7 +932,7 @@ public class XMLEmitter extends Emitter {
                                                                    ") is not available in the chosen encoding")
                             .withErrorCode("SERE0008");
                 }
-                writeCodePoint(c);
+                writer.writeCodePoint(c);
             } else if (c < 127) {
                 // process special ASCII characters
                 switch (c) {
@@ -927,7 +970,7 @@ public class XMLEmitter extends Emitter {
                 characterReferenceGenerator.outputCharacterReference(c, writer);
             } else if (c > 65535) {
                 if (characterSet.inCharset(c)) {
-                    writeCodePoint(c);
+                    writer.writeCodePoint(c);
                 } else {
                     characterReferenceGenerator.outputCharacterReference(c, writer);
                 }
@@ -937,10 +980,6 @@ public class XMLEmitter extends Emitter {
             }
             segstart = ++i;
         }
-    }
-
-    protected void writeCodePoint(int c) throws IOException {
-        writer.writeCodePoint(c);
     }
 
 

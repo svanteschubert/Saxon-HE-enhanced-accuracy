@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.serialize;
 
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.str.WhitespaceString;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -47,9 +47,11 @@ public class CharacterMap {
      * @param list the list of existing character maps. If the same character
      *             is mapped by more than one map in the list, the last mapping takes
      *             precedence
+     * @param combinedName the name for the combined character map.
      */
 
-    public CharacterMap(Iterable<CharacterMap> list) {
+    public CharacterMap(Iterable<CharacterMap> list, StructuredQName combinedName) {
+        name = combinedName;
         charMap = new IntHashMap<>(64);
         for (CharacterMap map : list) {
             IntIterator keys = map.charMap.keyIterator();
@@ -127,28 +129,26 @@ public class CharacterMap {
             return in;
         }
 
-        UnicodeBuilder buffer = new UnicodeBuilder();
+        TwineBuilder tb = TwineBuilder.make(in.length32());
         IntIterator iter = in.codePoints();
         while (iter.hasNext()) {
             int c = iter.next();
             if (c >= min && c <= max) {
                 String rep = charMap.get(c);
                 if (rep == null) {
-                    buffer.append(c);
+                    tb = tb.append(c);
                 } else {
                     if (insertNulls) {
-                        buffer.append((char) 0);
-                        buffer.append(rep);
-                        buffer.append((char) 0);
+                        tb = tb.append((char) 0).append(rep).append((char) 0);
                     } else {
-                        buffer.append(rep);
+                        tb = tb.append(rep);
                     }
                 }
             } else {
-                buffer.append(c);
+                tb = tb.append(c);
             }
         }
-        return buffer.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     /**

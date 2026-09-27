@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,6 +23,8 @@ import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.VisibilityProvenance;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 import java.util.List;
 
@@ -35,7 +37,7 @@ import java.util.List;
  * required type, and calls on the function must be wrapped at compile time to check or
  * convert the supplied arguments.</p>
  */
-
+@CSharpInjectMembers(code={"private readonly object _lock = new();"})
 public abstract class Actor implements ExpressionOwner, Location {
 
     protected Expression body;
@@ -47,7 +49,7 @@ public abstract class Actor implements ExpressionOwner, Location {
     private Component declaringComponent;
     private Visibility declaredVisibility = Visibility.UNDEFINED;
     private RetainedStaticContext retainedStaticContext;
-    private PushEvaluator bodyEvaluator;
+    protected PushEvaluator pushEvaluator;
 
     public Actor() {
     }
@@ -182,10 +184,13 @@ public abstract class Actor implements ExpressionOwner, Location {
         if (invocation.getBindingSlot() >= 0) {
             throw new AssertionError("**** Component reference " + name + " is already bound");
         }
-        int slot = bindings.size();
         ComponentBinding cb = new ComponentBinding(name, target);
-        bindings.add(cb);
-        invocation.setBindingSlot(slot);
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
+        synchronized(bindings) {      // bug 6348
+            int slot = bindings.size();
+            bindings.add(cb);
+            invocation.setBindingSlot(slot);
+        }
     }
 
     public void setBody(Expression body) {
@@ -307,12 +312,21 @@ public abstract class Actor implements ExpressionOwner, Location {
     }
 
     protected TailCall process(Outputter out, XPathContext context) throws XPathException {
+        makeBodyEvaluator();
+        return pushEvaluator.processLeavingTail(out, context);
+    }
+
+    @CSharpReplaceBody(code = "if (System.Threading.Volatile.Read(ref pushEvaluator) == null) {\n"
+            + "                lock (_lock) {\n"
+            + "                    pushEvaluator ??= body.makeElaborator().elaborateForPush();\n"
+            + "                }\n"
+            + "            }\n")
+    protected void makeBodyEvaluator() {
         synchronized(this) {
-            if (bodyEvaluator == null) {
-                bodyEvaluator = body.makeElaborator().elaborateForPush();
+            if (pushEvaluator == null) {
+                pushEvaluator = body.makeElaborator().elaborateForPush();
             }
         }
-        return bodyEvaluator.processLeavingTail(out, context);
     }
 }
 

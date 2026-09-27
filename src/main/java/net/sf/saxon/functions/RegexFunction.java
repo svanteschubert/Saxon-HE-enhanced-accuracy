@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -42,7 +42,7 @@ public abstract class RegexFunction extends SystemFunction implements StatefulSy
                 Configuration config = getRetainedStaticContext().getConfiguration();
                 UnicodeString re = ((StringLiteral) arguments[1]).getGroundedValue().getUnicodeStringValue();
                 String flags = ((StringLiteral) arguments[arguments.length - 1]).stringify();
-                String hostLang = "XP30";
+                String hostLang = "XP" + getRetainedStaticContext().getPackageData().getHostLanguageVersion();
                 if (config.getXsdVersion() == Configuration.XSD11) {
                     hostLang += "/XSD11";
                 }
@@ -135,17 +135,18 @@ public abstract class RegexFunction extends SystemFunction implements StatefulSy
         }
         UnicodeString regexArg = regexItem.getUnicodeStringValue();
 
+        int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
         String flags = "";
         if (flagsPos < args.length) {
             Item flagsItem = args[flagsPos].head();   // May generally be empty in XPath 4.0
-            if (flagsItem == null && getRetainedStaticContext().getPackageData().getHostLanguageVersion() < 40) {
+            if (flagsItem == null && version < 40) {
                 XPathException err = new XPathException("Flags argument must not be an empty sequence (unless 4.0 is enabled)", "XPTY0004");
                 err.setIsTypeError(true);
                 throw err;
             }
             flags = flagsItem == null ? "" : flagsItem.getStringValue();
         }
-        String hostLang = "XP30";
+        String hostLang = version >= 40 ? "XP40" : "XP31";
         if (config.getXsdVersion() == Configuration.XSD11) {
             hostLang += "/XSD11";
         }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -171,6 +171,9 @@ public class LoopLifter {
             markDependencies(exp, choose);
         }
         for (Operand o : exp.operands()) {
+            if (o.getChildExpression().getParentExpression() != exp) {
+                throw new IllegalStateException("Bad parent pointer in expression tree at: " + exp);
+            }
             gatherInfo(o.getChildExpression(), level+1, o.isEvaluatedRepeatedly() ? loopLevel+1 : loopLevel, threaded);
         }
     }
@@ -200,7 +203,7 @@ public class LoopLifter {
         // bug 3465: expressions returning streamed nodes cannot be loop-lifted,
         // because such nodes must not be bound to a variable
         // TODO: attempt a more rigorous analysis - see bug 3465
-        return streaming && !exp.getItemType().getUType().intersection(UType.ANY_NODE).equals(UType.VOID);
+        return streaming && !exp.getItemType().getUType().intersection(UType.XNODE).equals(UType.VOID);
     }
 
     /**

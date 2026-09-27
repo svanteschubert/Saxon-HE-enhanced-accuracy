@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,9 @@
 package net.sf.saxon.style;
 
 import net.sf.saxon.expr.StaticProperty;
+import net.sf.saxon.expr.parser.Optionality;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
@@ -24,8 +26,7 @@ import net.sf.saxon.value.Whitespace;
 public class XSLContextItem extends StyleElement {
 
     private ItemType requiredType = AnyItemType.getInstance();
-    private boolean mayBeOmitted = true;
-    private boolean absentFocus = false;
+    private Optionality optionality = Optionality.OPTIONAL;
 
 
     @Override
@@ -39,15 +40,9 @@ public class XSLContextItem extends StyleElement {
                 String f = attName.getDisplayName();
                 String value = att.getValue();
             switch (f) {
-                case "as":
-                    asAtt = Whitespace.trim(value);
-                    break;
-                case "use":
-                    useAtt = Whitespace.trim(value);
-                    break;
-                default:
-                    checkUnknownAttribute(attName);
-                    break;
+                case "as" -> asAtt = Whitespace.trim(value);
+                case "use" -> useAtt = Whitespace.trim(value);
+                default -> checkUnknownAttribute(attName);
             }
         }
         if (asAtt != null) {
@@ -67,20 +62,20 @@ public class XSLContextItem extends StyleElement {
         if (useAtt != null) {
             switch (useAtt) {
                 case "required":
-                    mayBeOmitted = false;
+                    optionality = Optionality.REQUIRED;
                     break;
                 case "optional":
                     // no action, this is the default
                     break;
                 case "absent":
-                    absentFocus = true;
+                    optionality = Optionality.PROHIBITED;
                     break;
                 default:
                     invalidAttribute("use", "required|optional|absent");
                     break;
             }
         }
-        if (asAtt != null && absentFocus) {
+        if (asAtt != null && optionality == Optionality.PROHIBITED) {
             compileError("The 'as' attribute must be omitted when use='absent' is specified",
                          this instanceof XSLGlobalContextItem ? "XTSE3089": "XTSE3088");
         }
@@ -102,12 +97,12 @@ public class XSLContextItem extends StyleElement {
             compileError("xsl:context-item can appear only as a child of xsl:template");
             return;
         }
-        if (mayBeOmitted && ((XSLTemplate) getParent()).getTemplateName() == null) {
+        if (optionality != Optionality.REQUIRED && ((XSLTemplate) getParent()).getTemplateName() == null) {
             compileError("xsl:context-item appearing in an xsl:template declaration with no name attribute must specify use=required",
                 "XTSE0020");
         }
-        ((XSLTemplate)getParent()).setContextItemRequirements(requiredType, mayBeOmitted, absentFocus);
-        SequenceTool.supply(iterateAxis(AxisInfo.PRECEDING_SIBLING), (ItemConsumer<? super Item>) prec -> {
+        ((XSLTemplate)getParent()).setContextItemRequirements(requiredType, optionality);
+        SequenceTool.supply(iteratePrecedingSiblingAxis(AnyGNode.TEST), (ItemConsumer<? super Item>) prec -> {
             if (((NodeInfo) prec).getNodeKind() != Type.TEXT || !Whitespace.isAllWhite(prec.getUnicodeStringValue())) {
                 compileError("xsl:context-item must be the first child of xsl:template");
             }
@@ -118,12 +113,8 @@ public class XSLContextItem extends StyleElement {
         return requiredType;
     }
 
-    public boolean isMayBeOmitted() {
-        return mayBeOmitted;
-    }
-
-    public boolean isAbsentFocus() {
-        return absentFocus;
+    public Optionality getContextValueOptionality() {
+        return optionality;
     }
 
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,22 +7,20 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.expr.elab.ItemEvaluator;
-import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.ItemElaborator;
-import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.AnchorPattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.AnyItemType;
-import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
 import net.sf.saxon.value.SequenceType;
@@ -30,7 +28,6 @@ import net.sf.saxon.value.SequenceType;
 
 /**
  * This class represents the expression "(dot)", which always returns the context item.
- * This may be a AtomicValue or a Node.
  */
 
 public class ContextItemExpression extends Expression {
@@ -101,7 +98,7 @@ public class ContextItemExpression extends Expression {
     /*@NotNull*/
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, /*@Nullable*/ ContextItemStaticInfo contextInfo) throws XPathException {
-        if (contextInfo.getItemType() == ErrorType.getInstance()) {
+        if (contextInfo.getOptionality() == Optionality.PROHIBITED) {
             visitor.issueWarning("Evaluation will always fail: there is no context item", SaxonErrorCode.SXWN9027, getLocation());
             ErrorExpression ee = new ErrorExpression(
                     "There is no context item",
@@ -110,6 +107,9 @@ public class ContextItemExpression extends Expression {
             ee.setOriginalExpression(this);
             ExpressionTool.copyLocationInfo(this, ee);
             return ee;
+        } else if (contextInfo.getCardinality() != StaticProperty.EXACTLY_ONE) {
+            // context item is generalized to context value in 4.0 - but only in restricted circumstances
+            return new ContextValueExpression();
         } else {
             staticInfo = contextInfo;
         }
@@ -175,7 +175,7 @@ public class ContextItemExpression extends Expression {
      */
 
     public boolean isContextPossiblyUndefined() {
-        return staticInfo.isPossiblyAbsent();
+        return staticInfo.getOptionality() != Optionality.REQUIRED;
     }
 
     /**
@@ -228,34 +228,6 @@ public class ContextItemExpression extends Expression {
 
 
     /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNodeSet representing the points in the source document that are both reachable by this
-     *         expression, and that represent possible results of this expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        if (pathMapNodeSet == null) {
-            pathMapNodeSet = new PathMap.PathMapNodeSet(pathMap.makeNewRoot(this));
-        }
-        return pathMapNodeSet;
-    }
-
-    /**
      * Determine whether the expression can be evaluated without reference to the part of the context
      * document outside the subtree rooted at the context node.
      *
@@ -277,14 +249,15 @@ public class ContextItemExpression extends Expression {
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath
      * @return the equivalent pattern
-     * @throws net.sf.saxon.trans.XPathException
-     *          if conversion is not possible
+     * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
-        return AnchorPattern.getInstance();
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
+        //return AnchorPattern.getInstance();
+        throw new XPathException("Cannot convert the expression '.' to a PathExprP");
     }
 
     /**
@@ -352,11 +325,11 @@ public class ContextItemExpression extends Expression {
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("dot", this);
         ItemType type = getItemType();
-        if (!(type == AnyItemType.getInstance())) {
-            SequenceType st = SequenceType.makeSequenceType(type,StaticProperty.EXACTLY_ONE);
+        if (!(type == AnyItemType.INSTANCE)) {
+            SequenceType st = SequenceType.one(type);
             destination.emitAttribute("type", st.toAlphaCode());
         }
-        if (staticInfo.isPossiblyAbsent()) {
+        if (staticInfo.getOptionality() != Optionality.REQUIRED) {
             destination.emitAttribute("flags", "a");
         }
         destination.endElement();

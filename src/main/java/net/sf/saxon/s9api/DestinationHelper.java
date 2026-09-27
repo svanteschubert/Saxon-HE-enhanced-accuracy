@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,9 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * A helper class for implementing the {@link Destination} interface
+ * A helper class for implementing the {@link Destination} interface. This is intended for use
+ * (optionally) by implementations of this interface; it is invoked automatically by implementations
+ * that extend {@link AbstractDestination}.
  */
 @CSharpModifiers(code = {"internal"})
 public class DestinationHelper {

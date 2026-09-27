@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -28,7 +28,6 @@ import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
@@ -356,6 +355,15 @@ public class GlobalVariable extends Actor
     }
 
     /**
+     * Count the references to this variable
+     * @return the number of references
+     */
+
+    public int countReferences() {
+        return references.size();
+    }
+
+    /**
      * Get the slot number allocated to this variable in the Bindery
      *
      * @return the slot number, that is the position allocated to the variable within the Bindery
@@ -459,11 +467,14 @@ public class GlobalVariable extends Actor
             }
             Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(
                     RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
-            ContextItemStaticInfo cit = getConfiguration().makeContextItemStaticInfo(AnyItemType.getInstance(), true);
+            ContextItemStaticInfo cit = getConfiguration().makeContextItemStaticInfo(
+                    AnyItemType.INSTANCE, Optionality.OPTIONAL);
             Expression value2 = TypeChecker.strictTypeCheck(
                     value.simplify().typeCheck(visitor, cit),
                     getRequiredType(), role, visitor.getStaticContext());
-            value2 = value2.optimize(visitor, cit);
+            if (visitor.obtainOptimizer().getOptimizerOptions().isSet(OptimizerOptions.MISCELLANEOUS)) {
+                value2 = value2.optimize(visitor, cit);
+            }
             setBody(value2);
             // the value expression may declare local variables
             SlotManager map = getConfiguration().makeSlotManager();
@@ -550,9 +561,9 @@ public class GlobalVariable extends Actor
                     ((GlobalVariable) b).lookForCycles(referees, globalFunctionLibrary);
                 }
             }
-            List<SymbolicName> flist = new ArrayList<>();
+            List<SymbolicName.F> flist = new ArrayList<>();
             ExpressionTool.gatherCalledFunctionNames(select, flist);
-            for (SymbolicName s : flist) {
+            for (SymbolicName.F s : flist) {
                 XQueryFunction f = globalFunctionLibrary.getDeclarationByKey(s);
                 if (!referees.contains(f)) {
                     // recursive function calls are allowed
@@ -583,9 +594,9 @@ public class GlobalVariable extends Actor
                 ((GlobalVariable) b).lookForCycles(referees, globalFunctionLibrary);
             }
         }
-        List<SymbolicName> flist = new ArrayList<>();
+        List<SymbolicName.F> flist = new ArrayList<>();
         ExpressionTool.gatherCalledFunctionNames(body, flist);
-        for (SymbolicName s : flist) {
+        for (SymbolicName.F s : flist) {
             XQueryFunction qf = globalFunctionLibrary.getDeclarationByKey(s);
             if (!referees.contains(qf)) {
                 // recursive function calls are allowed
@@ -594,7 +605,7 @@ public class GlobalVariable extends Actor
         }
         referees.pop();
     }
-
+    
 
     /**
      * Evaluate the variable. That is,
@@ -722,6 +733,7 @@ public class GlobalVariable extends Actor
      * @throws XPathException if evaluation fails
      */
 
+    @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
     protected GroundedValue actuallyEvaluate(XPathContext context, Component target) throws XPathException {
         final Controller controller = context.getController();
         assert controller != null;
@@ -730,24 +742,28 @@ public class GlobalVariable extends Actor
         try {
             // This is the first reference to a global variable; try to evaluate it now.
             // But first check for circular dependencies.
-            setDependencies(this, context);
-
-            // Set a flag to indicate that the variable is being evaluated. This is designed to prevent
-            // (where possible) the same global variable being evaluated several times in different threads
-            boolean go = b.setExecuting(this);
-            if (!go) {
-                // some other thread has evaluated the variable while we were waiting
-                return b.getGlobalVariable(getBinderySlotNumber());
-            }
-
+            checkCircularity(this, context);
+            int slot = getBinderySlotNumber();
             GroundedValue value = getSelectValue(context, target);
             if (_indexed) {
                 value = controller.getConfiguration().obtainOptimizer().makeIndexedValue(value.iterate());
             }
-            return b.saveGlobalVariableValue(this, value);
+            synchronized(b) {
+                // This lock doesn't prevent two different threads evaluating the value in parallel. It does
+                // ensure that when this happens, all threads end up using the same value for the variable.
+                GroundedValue temp = b.getGlobalVariable(slot);
+                if (temp == null) { // check once again, things might have changed
+                    b.setGlobalVariableValue(slot, value);
+                } else {
+                    // Discard the value we have calculated, and use the value computed in another thread
+                    value = temp;
+                }
+            }
+
+            return value;
+
 
         } catch (XPathException err) {
-            b.setNotExecuting(this);
             if (err instanceof XPathException.Circularity) {
                 err.setErrorCode(getPackageData().isXSLT() ? "XTDE0640" : "XQDY0054");
                 err.setXPathContext(context);
@@ -769,14 +785,17 @@ public class GlobalVariable extends Actor
      * on the context stack representing the evaluation of X. We don't set a dependency from X to Y if the value
      * of Y was already available in the Bindery; it's not needed, because in this case we know that evaluation
      * of Y is unproblematic, and can't lead to any circularities.
+     *
      * @param var     the global variable or parameter being evaluated
      * @param context the dynamic evaluation context
      * @throws XPathException if a cycle of dependencies is found
      */
 
-    protected static void setDependencies(GlobalVariable var, XPathContext context) throws XPathException {
+    protected static void checkCircularity(GlobalVariable var, XPathContext context) throws XPathException {
         Controller controller = context.getController();
-        context = context.getMajorContext();
+        if (!(context instanceof XPathContextMajor)) {
+            context = getMajorCaller(context);
+        }
         while (context != null) {
             do {
                 ContextOriginator origin = ((XPathContextMajor) context).getOrigin();
@@ -784,25 +803,17 @@ public class GlobalVariable extends Actor
                     controller.registerGlobalVariableDependency((GlobalVariable) origin, var);
                     return;
                 }
-                context = context.getCaller();
-                if (context != null) {
-                    context = context.getMajorContext();
-                }
+                context = getMajorCaller(context);
             } while (context != null);
         }
-
     }
 
-    /**
-     * If the variable is bound to an integer, get the minimum and maximum possible values.
-     * Return null if unknown or not applicable
-     *
-     * @return a pair of integers containing the minimum and maximum values for the integer value;
-     *         or null if the value is not an integer or the range is unknown
-     */
-    @Override
-    public IntegerValue[] getIntegerBoundsForVariable() {
-        return getBody()==null ? null : getBody().getIntegerBounds();
+    private static XPathContextMajor getMajorCaller(XPathContext context) {
+        XPathContext caller = context.getCaller();
+        while (!(caller == null || caller instanceof XPathContextMajor)) {
+            caller = caller.getCaller();
+        }
+        return (XPathContextMajor) caller;
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,10 +18,9 @@ import net.sf.saxon.functions.KeyFn;
 import net.sf.saxon.functions.SuperId;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.Logger;
+import net.sf.saxon.lib.StandardDiagnostics;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.pattern.NodeSetPattern;
-import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.EmptyUnicodeString;
@@ -31,10 +30,10 @@ import net.sf.saxon.trace.Traceable;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.jiter.MonoIterator;
-import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.UType;
+import net.sf.saxon.type.gnode.XNodeType;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.IntegerValue;
@@ -161,6 +160,17 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
             }
         }
         return ops;
+    }
+
+    /**
+     * Issue a warning related to this expression
+     * @param message the warning message
+     */
+
+    public void warning(String message, String code) {
+        Logger logger = getConfiguration().getLogger();
+        String loc = StandardDiagnostics.getLocationMessageText(getLocation());
+        logger.warning("Warning " + code + " " + loc + ": " + message);
     }
 
     /**
@@ -365,9 +375,12 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
         return true;
     }
 
+
     /**
-     * Simplify an expression. This performs any static optimization (by rewriting the expression
+     * Simplify an expression. This performs basic context-free optimization (by rewriting the expression
      * as a different expression). The default implementation simplifies its operands.
+     * <p>In 13.x, the simplify() phase also resolves names that might be forwards references,
+     * notably references to functions.</p>
      * @return the simplified expression (or the original if unchanged, or if modified in-situ)
      * @throws net.sf.saxon.trans.XPathException
      *          if an error is discovered during expression
@@ -466,20 +479,32 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     }
 
     /**
-     * Get the retained static context of the expression
+     * Get the retained static context of the expression, navigating to ancestor
+     * expressions in the expression tree to find an inherited context if none is
+     * found locally
      * @return the retained static context
      */
 
     public final RetainedStaticContext getRetainedStaticContext() {
         if (retainedStaticContext == null) {
             Expression parent = getParentExpression();
-            assert parent != null;
-            retainedStaticContext = parent.getRetainedStaticContext();
+            try {
+                retainedStaticContext = parent.getRetainedStaticContext();
+            } catch (NullPointerException npe) {
+                String loc = StandardDiagnostics.getLocationMessageText(getLocation());
+                throw new NullPointerException(npe.getMessage() + " At " + toShortString() + ": " + loc);
+            }
             assert retainedStaticContext != null;
         }
         return retainedStaticContext;
     }
 
+    /**
+     * Get the retained static context object actually held on this element,
+     * without navigating the expression tree to find an inherited context if
+     * none is found
+     * @return the locally-held retained static context, or null if absent.
+     */
     public RetainedStaticContext getLocalRetainedStaticContext() {
         return retainedStaticContext;
     }
@@ -795,27 +820,6 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
         return staticProperties & StaticProperty.DEPENDENCY_MASK;
     }
 
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-
-    /*@Nullable*/
-    public IntegerValue[] getIntegerBounds() {
-        return null;
-    }
-
-    public static final IntegerValue UNBOUNDED_LOWER = (IntegerValue) IntegerValue.fromDouble(-1e100);
-    public static final IntegerValue UNBOUNDED_UPPER = (IntegerValue) IntegerValue.fromDouble(+1e100);
     public static final IntegerValue MAX_STRING_LENGTH = Int64Value.makeIntegerValue(Integer.MAX_VALUE);
     public static final IntegerValue MAX_SEQUENCE_LENGTH = Int64Value.makeIntegerValue(Integer.MAX_VALUE);
 
@@ -994,16 +998,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     public String toString() {
         // fallback implementation
         StringBuilder buff = new StringBuilder(64);
-        String className = getClass().getName();
-        while (true) {
-            int dot = className.indexOf('.');
-            if (dot >= 0) {
-                className = className.substring(dot + 1);
-            } else {
-                break;
-            }
-        }
-        buff.append(className);
+        buff.append(getExpressionName());
         boolean first = true;
         for (Operand o : operands()) {
             buff.append(first ? "(" : ", ");
@@ -1015,6 +1010,8 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
         }
         return buff.toString();
     }
+
+
 
     /**
      * Produce a short string identifying the expression for use in error messages
@@ -1211,6 +1208,8 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
                         computeSpecialProperties();
     }
 
+
+
     /**
      * Reset the static properties of the expression to -1, so that they have to be recomputed
      * next time they are used.
@@ -1321,7 +1320,7 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
             sub.checkForUpdatingSubexpressions();
             if (sub.isUpdatingExpression()) {
                 throw new XPathException(
-                        "Updating expression appears in a context where it is not permitted", "XUST0001")
+                        "Updating expression {" + sub.toShortString() + "} appears in a context where it is not permitted", "XUST0001")
                         .withLocation(sub.getLocation());
             }
         }
@@ -1392,15 +1391,17 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath true if an axis step in this expression is to be treated
+     *                    as an initial step of the pattern
      * @return the equivalent pattern
      * @throws XPathException if conversion is not possible
      */
 
-    public Pattern toPattern(Configuration config) throws XPathException {
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
         ItemType type = getItemType();
         if (((getDependencies() & StaticProperty.DEPENDS_ON_NON_DOCUMENT_FOCUS) == 0) &&
-                (type instanceof NodeTest || this instanceof VariableReference)) {
+                (type instanceof XNodeType || this instanceof VariableReference)) {
             return new NodeSetPattern(this);
         }
         if (isCallOn(KeyFn.class) || isCallOn(SuperId.class)) {
@@ -1508,60 +1509,6 @@ public abstract class Expression implements IdentityComparable, ExportAgent, Loc
 
     public Iterator<String> getProperties() {
         return new MonoIterator<>("expression");
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNodeSet representing the points in the source document that are both reachable by this
-     *         expression, and that represent possible results of this expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    /*@Nullable*/
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, /*@Nullable*/ PathMap.PathMapNodeSet pathMapNodeSet) {
-        boolean dependsOnFocus = ExpressionTool.dependsOnFocus(this);
-        PathMap.PathMapNodeSet attachmentPoint;
-        if (pathMapNodeSet == null) {
-            if (dependsOnFocus) {
-                ContextItemExpression cie = new ContextItemExpression();
-                ExpressionTool.copyLocationInfo(this, cie);
-                pathMapNodeSet = new PathMap.PathMapNodeSet(pathMap.makeNewRoot(cie));
-            }
-            attachmentPoint = pathMapNodeSet;
-        } else {
-            attachmentPoint = dependsOnFocus ? pathMapNodeSet : null;
-        }
-        PathMap.PathMapNodeSet result = new PathMap.PathMapNodeSet();
-        for (Operand o : operands()) {
-            OperandUsage usage = o.getUsage();
-            Expression child = o.getChildExpression();
-            PathMap.PathMapNodeSet target = child.addToPathMap(pathMap, attachmentPoint);
-            if (usage == OperandUsage.NAVIGATION) {
-                // indicate that the function navigates to all elements in the document
-                target = target.createArc(AxisInfo.ANCESTOR_OR_SELF, NodeKindTest.ELEMENT);
-                target = target.createArc(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
-            }
-            result.addNodeSet(target);
-        }
-        if (getItemType() instanceof AtomicType) {
-            // if expression returns an atomic value then any nodes accessed don't contribute to the result
-            return null;
-        } else {
-            return result;
-        }
     }
 
     /**

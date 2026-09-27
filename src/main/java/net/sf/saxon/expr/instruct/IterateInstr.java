@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -143,8 +143,8 @@ public final class IterateInstr extends Instruction implements ContextSwitchingE
             selectType = AnyItemType.getInstance();
         }
 
-        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(selectType, false);
-        cit.setContextSettingExpression(getSelectExpression());
+        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(selectType)
+                .withContextSetter(getSelectExpression());
         actionOp.typeCheck(visitor, cit);
 
         onCompletionOp.typeCheck(visitor, ContextItemStaticInfo.ABSENT);
@@ -164,8 +164,8 @@ public final class IterateInstr extends Instruction implements ContextSwitchingE
         selectOp.optimize(visitor, contextInfo);
         initiallyOp.optimize(visitor, contextInfo);
 
-        ContextItemStaticInfo cit2 = visitor.getConfiguration().makeContextItemStaticInfo(getSelectExpression().getItemType(), false);
-        cit2.setContextSettingExpression(getSelectExpression());
+        ContextItemStaticInfo cit2 = visitor.getConfiguration().makeContextItemStaticInfo(getSelectExpression().getItemType())
+                .withContextSetter(getSelectExpression());
         actionOp.optimize(visitor, cit2);
 
         onCompletionOp.optimize(visitor, ContextItemStaticInfo.ABSENT);

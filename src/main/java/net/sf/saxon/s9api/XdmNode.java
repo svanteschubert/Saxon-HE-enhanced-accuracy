@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,20 +8,20 @@
 package net.sf.saxon.s9api;
 
 import net.sf.saxon.Configuration;
-import net.sf.saxon.om.AtomicSequence;
-import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.NameTest;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.s9api.push.Push;
 import net.sf.saxon.s9api.streams.Step;
 import net.sf.saxon.s9api.streams.Steps;
 import net.sf.saxon.s9api.streams.XdmStream;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.wrapper.VirtualNode;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.NamedXNodeType;
 
 import javax.xml.transform.Source;
 import java.net.URI;
@@ -30,19 +30,23 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
- * This class represents a node in the XDM data model. A Node is an {@link XdmItem}, and is therefore an
+ * This class represents a node in the XDM data model. An {@code XdmNode} is an {@link XdmItem}, and is therefore an
  * {@link XdmValue} in its own right, and may also participate as one item within a sequence value.
- * <p>An XdmNode is implemented as a wrapper around an object of type {@link net.sf.saxon.om.NodeInfo}.
- * Because this is a key interface within Saxon, it is exposed via this API.</p>
- * <p>The XdmNode interface exposes basic properties of the node, such as its name, its string value, and
- * its typed value. Navigation to other nodes is supported through a single method, {@link #axisIterator},
- * which allows other nodes to be retrieved by following any of the XPath axes.</p>
+ * <p>An {@code XdmNode} is implemented as a wrapper around an object of type {@link net.sf.saxon.om.NodeInfo}.</p>
+ * <p>The {@code XdmNode} interface exposes basic properties of the node, such as its name, its string value, and
+ * its typed value.</p>
  * <p>Note that node identity cannot be inferred from object identity. The same node may be represented
  * by different <code>XdmNode</code> instances at different times, or even at the same time. The {@link #equals}
  * method on this class can be used to test for node identity.</p>
- * <p>Navigation from a node to other related nodes can be achieved using the {@link XdmValue#select(Step)}
- * method which this class inherits. Simple navigation to children or attributes can also be achieved using
- * the {@link #children} and {@link #attribute} methods.</p>
+ * <p>Navigation to other nodes is supported through the method, {@link #axisIterator},
+ * which allows other nodes to be retrieved by following any of the XPath axes.
+ * Simple navigation to children or attributes can also be achieved using
+ * the {@link #children} and {@link #attribute} methods. More complex navigation from a node to
+ * other related nodes can be achieved using the {@link XdmValue#select(Step)}
+ * method which this class inherits. </p>
+ * <p>Nodes are normally constructed by parsing XML (for example, by using a {@link DocumentBuilder}),
+ * or by executing an XSLT stylesheet or XQuery query. Saxon also offers programmatic interfaces
+ * for constructing nodes, for example via the {@link Push} API.</p>
  * @see net.sf.saxon.sapling.SaplingDocument#toXdmNode(Processor)
  * @see net.sf.saxon.sapling.SaplingElement#toXdmNode(Processor)
  *
@@ -53,9 +57,10 @@ public class XdmNode extends XdmItem {
 
 
     /**
-     * Construct an XdmNode as a wrapper around an existing NodeInfo object
+     * Construct an {@code XdmNode} as a wrapper around an existing NodeInfo object. This constructor
+     * is intended primarily for system use.
      *
-     * @param node the NodeInfo object to be wrapped. This can be retrieved using the
+     * @param node the {@link NodeInfo} object to be wrapped. This can be retrieved using the
      *             {@link #getUnderlyingNode} method.
      * @since 9.2 (previously a protected constructor)
      */
@@ -67,28 +72,21 @@ public class XdmNode extends XdmItem {
     /**
      * Get the kind of node.
      *
-     * @return the kind of node, for example {@link XdmNodeKind#ELEMENT} or {@link XdmNodeKind#ATTRIBUTE}
+     * @return the kind of node represented by this object,
+     * for example {@link XdmNodeKind#ELEMENT} or {@link XdmNodeKind#ATTRIBUTE}
      */
 
     public XdmNodeKind getNodeKind() {
-        switch (getUnderlyingNode().getNodeKind()) {
-            case Type.DOCUMENT:
-                return XdmNodeKind.DOCUMENT;
-            case Type.ELEMENT:
-                return XdmNodeKind.ELEMENT;
-            case Type.ATTRIBUTE:
-                return XdmNodeKind.ATTRIBUTE;
-            case Type.TEXT:
-                return XdmNodeKind.TEXT;
-            case Type.COMMENT:
-                return XdmNodeKind.COMMENT;
-            case Type.PROCESSING_INSTRUCTION:
-                return XdmNodeKind.PROCESSING_INSTRUCTION;
-            case Type.NAMESPACE:
-                return XdmNodeKind.NAMESPACE;
-            default:
-                throw new IllegalStateException("nodeKind");
-        }
+        return switch (getUnderlyingNode().getNodeKind()) {
+            case Type.DOCUMENT -> XdmNodeKind.DOCUMENT;
+            case Type.ELEMENT -> XdmNodeKind.ELEMENT;
+            case Type.ATTRIBUTE -> XdmNodeKind.ATTRIBUTE;
+            case Type.TEXT -> XdmNodeKind.TEXT;
+            case Type.COMMENT -> XdmNodeKind.COMMENT;
+            case Type.PROCESSING_INSTRUCTION -> XdmNodeKind.PROCESSING_INSTRUCTION;
+            case Type.NAMESPACE -> XdmNodeKind.NAMESPACE;
+            default -> throw new IllegalStateException("nodeKind");
+        };
     }
 
     /**
@@ -150,11 +148,11 @@ public class XdmNode extends XdmItem {
                 if (n.getLocalPart().isEmpty()) {
                     return null;
                 } else {
-                    return new QName(new StructuredQName("", NamespaceUri.NULL, n.getLocalPart()));
+                    return new QName(n.getQName());
                 }
             case Type.ELEMENT:
             case Type.ATTRIBUTE:
-                return new QName(new StructuredQName(n.getPrefix(), n.getNamespaceUri(), n.getLocalPart()));
+                return new QName(n.getQName());
             default:
                 return null;
         }
@@ -184,7 +182,7 @@ public class XdmNode extends XdmItem {
      * <p>If the node is an element or attribute node that has been validated against a schema,
      * the result will be the name of the schema type (complex or simple type) against which it
      * was validated. If this is an anonymous type, a system-generated name is returned,
-     * having the namespace <code>http://ns.saxonica.com/anonymous-type</code>.</p>
+     * having the namespace {@link NamespaceUri#ANONYMOUS}.</p>
      *
      * <p>If the node is an element or attribute node that has not been validated against
      * a schema, the result will be <code>xs:untyped</code> or <code>xs:untypedAtomic</code>
@@ -297,7 +295,7 @@ public class XdmNode extends XdmItem {
     public Iterable<XdmNode> children(Predicate<? super XdmNode> filter) {
         return select(Steps.child(filter)).asListOfNodes();
     }
-
+    
     /**
      * Get an iterator over the nodes reachable from this node via a given axis.
      * <p>Note: a more powerful way of achieving this is to use the {@link XdmValue#select(Step)} method
@@ -309,7 +307,7 @@ public class XdmNode extends XdmItem {
      */
 
     public XdmSequenceIterator<XdmNode> axisIterator(Axis axis) {
-        AxisIterator base = getUnderlyingNode().iterateAxis(axis.getAxisNumber());
+        SequenceIterator base = Navigator.iterateAxis(getUnderlyingNode(), axis.getAxisNumber(), AnyXNodeType.getInstance());
         return XdmSequenceIterator.ofNodes(base);
     }
 
@@ -346,9 +344,9 @@ public class XdmNode extends XdmItem {
                 break;
         }
         NodeInfo node = getUnderlyingNode();
-        NameTest test = new NameTest(kind, name.getNamespaceUri(), name.getLocalName(),
-                                     node.getConfiguration().getNamePool());
-        AxisIterator base = node.iterateAxis(axis.getAxisNumber(), test);
+        NodeTest test = NamedXNodeType.make(kind, name.getNamespaceUri(), name.getLocalName(),
+                                            node.getConfiguration());
+        SequenceIterator base = Navigator.iterateAxis(node, axis.getAxisNumber(), test);
         return XdmSequenceIterator.ofNodes(base);
     }
 
@@ -359,7 +357,7 @@ public class XdmNode extends XdmItem {
      */
 
     public XdmNode getParent() {
-        NodeInfo p = getUnderlyingNode().getParent();
+        NodeInfo p = (NodeInfo)getUnderlyingNode().getParent();
         return p == null ? null : (XdmNode) XdmValue.wrap(p);
     }
 
@@ -493,61 +491,6 @@ public class XdmNode extends XdmItem {
                 getUnderlyingNode().equals(((XdmNode) other).getUnderlyingNode());
     }
 
-//    /**
-//     * The toString() method returns a simple XML serialization of the node
-//     * with defaulted serialization parameters.
-//     * <p>In the case of an element node, the result will be a well-formed
-//     * XML document serialized as defined in the W3C XSLT/XQuery serialization specification,
-//     * using options method="xml", indent="yes", omit-xml-declaration="yes".</p>
-//     * <p>In the case of a document node, the result will be a well-formed
-//     * XML document provided that the document node contains exactly one element child,
-//     * and no text node children. In other cases it will be a well-formed external
-//     * general parsed entity.</p>
-//     * <p>In the case of an attribute node, the output is a string in the form
-//     * <code>name="value"</code>. The name will use the original namespace prefix.</p>
-//     * <p>In the case of a namespace node, the output is a string in the form of a namespace
-//     * declaration, that is <code>xmlns="uri"</code> or <code>xmlns:pre="uri"</code>.</p>
-//     * <p>Other nodes, such as text nodes, comments, and processing instructions, are
-//     * represented as they would appear in lexical XML. Note: this means that in the case
-//     * of text nodes, special characters such as <code>&amp;</code> and <code>&lt;</code>
-//     * are output in escaped form. To get the unescaped string value of a text node, use
-//     * {@link #getStringValue()} instead.</p>
-//     * <p><i>For more control over serialization, use the {@link Serializer} class.</i></p>
-//     *
-//     * @return a simple XML serialization of the node. Under error conditions the method
-//     * may return an error message which will always begin with the label "Error: ".
-//     */
-//
-//    public String toString() {
-//        NodeInfo node = getUnderlyingNode();
-//
-//        if (node.getNodeKind() == Type.ATTRIBUTE) {
-//            String val = node.getStringValue()
-//                    .replace("&", "&amp;")
-//                    .replace("\"", "&quot;")
-//                    .replace("<", "&lt;");
-//            return node.getDisplayName() + "=\"" + val + '"';
-//        } else if (node.getNodeKind() == Type.NAMESPACE) {
-//            String val = node.getStringValue()
-//                    .replace("&", "&amp;")
-//                    .replace("\"", "&quot;")
-//                    .replace("<", "&lt;");
-//            String name = node.getDisplayName();
-//            name = name.equals("") ? "xmlns" : "xmlns:" + name;
-//            return name + "=\"" + val + '"';
-//        } else if (node.getNodeKind() == Type.TEXT) {
-//            return node.getStringValue()
-//                    .replace("&", "&amp;")
-//                    .replace("<", "&lt;")
-//                    .replace("]]>", "]]&gt;");
-//        }
-//
-//        try {
-//            return QueryResult.serialize(node).trim();
-//        } catch (XPathException err) {
-//            throw new IllegalStateException(err);
-//        }
-//    }
 
     /**
      * Get the underlying Saxon implementation object representing this node. This provides
@@ -590,7 +533,7 @@ public class XdmNode extends XdmItem {
     public XdmStream<XdmNode> stream() {
         return new XdmStream<>(Stream.of(this));
     }
-
+    
 
 }
 

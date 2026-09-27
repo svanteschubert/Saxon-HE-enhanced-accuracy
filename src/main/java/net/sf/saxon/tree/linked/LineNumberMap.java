@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -62,10 +62,7 @@ public class LineNumberMap {
      */
 
     public int getLineNumber(int sequence) {
-        if (sequenceNumbers.length > allocated) {
-            condense();
-        }
-        int index = Arrays.binarySearch(sequenceNumbers, sequence);
+        int index = Arrays.binarySearch(sequenceNumbers, 0, allocated, sequence);
         if (index < 0) {
             index = -index - 1;
             if (index > lineNumbers.length - 1) {
@@ -83,9 +80,6 @@ public class LineNumberMap {
      */
 
     public int getColumnNumber(int sequence) {
-        if (sequenceNumbers.length > allocated) {
-            condense();
-        }
         int index = Arrays.binarySearch(sequenceNumbers, sequence);
         if (index < 0) {
             index = -index - 1;
@@ -96,7 +90,7 @@ public class LineNumberMap {
         return columnNumbers[index];
     }
 
-    private synchronized void condense() {
+    public synchronized void condense() {
         sequenceNumbers = Arrays.copyOf(sequenceNumbers, allocated);
         lineNumbers = Arrays.copyOf(lineNumbers, allocated);
         columnNumbers = Arrays.copyOf(columnNumbers, allocated);

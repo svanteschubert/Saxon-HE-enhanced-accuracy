@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -31,7 +31,6 @@ import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.type.AnyItemType;
-import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.*;
 
 import javax.xml.transform.SourceLocator;
@@ -63,7 +62,7 @@ public class ExpressionTool {
      * @param env          An object giving information about the compile-time
      *                     context of the expression
      * @param start        position of the first significant character in the expression
-     * @param terminator   The token that marks the end of this expression; typically
+     * @param finished   The token that marks the end of this expression; typically
      *                     Token.EOF, but may for example be a right curly brace
      * @param codeInjector true  allows injection of tracing, debugging, or performance monitoring code; null if
      *                     not required
@@ -73,16 +72,13 @@ public class ExpressionTool {
 
     /*@NotNull*/
     public static Expression make(String expression, StaticContext env,
-                                  int start, int terminator,
+                                  int start, Predicate<Tokenizer> finished,
                                   CodeInjector codeInjector) throws XPathException {
         XPathParser parser = env.getConfiguration().newExpressionParser("XP", false, env);
         if (codeInjector != null) {
             parser.setCodeInjector(codeInjector);
         }
-        if (terminator == -1) {
-            terminator = Token.EOF;
-        }
-        Expression exp = parser.parse(expression, start, terminator, env);
+        Expression exp = parser.parse(expression, start, finished, env);
         // TODO: parser.parse() already sets the retained static context
         setDeepRetainedStaticContext(exp, env.makeRetainedStaticContext());
         exp = exp.simplify();
@@ -317,7 +313,7 @@ public class ExpressionTool {
     public static boolean changesXsltContext(Expression exp) {
         if (exp instanceof ResultDocument || exp instanceof CallTemplate || exp instanceof ApplyTemplates ||
                 exp instanceof NextMatch || exp instanceof ApplyImports || exp.isCallOn(RegexGroup.class)
-                || exp.isCallOn(CurrentGroup.class)) {
+                || exp.isCallOn(CurrentGroup.class) || exp instanceof DynamicFunctionCall) {
             return true;
         }
         for (Operand o : exp.operands()) {
@@ -548,29 +544,6 @@ public class ExpressionTool {
         return seq.iterate();
     }
 
-//    /**
-//     * Helper method to construct an item representing the results of the expression when all that
-//     * the expression itself offers is a process() method.
-//     *
-//     * @param exp     the expression
-//     * @param context the dynamic evaluation context
-//     * @return an iterator over the results of the expression
-//     * @throws XPathException if a dynamic error occurs
-//     */
-//
-//    public static Item getItemFromProcessMethod(Expression exp, XPathContext context) throws XPathException {
-//        Controller controller = context.getController();
-//        if (controller == null) {
-//            throw new NoDynamicContextException("No controller available");
-//        }
-//        SequenceCollector seq = controller.allocateSequenceOutputter(1);
-//        exp.process(new ComplexContentOutputter(seq), context);
-//        seq.close();
-//        Item result = seq.getFirstItem();
-//        seq.reset();
-//        return result;
-//    }
-
     /**
      * Allocate slot numbers to range variables
      *
@@ -589,6 +562,10 @@ public class ExpressionTool {
             nextFree += count;
             if (frame != null) {
                 frame.allocateSlotNumber(((Assignation) exp).getVariableQName(), (Assignation) exp);
+                if (count == 2) {
+                    LocalVariableBinding pos = ((ForExpression) exp).getPositionVariable();
+                    frame.allocateSlotNumber(pos.getVariableQName(), pos);
+                }
             }
         }
         if (exp instanceof LocalParam && ((LocalParam) exp).getSlotNumber() < 0) {
@@ -620,7 +597,7 @@ public class ExpressionTool {
                 try {
                     err = exp.getConfiguration().getLogger();
                 } catch (Exception ex) {
-                    err = new StandardLogger();
+                    err = StandardLogger.makeLogger();
                 }
                 String msg = "*** Internal Saxon error: local variable encountered whose binding has been deleted";
                 err.error(msg);
@@ -667,7 +644,8 @@ public class ExpressionTool {
         }
         Genre genre = first.getGenre();  // Variable introduced for C# type checking
         switch (genre) {
-            case NODE:
+            case XNODE:
+            case JNODE:
                 iterator.close();
                 return true;
             case ATOMIC: {
@@ -932,7 +910,7 @@ public class ExpressionTool {
      *             "{uri}local/arity"
      */
 
-    public static void gatherCalledFunctionNames(Expression e, List<SymbolicName> list) {
+    public static void gatherCalledFunctionNames(Expression e, List<SymbolicName.F> list) {
         if (e instanceof UserFunctionCall) {
             list.add(((UserFunctionCall) e).getSymbolicName());
         } else {
@@ -960,13 +938,11 @@ public class ExpressionTool {
         Optimizer opt = visitor.obtainOptimizer();
         if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS)) {
             ExpressionTool.resetPropertiesWithinSubtree(body);
-            if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS)) {
-                body = body.optimize(visitor, cisi);
-            }
+            body = body.optimize(visitor, cisi);
             body.setParentExpression(null);
             if (extractGlobals && compilation != null) {
                 Expression exp2 = opt.promoteExpressionsToGlobal(body, compilation.getPrincipalStylesheetModule(), visitor);
-                if (exp2 != null) {
+                if (exp2 != null && exp2 != body) {
                     // Try another optimization pass: extracting global variables can identify things that are indexable
                     ExpressionTool.resetPropertiesWithinSubtree(exp2);
                     body = exp2.optimize(visitor, cisi);
@@ -1027,12 +1003,13 @@ public class ExpressionTool {
 
     public static void computeEvaluationModesForUserFunctionCalls(Expression exp) throws XPathException {
         ExpressionTool.processExpressionTree(exp, null, (expression, result) -> {
-            if (expression instanceof UserFunctionCall) {
-                ((UserFunctionCall) expression).allocateArgumentEvaluators();
-            }
-            if (expression instanceof LocalParam) {
-                ((LocalParam) expression).computeEvaluationMode();
-            }
+            // Now done at elaboration time
+//            if (expression instanceof UserFunctionCall) {
+//                ((UserFunctionCall) expression).allocateArgumentEvaluators();
+//            }
+//            if (expression instanceof LocalParam) {
+//                ((LocalParam) expression).computeEvaluationMode();
+//            }
             return false;
         });
     }
@@ -1301,7 +1278,7 @@ public class ExpressionTool {
         // the expression /.. is sometimes used to represent the empty node-set. Applying this simplification
         // now avoids generating warnings for this case.
         if (start instanceof RootExpression &&
-                step instanceof AxisExpression && ((AxisExpression) step).getAxis() == AxisInfo.PARENT) {
+                step instanceof GeneralizedAxisExpression && ((GeneralizedAxisExpression) step).getAxis() == AxisInfo.PARENT) {
             return Literal.makeEmptySequence();
         }
 
@@ -1354,7 +1331,7 @@ public class ExpressionTool {
      */
 
     private static boolean isFilteredAxisPath(Expression exp) {
-        return unfilteredExpression(exp, true) instanceof AxisExpression;
+        return unfilteredExpression(exp, true) instanceof GeneralizedAxisExpression;
     }
 
     /**
@@ -1377,96 +1354,7 @@ public class ExpressionTool {
         }
     }
 
-    /**
-     * Try to factor out dependencies on the context item, by rewriting an expression f(.) as
-     * let $dot := . return f($dot). This is not always possible, for example where f() is an extension
-     * function call that uses XPathContext as an implicit argument. However, doing this increases the
-     * chances of distributing a "where" condition in a FLWOR expression to the individual input sequences
-     * selected by the "for" clauses.
-     *
-     * @param exp             the expression from which references to "." should be factored out if possible
-     * @param contextItemType the static type of the context item
-     * @return either the expression, after binding "." to a local variable and replacing all references to it;
-     * or null, if no changes were made.
-     */
-
-    public static Expression tryToFactorOutDot(Expression exp, ItemType contextItemType) {
-        if (exp instanceof ContextItemExpression) {
-            return null;
-        } else if (exp instanceof LetExpression && ((LetExpression) exp).getSequence() instanceof ContextItemExpression) {
-            Expression action = ((LetExpression) exp).getAction();
-            boolean changed = factorOutDot(action, (LetExpression) exp);
-            if (changed) {
-                exp.resetLocalStaticProperties();
-            }
-            return exp;
-        } else if ((exp.getDependencies() &
-                            (StaticProperty.DEPENDS_ON_CONTEXT_ITEM | StaticProperty.DEPENDS_ON_CONTEXT_DOCUMENT)) != 0) {
-            LetExpression let = new LetExpression();
-            let.setVariableQName(
-                    new StructuredQName("saxon", NamespaceUri.SAXON, "dot" + exp.hashCode()));
-            let.setRequiredType(SequenceType.makeSequenceType(contextItemType, StaticProperty.EXACTLY_ONE));
-            let.setSequence(new ContextItemExpression());
-            Expression actionCopy = exp.copy(new RebindingMap());
-            let.setAction(actionCopy);
-            boolean changed = factorOutDot(actionCopy, let);
-            if (changed) {
-                return let;
-            } else {
-                return exp;
-            }
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * Replace references to the context item with references to a variable
-     *
-     * @param exp      the expression in which the replacement is to take place
-     * @param variable the declaration of the variable
-     * @return true if replacement has taken place (at any level)
-     */
-
-    public static boolean factorOutDot(Expression exp, Binding variable) {
-        boolean changed = false;
-        if ((exp.getDependencies() &
-                     (StaticProperty.DEPENDS_ON_CONTEXT_ITEM | StaticProperty.DEPENDS_ON_CONTEXT_DOCUMENT)) != 0) {
-            for (Operand info : exp.operands()) {
-                if (info.hasSameFocus()) {
-                    Expression child = info.getChildExpression();
-                    if (child instanceof ContextItemExpression) {
-                        VariableReference ref = makeReference(variable);
-                        copyLocationInfo(child, ref);
-                        info.setChildExpression(ref);
-                        changed = true;
-                    } else if (child instanceof AxisExpression ||
-                            child instanceof RootExpression) {
-                        VariableReference ref = makeReference(variable);
-                        copyLocationInfo(child, ref);
-                        Expression path = ExpressionTool.makePathExpression(ref, child);
-                        info.setChildExpression(path);
-                        changed = true;
-                    } else {
-                        changed |= factorOutDot(child, variable);
-                    }
-                }
-            }
-        }
-        if (changed) {
-            exp.resetLocalStaticProperties();
-        }
-        return changed;
-    }
-
-    private static VariableReference makeReference(Binding variable) {
-        if (variable.isGlobal()) {
-            return new GlobalVariableReference((GlobalVariable) variable);
-        } else {
-            return new LocalVariableReference((LocalBinding) variable);
-        }
-    }
-
+    
     /**
      * Inline variable references.
      *

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.*;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
+import net.sf.saxon.ma.Parcel;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.UncheckedXPathException;
@@ -43,17 +44,24 @@ public class ContextItemAccessorFunction extends ContextAccessorFunction {
     public FunctionItem bindContext(XPathContext context) throws XPathException {
         final Item ci = context.getContextItem();
         if (ci == null) {
-            Callable callable = new CallableDelegate((context1, arguments) -> {
+            if (getRetainedStaticContext().getPackageData().getHostLanguageVersion() < 40) {
+                FunctionItemType fit = new SpecificFunctionType(new SequenceType[]{}, SequenceType.ANY_SEQUENCE);
+                CallableDelegate.Lambda callable = (cxt, args) -> {
+                    throw new XPathException("Context item for " +
+                                                     getFunctionName().getDisplayName() + " is absent", "XPDY0002");
+                };
+                return new CallableFunction(new SymbolicName.F(getFunctionName(), 0), callable, fit);
+
+            } else {
                 throw new XPathException("Context item for " +
-                    getFunctionName().getDisplayName() + " is absent", "XPDY0002");
-            });
-            FunctionItemType fit = new SpecificFunctionType(new SequenceType[]{}, SequenceType.ANY_SEQUENCE);
-            return new CallableFunction(new SymbolicName.F(getFunctionName(), 0), callable, fit);
+                                                 getFunctionName().getDisplayName() + " is absent", "XPDY0002");
+            }
         }
-        ConstantFunction fn = new ConstantFunction(evaluate(ci, context));
-        fn.setDetails(getDetails());
-        fn.setRetainedStaticContext(getRetainedStaticContext());
-        return fn;
+        if (ci instanceof Parcel) {
+            throw new XPathException("Context value for " +
+                                             getFunctionName().getDisplayName() + " must be a single item", "XPTY0004");
+        }
+        return new ConstantFunction(getFunctionName(), evaluate(ci, context), getFunctionItemType().getResultType());
     }
 
     /**
@@ -100,6 +108,8 @@ public class ContextItemAccessorFunction extends ContextAccessorFunction {
     @Override
     @CSharpModifiers(code={"public", "override"})
     public Expression makeFunctionCall(Expression[] arguments) {
+//        boolean is40 = getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40;
+//        Expression arg = is40 ? new ContextValueExpression() : new ContextItemExpression();
         Expression arg = new ContextItemExpression();
         if (getFunctionName().hasURI(NamespaceUri.SAXON)) {
             BuiltInFunctionSet.Entry entry = getDetails();
@@ -180,6 +190,8 @@ public class ContextItemAccessorFunction extends ContextAccessorFunction {
         }
 
     }
+
+
 
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,14 +10,16 @@ package net.sf.saxon.tree.tiny;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.AtomizedValueIterator;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.LookaheadIterator;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.z.IntPredicateProxy;
-import net.sf.saxon.z.IntSetPredicate;
+
+import java.util.function.IntPredicate;
 
 /**
  * This class supports both the child:: and following-sibling:: axes, which are
@@ -28,41 +30,35 @@ import net.sf.saxon.z.IntSetPredicate;
  * using NodeInfo#iterateAxis()
  */
 
-final class SiblingIterator implements AxisIterator, LookaheadIterator, AtomizedValueIterator {
+final class SiblingIterator implements SequenceIterator, LookaheadIterator, AtomizedValueIterator {
 
     // NOTE: have experimented with a dedicated iterator for the child axis matching against
     // elements only, by fingerprint - no measurable improvement obtained.
 
     private final TinyTree tree;
     private int nextNodeNr;
-    /*@Nullable*/ private final NodeTest test;
-    private final TinyNodeImpl startNode;
     private final TinyNodeImpl parentNode;
-    private final boolean getChildren;
     private boolean needToAdvance = false;
-    private final IntPredicateProxy matcher;
+    private final IntPredicate matcher;
 
     /**
      * Return an enumeration over children or siblings of the context node
      *
      * @param tree        The TinyTree containing the context node
      * @param node        The context node, the start point for the iteration
-     * @param nodeTest    Test that the selected nodes must satisfy, or null indicating
+     * @param predicate   est that the selected nodes must satisfy, or null indicating
      *                    that all nodes are selected
      * @param getChildren True if children of the context node are to be returned, false
      *                    if following siblings are required
      */
 
-    SiblingIterator(/*@NotNull*/ TinyTree tree, /*@NotNull*/ TinyNodeImpl node, NodeTest nodeTest, boolean getChildren) {
+    SiblingIterator(TinyTree tree, TinyNodeImpl node, NodePredicate predicate, boolean getChildren) {
         this.tree = tree;
-        test = nodeTest;
-        if (nodeTest == null) {
-            matcher = IntSetPredicate.ALWAYS_TRUE;
+        if (predicate == null || predicate == AnyGNode.TEST) {
+            matcher = null;
         } else {
-            matcher = nodeTest.getMatcher(tree);
+            matcher = Navigator.getNumberedNodeMatcher(predicate, tree);
         }
-        startNode = node;
-        this.getChildren = getChildren;
         if (getChildren) {          // child:: axis
             parentNode = node;
             // move to first child
@@ -88,7 +84,7 @@ final class SiblingIterator implements AxisIterator, LookaheadIterator, Atomized
         }
 
         // check if this matches the conditions
-        if (nextNodeNr >= 0 && nodeTest != null) {
+        if (matcher != null && nextNodeNr >= 0) {
             if (!matcher.test(nextNodeNr)) {
                 needToAdvance = true;
             }
@@ -107,7 +103,7 @@ final class SiblingIterator implements AxisIterator, LookaheadIterator, Atomized
         if (needToAdvance) {
             final int thisNode = nextNodeNr;
             final int[] tNext = tree.next;
-            if (test == null) {
+            if (matcher == null) {
                 do {
                     nextNodeNr = tNext[nextNodeNr];
                 } while (tree.nodeKind[nextNodeNr] == Type.PARENT_POINTER);
@@ -145,7 +141,7 @@ final class SiblingIterator implements AxisIterator, LookaheadIterator, Atomized
         if (needToAdvance) {
             final int thisNode = nextNodeNr;
             final int[] tNext = tree.next;
-            if (test == null) {
+            if (matcher == null) {
                 do {
                     nextNodeNr = tNext[nextNodeNr];
                 } while (tree.nodeKind[nextNodeNr] == Type.PARENT_POINTER);
@@ -204,7 +200,7 @@ final class SiblingIterator implements AxisIterator, LookaheadIterator, Atomized
         int n = nextNodeNr;
         if (needToAdvance) {
             final int[] tNext = tree.next;
-            if (test == null) {
+            if (matcher == null) {
                 do {
                     n = tNext[n];
                 } while (tree.nodeKind[n] == Type.PARENT_POINTER);

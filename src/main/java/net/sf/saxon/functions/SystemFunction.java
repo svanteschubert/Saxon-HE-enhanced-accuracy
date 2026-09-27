@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.elab.Elaborator;
-import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
 import net.sf.saxon.om.*;
@@ -17,11 +16,11 @@ import net.sf.saxon.str.EmptyUnicodeString;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.FunctionItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
 
@@ -34,7 +33,7 @@ import java.util.Properties;
  * Abstract superclass for calls to functions in the standard function library
  */
 
-public abstract class SystemFunction extends AbstractFunction {
+public abstract class SystemFunction extends AbstractFunction implements IFunctionWithRetainedParameterNames {
 
     private int arity;
     private BuiltInFunctionSet.Entry details;
@@ -59,6 +58,27 @@ public abstract class SystemFunction extends AbstractFunction {
     }
 
     /**
+     * Make an expression that either calls this function, or that is equivalent to a call
+     * on this function
+     *
+     * @param arguments the supplied arguments to the function call
+     * @return either a function call on this function, or an expression that delivers
+     * the same result
+     */
+
+    public Expression makeFunctionCall(Expression... arguments) {
+        Expression e = new SystemFunctionCall(this, arguments);
+        e.setRetainedStaticContext(getRetainedStaticContext());
+        return e;
+    }
+
+    public final SystemFunctionCall makeTrueFunctionCall(Expression... arguments) {
+        SystemFunctionCall e = new SystemFunctionCall(this, arguments);
+        e.setRetainedStaticContext(getRetainedStaticContext());
+        return e;
+    }
+
+    /**
      * Make a system function item (one in the standard function namespace).
      *
      * @param name      The local name of the function.
@@ -70,9 +90,10 @@ public abstract class SystemFunction extends AbstractFunction {
 
     public static SystemFunction makeFunction(String name, RetainedStaticContext rsc, int arity) {
         Objects.requireNonNull(rsc);
-        SystemFunction fn = rsc.getConfiguration().makeSystemFunction(name, arity, rsc.getPackageData().getHostLanguageVersion());
+        int version = rsc.getPackageData().getHostLanguageVersion();
+        SystemFunction fn = rsc.getConfiguration().makeSystemFunction(name, arity, version);
         if (fn == null) {
-            throw new IllegalArgumentException(name + "#" + arity);
+            fn = makeFunction40(name, rsc, arity);
         }
         fn.setRetainedStaticContext(rsc);
         return fn;
@@ -89,26 +110,6 @@ public abstract class SystemFunction extends AbstractFunction {
     }
 
     /**
-     * Make an expression that either calls this function, or that is equivalent to a call
-     * on this function
-     * @param arguments the supplied arguments to the function call
-     * @return either a function call on this function, or an expression that delivers
-     * the same result
-     */
-
-    public Expression makeFunctionCall(Expression... arguments) {
-        if (arguments.length > getArity() && isSequenceVariadic()) {
-            if (getArity() != 1) {
-                throw new UnsupportedOperationException("Not implemented: sequence-variadic function with arity>1");
-            }
-            arguments = new Expression[]{new Block(arguments)};
-        }
-        Expression e = new SystemFunctionCall(this, arguments);
-        e.setRetainedStaticContext(getRetainedStaticContext());
-        return e;
-    }
-
-    /**
      * Set the arity of the function
      * @param arity the number of arguments
      */
@@ -119,6 +120,7 @@ public abstract class SystemFunction extends AbstractFunction {
 
     @Override
     public boolean isSequenceVariadic() {
+        // Applies now only to concat()
         return (details.properties & BuiltInFunctionSet.SEQV) != 0;
     }
 
@@ -284,32 +286,13 @@ public abstract class SystemFunction extends AbstractFunction {
             usages = details.usage;
         }
         try {
-            for (int i = 0; i < roles.length; i++) {
+            for (int i = 0; i < getArity(); i++) {
                 roles[i] = new OperandRole(0, usages[i], getRequiredType(i));
             }
         } catch (ArrayIndexOutOfBoundsException e) {
             e.printStackTrace();
         }
         return roles;
-    }
-
-    /**
-     * For a function that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     * unknown or not applicable.
-     */
-
-    /*@Nullable*/
-    public IntegerValue[] getIntegerBounds() {
-        return null;
     }
 
     /**
@@ -325,15 +308,7 @@ public abstract class SystemFunction extends AbstractFunction {
         ExpressionVisitor visitor, ContextItemStaticInfo contextItemType, Expression[] arguments) throws XPathException {
         //default: no action
     }
-
-    /**
-     * Determine whether two functions are equivalent
-     */
-    @Override
-    public boolean equals(Object o) {
-        return (o instanceof SystemFunction) && super.equals(o);
-    }
-
+    
     @Override
     public int hashCode() {
         // included explicitly because equals() is overridden: prevents compiler warnings
@@ -363,8 +338,12 @@ public abstract class SystemFunction extends AbstractFunction {
         if (details == null) {
             return SequenceType.ANY_SEQUENCE;
         }
-        return details.paramTypes[arg];
-        // this is overridden for concat()
+        if (isSequenceVariadic()) {
+            return details.paramTypes[0];
+        } else {
+            return details.paramTypes[arg];
+        }
+        // this is overridden for concat() -- but probably no longer needs to be
     }
 
     /**
@@ -384,7 +363,24 @@ public abstract class SystemFunction extends AbstractFunction {
     @Override
     public FunctionItemType getFunctionItemType() {
         SequenceType resultType = SequenceType.makeSequenceType(getResultItemType(), details.cardinality);
-        return new SpecificFunctionType(details.paramTypes, resultType);
+        SequenceType[] paramTypes = details.paramTypes;
+        if (paramTypes.length != arity) {
+            paramTypes = Arrays.copyOf(paramTypes, arity);
+        }
+        return new SpecificFunctionType(paramTypes, resultType);
+    }
+
+    /**
+     * Get the names of the parameters in the underlying function definition
+     *
+     * @return the names of the parameters, in order
+     */
+    @Override
+    public StructuredQName[] getParameterNames() {
+        String[] rawNames = details.paramNames;
+        StructuredQName[] qNames = new StructuredQName[rawNames.length];
+        Arrays.setAll(qNames, i -> new StructuredQName("", "", rawNames[i]));
+        return qNames;
     }
 
     /**
@@ -396,8 +392,9 @@ public abstract class SystemFunction extends AbstractFunction {
     public ItemType getResultItemType(Expression[] args) {
         if ((details.properties & BuiltInFunctionSet.AS_ARG0) != 0) {
             return args[0].getItemType();
-        } else if ((details.properties & BuiltInFunctionSet.AS_PRIM_ARG0) != 0) {
-            return args[0].getItemType().getPrimitiveItemType();
+        } else if ((details.properties & BuiltInFunctionSet.AS_NUM_ARG0) != 0) {
+            ItemType actual = args[0].getItemType().getAtomizedItemType().getPrimitiveItemType();
+            return actual == BuiltInAtomicType.UNTYPED_ATOMIC ? BuiltInAtomicType.DOUBLE : actual;
         } else {
             return details.itemType;
         }
@@ -599,6 +596,25 @@ public abstract class SystemFunction extends AbstractFunction {
         return null;
     }
 
+    /**
+     * Test whether two functions are identical (used in deep-equal comparisons)
+     */
 
+    @Override
+    public boolean equals(Object other) {
+        return this == other || (other instanceof SystemFunction &&
+                getFunctionName().equals(((SystemFunction)other).getFunctionName()) &&
+                        getArity() == ((SystemFunction) other).getArity() &&
+                (details.properties & (BuiltInFunctionSet.FOCUS | BuiltInFunctionSet.DEPENDS_ON_STATIC_CONTEXT)) == 0);
+    }
+
+    @Override
+    public synchronized String getUniqueIdentifier() {
+        if ((details.properties & (BuiltInFunctionSet.FOCUS | BuiltInFunctionSet.DEPENDS_ON_STATIC_CONTEXT)) == 0) {
+            return getDescription();
+        } else {
+            return super.getUniqueIdentifier();
+        }
+    }
 }
 

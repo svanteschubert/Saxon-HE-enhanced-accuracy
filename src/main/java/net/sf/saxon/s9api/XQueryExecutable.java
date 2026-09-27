@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,14 +13,16 @@ import net.sf.saxon.query.XQueryExpression;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.value.Cardinality;
 
 /**
- * An XQueryExecutable represents the compiled form of a query.
+ * An {@code XQueryExecutable} represents the compiled form of a query.
  * To execute the query, it must first be loaded to form an {@link net.sf.saxon.s9api.XQueryEvaluator}.
- * <p>An XQueryExecutable is immutable, and therefore thread-safe.
- * It is simplest to load a new XQueryEvaluator each time the query is to be run.
- * However, the XQueryEvaluator is serially reusable within a single thread. </p>
- * <p>An XQueryExecutable is created by using one of the <code>compile</code> methods on the
+ * <p>An {@code XQueryExecutable} is immutable, and therefore thread-safe.
+ * It is simplest to use the {@link #load()} method to load a new {@link XQueryEvaluator}
+ * each time the query is to be run.
+ * However, the {@code XQueryEvaluator} is serially reusable within a single thread. </p>
+ * <p>An {@code XQueryExecutable} is created by using one of the <code>compile</code> methods on the
  * {@link net.sf.saxon.s9api.XQueryCompiler} class.</p>
  *
  * @since 9.0
@@ -37,10 +39,10 @@ public class XQueryExecutable {
     }
 
     /**
-     * Load the stylesheet to prepare it for execution.
+     * Load the query to prepare it for execution.
      *
-     * @return An XsltTransformer. The returned XsltTransformer can be used to set up the
-     *         dynamic context for stylesheet evaluation, and to run the stylesheet.
+     * @return An {@link XQueryEvaluator}. The returned {@code XQueryEvaluator} can be used to set up the
+     *         dynamic context for query evaluation, and to run the query.
      */
 
     public XQueryEvaluator load() {
@@ -48,7 +50,7 @@ public class XQueryExecutable {
     }
 
     /**
-     * Get the ItemType of the items in the result of the query, as determined by static analysis. This
+     * Get the {@link ItemType} of the items in the result of the query, as determined by static analysis. This
      * is the most precise ItemType that the processor is able to determine from static examination of the
      * query; the actual items in the query result are guaranteed to belong to this ItemType or to a subtype
      * of this ItemType.
@@ -73,7 +75,7 @@ public class XQueryExecutable {
     /*@NotNull*/
     public OccurrenceIndicator getResultCardinality() {
         int card = exp.getExpression().getCardinality();
-        return OccurrenceIndicator.getOccurrenceIndicator(card);
+        return Cardinality.getOccurrenceIndicatorForCardinality(card);
     }
 
     /**
@@ -94,7 +96,7 @@ public class XQueryExecutable {
      * <p><i>The detailed form of this representation is not stable (or even documented).</i></p>
      *
      * @param destination the destination for the XML document containing the diagnostic representation
-     *                    of the compiled stylesheet
+     *                    of the compiled query
      * @throws SaxonApiException if an error is detected
      * @since 9.6
      */
@@ -110,11 +112,11 @@ public class XQueryExecutable {
     }
 
     /**
-     * Get the underlying implementation object representing the compiled stylesheet. This provides
+     * Get the underlying implementation object representing the compiled query. This provides
      * an escape hatch into lower-level APIs. The object returned by this method may change from release
      * to release.
      *
-     * @return the underlying implementation of the compiled stylesheet
+     * @return the underlying implementation of the compiled query
      */
 
     public XQueryExpression getUnderlyingCompiledQuery() {

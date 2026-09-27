@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import net.sf.saxon.expr.sort.SimpleTypeComparison;
 import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.IdentityComparable;
@@ -50,11 +51,11 @@ import java.util.Objects;
 public abstract class AtomicValue
         implements Item, AtomicSequence, ConversionResult, IdentityComparable {
 
-    protected final AtomicType typeLabel;
+    protected final AtomicMetadata metadata;
 
-    public AtomicValue(AtomicType typeLabel) {
-        Objects.requireNonNull(typeLabel);
-        this.typeLabel = typeLabel;
+    public AtomicValue(AtomicMetadata metadata) {
+        Objects.requireNonNull(metadata);
+        this.metadata = metadata;
     }
 
     /**
@@ -69,7 +70,7 @@ public abstract class AtomicValue
     public AtomicSequence atomize() throws XPathException {
         return this;
     }
-
+    
     /**
      * To implement {@link net.sf.saxon.om.Sequence}, this method returns the item itself
      *
@@ -98,7 +99,7 @@ public abstract class AtomicValue
      */
 
     public boolean isUntypedAtomic() {
-        return typeLabel == BuiltInAtomicType.UNTYPED_ATOMIC;
+        return getItemType() == BuiltInAtomicType.UNTYPED_ATOMIC;
     }
 
     /**
@@ -108,21 +109,21 @@ public abstract class AtomicValue
      * equality matching only, not ordering. An atomic value may return itself as its own
      * {@code AtomicMatchKey} provided that its equality semantics are context-free.
      *
-     *
-     * @param collator the collation to be used when comparing strings
-     * @param implicitTimezone  the implicit timezone in the dynamic context, used when comparing
-     * dates/times with and without timezone
+     * @param collator         the collation to be used when comparing strings
+     * @param implicitTimezone the implicit timezone in the dynamic context, used when comparing
+     *                         dates/times with and without timezone
+     * @param specVersion      the version of the XPath specification, typically 31 or 40
      * @return an Object whose equals() and hashCode() methods implement the XPath comparison semantics
-     *         with respect to this atomic value. If ordered is specified, the result will either be null if
-     *         no ordering is defined, or will be a Comparable
+     * with respect to this atomic value. If ordered is specified, the result will either be null if
+     * no ordering is defined, or will be a Comparable
      * @throws NoDynamicContextException if the supplied implicit timezone is "NO_TIMEZONE" (meaning
-     * unknown), and the implicit timezone is actually required because the value in question is a date/time
-     * value with no timezone. This can cause a failure to evaluate expressions statically (because the implicit
-     * timezone is not known statically), and it will then be caught, meaning that the expression has to be
-     * evaluated dynamically.
+     *                                   unknown), and the implicit timezone is actually required because the value in question is a date/time
+     *                                   value with no timezone. This can cause a failure to evaluate expressions statically (because the implicit
+     *                                   timezone is not known statically), and it will then be caught, meaning that the expression has to be
+     *                                   evaluated dynamically.
      */
 
-    public abstract AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone)
+    public abstract AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone, int specVersion)
             throws NoDynamicContextException;
 
     /**
@@ -136,6 +137,7 @@ public abstract class AtomicValue
      * @param collator         the collation to be used when comparing strings
      * @param implicitTimezone the implicit timezone in the dynamic context, used when comparing
      *                         dates/times with and without timezone
+     * @param specVersion      the version of the XPath specification (31 for 3.1, 40 for 4.0)
      * @return an Object that implements the XPath value comparison semantics
      * with respect to this atomic value. For an atomic type that is not ordered (according to XPath
      * rules), return null.
@@ -146,7 +148,7 @@ public abstract class AtomicValue
      *                                   evaluated dynamically.
      */
 
-    public abstract XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone)
+    public abstract XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone, int specVersion)
             throws NoDynamicContextException;
 
 
@@ -156,13 +158,8 @@ public abstract class AtomicValue
      * keys in maps.
      */
 
-    public AtomicMatchKey asMapKey() {
-        try {
-            return getXPathMatchKey(CodepointCollator.getInstance(), CalendarValue.NO_TIMEZONE);
-        } catch (NoDynamicContextException e) {
-            // Should not happen
-            throw new IllegalStateException("No implicit timezone available");
-        }
+    public AtomicMatchKey asMapKey(int specVersion) {
+        return getXPathMatchKey(CodepointCollator.getInstance(), CalendarValue.NO_TIMEZONE, specVersion);
     }
 
     /**
@@ -241,7 +238,7 @@ public abstract class AtomicValue
     public UnicodeString getUnicodeStringValue() {
         UnicodeString cs = getPrimitiveStringValue();
         try {
-            return typeLabel.postprocess(cs);
+            return getItemType().postprocess(cs);
         } catch (XPathException err) {
             // Ignore any XPath errors that occur during postprocessing
             return cs;
@@ -285,7 +282,7 @@ public abstract class AtomicValue
 
     /*@NotNull*/
     public final AtomicType getItemType() {
-        return typeLabel;
+        return metadata.getType();
     }
 
     /**
@@ -323,12 +320,13 @@ public abstract class AtomicValue
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
-     *                  the value actually conforms to this type.
+     * @param metadata the type annotation and/or label of the new copy.
+     *                 The caller is responsible for checking that the value
+     *                 actually conforms to the given type.
      * @return the copied value
      */
 
-    public abstract AtomicValue copyAsSubType(AtomicType typeLabel);
+    public abstract AtomicValue withMetadata(AtomicMetadata metadata);
 
     /**
      * Test whether the value is the special value NaN
@@ -472,7 +470,7 @@ public abstract class AtomicValue
      */
 
     public String show() {
-        return typeLabel + "(\"" + this.getUnicodeStringValue() + "\")";
+        return getItemType() + "(\"" + this.getUnicodeStringValue() + "\")";
     }
 
     /**
@@ -507,5 +505,14 @@ public abstract class AtomicValue
         return Genre.ATOMIC;
     }
 
+    /**
+     * Get the item's label, if there is one. See the 4.0 version of the XDM model.
+     *
+     * @return the item's label (as a map) if it has one, or null otherwise
+     */
+    @Override
+    public MapItem getLabel() {
+        return metadata.getLabel();
+    }
 }
 

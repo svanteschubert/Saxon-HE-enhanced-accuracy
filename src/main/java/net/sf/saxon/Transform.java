@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,14 @@
 
 package net.sf.saxon;
 
+////import com.saxonica.ee.schema.PreparedSchema;
+
 import net.sf.saxon.expr.instruct.GlobalContextRequirement;
 import net.sf.saxon.expr.instruct.TerminationException;
+import net.sf.saxon.expr.parser.CodeInjector;
+import net.sf.saxon.expr.parser.Optionality;
 import net.sf.saxon.lib.*;
+import net.sf.saxon.om.TreeModel;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.str.BMPString;
 import net.sf.saxon.style.Compilation;
@@ -39,13 +44,14 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * This <b>Transform</b> class is the command-line entry point to the Saxon XSLT Processor.
  * <p>It is possible to subclass this class to provide a customized command line interface. In writing such
  * a subclass:</p>
  * <ul>
- * <li>The {@link #main} method should instantiate the class and call the {@link #doTransform} method, passing the
+ * <li>The {@link #main} method should instantiate the class and call the {@link #execute} method, passing the
  * argument list. The argument list can be augmented or modified if required: for example, by adding a -config
  * argument to cause the configuration to be initialized from a configuration file.</li>
  * <li>The {@link #initializeConfiguration} method can be implemented to customize the configuration in which
@@ -64,8 +70,9 @@ public class Transform {
     protected boolean schemaAware = false;
     protected boolean allowExit = true;
     protected boolean run = true;
-    private Logger traceDestination = new StandardLogger();
+    private Logger traceDestination = StandardLogger.makeLogger();
     private boolean closeTraceDestination = false;
+    private XsdSchema externalSchema;
 
     /**
      * Main program, can be used directly from the command line.
@@ -77,10 +84,29 @@ public class Transform {
      *
      * @param args List of arguments supplied on operating system command line
      */
-
     public static void main(String[] args) {
         // the real work is delegated to another routine so that it can be used in a subclass
-        new Transform().doTransform(args);
+        new Transform().execute(args);
+    }
+
+    /**
+     * Main entry point for running the program from the command line via the
+     * static {@link #main} method.
+     *
+     * <p>This method runs the program, catches any {@link
+     * CommandExitException}s, and calling {@link System#exit} with the
+     * {@code CommandExitException}'s exit code.</p>
+     *
+     * @param args List of arguments supplied on operating system command line
+     * @since 12.10
+     */
+
+    public void execute(String[] args) {
+        try {
+            doTransform(args);
+        } catch (CommandExitException e) {
+            System.exit(e.getCode());
+        }
     }
 
     /**
@@ -98,10 +124,8 @@ public class Transform {
                                     "Use specified catalog file to resolve URIs");
         options.addRecognizedOption("config", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use specified configuration file");
-        options.addRecognizedOption("cr", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
-                                    "Use specified collection URI resolver class");
-        options.addRecognizedOption("diag", CommandLineOptions.TYPE_FILENAME,
-                                    "Display runtime diagnostics");
+//        options.addRecognizedOption("cr", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
+//                                    "Use specified collection URI resolver class");
         options.addRecognizedOption("dtd", CommandLineOptions.TYPE_ENUMERATION,
                                     "Validate using DTD");
         options.setPermittedValues("dtd", new String[]{"on", "off", "recover"}, "on");
@@ -167,6 +191,8 @@ public class Transform {
         options.addRecognizedOption("strip", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
                                     "Handling of whitespace text nodes in source documents");
         options.setPermittedValues("strip", new String[]{"none", "all", "ignorable"}, null);
+        options.addRecognizedOption("stublib", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
+                                    "JSON file holding function signatures, for SaxonJS");
         options.addRecognizedOption("t", CommandLineOptions.TYPE_BOOLEAN,
                                     "Display version and timing information, and names of output files");
         options.addRecognizedOption("target", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
@@ -182,6 +208,8 @@ public class Transform {
         options.setPermittedValues("Tlevel", new String[]{"none", "low", "normal", "high"}, "normal");
         options.addRecognizedOption("Tout", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "File for trace listener output");
+        options.addRecognizedOption("TC", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
+                                    "Write coverage data to specified output file");
         options.addRecognizedOption("TP", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use profiling trace listener, with specified output file");
         options.addRecognizedOption("TPxsl", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
@@ -221,6 +249,9 @@ public class Transform {
                                     "Load schemas named in xsi:schemaLocation (default on)");
         options.addRecognizedOption("xsl", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Main stylesheet file");
+        options.addRecognizedOption("xsltversion", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
+                                    "XSLT version: '3.0' or '4.0'");
+        options.setPermittedValues("xsltversion", new String[]{"3.0", "4.0"}, null);
         options.addRecognizedOption("y", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use named XMLReader class for parsing stylesheet and schema documents");
         options.addRecognizedOption("?", CommandLineOptions.VALUE_PROHIBITED,
@@ -261,8 +292,15 @@ public class Transform {
     }
 
     /**
-     * Support method for main program. This support method can also be invoked from subclasses
-     * that support the same command line interface
+     * Support method for main program. This support method can also be
+     * invoked from subclasses that support the same command line interface.
+     *
+     * <p>In previous Saxon versions (12.9 and earlier) this method could call
+     * {@link System#exit} unless the argument {@code "-quit:off"} was passed.
+     * Now it throws a {@link CommandExitException} in this case.
+     * {@code CommandExitException} extends {@link RuntimeException}, so
+     * behaviour with and without {@code "-quit:off"} is functionally identical
+     * for API clients now.</p>
      *
      * @param args    the command-line arguments
      */
@@ -288,6 +326,7 @@ public class Transform {
         TransformThread[] th = null;
         int threadCount = 0;
         boolean jit = true;
+
 
         CommandLineOptions options = new CommandLineOptions();
         setPermittedOptions(options);
@@ -369,6 +408,7 @@ public class Transform {
                 export = true;
                 jit = false;
                 compiler.setJustInTimeCompilation(jit);
+                compiler.setCompileForExport(true);
                 if (!"".equals(value)) {
                     exportOutputFileName = CommandLineOptions.coerceImplicitOutputURI(value);
                 }
@@ -490,6 +530,13 @@ public class Transform {
 
                 if ("".equals(value)) {
                     traceListener = new XSLTTraceListener();
+                    if (out != null) {
+                        try {
+                            traceListener.setOutputDestination(StandardLogger.makeLogger(new PrintStream(out)));
+                        } catch (FileNotFoundException e) {
+                            throw new XPathException(e);
+                        }
+                    }
                 } else {
                     traceListener = config.makeTraceListener(value);
                 }
@@ -498,27 +545,37 @@ public class Transform {
 
                 value = options.getOptionValue("Tlevel");
                 if (value != null && traceListener instanceof AbstractTraceListener) {
-                    switch (value) {
-                        case "none":
-                            ((AbstractTraceListener) traceListener).setLevelOfDetail(0);
-                            break;
-                        case "low":
-                            ((AbstractTraceListener) traceListener).setLevelOfDetail(1);
-                            break;
-                        case "normal":
-                            ((AbstractTraceListener) traceListener).setLevelOfDetail(2);
-                            break;
-                        case "high":
-                            ((AbstractTraceListener) traceListener).setLevelOfDetail(3);
-                            break;
+                    int level = TraceLevel.NONE;
+                    try {
+                        level = TraceCodeInjector.levelValue(value);
+                    } catch (IllegalArgumentException e) {
+                        quit("Invalid trace level " + value, 2);
                     }
+                    CompilerInfo info = compiler.getUnderlyingCompilerInfo();
+                    TraceCodeInjector injector = (TraceCodeInjector) info.getCodeInjector();
+                    CodeInjector globalXsltInjector = config.getDefaultXsltCompilerInfo().getCodeInjector();
+                    if (globalXsltInjector instanceof XSLTTraceCodeInjector) {
+                        // This is to handle the case where the configuration-level options are picked up
+                        // in a call of fn:transform - see bug #6498
+                        ((XSLTTraceCodeInjector) globalXsltInjector).setTraceLevel(level);
+                    }
+                    ((AbstractTraceListener) traceListener).setLevelOfDetail(level);
+                    injector.setTraceLevel(level);
+
                 }
             }
 
-            value = options.getOptionValue("TB");
+            value = options.getOptionValue("TC");
             if (value != null) {
-                // Trace hotspot byte code generation and produce a report.
-                config.setBooleanProperty(Feature.MONITOR_HOT_SPOT_BYTE_CODE, true);
+                traceListener = new CoverageTraceListener();
+                processor.setConfigurationProperty(Feature.TRACE_LISTENER, traceListener);
+                processor.setConfigurationProperty(Feature.LINE_NUMBERING, true);
+                compiler.setJustInTimeCompilation(false);
+                compiler.getUnderlyingCompilerInfo().setCodeInjector(new XSLTTraceCodeInjector());
+                if (!value.isEmpty()) {
+                    traceListener.setOutputDestination(
+                            StandardLogger.makeLogger(new File(value)));
+                }
             }
 
             value = options.getOptionValue("TP");
@@ -529,7 +586,7 @@ public class Transform {
                 compiler.getUnderlyingCompilerInfo().setCodeInjector(new TimingCodeInjector());
                 if (!value.isEmpty()) {
                     traceListener.setOutputDestination(
-                            new StandardLogger(new File(value)));
+                            StandardLogger.makeLogger(new File(value)));
                 }
                 String formatter = options.getOptionValue("TPxsl");
                 if (formatter != null) {
@@ -553,16 +610,16 @@ public class Transform {
             } else {
                 switch (value) {
                     case "#err":
-                        traceDestination = new StandardLogger();
+                        traceDestination = StandardLogger.makeLogger();
                         break;
                     case "#out":
-                        traceDestination = new StandardLogger(System.out);
+                        traceDestination = StandardLogger.makeLogger(System.out);
                         break;
                     case "#null":
                         traceDestination = null;
                         break;
                     default:
-                        traceDestination = new StandardLogger(new File(value));
+                        traceDestination = StandardLogger.makeLogger(new File(value));
                         closeTraceDestination = true;
                         break;
                 }
@@ -592,6 +649,11 @@ public class Transform {
             value = options.getOptionValue("xsl");
             if (value != null) {
                 styleFileName = value;
+            }
+
+            value = options.getOptionValue("xsltversion");
+            if (value != null) {
+                compiler.setXsltLanguageVersion(value);
             }
 
             value = options.getOptionValue("y");
@@ -664,11 +726,19 @@ public class Transform {
 
             value = options.getOptionValue("scmin");
             if (value != null) {
-                config.importComponents(new StreamSource(value));
+//                PreparedSchema ps = PreparedSchema.fromScm(config, new StreamSource(value));
+//                compiler.useSchema(null);
+                throw new UnsupportedOperationException();   // TODO: implement me
+            }
+
+            value = options.getOptionValue("stublib");
+            if (value != null) {
+                compiler.getUnderlyingCompilerInfo().importStubFunctionLibrary(new StreamSource(new File(value)));
             }
 
             if (additionalSchemas != null) {
-                CommandLineOptions.loadAdditionalSchemas(config, additionalSchemas);
+                externalSchema = CommandLineOptions.loadAdditionalSchemas(processor, additionalSchemas);
+                compiler.useSchema(externalSchema);
             }
 
             options.applyStaticParams(compiler);
@@ -784,18 +854,17 @@ public class Transform {
                         long totalTime = 0;
                         Logger logger = config.getLogger();
                         int threshold = logger instanceof StandardLogger ? ((StandardLogger)logger).getThreshold() : 0;
+                        Consumer<Integer> setLoggingThreshold = logger instanceof StandardLogger
+                                ? ((StandardLogger) logger)::setThreshold
+                                : level -> {};
                         for (int j = -repeatComp; j < repeatComp; j++) {
                             // Repeat loop is to get reliable performance data
                             if (j == 0) {
                                 startTime = now();
-                                if (logger instanceof StandardLogger) {
-                                    ((StandardLogger) logger).setThreshold(threshold);
-                                }
+                                setLoggingThreshold.accept(threshold);
                                 Compilation.TIMING = true;
                             } else if (j < 0) {
-                                if (logger instanceof StandardLogger) {
-                                    ((StandardLogger) logger).setThreshold(Logger.ERROR);
-                                }
+                                setLoggingThreshold.accept(Logger.ERROR);
                                 Compilation.TIMING = false;
                             }
                             sheet = compiler.compile(styleSource);
@@ -1003,8 +1072,12 @@ public class Transform {
     }
 
     /**
-     * Exit with a message
+     * Exit with a message, by throwing an unchecked exception.
+     * If this method throws a {@link CommandExitException} then the
+     * catching method will call {@link System#exit} using the value
+     * from {@link CommandExitException#getCode}.
      *
+     * @throws CommandExitException
      * @param message The message to be output
      * @param code    The result code to be returned to the operating
      *                system shell
@@ -1017,7 +1090,7 @@ public class Transform {
             System.err.println(message);
         }
         if (allowExit) {
-            System.exit(code);
+            throw new CommandExitException(code, message);
         } else {
             throw new RuntimeException(message);
         }
@@ -1325,22 +1398,34 @@ public class Transform {
                     buildSourceTree = initialTemplate != null ||
                             !transformer.getUnderlyingController().getInitialMode().isDeclaredStreamable();
                 } else {
-                    buildSourceTree = !requirement.isAbsentFocus();
+                    buildSourceTree = requirement.getContextValueOptionality() != Optionality.PROHIBITED;
                 }
                 if (buildSourceTree) {
                     DocumentBuilder builder = processor.newDocumentBuilder();
                     builder.setDTDValidation(getConfiguration().getBooleanProperty(Feature.DTD_VALIDATION));
                     builder.setWhitespaceStrippingPolicy(sheet.getWhitespaceStrippingPolicy());
+                    builder.setTreeModel(TreeModel.getTreeModel(getConfiguration().getTreeModel()));
+                    if (externalSchema != null) {
+                        builder.setSchemaValidator(externalSchema.newValidator());
+                    }
                     if (getConfiguration().getBooleanProperty(Feature.DTD_VALIDATION_RECOVERABLE)) {
                         source = new AugmentedSource(source, getConfiguration().getParseOptions());
                     }
                     StylesheetPackage top = pss.getTopLevelPackage();
+                    ParseOptions opt = source instanceof AugmentedSource ? ((AugmentedSource)source).getParseOptions() : new ParseOptions();
+                    boolean changedOptions = false;
                     if (top.isStripsTypeAnnotations()) {
-                        ParseOptions opt = source instanceof AugmentedSource ? ((AugmentedSource)source).getParseOptions() : new ParseOptions();
                         opt = opt.withFilter(
                                 receiver -> getConfiguration().getAnnotationStripper(receiver));
+                        changedOptions = true;
+                    }
+                    if (opt.getSchemaValidationMode() != Validation.SKIP && opt.getSchema() == null) {
+                        opt = opt.withSchema(pss.getTopLevelPackage().getImportedSchema(""));
+                        changedOptions = true;
+                    }
+                    if (changedOptions) {
                         source = AugmentedSource.makeAugmentedSource(source);
-                        ((AugmentedSource)source).setParseOptions(opt);
+                        ((AugmentedSource) source).setParseOptions(opt);
                     }
                     XdmNode node = builder.build(source);
                     transformer.setGlobalContextItem(node, true);
@@ -1354,7 +1439,7 @@ public class Transform {
                     Reader jsonReader = new BufferedReader(
                             new InputStreamReader(new FileInputStream(jsonSource), StandardCharsets.UTF_8));
                     XdmValue jsonTree = Query.parseJson(processor, jsonReader);
-                    if (!jsonTree.isEmpty()) {
+                    if (!jsonTree.isEmptySequence()) {
                         transformer.setGlobalContextItem(jsonContextItem = jsonTree.itemAt(0));
                     }
                 } catch (IOException e) {
@@ -1438,7 +1523,7 @@ public class Transform {
         if (!showTime) {
             logger.info(getConfiguration().getProductTitle());
         }
-        logger.info("Usage: see http://www.saxonica.com/documentation/index.html#!using-xsl/commandline");
+        logger.info("Usage: see https://www.saxonica.com/documentation/index.html#!using-xsl/commandline");
         logger.info("Format: " + CommandLineOptions.getCommandName(this) + " options params");
         CommandLineOptions options = new CommandLineOptions();
         setPermittedOptions(options);
@@ -1459,7 +1544,7 @@ public class Transform {
             throw new RuntimeException(message);
         }
     }
-
+    
 
 
 

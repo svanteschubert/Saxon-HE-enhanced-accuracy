@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -129,7 +129,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
             public ConversionResult convert(/*@NotNull*/ AtomicValue input) {
                 ValidationFailure vf = new ValidationFailure(
                         "Implicit conversion of untypedAtomic value to " + requiredItemType.toString() + " is not allowed");
-                vf.setErrorCode("XPTY0117");
+                vf.setErrorCode(requiredItemType.isNamespaceSensitive() ? "XPTY0117" : "XPTY0004");
                 vf.setLocator(operand.getLocation());
                 return vf;
             }
@@ -324,7 +324,7 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
                         String errorCode = expr.getRoleSupplier().get().getErrorCode();
                         throw new XPathException(((ValidationFailure) result).getMessage(), errorCode);
                     } else {
-                        throw ((ValidationFailure)result).makeException();
+                        throw ((ValidationFailure)result).makeException().maybeWithLocation(expr.getLocation());
                     }
                 }
                 return result.asAtomic();

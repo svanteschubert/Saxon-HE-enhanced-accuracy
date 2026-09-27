@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -38,6 +38,7 @@ public class XSLMode extends StyleElement {
     private boolean prepared = false;
     private boolean streamable = false;
     private boolean traceMatching = false;
+    private SequenceType requiredType;
 
     /**
      * Ask whether this node is a declaration, that is, a permitted child of xsl:stylesheet
@@ -180,7 +181,7 @@ public class XSLMode extends StyleElement {
                         case "fail":
                             break;
                         case "shallow-copy-all":
-                            requireXslt40Attribute("on-no-match");
+                            requireXslt40Attribute("shallow-copy-all");
                             break;
                         default:
                             invalidAttribute(f, "text-only-copy|shallow-copy|deep-copy|shallow-skip|deep-skip|fail");
@@ -211,6 +212,11 @@ public class XSLMode extends StyleElement {
                 case "as":
                     if (requireXslt40Attribute("as")) {
                         asAtt = value;
+                    }
+                    break;
+                case "copy-namespaces":
+                    if (requireXslt40Attribute("copy-namespaces")) {
+                        processBooleanAttribute("copy-namespaces", value);
                     }
                     break;
                 default:
@@ -249,15 +255,14 @@ public class XSLMode extends StyleElement {
         mode.obtainDeclaringComponent(this);    // TODO: how does this work with multiple mode declarations?
         mode.setModeTracing(traceMatching);     // Saxon extension; ignore the complications of multiple xsl:mode declarations for now
 
-        if (asAtt != null) {               // Saxon extension; ignore the complications of multiple xsl:mode declarations for now
-            SequenceType extraResultType;
+        if (asAtt != null) {               // TODO: ignore the complications of multiple xsl:mode declarations for now
             try {
-                extraResultType = makeExtendedSequenceType(asAtt);
+                requiredType = makeSequenceType(asAtt);
             } catch (XPathException e) {
-                compileErrorInAttribute(e, "saxon:as");
-                extraResultType = SequenceType.ANY_SEQUENCE; // error recovery
+                compileErrorInAttribute(e, "as");
+                requiredType = SequenceType.ANY_SEQUENCE; // error recovery
             }
-            mode.setDefaultResultType(extraResultType);
+            //mode.setDefaultResultType(extraResultType);
         }
 
     }
@@ -272,7 +277,7 @@ public class XSLMode extends StyleElement {
             String attValue = att.getValue();
             if (f.equals("streamable") || f.equals("on-multiple-match") || f.equals("on-no-match") ||
                     f.equals("warning-on-multiple-match") || f.equals("warning-on-no-match") ||
-                    f.equals("typed") || f.equals("visibility")) {
+                    f.equals("typed") || f.equals("copy-namespaces") || f.equals("visibility")) {
                 String trimmed = Whitespace.trim(attValue);
                 String normalizedAtt;
                 if ("true".equals(trimmed) || "1".equals(trimmed)) {
@@ -308,6 +313,8 @@ public class XSLMode extends StyleElement {
                     allNames.append(name);
                 }
                 mode.getActivePart().setExplicitProperty(f, allNames.toString(), decl.getPrecedence());
+            } else if (f.equals("as")) {
+                mode.setExplicitProperty("as", requiredType, decl.getPrecedence());
             }
         }
         if (getCompilation().getCompilerInfo().getXsltVersion() != 40) {

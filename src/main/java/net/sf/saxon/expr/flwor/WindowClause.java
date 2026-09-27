@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -268,11 +268,6 @@ public class WindowClause extends Clause {
         }
     }
 
-    @Override
-    public void addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        throw new UnsupportedOperationException("Cannot use document projection with windowing");
-    }
-
     /**
      * Get the variables bound by this clause
      *
@@ -383,7 +378,7 @@ public class WindowClause extends Clause {
         }
         binding = clause.getVariableBinding(WindowClause.END_ITEM_POSITION);
         if (binding != null) {
-            context.setLocalVariable(binding.getLocalSlotNumber(), new Int64Value(position));
+            context.setLocalVariable(binding.getLocalSlotNumber(), Int64Value.makeIntegerValue(position));
         }
         binding = clause.getVariableBinding(WindowClause.END_NEXT_ITEM);
         if (binding != null) {
@@ -398,7 +393,7 @@ public class WindowClause extends Clause {
 
     protected static Sequence makeValue(/*@Nullable*/ Item item) {
         if (item == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else {
             return item;
         }
@@ -444,4 +439,4 @@ public class WindowClause extends Clause {
     }
 }
 
-// Copyright (c) 2011-2023 Saxonica Limited
+// Copyright (c) 2011-2026 Saxonica Limited

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,6 +24,7 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.SerializerFactory;
 import net.sf.saxon.lib.TraceListener;
+import net.sf.saxon.ma.Parcel;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
@@ -34,10 +35,11 @@ import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingException;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.iter.GroundedIterator;
 import net.sf.saxon.tree.iter.ManualIterator;
-import net.sf.saxon.type.AnyItemType;
-import net.sf.saxon.type.ItemType;
+import net.sf.saxon.value.SequenceType;
 
 import javax.xml.transform.Result;
 import javax.xml.transform.Source;
@@ -56,6 +58,8 @@ import java.util.Set;
  * <p>Various methods are provided for evaluating the query, with different options for
  * delivery of the results.</p>
  */
+
+@CSharpInjectMembers(code={"private readonly object _lock = new();"})
 public class XQueryExpression implements Location, ExpressionOwner, TraceableComponent {
 
     protected Expression expression;
@@ -75,7 +79,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
      * @throws XPathException if an error occurs
      */
 
-    public XQueryExpression(Expression exp,  QueryModule mainModule, boolean streaming)
+    public XQueryExpression(Expression exp, QueryModule mainModule, boolean streaming)
             throws XPathException {
         Executable exec = mainModule.getExecutable();
         Configuration config = mainModule.getConfiguration();
@@ -87,12 +91,17 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
             ExpressionVisitor visitor = ExpressionVisitor.make(mainModule);
             Optimizer optimizer = visitor.obtainOptimizer();
             visitor.setOptimizeForStreaming(streaming);
-            exp = exp.simplify();
+            Expression e2 = exp.simplify();
+            if (e2 != exp) {
+                ExpressionTool.copyLocationInfo(exp, e2);
+                e2.setParentExpression(null);
+                exp = e2;
+            }
             exp.checkForUpdatingSubexpressions();
             GlobalContextRequirement contextReq = exec.getGlobalContextRequirement();
-            ItemType req = contextReq == null ? AnyItemType.getInstance() : contextReq.getRequiredItemType();
-            ContextItemStaticInfo cit = config.makeContextItemStaticInfo(req, true);
-            Expression e2 = exp.typeCheck(visitor, cit);
+            SequenceType req = contextReq == null ? SequenceType.SINGLE_ITEM : contextReq.getRequiredSequenceType();
+            ContextItemStaticInfo cit = config.makeContextItemStaticInfo(req, Optionality.OPTIONAL);
+            e2 = exp.typeCheck(visitor, cit);
             if (e2 != exp) {
                 e2.setRetainedStaticContext(exp.getRetainedStaticContext());
                 e2.setParentExpression(null);
@@ -120,13 +129,17 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
             throw err;
         }
         ExpressionTool.allocateSlots(exp, 0, stackFrameMap);
-        ExpressionTool.computeEvaluationModesForUserFunctionCalls(exp);
         for (GlobalVariable var : getPackageData().getGlobalVariableList()) {
             Expression top = var.getBody();
             if (top != null) {
-                ExpressionTool.computeEvaluationModesForUserFunctionCalls(top);
+                Expression e2 = top.simplify();
+                if (top != e2) {
+                    var.setBody(e2);
+                    ExpressionTool.copyLocationInfo(top, e2);
+                }
             }
         }
+        mainModule.getGlobalFunctionLibrary().fixupGlobalFunctions(mainModule);
 
         expression = exp;
         executable.setConfiguration(config);
@@ -332,7 +345,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         }
         return SequenceTool.convertToJava(item);
     }
-
+    
     /**
      * Get an iterator over the results of the expression. This returns results without
      * any conversion of the returned items to "native" Java classes. The iterator will
@@ -364,9 +377,12 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         Controller controller = newController(env);
 
         try {
-            Item contextItem = controller.getGlobalContextItem();
-            if (contextItem instanceof NodeInfo && ((NodeInfo)contextItem).getTreeInfo().isTyped() && !getExecutable().isSchemaAware()) {
-                throw new XPathException("A typed input document can only be used with a schema-aware query");
+            if (controller.getGlobalContextValue() != null) {
+                for (Item it : controller.getGlobalContextValue().asIterable()) {
+                    if (it instanceof NodeInfo && ((NodeInfo) it).getTreeInfo().isTyped() && !getExecutable().isSchemaAware()) {
+                        throw new XPathException("A typed input document can only be used with a schema-aware query");
+                    }
+                }
             }
 
             XPathContextMajor context = initialContext(env, controller);
@@ -384,6 +400,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
             } else {
                 return new ErrorReportingIterator(iterator, controller.getErrorReporter(), getLocation());
             }
+
         } catch (XPathException err) {
             TransformerException terr = err;
             while (terr.getException() instanceof TransformerException) {
@@ -396,12 +413,21 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
     }
 
     protected SequenceIterator getExpressionIterator(XPathContext context) throws XPathException {
+        makePullEvaluator();
+        return pullEvaluator.iterate(context);
+    }
+
+    @CSharpReplaceBody(code="if (System.Threading.Volatile.Read(ref pullEvaluator) == null) {\n"
+            + "                lock (_lock) {\n"
+            + "                    pullEvaluator ??= expression.makeElaborator().elaborateForPull();\n"
+            + "                }\n"
+            + "            }")
+    private void makePullEvaluator() {
         synchronized(this) {
             if (pullEvaluator == null) {
                 pullEvaluator = expression.makeElaborator().elaborateForPull();
             }
         }
-        return pullEvaluator.iterate(context);
     }
 
     /**
@@ -433,11 +459,16 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         if (!env.getConfiguration().isCompatible(getExecutable().getConfiguration())) {
             throw new XPathException("The query must be compiled and executed under the same Configuration", SaxonErrorCode.SXXP0004);
         }
-        Item contextItem = env.getContextItem();
-        if (contextItem instanceof NodeInfo && ((NodeInfo) contextItem).getTreeInfo().isTyped() && !getExecutable().isSchemaAware()) {
-            throw new XPathException("A typed input document can only be used with a schema-aware query");
+        GroundedValue contextValue = env.getContextValue();
+        if (contextValue != null) {
+            for (Item it : contextValue.asIterable()) {
+                if (it instanceof NodeInfo && ((NodeInfo) it).getTreeInfo().isTyped() && !getExecutable().isSchemaAware()) {
+                    throw new XPathException("A typed input document can only be used with a schema-aware query");
+                }
+            }
         }
         Controller controller = newController(env);
+        controller.openTraceEpisode();
         if (result instanceof Receiver) {
             ((Receiver)result).getPipelineConfiguration().setController(controller);
         }
@@ -461,7 +492,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
         } else {
             SerializerFactory sf = context.getConfiguration().getSerializerFactory();
             PipelineConfiguration pipe = controller.makePipelineConfiguration();
-            pipe.setHostLanguage(HostLanguage.XQUERY);
+            pipe.setHostLanguage(HostLanguage.XQUERY, getPackageData().getHostLanguageVersion());
             out = sf.getReceiver(result, new SerializationProperties(actualProperties), pipe);
         }
 
@@ -476,9 +507,7 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
             throw err;
         } finally {
             try {
-                if (tracer != null) {
-                    tracer.close();
-                }
+                controller.closeTraceEpisode();
                 dest.close();
             } catch (XPathException e) {
                 e.printStackTrace();
@@ -490,13 +519,26 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
     }
 
     protected void processQuery(Outputter dest, XPathContext context) throws XPathException {
+        try {
+            makePushEvaluator();
+            Expression.dispatchTailCall(
+                    pushEvaluator.processLeavingTail(dest, context));
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
+        }
+    }
+
+    @CSharpReplaceBody(code="if (System.Threading.Volatile.Read(ref pushEvaluator) == null) {\n"
+            + "                    lock (_lock) {\n"
+            + "                        pushEvaluator ??= expression.makeElaborator().elaborateForPush();\n"
+            + "                    }\n"
+            + "                }")
+    private void makePushEvaluator() {
         synchronized(this) {
             if (pushEvaluator == null) {
                 pushEvaluator = expression.makeElaborator().elaborateForPush();
             }
         }
-        Expression.dispatchTailCall(
-                pushEvaluator.processLeavingTail(dest, context));
     }
 
     protected void closeStreamIfNecessary(StreamResult result, boolean mustClose) throws XPathException {
@@ -604,10 +646,11 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
 
     protected XPathContextMajor initialContext(DynamicQueryContext dynamicEnv, Controller controller) throws XPathException {
 
-        Item contextItem = controller.getGlobalContextItem();
+        GroundedValue contextValue = controller.getGlobalContextValue();
         XPathContextMajor context = controller.newXPathContext();
 
-        if (contextItem != null) {
+        if (contextValue != null) {
+            Item contextItem = contextValue.getLength() == 1 ? contextValue.head() : new Parcel(contextValue);
             ManualIterator single = new ManualIterator(contextItem);
             context.setCurrentIterator(single);
             controller.setGlobalContextItem(contextItem);
@@ -662,28 +705,6 @@ public class XQueryExpression implements Location, ExpressionOwner, TraceableCom
 
     public Executable getExecutable() {
         return executable;
-    }
-
-    /**
-     * Indicate that document projection is or is not allowed
-     *
-     * @param allowed true if projection is allowed
-     */
-
-    public void setAllowDocumentProjection(boolean allowed) {
-        if (allowed) {
-            throw new UnsupportedOperationException("Document projection requires Saxon-EE");
-        }
-    }
-
-    /**
-     * Ask whether document projection is allowed
-     *
-     * @return true if document projection is allowed
-     */
-
-    public boolean isDocumentProjectionAllowed() {
-        return false;
     }
 
     /**

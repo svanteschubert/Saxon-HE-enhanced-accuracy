@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.query;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
-import net.sf.saxon.expr.UserFunctionCall;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.om.FunctionItem;
@@ -17,6 +16,7 @@ import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 
 import java.util.HashSet;
 import java.util.List;
@@ -96,7 +96,7 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
             }
         }
         if (namespaces.contains(uri)) {
-            return baseLibrary.bind(symbolicName, staticArgs, null, env, reasons);
+            return baseLibrary.bind(symbolicName, staticArgs, keywords, env, reasons);
         } else {
             return null;
         }
@@ -117,21 +117,6 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
         } else {
             return null;
         }
-    }
-
-    /**
-     * Bind a function call using this XQuery function library, in the situation where
-     * it was not possible to bind it earlier, typically because it was encountered as a forwards
-     * reference.
-     *
-     * @param call     The unbound function call, which will include a non-null <code>UnboundFunctionCallDetails</code>
-     * @param reasons a list which can be populated with messages indicating why binding failed
-     * @return true if the function call is now bound; false if it remains unbound.
-     */
-
-    @Override
-    public boolean bindUnboundFunctionCall(UserFunctionCall call, List<String> reasons) {
-        return baseLibrary.bindUnboundFunctionCall(call, reasons);
     }
 
     /**
@@ -189,14 +174,15 @@ public class ImportedFunctionLibrary implements FunctionLibrary, XQueryFunctionB
      * Test whether a function with a given name and arity is available
      * <p>This supports the function-available() function in XSLT.</p>
      *
-     * @param functionName the qualified name of the function being called
+     * @param functionName  the qualified name of the function being called
+     * @param schema
      * @param languageLevel the XPath language level times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
+    public boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel) {
         return namespaces.contains(functionName.getComponentName().getNamespaceUri())
-                && baseLibrary.isAvailable(functionName, languageLevel);
+                && baseLibrary.isAvailable(functionName, schema, languageLevel);
     }
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,11 +19,11 @@ import net.sf.saxon.expr.instruct.ValueOf;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.Error;
 import net.sf.saxon.ma.arrays.ArrayItemType;
+import net.sf.saxon.ma.jnode.AnyJNodeType;
 import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
@@ -31,6 +31,7 @@ import net.sf.saxon.tree.iter.AtomizingIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.UntypedAtomizingIterator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.XNodeType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.EmptySequence;
@@ -148,7 +149,7 @@ public final class Atomizer extends UnaryExpression {
             }
             // if all items in the sequence are atomic (they generally will be, since this is
             // done at compile time), then return the sequence
-            return operand;
+            return operand.copy(new RebindingMap());
         } else if (operand instanceof ValueOf &&
                 !ReceiverOption.contains(((ValueOf) operand).getOptions(), ReceiverOption.DISABLE_ESCAPING)) {
             // XSLT users tend to use ValueOf unnecessarily
@@ -182,9 +183,12 @@ public final class Atomizer extends UnaryExpression {
                 String thing = operandType instanceof MapType ? "map" : "function item";
                 err = new XPathException(expandMessage("Cannot atomize a " + thing))
                         .withErrorCode("FOTY0013");
-            } else {
+            } else if (operandType instanceof XNodeType && visitor.getStaticContext().getPackageData().isSchemaAware()) {
                 err = new XPathException(
                         expandMessage("Cannot atomize an element that is defined in the schema to have element-only content"))
+                        .withErrorCode("FOTY0012");
+            } else {
+                err = new XPathException(expandMessage("Cannot atomize a value of type " + operandType ))
                         .withErrorCode("FOTY0012");
             }
             throw err.asTypeError().withLocation(getLocation());
@@ -193,19 +197,26 @@ public final class Atomizer extends UnaryExpression {
         return this;
     }
 
+    /**
+     * Determine whether the cardinality of the atomized value is guaranteed to be a single
+     * atomic value (or empty)
+     * @param th the type hierarchy cache
+     */
     private void computeSingleValued(TypeHierarchy th) {
         ItemType operandType = getOperandItemType();
         if (th.relationship(operandType, ArrayItemType.ANY_ARRAY_TYPE) != Affinity.DISJOINT) {
+            singleValued = false;
+        } else if (th.relationship(operandType, AnyJNodeType.getInstance()) != Affinity.DISJOINT) {
             singleValued = false;
         } else {
             singleValued = untyped;
             if (!singleValued) {
                 ItemType nodeType = getBaseExpression().getItemType();
-                if (nodeType instanceof NodeTest) {
+                if (nodeType instanceof XNodeType) {
                     if (!nodeType.getUType().overlaps(UType.ELEMENT.union(UType.ATTRIBUTE))) {
                         singleValued = true;
                     } else {
-                        SchemaType st = ((NodeTest) nodeType).getContentType();
+                        SchemaType st = ((XNodeType)nodeType).getContentType();
                         if (isSingleValuedSchemaType(st)) {  // Bug 5803
                             singleValued = true;
                         }
@@ -217,7 +228,7 @@ public final class Atomizer extends UnaryExpression {
     }
 
     private boolean isSingleValuedSchemaType(SchemaType st) {
-        if (st == Untyped.getInstance()) {
+        if (st == Untyped.INSTANCE) {
             return true;
         }
         if (st.isSimpleType()) {
@@ -233,7 +244,7 @@ public final class Atomizer extends UnaryExpression {
             }
         }
         if (st.isComplexType()) {
-            if (st == AnyType.getInstance()) {
+            if (st == AnyType.INSTANCE) {
                 return false;
             }
             if (((ComplexType)st).isSimpleContent()) {
@@ -313,26 +324,44 @@ public final class Atomizer extends UnaryExpression {
                 return newBlock.typeCheck(visitor, contextInfo).optimize(visitor, contextInfo);
             }
             if (untyped && operand instanceof AxisExpression &&
-                    ((AxisExpression)operand).getAxis() == AxisInfo.ATTRIBUTE &&
-                    ((AxisExpression) operand).getNodeTest() instanceof NameTest &&
                     !((AxisExpression) operand).isContextPossiblyUndefined()) {
-                StructuredQName name = ((AxisExpression) operand).getNodeTest().getMatchingNodeName();
-                FingerprintedQName qName = new FingerprintedQName(name, visitor.getConfiguration().getNamePool());
-                AttributeGetter ag = new AttributeGetter(qName);
-                ExpressionTool.copyLocationInfo(this, ag);
-                return ag;
+                StructuredQName name = getRequiredAttributeName(((AxisExpression) operand).getNodeTest());
+                if (name != null) {
+                    FingerprintedQName qName = new FingerprintedQName(name, visitor.getConfiguration().getNamePool());
+                    AttributeGetter ag = new AttributeGetter(qName);
+                    ExpressionTool.copyLocationInfo(this, ag);
+                    return ag;
+                }
             }
             if (untyped && operand instanceof SimpleStepExpression &&
-                    ((SimpleStepExpression) operand).getAxisExpression().getAxis() == AxisInfo.ATTRIBUTE &&
-                    ((SimpleStepExpression) operand).getAxisExpression().getNodeTest() instanceof NameTest) {
-                StructuredQName name = ((SimpleStepExpression) operand).getAxisExpression().getNodeTest().getMatchingNodeName();
-                FingerprintedQName qName = new FingerprintedQName(name, visitor.getConfiguration().getNamePool());
-                AttributeGetter ag = new AttributeGetter(qName);
-                ExpressionTool.copyLocationInfo(this, ag);
-                return new SlashExpression(((SimpleStepExpression) operand).getStart(), ag);
+                    ((SimpleStepExpression) operand).getAxisExpression().getAxis() == AxisInfo.ATTRIBUTE) {
+                StructuredQName name = getRequiredAttributeName(
+                        ((SimpleStepExpression) operand).getAxisExpression().getNodeTest());
+                if (name != null) {
+                    FingerprintedQName qName = new FingerprintedQName(name, visitor.getConfiguration().getNamePool());
+                    AttributeGetter ag = new AttributeGetter(qName);
+                    ExpressionTool.copyLocationInfo(this, ag);
+                    return new SlashExpression(((SimpleStepExpression) operand).getStart(), ag);
+                }
             }
         }
         return exp;
+    }
+
+    /**
+     * If the supplied nodeTest is a test for a specific attribute name, return that name
+     * @param nodeTest the supplied nodeTest
+     * @return the attribute name required by the nodeTest if any; otherwise null
+     */
+
+    private static StructuredQName getRequiredAttributeName(NodeTest nodeTest) {
+        if (nodeTest instanceof NamedXNodePredicate) {
+            NamedXNodePredicate p = (NamedXNodePredicate) nodeTest;
+            if (p.getNodeKind() == Type.ATTRIBUTE && p.isFingerprintSufficient()) {
+                return p.getMatchingNodeName();
+            }
+        }
+        return null;
     }
 
     /**
@@ -441,7 +470,7 @@ public final class Atomizer extends UnaryExpression {
     public ItemType getItemType() {
         operandItemType = getBaseExpression().getItemType();
         TypeHierarchy th = getConfiguration().getTypeHierarchy();
-        return getAtomizedItemType(getBaseExpression(), untyped, th);
+        return getAtomizedItemType(getBaseExpression(), untyped);
     }
 
     @Override
@@ -454,12 +483,11 @@ public final class Atomizer extends UnaryExpression {
      *
      * @param operand       the given expression
      * @param alwaysUntyped true if it is known that nodes will always be untyped
-     * @param th            the type hierarchy cache
      * @return the item type of the result of evaluating the operand expression, after atomization, or
-     *         xs:error if it is known that atomization will return an error
+     * xs:error if it is known that atomization will return an error
      */
 
-    public static ItemType getAtomizedItemType(Expression operand, boolean alwaysUntyped, TypeHierarchy th) {
+    public static ItemType getAtomizedItemType(Expression operand, boolean alwaysUntyped) {
         ItemType in = operand.getItemType();
         if (in.isPlainType()) {
             return in;
@@ -531,8 +559,8 @@ public final class Atomizer extends UnaryExpression {
             return StaticProperty.ALLOWS_ZERO_OR_MORE;
         } else if (in.isPlainType()) {
             return operand.getCardinality();
-        } else if (in instanceof NodeTest) {
-            SchemaType schemaType = ((NodeTest) in).getContentType();
+        } else if (in instanceof XNodeType) {
+            SchemaType schemaType = ((XNodeType) in).getContentType();
             if (schemaType.isAtomicType()) {
                 // can return at most one atomic value per node
                 return operand.getCardinality();
@@ -541,40 +569,6 @@ public final class Atomizer extends UnaryExpression {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNodeSet representing the points in the source document that are both reachable by this
-     *         expression, and that represent possible results of this expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet result = getBaseExpression().addToPathMap(pathMap, pathMapNodeSet);
-        if (result != null) {
-            TypeHierarchy th = getConfiguration().getTypeHierarchy();
-            ItemType operandItemType = getBaseExpression().getItemType();
-            if (th.relationship(NodeKindTest.ELEMENT, operandItemType) != Affinity.DISJOINT ||
-                    th.relationship(NodeKindTest.DOCUMENT, operandItemType) != Affinity.DISJOINT) {
-                result.setAtomized();
-            }
-        }
-        return null;
-    }
 
     /**
      * Get an iterator that returns the result of atomizing the sequence delivered by the supplied
@@ -593,14 +587,14 @@ public final class Atomizer extends UnaryExpression {
         if (SequenceTool.supportsGetLength(base)) {
             int count = SequenceTool.getLength(base);
             if (count == 0) {
-                return EmptyIterator.getInstance();
+                return EmptyIterator.INSTANCE;
             } else if (count == 1) {
                 Item first = base.next();
                 Objects.requireNonNull(first);
                 return first.atomize().iterate();
             }
-        } else if (base instanceof AtomizedValueIterator) {
-            return new AxisAtomizingIterator((AtomizedValueIterator)base);
+        } else if (base instanceof AtomizedValueIterator atomizingIter) {
+            return new AxisAtomizingIterator(atomizingIter);
         }
         if (oneToOne) {
             return new UntypedAtomizingIterator(base);
@@ -613,7 +607,7 @@ public final class Atomizer extends UnaryExpression {
         if (sequence instanceof AtomicSequence) {
             return (AtomicSequence)sequence;
         } else if (sequence instanceof EmptySequence) {
-            return EmptyAtomicSequence.getInstance();
+            return AtomicArray.EMPTY_ATOMIC_ARRAY;
         } else {
             SequenceIterator iter = getAtomizingIterator(sequence.iterate(), false);
             return new AtomicArray(iter);

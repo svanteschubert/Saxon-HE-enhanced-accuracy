@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,10 +19,7 @@ import net.sf.saxon.functions.NormalizeSpace_1;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.NodeName;
-import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -118,7 +115,9 @@ public final class FixedAttribute extends AttributeCreator {
         if (schemaType == null) {
             int validation = getValidationAction();
             if (validation == Validation.STRICT) {
-                SchemaDeclaration decl = config.getAttributeDeclaration(nodeName.getStructuredQName());
+                Schema schema = getRetainedStaticContext().getImportedSchema();
+                StructuredQName attributeName = nodeName.getStructuredQName();
+                IAttributeDecl decl = schema.getAttributeDecl(attributeName);
                 if (decl == null) {
                     throw new XPathException(
                             "Strict validation fails: there is no global attribute declaration for " +
@@ -128,7 +127,9 @@ public final class FixedAttribute extends AttributeCreator {
                 schemaType = (SimpleType) decl.getType();
                 errorCode = "XTTE1510";
             } else if (validation == Validation.LAX) {
-                SchemaDeclaration decl = config.getAttributeDeclaration(nodeName.getStructuredQName());
+                StructuredQName attributeName = nodeName.getStructuredQName();
+                Schema schema = getRetainedStaticContext().getImportedSchema();
+                IAttributeDecl decl = schema.getAttributeDecl(attributeName);
                 if (decl != null) {
                     schemaType = (SimpleType) decl.getType();
                     errorCode = "XTTE1515";
@@ -144,7 +145,7 @@ public final class FixedAttribute extends AttributeCreator {
         if (Literal.isAtomic(getSelect()) && schemaType != null && !schemaType.isNamespaceSensitive()) {
             UnicodeString value = ((Literal) getSelect()).getGroundedValue().getUnicodeStringValue();
             ValidationFailure err = schemaType.validateContent(
-                    value, DummyNamespaceResolver.getInstance(), rules);
+                    value, DummyNamespaceResolver.INSTANCE, rules);
             if (err != null) {
                 throw new XPathException("Attribute value " + Err.wrap(value, Err.VALUE) +
                         " does not the match the required type " +
@@ -240,7 +241,9 @@ public final class FixedAttribute extends AttributeCreator {
         }
         SchemaType type;
         try {
-            type = ((ComplexType) parentType).getAttributeUseType(nodeName.getStructuredQName());
+            type = ((ComplexType) parentType).getAttributeUseType(
+                    nodeName.getStructuredQName(),
+                    getRetainedStaticContext().getImportedSchema());
         } catch (SchemaException e) {
             throw new XPathException(e);
         }
@@ -294,6 +297,10 @@ public final class FixedAttribute extends AttributeCreator {
         }
         if (!flags.isEmpty()) {
             out.emitAttribute("flags", flags);
+        }
+        String schemaRole = getRetainedStaticContext().getImportedSchemaRoleName();
+        if (!schemaRole.isEmpty()) {
+            out.emitAttribute("schemaRole", schemaRole);
         }
         getSelect().export(out);
         out.endElement();

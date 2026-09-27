@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,10 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.type.coercion.CoercionPlan;
+import net.sf.saxon.type.coercion.ItemCheckingPlan;
+
+import java.util.Optional;
 
 /**
  * This class represents the type of an external object returned by
@@ -26,7 +30,7 @@ public class AnyExternalObjectType implements ItemType {
     }
 
     @Override
-    public boolean matches(Item item, TypeHierarchy th) {
+    public boolean matches(Item item) {
         return item.getGenre() == Genre.EXTERNAL;
     }
 
@@ -85,5 +89,21 @@ public class AnyExternalObjectType implements ItemType {
     @Override
     public double getDefaultPriority() {
         return -1;
+    }
+
+    /**
+     * Get the coercion plan for use when this type is the required type for (say) coercion
+     * of arguments in a function call
+     *
+     * @param version the XPath language version (40 or 31)
+     */
+    @Override
+    public CoercionPlan getCoercionPlan(int version) {
+        return ItemCheckingPlan.INSTANCE;
+    }
+
+    @Override
+    public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
+        return Optional.empty();
     }
 }

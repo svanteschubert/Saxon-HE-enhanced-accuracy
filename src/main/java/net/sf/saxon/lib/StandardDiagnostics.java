@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,6 +22,7 @@ import net.sf.saxon.trans.KeyDefinition;
 import net.sf.saxon.trans.Mode;
 import net.sf.saxon.trans.rules.BuiltInRuleSet;
 import net.sf.saxon.trans.rules.Rule;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.AttributeLocation;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
@@ -35,6 +36,8 @@ import net.sf.saxon.z.IntIterator;
 
 import javax.xml.transform.SourceLocator;
 import javax.xml.transform.dom.DOMLocator;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.util.List;
 
 /**
@@ -48,12 +51,31 @@ public class StandardDiagnostics {
     public StandardDiagnostics() {}
 
     /**
+     * Return a stacktrace showing the call path to a given XPathContext
+     * @param context the relevant entry on the context stack
+     * @return a string, showing the entries on the context stack. The format is not defined,
+     * and is subject to change.
+     */
+
+    public static String stackTrace(XPathContext context) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(1000);
+        Logger logger = StandardLogger.makeLogger(new PrintStream(baos));
+        new StandardDiagnostics().logStackTrace(context, logger, 2);
+        return getStreamContents(baos).replace("\r", "");
+    }
+
+    @CSharpReplaceBody(code = "return System.Text.Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);")
+    private static String getStreamContents(ByteArrayOutputStream stream) {
+        return stream.toString();
+    }
+
+    /**
      * Construct a message identifying the location of an error
      * @param loc the location of the error
      * @return a message describing the location
      */
 
-    public String getLocationMessageText(SourceLocator loc) {
+    public static String getLocationMessageText(SourceLocator loc) {
         String locMessage = "";
         String systemId = null;
         NodeInfo node = null;
@@ -83,7 +105,7 @@ public class StandardDiagnostics {
         } else if (loc instanceof ValidationException && loc.getLineNumber() == -1 && (path = ((ValidationException) loc).getPath()) != null) {
             nodeMessage = "at " + path + ' ';
         } else if (loc instanceof Instruction) {
-            String instructionName = getInstructionName((Instruction) loc);
+            String instructionName = getInstructionNameDefault((Instruction) loc);
             if (!"".equals(instructionName)) {
                 nodeMessage = "at " + instructionName + ' ';
             }
@@ -148,7 +170,7 @@ public class StandardDiagnostics {
             }
         }
         if (systemId != null && !systemId.isEmpty()) {
-            locMessage += (containsLineNumber ? "of " : "in ") + abbreviateLocationURI(systemId) + ':';
+            locMessage += (containsLineNumber ? "of " : "in ") + abbreviateLocationURIDefault(systemId) + ':';
         }
         return locMessage;
     }

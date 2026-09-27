@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,8 +16,8 @@ import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.SaxonErrorCode;
@@ -52,10 +52,10 @@ public abstract class JPConverter {
         converterMap.put(XdmValue.class, new FromXdmValue(AnyItemType.getInstance(), StaticProperty.ALLOWS_ZERO_OR_MORE));
         converterMap.put(XdmItem.class, new FromXdmValue(AnyItemType.getInstance(), StaticProperty.ALLOWS_ONE));
         converterMap.put(XdmAtomicValue.class, new FromXdmValue(BuiltInAtomicType.ANY_ATOMIC, StaticProperty.ALLOWS_ONE));
-        converterMap.put(XdmNode.class, new FromXdmValue(AnyNodeTest.getInstance(), StaticProperty.ALLOWS_ONE));
-        converterMap.put(XdmFunctionItem.class, new FromXdmValue(AnyFunctionType.getInstance(), StaticProperty.ALLOWS_ONE));
+        converterMap.put(XdmNode.class, new FromXdmValue(AnyXNodeType.getInstance(), StaticProperty.ALLOWS_ONE));
+        converterMap.put(XdmFunctionItem.class, new FromXdmValue(AnyFunctionType.INSTANCE, StaticProperty.ALLOWS_ONE));
         converterMap.put(XdmMap.class, new FromXdmValue(MapType.ANY_MAP_TYPE, StaticProperty.ALLOWS_ONE));
-        converterMap.put(XdmArray.class, new FromXdmValue(ArrayItemType.getInstance(), StaticProperty.ALLOWS_ONE));
+        converterMap.put(XdmArray.class, new FromXdmValue(ArrayItemType.ANY_ARRAY_TYPE, StaticProperty.ALLOWS_ONE));
         converterMap.put(XdmEmptySequence.class, new FromXdmValue(ErrorType.getInstance(), StaticProperty.ALLOWS_ZERO));
         converterMap.put(SequenceIterator.class, FromSequenceIterator.INSTANCE);
         converterMap.put(Sequence.class, FromSequence.INSTANCE);
@@ -128,11 +128,11 @@ public abstract class JPConverter {
         itemTypeMap.put(NotationValue.class, BuiltInAtomicType.NOTATION);
         itemTypeMap.put(HexBinaryValue.class, BuiltInAtomicType.HEX_BINARY);
         itemTypeMap.put(Base64BinaryValue.class, BuiltInAtomicType.BASE64_BINARY);
-        itemTypeMap.put(NodeInfo.class, AnyNodeTest.getInstance());
-        itemTypeMap.put(TreeInfo.class, NodeKindTest.DOCUMENT);
-        itemTypeMap.put(MapItem.class, MapType.getInstance());
-        itemTypeMap.put(ArrayItem.class, ArrayItemType.getInstance());
-        itemTypeMap.put(FunctionItem.class, AnyFunctionType.getInstance());
+        itemTypeMap.put(NodeInfo.class, AnyXNodeType.getInstance());
+        itemTypeMap.put(TreeInfo.class, NodeKindType.DOCUMENT);
+        itemTypeMap.put(MapItem.class, AnyFunctionType.INSTANCE);
+        itemTypeMap.put(ArrayItem.class, AnyFunctionType.INSTANCE);
+        itemTypeMap.put(FunctionItem.class, AnyFunctionType.INSTANCE);
         itemTypeMap.put(AtomicValue.class, BuiltInAtomicType.ANY_ATOMIC);
         //itemTypeMap.put(UntypedAtomicValue.class, BuiltInAtomicType.UNTYPED_ATOMIC);
     }
@@ -193,7 +193,7 @@ public abstract class JPConverter {
         }
         if (NodeInfo.class.isAssignableFrom(javaClass)) {
             // probably now redundant
-            return new FromSequence(AnyNodeTest.getInstance(), StaticProperty.ALLOWS_ZERO_OR_ONE);
+            return new FromSequence(AnyXNodeType.getInstance(), StaticProperty.ALLOWS_ZERO_OR_ONE);
         }
         if (Source.class.isAssignableFrom(javaClass) && !DOMSource.class.isAssignableFrom(javaClass)) {
             return FromSource.INSTANCE;
@@ -283,7 +283,7 @@ public abstract class JPConverter {
 
         @Override
         public ItemType getItemType() {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         }
 
         @Override
@@ -306,7 +306,7 @@ public abstract class JPConverter {
 
         @Override
         public ItemType getItemType() {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         }
 
         @Override
@@ -344,8 +344,11 @@ public abstract class JPConverter {
 
     public static class FromSequence extends JPConverter {
 
-        public static final FromSequence INSTANCE =
-                new FromSequence(AnyItemType.getInstance(), StaticProperty.ALLOWS_ZERO_OR_MORE);
+        public static final FromSequence INSTANCE;
+
+        static {
+            INSTANCE = new FromSequence(AnyItemType.INSTANCE, StaticProperty.ALLOWS_ZERO_OR_MORE);
+        }
 
         private final ItemType resultType;
         private final int cardinality;
@@ -671,7 +674,7 @@ public abstract class JPConverter {
             if (object == null) {
                 return null;
             } else if (resultType.getJavaClass().isInstance(object)) {
-                return new ObjectValue<>(object);
+                return new ObjectValue<>(object, resultType.getJavaClass());
             } else {
                 throw new XPathException("Java external object of type " + object.getClass().getName() +
                     " is not an instance of the required type " + resultType.getJavaClass().getName(), "XPTY0004");
@@ -695,7 +698,7 @@ public abstract class JPConverter {
 
         @Override
         public GroundedValue convert(Object object, XPathContext context) throws XPathException {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
 
         /**
@@ -703,7 +706,7 @@ public abstract class JPConverter {
          */
         @Override
         public ItemType getItemType() {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         }
     }
 
@@ -734,7 +737,7 @@ public abstract class JPConverter {
 
         @Override
         public ItemType getItemType() {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         }
 
         /**
@@ -770,7 +773,7 @@ public abstract class JPConverter {
 
         @Override
         public ItemType getItemType() {
-            return AnyNodeTest.getInstance();
+            return AnyXNodeType.getInstance();
         }
 
     }

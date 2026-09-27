@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,7 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.StringConstants;
 import net.sf.saxon.str.Twine8;
@@ -55,7 +55,7 @@ public final class Comment extends SimpleNodeConstructor {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return NodeKindTest.COMMENT;
+        return NodeKindType.COMMENT;
     }
 
     @Override
@@ -175,7 +175,7 @@ public final class Comment extends SimpleNodeConstructor {
         if (comment.indexOf(TWO_HYPHENS, 0) >= 0) {
             return "Invalid characters (--) in comment";
         }
-        if (comment.length() > 0 && comment.codePointAt(comment.length() - 1) == '-') {
+        if (!comment.isEmpty() && comment.codePointAt(comment.length() - 1) == '-') {
             return "Comment cannot end in '-'";
         }
         return null;

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -104,6 +104,20 @@ public class OpSequence extends Operation {
         return 0;
     }
 
+    /**
+     * Ask whether the expression is allowed within a lookbehind
+     */
+
+    @Override
+    public boolean isAllowedWithinLookbehind() {
+        for (Operation op : operations) {
+            if (!op.isAllowedWithinLookbehind()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     @Override
     public boolean containsCapturingExpressions() {
         for (Operation o : operations) {
@@ -125,6 +139,21 @@ public class OpSequence extends Operation {
         }
         return result;
     }
+
+    /**
+     * Get the maximum depth of looping within this operation
+     *
+     * @return the maximum number of nested iterations
+     */
+    @Override
+    public int getMaxLoopingDepth() {
+        int max = 0;
+        for (Operation o : operations) {
+            max = Math.max(max, o.getMaxLoopingDepth());
+        }
+        return max;
+    }
+
 
     /**
      * Display the operation as a regular expression, possibly in abbreviated form
@@ -176,13 +205,13 @@ public class OpSequence extends Operation {
             "Saxon.Hej.regex.REMatcher matcher",
             "System.Collections.Generic.Stack<Saxon.Hej.z.IntIterator> iterators",
             "int backtrackingLimit",
-            "Saxon.Hej.regex.REMatcher.State savedState",
+            "Saxon.Hej.regex.REMatcher.CapturedGroupState savedState",
             "int position"})
     public IntIterator iterateMatches(final REMatcher matcher, final int position) {
 
         // A stack of iterators, one for each piece in the sequence
         final Stack<IntIterator> iterators = new Stack<>();
-        final REMatcher.State savedState =
+        final REMatcher.CapturedGroupState savedState =
                 containsCapturingExpressions() ? matcher.captureState() : null;
         final int backtrackingLimit = matcher.getProgram().getBacktrackingLimit();
 

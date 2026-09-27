@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -75,6 +75,13 @@ public class XSLOutput extends StyleElement {
                 String val = value;
                 if (f.equals(SaxonOutputKeys.ESCAPE_SOLIDUS)) {
                      requireXslt40Attribute(f);
+                }
+                if (f.equals(SaxonOutputKeys.CANONICAL)) {
+                    requireXslt40Attribute(f);
+                }
+                if (f.equals("{http://saxon.sf.net/}canonical")) {
+                    // Allow saxon:canonical for backwards compatibility
+                    f = SaxonOutputKeys.CANONICAL;
                 }
                 if (!f.equals(SaxonOutputKeys.ITEM_SEPARATOR) && !f.equals(SaxonOutputKeys.NEWLINE)) {
                     val = Whitespace.trim(val);

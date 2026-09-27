@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,11 +18,13 @@ import net.sf.saxon.lib.StandardUnparsedTextResolver;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
 import net.sf.saxon.str.*;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.transpile.CSharpReplaceException;
+import net.sf.saxon.z.IntIterator;
 import net.sf.saxon.z.IntPredicateProxy;
 
 import javax.xml.transform.Source;
@@ -64,7 +66,7 @@ public abstract class UnparsedTextFunction extends SystemFunction {
      * @throws XPathException if the file cannot be read
      */
 
-    public static void readFile(URI absoluteURI, String encoding, UniStringConsumer output, XPathContext context)
+    public static void readFile(URI absoluteURI, String encoding, UniStringConsumer output, boolean fallback, XPathContext context)
             throws XPathException {
 
         final Configuration config = context.getConfiguration();
@@ -74,7 +76,7 @@ public abstract class UnparsedTextFunction extends SystemFunction {
 
         Reader reader;
         try {
-            reader = context.getController().getUnparsedTextURIResolver().resolve(absoluteURI, encoding, config);
+            reader = context.getController().getUnparsedTextURIResolver().resolve(absoluteURI, encoding, config, fallback);
         } catch (XPathException err) {
             err.maybeSetErrorCode("FOUT1170");
             throw err;
@@ -85,13 +87,13 @@ public abstract class UnparsedTextFunction extends SystemFunction {
             request.nature = ResourceRequest.TEXT_NATURE;
             Source src = request.resolve(config.getResourceResolver(), new DirectResourceResolver(config));
             if (src instanceof StreamSource) {
-                reader = StandardUnparsedTextResolver.getReaderFromStreamSource((StreamSource)src, encoding, config, false);
+                reader = StandardUnparsedTextResolver.getReaderFromStreamSource((StreamSource)src, encoding, config, false, false);
             } else {
                 throw new XPathException("unparsed-text(): resolver returned non-StreamSource");
             }
         }
         try {
-            readFile(checker, reader, output);
+            readFile(checker, reader, fallback, output);
         } catch (java.io.UnsupportedEncodingException encErr) {
             throw new XPathException("Unknown encoding " + Err.wrap(encoding), encErr)
                     .withErrorCode("FOUT1190");
@@ -166,9 +168,9 @@ public abstract class UnparsedTextFunction extends SystemFunction {
      */
 
     @CSharpInnerClass(outer=false, extra="Saxon.Hej.str.UnicodeBuilder buffer")
-    public static UnicodeString readFile(IntPredicateProxy checker, Reader reader) throws IOException, XPathException {
+    public static UnicodeString readFile(IntPredicateProxy checker, Reader reader, boolean fallback) throws IOException, XPathException {
         UnicodeBuilder buffer = new UnicodeBuilder();
-        readFile(checker, reader, new AbstractUniStringConsumer() {
+        readFile(checker, reader, fallback, new AbstractUniStringConsumer() {
             @Override
             @CSharpModifiers(code={"public", "override"})
             public UniStringConsumer accept(UnicodeString chars) {
@@ -189,7 +191,7 @@ public abstract class UnparsedTextFunction extends SystemFunction {
      */
 
     @CSharpReplaceException(from="java.lang.IllegalStateException", to="System.Text.DecoderFallbackException")
-    public static void readFile(IntPredicateProxy checker, Reader reader, UniStringConsumer output) throws IOException, XPathException {
+    public static void readFile(IntPredicateProxy checker, Reader reader, boolean fallback, UniStringConsumer output) throws IOException, XPathException {
         char[] buffer = new char[2048];
         boolean first = true;
         int actual;
@@ -231,9 +233,14 @@ public abstract class UnparsedTextFunction extends SystemFunction {
                     mask |= ch32;
                 }
                 if (!checker.test(ch32)) {
-                    throw new XPathException("The text file contains a character that is illegal in XML (line=" +
-                                                                    line + " column=" + column + " value=hex " + Integer.toHexString(ch32) + ')')
-                            .withErrorCode("FOUT1190");
+                    if (fallback) {
+                        buffer[c - 1] = '\ufffd';
+                        mask |= 0xfffd;
+                    } else {
+                        throw new XPathException("The text file contains a character that is illegal in XML (line=" +
+                                line + " column=" + column + " value=hex " + Integer.toHexString(ch32) + ')')
+                                .withErrorCode("FOUT1190");
+                    }
                 }
             }
             int start = 0;
@@ -253,6 +260,90 @@ public abstract class UnparsedTextFunction extends SystemFunction {
             }
         }
         reader.close();
+    }
+
+    public static IntIterator codepoints(IntPredicateProxy checker, Reader reader) {
+        return new CodepointIterator(checker, reader);
+    }
+
+    private static class CodepointIterator implements IntIterator {
+
+        private final IntPredicateProxy checker;
+        private final Reader reader;
+        private char[] buffer;
+        private int used;
+        private int pos;
+
+        public CodepointIterator(IntPredicateProxy checker, Reader reader) {
+            this.checker = checker;
+            this.reader = reader;
+            this.buffer = new char[2048];
+            this.pos = 0;
+            this.used = 0;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (pos < used) {
+                return true;
+            } else {
+                try {
+                    used = reader.read(buffer, 0, buffer.length);
+                } catch (IOException ioe) {
+                    // Proxy for C# System.Text.DecoderFallbackException
+                    throw new UncheckedXPathException(new XPathException(ioe).withErrorCode("FOUT1200"));
+                } catch (Exception e) {
+                    throw new UncheckedXPathException(new XPathException(new IOException(e.getMessage(), e)).withErrorCode("FOUT1200"));
+                }
+                if (isEndOfFile(used)) {
+                    try {
+                        reader.close();
+                    } catch (Exception e) {
+                        throw new UncheckedXPathException(new IOException(e.getMessage(), e));
+                    }
+                    return false;
+                }
+                pos = 0;
+                return true;
+            }
+        }
+
+        /**
+         * Return the next integer in the sequence. The result is undefined unless {@code #hasNext()} has been called
+         * and has returned true.
+         *
+         * @return the next integer in the sequence
+         */
+        @Override
+        public int next() {
+            char ch = nextChar();
+            if (UTF16CharacterSet.isHighSurrogate(ch)) {
+                if (hasNext()) {
+                    char ch2 = nextChar();
+                    if (UTF16CharacterSet.isLowSurrogate(ch2)) {
+                        return check(UTF16CharacterSet.combinePair(ch, ch2));
+                    }
+                }
+                throw new UncheckedXPathException(new IOException("Unpaired high surrogate"));
+            }
+            return check(ch);
+        }
+
+        private char nextChar() {
+            return buffer[pos++];
+        }
+
+        private int check(int ch32) {
+            if (!checker.test(ch32)) {
+                XPathException xe = new XPathException("The text file contains a character that is illegal in XML (" +
+                                                " value=hex " + Integer.toHexString(ch32) + ')')
+                        .withErrorCode("FOUT1190");
+                throw new UncheckedXPathException(xe);
+            }
+            return ch32;
+        }
+
+
     }
 
     @CSharpReplaceBody(code="return bytesRead == 0;")

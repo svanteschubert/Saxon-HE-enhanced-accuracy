@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -38,6 +38,7 @@ public interface UnparsedTextURIResolver {
      * @param encoding    the encoding requested in the call of unparsed-text(), if any. Otherwise null.
      * @param config      The Saxon configuration. Provided in case the URI resolver
      *                    needs it.
+     * @param fallback    If true, replace non-permitted characters with U+FFFD.
      * @return a Reader, which Saxon will use to read the unparsed text. After the text has been read,
      *         the close() method of the Reader will be called. Returning null is not acceptable; if the
      *         resolver wishes to delegate to the standard resolver, it can do this by subclassing
@@ -48,6 +49,6 @@ public interface UnparsedTextURIResolver {
      */
 
     /*@NotNull*/
-    Reader resolve(URI absoluteURI, String encoding, Configuration config) throws XPathException;
+    Reader resolve(URI absoluteURI, String encoding, Configuration config, boolean fallback) throws XPathException;
 }
 

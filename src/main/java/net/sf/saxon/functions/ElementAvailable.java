@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -27,99 +27,47 @@ import net.sf.saxon.value.BooleanValue;
 public class ElementAvailable extends SystemFunction {
 
     public static boolean isXslt30Element(int fp) {
-        switch (fp) {
-            case StandardNames.XSL_ACCEPT:
-            case StandardNames.XSL_ACCUMULATOR:
-            case StandardNames.XSL_ACCUMULATOR_RULE:
-            case StandardNames.XSL_ANALYZE_STRING:
-            case StandardNames.XSL_APPLY_IMPORTS:
-            case StandardNames.XSL_APPLY_TEMPLATES:
-            case StandardNames.XSL_ASSERT:
-            case StandardNames.XSL_ATTRIBUTE:
-            case StandardNames.XSL_ATTRIBUTE_SET:
-            case StandardNames.XSL_BREAK:
-            case StandardNames.XSL_CALL_TEMPLATE:
-            case StandardNames.XSL_CATCH:
-            case StandardNames.XSL_CHARACTER_MAP:
-            case StandardNames.XSL_CHOOSE:
-            case StandardNames.XSL_COMMENT:
-            case StandardNames.XSL_CONTEXT_ITEM:
-            case StandardNames.XSL_COPY:
-            case StandardNames.XSL_COPY_OF:
-            case StandardNames.XSL_DECIMAL_FORMAT:
-            case StandardNames.XSL_DOCUMENT:
-            case StandardNames.XSL_ELEMENT:
-            case StandardNames.XSL_EVALUATE:
-            case StandardNames.XSL_EXPOSE:
-            case StandardNames.XSL_FALLBACK:
-            case StandardNames.XSL_FOR_EACH:
-            case StandardNames.XSL_FOR_EACH_GROUP:
-            case StandardNames.XSL_FORK:
-            case StandardNames.XSL_FUNCTION:
-            case StandardNames.XSL_GLOBAL_CONTEXT_ITEM:
-            case StandardNames.XSL_IF:
-            case StandardNames.XSL_IMPORT:
-            case StandardNames.XSL_IMPORT_SCHEMA:
-            case StandardNames.XSL_INCLUDE:
-            case StandardNames.XSL_ITEM_TYPE:
-            case StandardNames.XSL_ITERATE:
-            case StandardNames.XSL_KEY:
-            case StandardNames.XSL_MAP:
-            case StandardNames.XSL_MAP_ENTRY:
-            case StandardNames.XSL_MATCHING_SUBSTRING:
-            case StandardNames.XSL_MERGE:
-            case StandardNames.XSL_MERGE_ACTION:
-            case StandardNames.XSL_MERGE_KEY:
-            case StandardNames.XSL_MERGE_SOURCE:
-            case StandardNames.XSL_MESSAGE:
-            case StandardNames.XSL_MODE:
-            case StandardNames.XSL_NAMESPACE:
-            case StandardNames.XSL_NAMESPACE_ALIAS:
-            case StandardNames.XSL_NEXT_ITERATION:
-            case StandardNames.XSL_NEXT_MATCH:
-            case StandardNames.XSL_NON_MATCHING_SUBSTRING:
-            case StandardNames.XSL_NUMBER:
-            case StandardNames.XSL_ON_COMPLETION:
-            case StandardNames.XSL_ON_EMPTY:
-            case StandardNames.XSL_ON_NON_EMPTY:
-            case StandardNames.XSL_OTHERWISE:
-            case StandardNames.XSL_OUTPUT:
-            case StandardNames.XSL_OUTPUT_CHARACTER:
-            case StandardNames.XSL_OVERRIDE:
-            case StandardNames.XSL_PACKAGE:
-            case StandardNames.XSL_PARAM:
-            case StandardNames.XSL_PERFORM_SORT:
-            case StandardNames.XSL_PRESERVE_SPACE:
-            case StandardNames.XSL_PROCESSING_INSTRUCTION:
-            case StandardNames.XSL_RESULT_DOCUMENT:
-            case StandardNames.XSL_SEQUENCE:
-            case StandardNames.XSL_SORT:
-            case StandardNames.XSL_SOURCE_DOCUMENT:
-            case StandardNames.XSL_STRIP_SPACE:
-            case StandardNames.XSL_STYLESHEET:
-            case StandardNames.XSL_SWITCH:
-            case StandardNames.XSL_TEMPLATE:
-            case StandardNames.XSL_TEXT:
-            case StandardNames.XSL_TRANSFORM:
-            case StandardNames.XSL_TRY:
-            case StandardNames.XSL_USE_PACKAGE:
-            case StandardNames.XSL_VALUE_OF:
-            case StandardNames.XSL_VARIABLE:
-            case StandardNames.XSL_WHEN:
-            case StandardNames.XSL_WHERE_POPULATED:
-            case StandardNames.XSL_WITH_PARAM:
-                return true;
-            default:
-                return false;
-        }
+        return switch (fp) {
+            case StandardNames.XSL_ACCEPT, StandardNames.XSL_ACCUMULATOR, StandardNames.XSL_ACCUMULATOR_RULE,
+                 StandardNames.XSL_ANALYZE_STRING, StandardNames.XSL_APPLY_IMPORTS, StandardNames.XSL_APPLY_TEMPLATES,
+                 StandardNames.XSL_ASSERT, StandardNames.XSL_ATTRIBUTE, StandardNames.XSL_ATTRIBUTE_SET,
+                 StandardNames.XSL_BREAK, StandardNames.XSL_CALL_TEMPLATE, StandardNames.XSL_CATCH,
+                 StandardNames.XSL_CHARACTER_MAP, StandardNames.XSL_CHOOSE, StandardNames.XSL_COMMENT,
+                 StandardNames.XSL_CONTEXT_ITEM, StandardNames.XSL_COPY, StandardNames.XSL_COPY_OF,
+                 StandardNames.XSL_DECIMAL_FORMAT, StandardNames.XSL_DOCUMENT, StandardNames.XSL_ELEMENT,
+                 StandardNames.XSL_EVALUATE, StandardNames.XSL_EXPOSE, StandardNames.XSL_FALLBACK,
+                 StandardNames.XSL_FOR_EACH, StandardNames.XSL_FOR_EACH_GROUP, StandardNames.XSL_FORK,
+                 StandardNames.XSL_FUNCTION, StandardNames.XSL_GLOBAL_CONTEXT_ITEM, StandardNames.XSL_IF,
+                 StandardNames.XSL_IMPORT, StandardNames.XSL_IMPORT_SCHEMA, StandardNames.XSL_INCLUDE,
+                 StandardNames.XSL_ITEM_TYPE, StandardNames.XSL_ITERATE, StandardNames.XSL_KEY, StandardNames.XSL_MAP,
+                 StandardNames.XSL_MAP_ENTRY, StandardNames.XSL_MATCHING_SUBSTRING, StandardNames.XSL_MERGE,
+                 StandardNames.XSL_MERGE_ACTION, StandardNames.XSL_MERGE_KEY, StandardNames.XSL_MERGE_SOURCE,
+                 StandardNames.XSL_MESSAGE, StandardNames.XSL_MODE, StandardNames.XSL_NAMESPACE,
+                 StandardNames.XSL_NAMESPACE_ALIAS, StandardNames.XSL_NEXT_ITERATION, StandardNames.XSL_NEXT_MATCH,
+                 StandardNames.XSL_NON_MATCHING_SUBSTRING, StandardNames.XSL_NUMBER, StandardNames.XSL_ON_COMPLETION,
+                 StandardNames.XSL_ON_EMPTY, StandardNames.XSL_ON_NON_EMPTY, StandardNames.XSL_OTHERWISE,
+                 StandardNames.XSL_OUTPUT, StandardNames.XSL_OUTPUT_CHARACTER, StandardNames.XSL_OVERRIDE,
+                 StandardNames.XSL_PACKAGE, StandardNames.XSL_PARAM, StandardNames.XSL_PERFORM_SORT,
+                 StandardNames.XSL_PRESERVE_SPACE, StandardNames.XSL_PROCESSING_INSTRUCTION,
+                 StandardNames.XSL_RESULT_DOCUMENT, StandardNames.XSL_SELECT, StandardNames.XSL_SEQUENCE,
+                 StandardNames.XSL_SORT, StandardNames.XSL_SOURCE_DOCUMENT, StandardNames.XSL_STRIP_SPACE,
+                 StandardNames.XSL_STYLESHEET, StandardNames.XSL_SWITCH, StandardNames.XSL_TEMPLATE,
+                 StandardNames.XSL_TEXT, StandardNames.XSL_TRANSFORM, StandardNames.XSL_TRY,
+                 StandardNames.XSL_USE_PACKAGE, StandardNames.XSL_VALUE_OF, StandardNames.XSL_VARIABLE,
+                 StandardNames.XSL_WHEN, StandardNames.XSL_WHERE_POPULATED, StandardNames.XSL_WITH_PARAM -> true;
+            default -> false;
+        };
     }
 
     public static boolean isXslt40Element(int fp) {
         return isXslt30Element(fp)
                 || fp == StandardNames.XSL_ARRAY
-                || fp == StandardNames.XSL_ARRAY_MEMBER;
+                || fp == StandardNames.XSL_ARRAY_MEMBER
+                || fp == StandardNames.XSL_NOTE
+                || fp == StandardNames.XSL_RECORD
+                || fp == StandardNames.XSL_SELECT;
     }
-
+    
     /**
      * Special-case for element-available('xsl:evaluate') which may be dynamically-disabled,
      * and the spec says that this should be assessed at run-time.  By indicating that the
@@ -186,7 +134,7 @@ public class ElementAvailable extends SystemFunction {
                 return new StructuredQName("", uri, lexicalName);
             } else {
                 return StructuredQName.fromLexicalQName(lexicalName, false,
-                                                        true, getRetainedStaticContext());
+                                                        StructuredQName.QUPL, getRetainedStaticContext());
             }
         } catch (XPathException e) {
             XPathException err = new XPathException("Invalid element name passed to element-available(): " + e.getMessage());

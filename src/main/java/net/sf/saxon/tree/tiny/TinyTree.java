@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.FeatureKeys;
+import net.sf.saxon.lib.Logger;
 import net.sf.saxon.om.*;
 import net.sf.saxon.str.*;
 import net.sf.saxon.trans.XPathException;
@@ -221,6 +222,18 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
         //addNamespace(0, NamespaceBinding.XML);
     }
 
+    /**
+     * Ask whether element and attribute nodes in this tree use fingerprints to represent
+     * node names
+     *
+     * @return true if element and attribute nodes in this tree maintain a fingerprint
+     * accessible using the {@link NodeInfo#getFingerprint()} method.
+     */
+    @Override
+    public boolean isFingerprinted() {
+        return true;
+    }
+
     private void ensureNodeCapacity(short kind, int needed) {
         if (nodeKind.length < numberOfNodes + needed) {
             //System.err.println("Number of nodes = " + numberOfNodes);
@@ -358,21 +371,13 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
         next[numberOfNodes] = -1;      // safety precaution
 
         if (typeArray != null) {
-            typeArray[numberOfNodes] = Untyped.getInstance();
+            typeArray[numberOfNodes] = Untyped.INSTANCE;
         }
 
         if (numberOfNodes == 0) {
             setDocumentNumber(getConfiguration().getDocumentNumberAllocator().allocateDocumentNumber());
         }
 
-//        if (depth == 0 && kind != Type.STOPPER) {
-//            if (rootIndexUsed == rootIndex.length) {
-//                int[] r2 = new int[rootIndexUsed * 2];
-//                System.arraycopy(rootIndex, 0, r2, 0, rootIndexUsed);
-//                rootIndex = r2;
-//            }
-//            rootIndex[rootIndexUsed++] = numberOfNodes;
-//        }
         return numberOfNodes++;
     }
 
@@ -384,21 +389,6 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
 
     void appendChars(UnicodeString chars) {
         textBuffer.appendUnicodeString(chars);
-//        chars.supplyContent(textBuffer, 0, chars.length());
-//        ensureTextCapacity(1);
-//        textChunks[textChunksUsed++] = chars;
-    }
-
-    /**
-     * Create a new text node that is a copy of an existing text node
-     *
-     * @param depth          the depth of the new node
-     * @param existingNodeNr the node to be copied
-     * @return the node number of the new node
-     */
-
-    public int addTextNodeCopy(int depth, int existingNodeNr) {
-        return addNode(Type.TEXT, depth, alpha[existingNodeNr], beta[existingNodeNr], -1);
     }
 
     /**
@@ -466,15 +456,6 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
         prefixPool.condense();
 
         statistics.updateStatistics(numberOfNodes, numberOfAttributes, numberOfNamespaces, textBuffer);
-//        System.err.println("STATS: " + averageNodes + ", " + averageAttributes + ", "
-//                + averageNamespaces + ", " + averageCharacters);
-
-//        if (charBufferLength * 3 < charBuffer.length ||
-//                charBuffer.length - charBufferLength > 10000) {
-//            char[] c2 = new char[charBufferLength];
-//            System.arraycopy(charBuffer,  0, c2, 0, charBufferLength);
-//            charBuffer = c2;
-//        }
     }
 
     /**
@@ -485,10 +466,10 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
      */
 
     void setElementAnnotation(int nodeNr, SchemaType type) {
-        if (!type.equals(Untyped.getInstance())) {
+        if (!type.equals(Untyped.INSTANCE)) {
             if (typeArray == null) {
                 typeArray = new SchemaType[nodeKind.length];
-                Arrays.fill(typeArray, 0, nodeKind.length, Untyped.getInstance());
+                Arrays.fill(typeArray, 0, nodeKind.length, Untyped.INSTANCE);
             }
             assert typeArray != null;
             typeArray[nodeNr] = type;
@@ -520,7 +501,7 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
 
     public SchemaType getSchemaType(int nodeNr) {
         if (typeArray == null) {
-            return Untyped.getInstance();
+            return Untyped.INSTANCE;
         }
         return typeArray[nodeNr];
     }
@@ -935,29 +916,28 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
      */
 
     @Override
-    public final TinyNodeImpl getNode(int nr) {
-        switch ((short)nodeKind[nr]) {
-            case Type.DOCUMENT:
-                return (TinyDocumentImpl) getRootNode();
-            case Type.ELEMENT:
-                return new TinyElementImpl(this, nr);
-            case Type.TEXTUAL_ELEMENT:
-                return new TinyTextualElement(this, nr);
-            case Type.TEXT:
-                return new TinyTextImpl(this, nr);
-            case Type.WHITESPACE_TEXT:
-                return new WhitespaceTextImpl(this, nr);
-            case Type.COMMENT:
-                return new TinyCommentImpl(this, nr);
-            case Type.PROCESSING_INSTRUCTION:
-                return new TinyProcInstImpl(this, nr);
-            case Type.PARENT_POINTER:
-                throw new IllegalArgumentException("Attempting to treat a parent pointer as a node");
-            case Type.STOPPER:
-                throw new IllegalArgumentException("Attempting to treat a stopper entry as a node");
-            default:
-                throw new IllegalStateException("Unknown node kind " + nodeKind[nr]);
-        }
+    public TinyNodeImpl getNode(int nr) {
+        return switch ((short) nodeKind[nr]) {
+            case Type.DOCUMENT
+                    -> (TinyDocumentImpl) getRootNode();
+            case Type.ELEMENT
+                    -> new TinyElementImpl(this, nr);
+            case Type.TEXTUAL_ELEMENT
+                    -> new TinyTextualElement(this, nr);
+            case Type.TEXT
+                    -> new TinyTextImpl(this, nr);
+            case Type.WHITESPACE_TEXT
+                    -> new WhitespaceTextImpl(this, nr);
+            case Type.COMMENT
+                    -> new TinyCommentImpl(this, nr);
+            case Type.PROCESSING_INSTRUCTION
+                    -> new TinyProcInstImpl(this, nr);
+            case Type.PARENT_POINTER ->
+                    throw new IllegalArgumentException("Attempting to treat a parent pointer as a node");
+            case Type.STOPPER
+                    -> throw new IllegalArgumentException("Attempting to treat a stopper entry as a node");
+            default -> throw new IllegalStateException("Unknown node kind " + nodeKind[nr]);
+        };
     }
 
     /**
@@ -1036,7 +1016,7 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
      * @return an attribute node
      */
 
-    /*@NotNull*/ TinyAttributeImpl getAttributeNode(int nr) {
+    TinyAttributeImpl getAttributeNode(int nr) {
         return new TinyAttributeImpl(this, nr);
     }
 
@@ -1328,7 +1308,7 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
         }
         NodeInfo node = idTable.get(id);
         if (node != null && getParent && node.isId() && node.getStringValue().equals(id)) {
-            node = node.getParent();
+            node = (NodeInfo)node.getParent();
         }
         return node;
     }
@@ -1468,8 +1448,8 @@ public final class TinyTree extends GenericTreeInfo implements NodeVectorTree {
      * Output a statistical summary to System.err
      */
 
-    public void showSize() {
-        System.err.println("Tree size: " + numberOfNodes + " nodes, " + textBuffer.length() + " characters, " +
+    public void showSize(Logger logger) {
+        logger.info("Tree size: " + numberOfNodes + " nodes, " + textBuffer.length() + " characters, " +
                                    numberOfAttributes + " attributes");
     }
 

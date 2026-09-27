@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,6 +23,11 @@ import java.util.function.Predicate;
 /**
  * WhitespaceStrippingPolicy is class defining the possible policies for handling
  * whitespace text nodes in a source document.
+ *
+ * <p>Standard policies include {@link #NONE} (no whitespace is stripped), {@link #ALL}
+ * (all whitespace-only text nodes are stripped), and {@link #IGNORABLE} (whitespace
+ * text nodes in element-only content are stripped). Custom policies that strip the
+ * content of selected element types can also be defined.</p>
  */
 
 public class WhitespaceStrippingPolicy {
@@ -97,13 +102,13 @@ public class WhitespaceStrippingPolicy {
         this.policy = policy;
         switch (policy) {
             case Whitespace.ALL:
-                stripperRules = AllElementsSpaceStrippingRule.getInstance();
+                stripperRules = AllElementsSpaceStrippingRule.INSTANCE;
                 break;
             case Whitespace.NONE:
-                stripperRules = NoElementsSpaceStrippingRule.getInstance();
+                stripperRules = NoElementsSpaceStrippingRule.INSTANCE;
                 break;
             case Whitespace.IGNORABLE:
-                stripperRules = IgnorableSpaceStrippingRule.getInstance();
+                stripperRules = IgnorableSpaceStrippingRule.INSTANCE;
                 break;
             default:
                 break;

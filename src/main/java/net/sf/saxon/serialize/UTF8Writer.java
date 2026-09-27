@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -287,6 +287,17 @@ public final class UTF8Writer extends Writer implements UnicodeWriter {
     }
 
     /**
+     * Write a single ASCII character.
+     *
+     * @param codepoint the Unicode character to be processed. Must be in the range 0-127; this is not necessarily checked
+     * @throws IOException if processing fails for any reason
+     */
+    @Override
+    public void writeAscii(int codepoint) throws IOException {
+        write(codepoint);
+    }
+
+    /**
      * Write a sequence of ASCII characters. The caller is responsible for ensuring
      * that each byte represents a character in the range 1-127
      * @param chars the characters to be written
@@ -368,7 +379,7 @@ public final class UTF8Writer extends Writer implements UnicodeWriter {
     @Override
     public void write(int c)
             throws IOException {
-        // First; do we have a left over surrogate?
+        // First; do we have a leftover surrogate?
         if (_surrogate > 0) {
             c = _convertSurrogate(c);
             // If not, do we start with a surrogate?
@@ -433,6 +444,8 @@ public final class UTF8Writer extends Writer implements UnicodeWriter {
             } else if (chars instanceof Slice16) {
                 Slice16 s16 = (Slice16) chars;
                 write(s16.getCharArray(), s16.getStart(), s16.getEnd() - s16.getStart());
+            } else {
+                write(chars.toString());
             }
         } else {
             IntIterator iter = chars.codePoints();

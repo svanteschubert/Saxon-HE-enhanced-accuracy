@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,17 +13,18 @@ package net.sf.saxon.om;
  */
 public class CodedName implements NodeName {
 
+    // Don't use a record here, because C# doesn't like Equals() to be overridden
+
+
     private final int fingerprint;
     private final String prefix;
     private final NamePool pool;
 
     public CodedName(int fingerprint, String prefix, NamePool pool) {
-//        if (fingerprint >> 20 != 0) {
-//            throw new IllegalArgumentException();
-//        }
         this.fingerprint = fingerprint;
         this.prefix = prefix;
         this.pool = pool;
+
     }
 
     /**

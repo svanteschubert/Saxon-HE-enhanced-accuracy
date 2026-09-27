@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,6 @@ import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.s9api.streams.XdmStream;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.tree.iter.LookaheadIteratorImpl;
 import net.sf.saxon.tree.iter.SingletonIterator;
@@ -46,7 +45,7 @@ public class XdmSequenceIterator<T extends XdmItem> implements Iterator<T> {
         }
     }
 
-    public static XdmSequenceIterator<XdmNode> ofNodes(AxisIterator base) {
+    public static XdmSequenceIterator<XdmNode> ofNodes(SequenceIterator base) {
         return new XdmSequenceIterator<>(base);
     }
 

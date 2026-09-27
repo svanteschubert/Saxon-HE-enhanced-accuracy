@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,11 +30,11 @@ public abstract class BooleanExpression extends BinaryExpression implements Nega
      * Construct a boolean expression
      *
      * @param p1       the first operand
-     * @param operator one of {@link Token#AND} or {@link Token#OR}
+     * @param operator one of {@link OperatorSymbol#AND} or {@link OperatorSymbol#OR}
      * @param p2       the second operand
      */
 
-    public BooleanExpression(Expression p1, int operator, Expression p2) {
+    public BooleanExpression(Expression p1, OperatorSymbol operator, Expression p2) {
         super(p1, operator, p2);
     }
 
@@ -48,7 +48,7 @@ public abstract class BooleanExpression extends BinaryExpression implements Nega
      */
     @Override
     public String getExpressionName() {
-        return Token.tokens[getOperator()] + "-expression";
+        return getOperator().toString() + "-expression";
     }
 
     /*@NotNull*/
@@ -58,17 +58,9 @@ public abstract class BooleanExpression extends BinaryExpression implements Nega
         getLhs().typeCheck(visitor, contextInfo);
         getRhs().typeCheck(visitor, contextInfo);
 
-        TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
-        XPathException err0 = TypeChecker.ebvError(getLhsExpression(), th);
-        if (err0 != null) {
-            err0.setLocator(getLocation());
-            throw err0;
-        }
-        XPathException err1 = TypeChecker.ebvError(getRhsExpression(), th);
-        if (err1 != null) {
-            err1.setLocator(getLocation());
-            throw err1;
-        }
+        TypeChecker.ebvTypeCheck(getLhsExpression(), visitor);
+        TypeChecker.ebvTypeCheck(getRhsExpression(), visitor);
+
         // Precompute the EBV of any constant operand
         if (getLhsExpression() instanceof Literal && !(((Literal) getLhsExpression()).getGroundedValue() instanceof BooleanValue)) {
             setLhsExpression(Literal.makeLiteral(
@@ -214,7 +206,7 @@ public abstract class BooleanExpression extends BinaryExpression implements Nega
      */
 
     public static void listAndComponents(Expression exp, List<Expression> list) {
-        if (exp instanceof BooleanExpression && ((BooleanExpression) exp).getOperator() == Token.AND) {
+        if (exp instanceof BooleanExpression && ((BooleanExpression) exp).getOperator() == OperatorSymbol.AND) {
             for (Operand o : exp.operands()) {
                 listAndComponents(o.getChildExpression(), list);
             }

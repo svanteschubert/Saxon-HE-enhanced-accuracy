@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,32 +7,33 @@
 
 package net.sf.saxon.pattern;
 
-import net.sf.saxon.expr.parser.Token;
-import net.sf.saxon.ma.map.DictionaryMap;
+import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.parser.OperatorSymbol;
+import net.sf.saxon.ma.map.StringMapBuilder;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.NodeName;
-import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.tree.tiny.NodeVectorTree;
-import net.sf.saxon.type.*;
-import net.sf.saxon.value.StringValue;
-import net.sf.saxon.z.*;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.pattern.qname.AnyQNameTest;
+import net.sf.saxon.pattern.qname.QNameTest;
+import net.sf.saxon.type.ChoiceItemType;
+import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.type.UType;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /**
  * A CombinedNodeTest combines two node tests using one of the operators
  * union (=or), intersect (=and), difference (= "and not"). This arises
  * when optimizing a union (etc) of two path expressions using the same axis.
- * A CombinedNodeTest is also used to support constructs such as element(N,T),
- * which can be expressed as (element(N,*) intersect element(*,T))
  */
 
-public class CombinedNodeTest extends NodeTest {
+public class CombinedNodeTest implements NodeTest {
 
     private final NodeTest nodetest1;
     private final NodeTest nodetest2;
-    private final int operator;
+    private final OperatorSymbol operator;
 
     /**
      * Create a NodeTest that combines two other node tests
@@ -43,7 +44,10 @@ public class CombinedNodeTest extends NodeTest {
      * @param nt2      the second operand
      */
 
-    public CombinedNodeTest(NodeTest nt1, int operator, NodeTest nt2) {
+    public CombinedNodeTest(NodeTest nt1, OperatorSymbol operator, NodeTest nt2) {
+        Objects.requireNonNull(nt1);
+        Objects.requireNonNull(nt2);
+        Objects.requireNonNull(operator);
         nodetest1 = nt1;
         this.operator = operator;
         nodetest2 = nt2;
@@ -59,64 +63,17 @@ public class CombinedNodeTest extends NodeTest {
     public UType getUType() {
         UType u1 = nodetest1.getUType();
         UType u2 = nodetest2.getUType();
-        switch (operator) {
-            case Token.UNION:
-                return u1.union(u2);
-            case Token.INTERSECT:
-                return u1.intersection(u2);
-            case Token.EXCEPT:
-                return u1;
-            default:
-                throw new IllegalArgumentException("Unknown operator in Combined Node Test");
-        }
-    }
-
-    /**
-     * Test whether this node test is satisfied by a given node. This method is only
-     * fully supported for a subset of NodeTests, because it doesn't provide all the information
-     * needed to evaluate all node tests. In particular (a) it can't be used to evaluate a node
-     * test of the form element(N,T) or schema-element(E) where it is necessary to know whether the
-     * node is nilled, and (b) it can't be used to evaluate a node test of the form
-     * document-node(element(X)). This in practice means that it is used (a) to evaluate the
-     * simple node tests found in the XPath 1.0 subset used in XML Schema, and (b) to evaluate
-     * node tests where the node kind is known to be an attribute.
-     *
-     * @param nodeKind   The kind of node to be matched
-     * @param name       identifies the expanded name of the node to be matched.
-     *                   The value should be null for a node with no name.
-     * @param annotation The actual content type of the node
-     */
-    @Override
-    public boolean matches(int nodeKind, NodeName name, SchemaType annotation) {
-        switch (operator) {
-            case Token.UNION:
-                return nodetest1 == null ||
-                        nodetest2 == null ||
-                        nodetest1.matches(nodeKind, name, annotation) ||
-                        nodetest2.matches(nodeKind, name, annotation);
-            case Token.INTERSECT:
-                return (nodetest1 == null || nodetest1.matches(nodeKind, name, annotation)) &&
-                        (nodetest2 == null || nodetest2.matches(nodeKind, name, annotation));
-            case Token.EXCEPT:
-                return (nodetest1 == null || nodetest1.matches(nodeKind, name, annotation)) &&
-                        !(nodetest2 == null || nodetest2.matches(nodeKind, name, annotation));
-            default:
-                throw new IllegalArgumentException("Unknown operator in Combined Node Test");
-        }
+        return switch (operator) {
+            case UNION -> u1.union(u2);
+            case INTERSECT -> u1.intersection(u2);
+            case EXCEPT -> u1;
+            default -> throw new IllegalArgumentException("Unknown operator in Combined Node Test");
+        };
     }
 
     @Override
-    public IntPredicateProxy getMatcher(NodeVectorTree tree) {
-        switch (operator) {
-            case Token.UNION:
-                return IntUnionPredicate.makeUnion(nodetest1.getMatcher(tree), (nodetest2.getMatcher(tree)));
-            case Token.INTERSECT:
-                return IntIntersectionPredicate.makeIntersection(nodetest1.getMatcher(tree), (nodetest2.getMatcher(tree)));
-            case Token.EXCEPT:
-                return IntExceptPredicate.makeDifference(nodetest1.getMatcher(tree), nodetest2.getMatcher(tree));
-            default:
-                throw new IllegalArgumentException("Unknown operator in Combined Node Test");
-        }
+    public NodeTest asXNodeTest(Configuration config) {
+        return new CombinedNodeTest(nodetest1.asXNodeTest(config), operator, nodetest2.asXNodeTest(config));
     }
 
     /**
@@ -128,50 +85,23 @@ public class CombinedNodeTest extends NodeTest {
      */
 
     @Override
-    public boolean test(/*@NotNull*/ NodeInfo node) {
-        switch (operator) {
-            case Token.UNION:
-                return nodetest1 == null ||
-                        nodetest2 == null ||
-                        nodetest1.test(node) ||
-                        nodetest2.test(node);
-            case Token.INTERSECT:
-                return (nodetest1 == null || nodetest1.test(node)) &&
-                        (nodetest2 == null || nodetest2.test(node));
-            case Token.EXCEPT:
-                return (nodetest1 == null || nodetest1.test(node)) &&
-                        !(nodetest2 == null || nodetest2.test(node));
-            default:
-                throw new IllegalArgumentException("Unknown operator in Combined Node Test");
-        }
+    public boolean test(GNode node) {
+        return switch (operator) {
+            case UNION -> nodetest1.test(node) || nodetest2.test(node);
+            case INTERSECT -> nodetest1.test(node) && nodetest2.test(node);
+            case EXCEPT -> nodetest1.test(node) && !nodetest2.test(node);
+            default -> throw new IllegalArgumentException();
+        };
     }
+
+
 
     public String toString() {
         return makeString(false);
     }
 
     private String makeString(boolean forExport) {
-        if (nodetest1 instanceof NameTest && operator == Token.INTERSECT) {
-            int kind = nodetest1.getPrimitiveType();
-            String skind = kind == Type.ELEMENT ? "element(" : "attribute(";
-            String content = "";
-            if (nodetest2 instanceof ContentTypeTest) {
-                SchemaType schemaType = ((ContentTypeTest) nodetest2).getSchemaType();
-                if (forExport) {
-                    schemaType = TypeHierarchy.getNearestNamedType(schemaType);
-                }
-                content = ", " + schemaType.getEQName();
-                if (nodetest2.isNillable()) {
-                    content += "?";
-                }
-            }
-            String name = nodetest1.getMatchingNodeName().getEQName();
-            return skind + name + content + ')';
-        } else {
-            String nt1 = nodetest1 == null ? "item()" : nodetest1.toString();
-            String nt2 = nodetest2 == null ? "item()" : nodetest2.toString();
-            return '(' + nt1 + ' ' + Token.tokens[operator] + ' ' + nt2 + ')';
-        }
+        return '(' + nodetest1.toString() + ' ' + operator.toString() + ' ' + nodetest2.toString() + ')';
     }
 
     /**
@@ -183,221 +113,228 @@ public class CombinedNodeTest extends NodeTest {
      *
      * @return the string representation as an instance of the XPath SequenceType construct
      */
+
     @Override
-    public String toExportString() {
-        return makeString(true);
+    public String export() {
+        String s1 = nodetest1.export();
+        String s2 = nodetest2.export();
+        return "$NT-" + operator + '(' + s1.length() + '#' + s1 + ',' + s2.length() + "#" + s2 + ')';
     }
 
 
 
-    public String getContentTypeForAlphaCode() {
-        if (nodetest1 instanceof NameTest && operator == Token.INTERSECT && nodetest2 instanceof ContentTypeTest) {
-            return getContentTypeForAlphaCode((NameTest) nodetest1, (ContentTypeTest)nodetest2);
-        } else if (nodetest2 instanceof NameTest && operator == Token.INTERSECT && nodetest1 instanceof ContentTypeTest) {
-            return getContentTypeForAlphaCode((NameTest) nodetest2, (ContentTypeTest) nodetest1);
-        } else {
-            return null;
-        }
-    }
+//    public String getContentTypeForAlphaCode() {
+//        if (nodetest1 instanceof NamedXNodeType && operator == OperatorSymbol.INTERSECT && nodetest2 instanceof NamedXNodeType) {
+//            return getContentTypeForAlphaCode((NameTest) nodetest1, (NamedXNodeType)nodetest2);
+//        } else if (nodetest2 instanceof NameTest && operator == OperatorSymbol.INTERSECT && nodetest1 instanceof NamedXNodeType) {
+//            return getContentTypeForAlphaCode((NameTest) nodetest2, (NamedXNodeType) nodetest1);
+//        } else {
+//            return null;
+//        }
+//    }
 
-    private static String getContentTypeForAlphaCode(NameTest nodetest1, ContentTypeTest nodetest2) {
-        if (nodetest1.getNodeKind() == Type.ELEMENT) {
-            if (nodetest2.getContentType() == Untyped.getInstance() && nodetest2.isNillable()) {
-                return null;
-            } else {
-                SchemaType contentType = nodetest2.getContentType();
-                return contentType.getEQName();
-            }
-        } else if (nodetest1.getNodeKind() == Type.ATTRIBUTE) {
-            if (nodetest2.getContentType() == BuiltInAtomicType.UNTYPED_ATOMIC) {
-                return null;
-            } else {
-                SchemaType contentType = nodetest2.getContentType();
-                return contentType.getEQName();
-            }
-        } else {
-            throw new IllegalStateException();
-        }
-    }
+//    private static String getContentTypeForAlphaCode(NameTest nodetest1, NamedXNodeType nodetest2) {
+//        if (nodetest1.getNodeKind() == Type.ELEMENT) {
+//            if (nodetest2.getContentType() == Untyped.getInstance() && nodetest2.isNillable()) {
+//                return null;
+//            } else {
+//                SchemaType contentType = nodetest2.getContentType();
+//                return contentType.getEQName();
+//            }
+//        } else if (nodetest1.getNodeKind() == Type.ATTRIBUTE) {
+//            if (nodetest2.getContentType() == BuiltInAtomicType.UNTYPED_ATOMIC) {
+//                return null;
+//            } else {
+//                SchemaType contentType = nodetest2.getContentType();
+//                return contentType.getEQName();
+//            }
+//        } else {
+//            throw new IllegalStateException();
+//        }
+//    }
 
     /**
-     * Add the "parameters" of the type to a Dictionary containing the type information
+     * Add the "parameters" of the type to a dictionary containing the type information
      * in structured form
      */
 
-    public void addTypeDetails(DictionaryMap map) {
-        if (nodetest1 instanceof NameTest && operator == Token.INTERSECT) {
-            map.initialPut("n", new StringValue(nodetest1.getMatchingNodeName().getEQName()));
-            if (nodetest2 instanceof ContentTypeTest) {
-                SchemaType schemaType = ((ContentTypeTest) nodetest2).getSchemaType();
-                if (schemaType != Untyped.getInstance() && schemaType != BuiltInAtomicType.UNTYPED_ATOMIC) {
-                    map.initialPut("c", new StringValue(schemaType.getEQName() +
-                            (nodetest2.isNillable() ? "?" : "")));
-
-                }
-            }
-        }
+    public void addTypeDetails(StringMapBuilder map) {
+//        if (nodetest1 instanceof NameTest && operator == OperatorSymbol.INTERSECT) {
+//            map.put(new Twine8("n"), new StringValue(nodetest1.getMatchingNodeName().getEQName()));
+//            if (nodetest2 instanceof NamedXNodeType) {
+//                SchemaType schemaType = ((NamedXNodeType) nodetest2).getSchemaType();
+//                if (schemaType != Untyped.getInstance() && schemaType != BuiltInAtomicType.UNTYPED_ATOMIC) {
+//                    map.put(new Twine8("c"), new StringValue(schemaType.getEQName() +
+//                            (nodetest2.isNillable() ? "?" : "")));
+//
+//                }
+//            }
+//        }
     }
 
 
+//    /**
+//     * Get the basic kind of object that this ItemType matches: for a NodeTest, this is the kind of node,
+//     * or Type.Node if it matches different kinds of nodes.
+//     *
+//     * @return the node kind matched by this node test
+//     */
+//
+//    @Override
+//    public int getPrimitiveType() {
+//        UType mask = getUType();
+//        if (mask.equals(UType.ELEMENT)) {
+//            return Type.ELEMENT;
+//        }
+//        if (mask.equals(UType.ATTRIBUTE)) {
+//            return Type.ATTRIBUTE;
+//        }
+//        if (mask.equals(UType.DOCUMENT)) {
+//            return Type.DOCUMENT;
+//        }
+//        return Type.XNODE;
+//    }
+
     /**
-     * Get the basic kind of object that this ItemType matches: for a NodeTest, this is the kind of node,
-     * or Type.Node if it matches different kinds of nodes.
+     * Extract a QNameTest (the strongest one possible) that must be satisfied by a node
+     * if it is to satisfy this NodeTest
      *
-     * @return the node kind matched by this node test
+     * @return the strongest possible QNameTest
      */
 
-    @Override
-    public int getPrimitiveType() {
-        UType mask = getUType();
-        if (mask.equals(UType.ELEMENT)) {
-            return Type.ELEMENT;
+    public QNameTest getQNameTest() {
+
+        boolean b1 = nodetest1 instanceof QNameTest;
+        boolean b2 = nodetest2 instanceof QNameTest;
+
+        if (b1 && !b2) {
+            return (QNameTest) nodetest1;
         }
-        if (mask.equals(UType.ATTRIBUTE)) {
-            return Type.ATTRIBUTE;
+        if (b2 && !b1) {
+            return (QNameTest) nodetest2;
         }
-        if (mask.equals(UType.DOCUMENT)) {
-            return Type.DOCUMENT;
+        if (!b1) {
+            return AnyQNameTest.getInstance();
         }
-        return Type.NODE;
+        QNameTest test1 = nodetest1.getQNameTest();
+        QNameTest test2 = nodetest2.getQNameTest();
+        if (test1.equals(test2)) {
+            return test1;
+        }
+        if (operator == OperatorSymbol.UNION) {
+            return new UnionQNameTest(test1, test2);
+        }
+        return AnyQNameTest.getInstance();
     }
 
     /**
-     * Get the set of node names allowed by this NodeTest. This is returned as a set of Integer fingerprints.
-     * IntUniversalSet indicates that all names are permitted (i.e. that there are no constraints on the node name).
-     */
-
-    /*@NotNull*/
-    @Override
-    public Optional<IntSet> getRequiredNodeNames() {
-        Optional<IntSet> os1 = nodetest1.getRequiredNodeNames();
-        Optional<IntSet> os2 = nodetest2.getRequiredNodeNames();
-        if (os1.isPresent() && os2.isPresent()) {
-            IntSet s1 = os1.get();
-            IntSet s2 = os2.get();
-            switch (operator) {
-                case Token.UNION: {
-                    return Optional.of(s1.union(s2));
-                }
-                case Token.INTERSECT: {
-                    return Optional.of(s1.intersect(s2));
-                }
-                case Token.EXCEPT: {
-                    return Optional.of(s1.except(s2));
-                }
-                default:
-                    throw new IllegalStateException();
-            }
-        } else {
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Get the content type allowed by this NodeTest (that is, the type annotation of the matched nodes).
-     * Return AnyType if there are no restrictions. The default implementation returns AnyType.
-     */
-
-    @Override
-    public SchemaType getContentType() {
-        SchemaType type1 = nodetest1.getContentType();
-        SchemaType type2 = nodetest2.getContentType();
-        if (type1.isSameType(type2)) {
-            return type1;
-        }
-        if (operator == Token.INTERSECT) {
-            if (type2 instanceof AnyType || (type2 instanceof AnySimpleType && type1.isSimpleType())) {
-                return type1;
-            }
-            if (type1 instanceof AnyType || (type1 instanceof AnySimpleType && type2.isSimpleType())) {
-                return type2;
-            }
-        }
-        return AnyType.getInstance();
-    }
-
-    /**
-     * Get the item type of the atomic values that will be produced when an item
-     * of this type is atomized (assuming that atomization succeeds)
-     */
-
-    /*@NotNull*/
-    @Override
-    public AtomicType getAtomizedItemType() {
-        AtomicType type1 = nodetest1.getAtomizedItemType();
-        AtomicType type2 = nodetest2.getAtomizedItemType();
-        if (type1.isSameType(type2)) {
-            return type1;
-        }
-        if (operator == Token.INTERSECT) {
-            if (type2.equals(BuiltInAtomicType.ANY_ATOMIC)) {
-                return type1;
-            }
-            if (type1.equals(BuiltInAtomicType.ANY_ATOMIC)) {
-                return type2;
-            }
-        }
-        return BuiltInAtomicType.ANY_ATOMIC;
-    }
-
-    /**
-     * Ask whether values of this type are atomizable
+     * Get an item type that all matching nodes must satisfy
      *
-     * @return true unless it is known that these items will be elements with element-only
-     * content, in which case return false
-     * @param th the type hierarchy cache
+     * @return an item type
      */
-
     @Override
-    public boolean isAtomizable(TypeHierarchy th) {
-        switch (operator) {
-            case Token.UNION:
-                return nodetest1.isAtomizable(th) || nodetest2.isAtomizable(th);
-            case Token.INTERSECT:
-                return nodetest1.isAtomizable(th) && nodetest2.isAtomizable(th);
-            case Token.EXCEPT:
-                return nodetest1.isAtomizable(th);
-            default:
-                return true;
+    public ItemType getItemType() {
+        if (operator == OperatorSymbol.UNION) {
+            return ChoiceItemType.of(nodetest1.getItemType(), nodetest2.getItemType());
         }
+        return nodetest1.getItemType();
     }
 
     /**
-     * Get the name of the nodes matched by this nodetest, if it matches a specific name.
-     * Return -1 if the node test matches nodes of more than one name
+     * Get a concise string representation of this node test for use in diagnostics
+     *
+     * @return a suitably abbreviated represention of the node test
      */
-
     @Override
-    public int getFingerprint() {
-        int fp1 = nodetest1.getFingerprint();
-        int fp2 = nodetest2.getFingerprint();
-        if (fp1 == fp2) {
-            return fp1;
-        }
-        if (fp2 == -1 && operator == Token.INTERSECT) {
-            return fp1;
-        }
-        if (fp1 == -1 && operator == Token.INTERSECT) {
-            return fp2;
-        }
-        return -1;
+    public String toShortString() {
+        return toString();
     }
 
-    @Override
-    public StructuredQName getMatchingNodeName() {
-        StructuredQName n1 = nodetest1.getMatchingNodeName();
-        StructuredQName n2 = nodetest2.getMatchingNodeName();
-        if (n1 != null && n1.equals(n2)) {
-            return n1;
-        }
-        if (n1 == null && operator == Token.INTERSECT) {
-            return n2;
-        }
-        if (n2 == null && operator == Token.INTERSECT) {
-            return n1;
-        }
-        return null;
-    }
+    //    /**
+//     * Get the content type allowed by this NodeTest (that is, the type annotation of the matched nodes).
+//     * Return AnyType if there are no restrictions. The default implementation returns AnyType.
+//     */
+//
+//    @Override
+//    public SchemaType getContentType() {
+//        SchemaType type1 = nodetest1.getContentType();
+//        SchemaType type2 = nodetest2.getContentType();
+//        if (type1.isSameType(type2)) {
+//            return type1;
+//        }
+//        if (operator == OperatorSymbol.INTERSECT) {
+//            if (type2 instanceof AnyType || (type2 instanceof AnySimpleType && type1.isSimpleType())) {
+//                return type1;
+//            }
+//            if (type1 instanceof AnyType || (type1 instanceof AnySimpleType && type2.isSimpleType())) {
+//                return type2;
+//            }
+//        }
+//        return AnyType.getInstance();
+//    }
+
+//    /**
+//     * Get the item type of the atomic values that will be produced when an item
+//     * of this type is atomized (assuming that atomization succeeds)
+//     */
+//
+//    /*@NotNull*/
+//    @Override
+//    public AtomicType getAtomizedItemType() {
+//        AtomicType type1 = (AtomicType)nodetest1.getAtomizedItemType();
+//        AtomicType type2 = (AtomicType)nodetest2.getAtomizedItemType();
+//        if (type1.isSameType(type2)) {
+//            return type1;
+//        }
+//        if (operator == OperatorSymbol.INTERSECT) {
+//            if (type2.equals(BuiltInAtomicType.ANY_ATOMIC)) {
+//                return type1;
+//            }
+//            if (type1.equals(BuiltInAtomicType.ANY_ATOMIC)) {
+//                return type2;
+//            }
+//        }
+//        return BuiltInAtomicType.ANY_ATOMIC;
+//    }
+
+//    /**
+//     * Ask whether values of this type are atomizable
+//     *
+//     * @return true unless it is known that these items will be elements with element-only
+//     * content, in which case return false
+//     * @param th the type hierarchy cache
+//     */
+//
+//    @Override
+//    public boolean isAtomizable(TypeHierarchy th) {
+//        switch (operator) {
+//            case UNION:
+//                return nodetest1.isAtomizable(th) || nodetest2.isAtomizable(th);
+//            case INTERSECT:
+//                return nodetest1.isAtomizable(th) && nodetest2.isAtomizable(th);
+//            case EXCEPT:
+//                return nodetest1.isAtomizable(th);
+//            default:
+//                return true;
+//        }
+//    }
+
+
+//    @Override
+//    public StructuredQName getMatchingNodeName() {
+//        StructuredQName n1 = nodetest1.getMatchingNodeName();
+//        StructuredQName n2 = nodetest2.getMatchingNodeName();
+//        if (n1 != null && n1.equals(n2)) {
+//            return n1;
+//        }
+//        if (n1 == null && operator == OperatorSymbol.INTERSECT) {
+//            return n2;
+//        }
+//        if (n2 == null && operator == OperatorSymbol.INTERSECT) {
+//            return n1;
+//        }
+//        return null;
+//    }
 
     /**
      * Determine whether the content type (if present) is nillable
@@ -437,11 +374,10 @@ public class CombinedNodeTest extends NodeTest {
 
     @Override
     public double getDefaultPriority() {
-        if (operator == Token.UNION) {
+        if (operator == OperatorSymbol.UNION) {
             return nodetest1.getDefaultPriority();
         } else {
-            // typically it's element(E, T), element(E:*, T), etc
-            return nodetest1 instanceof NameTest ? 0.25 : 0.125;
+            return 0.25;
         }
     }
 
@@ -457,13 +393,13 @@ public class CombinedNodeTest extends NodeTest {
     }
 
     /**
-     * Get the operator used to combine the two node tests: one of {@link net.sf.saxon.expr.parser.Token#UNION},
-     * {@link net.sf.saxon.expr.parser.Token#INTERSECT}, {@link net.sf.saxon.expr.parser.Token#EXCEPT},
+     * Get the operator used to combine the two node tests: one of {@link net.sf.saxon.expr.parser.Token#VBAR},
+     * {@link OperatorSymbol#INTERSECT}, {@link OperatorSymbol#EXCEPT},
      *
      * @return the operator
      */
 
-    public int getOperator() {
+    public OperatorSymbol getOperator() {
         return operator;
     }
 
@@ -482,18 +418,18 @@ public class CombinedNodeTest extends NodeTest {
      */
     @Override
     public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
-        Optional<String> explanation = super.explainMismatch(item, th);
-        if (explanation.isPresent()) {
-            return explanation;
-        }
-        if (operator == Token.INTERSECT) {
-            // the most common case
-            if (!nodetest1.test((NodeInfo)item)) {
-                return nodetest1.explainMismatch(item, th);
-            } else if (!nodetest2.test((NodeInfo)item)) {
-                return nodetest2.explainMismatch(item, th);
-            }
-        }
+//        Optional<String> explanation = super.explainMismatch(item, th);
+//        if (explanation.isPresent()) {
+//            return explanation;
+//        }
+//        if (operator == OperatorSymbol.INTERSECT) {
+//            // the most common case
+//            if (!nodetest1.test((NodeInfo)item)) {
+//                return nodetest1.explainMismatch(item, th);
+//            } else if (!nodetest2.test((NodeInfo)item)) {
+//                return nodetest2.explainMismatch(item, th);
+//            }
+//        }
         return Optional.empty();
     }
 

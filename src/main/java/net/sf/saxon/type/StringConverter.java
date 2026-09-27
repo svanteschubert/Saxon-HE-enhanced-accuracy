@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -60,7 +60,7 @@ public abstract class StringConverter extends Converter {
      * succeeded), or a {@link ValidationFailure} if conversion failed.
      */
 
-
+    
     public abstract ConversionResult convertString(UnicodeString input);
 
     /**
@@ -78,7 +78,7 @@ public abstract class StringConverter extends Converter {
         return result instanceof ValidationFailure ? (ValidationFailure) result : null;
     }
 
-
+    
     @Override
     public ConversionResult convert(AtomicValue input) {
         return convertString(input.getUnicodeStringValue());
@@ -106,7 +106,7 @@ public abstract class StringConverter extends Converter {
                     (DownCastingConverter) phaseTwo.setNamespaceResolver(resolver));
         }
 
-
+        
         public ConversionResult convert(UnicodeString input) {
             UnicodeString in = input;
             try {
@@ -121,7 +121,7 @@ public abstract class StringConverter extends Converter {
             return phaseTwo.convert((AtomicValue) temp, in);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             try {
@@ -171,7 +171,7 @@ public abstract class StringConverter extends Converter {
             return new StringValue(input.getUnicodeStringValue().tidy());
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             return new StringValue(input.tidy());
@@ -201,7 +201,7 @@ public abstract class StringConverter extends Converter {
             return StringValue.makeUntypedAtomic(input.getUnicodeStringValue());
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             return StringValue.makeUntypedAtomic(input);
@@ -278,7 +278,7 @@ public abstract class StringConverter extends Converter {
         // See erratum E2-25 to XML Schema Part 2.
         public static final StringToLanguage INSTANCE = new StringToLanguage();
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             UnicodeString trimmed = Whitespace.trim(input);
@@ -316,7 +316,7 @@ public abstract class StringConverter extends Converter {
             this.targetType = targetType;
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             UnicodeString trimmed = Whitespace.trim(input);
@@ -346,7 +346,7 @@ public abstract class StringConverter extends Converter {
 
         public final static StringToNMTOKEN INSTANCE = new StringToNMTOKEN();
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             UnicodeString trimmed = Whitespace.trim(input);
@@ -380,7 +380,7 @@ public abstract class StringConverter extends Converter {
             super(BuiltInAtomicType.NAME);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             ValidationFailure vf = validate(input);
@@ -423,7 +423,7 @@ public abstract class StringConverter extends Converter {
             this.whitespaceAction = targetType.getWhitespaceAction();
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             UnicodeString cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
@@ -468,7 +468,7 @@ public abstract class StringConverter extends Converter {
             builtInValidator = ((AtomicType) targetType.getBuiltInBaseType()).getStringConverter(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             UnicodeString cs = Whitespace.applyWhitespaceNormalization(whitespaceAction, input);
@@ -500,7 +500,7 @@ public abstract class StringConverter extends Converter {
             super(Objects.requireNonNull(rules));
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             try {
@@ -548,7 +548,7 @@ public abstract class StringConverter extends Converter {
             return IntegerValue.stringToInteger(input.toString());
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             return IntegerValue.stringToInteger(input.toString());
@@ -572,21 +572,21 @@ public abstract class StringConverter extends Converter {
             this.targetType = targetType;
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             ConversionResult iv = IntegerValue.stringToInteger(input.toString());
             if (iv instanceof Int64Value) {
                 boolean ok = IntegerValue.checkRange(((Int64Value) iv).longValue(), targetType);
                 if (ok) {
-                    return ((Int64Value) iv).copyAsSubType(targetType);
+                    return ((Int64Value) iv).withMetadata(targetType);
                 } else {
                     return new ValidationFailure("Integer value is out of range for type " + targetType);
                 }
             } else if (iv instanceof BigIntegerValue) {
                 boolean ok = IntegerValue.checkBigRange(((BigIntegerValue) iv).asBigInteger(), targetType);
                 if (ok) {
-                    return ((BigIntegerValue) iv).copyAsSubType(targetType);
+                    return ((BigIntegerValue) iv).withMetadata(targetType);
                 } else {
                     return new ValidationFailure("Integer value is out of range for type " + targetType);
                 }
@@ -646,7 +646,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             return DateTimeValue.makeDateTimeValue(input, getConversionRules());
@@ -662,7 +662,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             ConversionResult val = DateTimeValue.makeDateTimeValue(input, getConversionRules());
@@ -670,7 +670,7 @@ public abstract class StringConverter extends Converter {
                 if (!((DateTimeValue) val).hasTimezone()) {
                     return new ValidationFailure("Supplied DateTimeStamp value " + input + " has no time zone");
                 } else {
-                    val = ((DateTimeValue) val).copyAsSubType(BuiltInAtomicType.DATE_TIME_STAMP);
+                    val = ((DateTimeValue) val).withMetadata(BuiltInAtomicType.DATE_TIME_STAMP);
                 }
             }
             return val;
@@ -686,10 +686,10 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
-            return DateValue.makeDateValue(input, getConversionRules());
+            return DateValue.tryParseDate(input.toString(), getConversionRules().isAllowYearZero());
         }
     }
 
@@ -715,7 +715,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             return GYearMonthValue.makeGYearMonthValue(input, getConversionRules());
@@ -731,7 +731,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             return GYearValue.makeGYearValue(input, getConversionRules());
@@ -758,7 +758,7 @@ public abstract class StringConverter extends Converter {
     public static class StringToGDay extends StringConverter {
         public static final StringToGDay INSTANCE = new StringToGDay();
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             return GDayValue.makeGDayValue(input);
@@ -850,7 +850,7 @@ public abstract class StringConverter extends Converter {
             return nsResolver;
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             if (nsResolver == null) {
@@ -898,7 +898,7 @@ public abstract class StringConverter extends Converter {
             return nsResolver;
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             if (getNamespaceResolver() == null) {
@@ -910,12 +910,14 @@ public abstract class StringConverter extends Converter {
                 if (uri == null) {
                     return new ValidationFailure("Namespace prefix " + Err.wrap(parts[0]) + " has not been declared");
                 }
-                // This check added in 9.3. The XSLT spec says that this check should not be performed during
-                // validation. However, this appears to be based on an incorrect assumption: see spec bug 6952
-                if (!getConversionRules().isDeclaredNotation(uri, parts[1])) {
-                    //System.err.println(getConversionRules().isDeclaredNotation(uri, parts[1]));
-                    return new ValidationFailure("Notation {" + uri + "}" + parts[1] + " is not declared in the schema");
-                }
+                // No need to check that this is a declared notation. That is only needed when checking the
+                // emumeration facet of a type derived from xs:NOTATION, and that is handled by the schema compiler.
+//                // This check added in 9.3. The XSLT spec says that this check should not be performed during
+//                // validation. However, this appears to be based on an incorrect assumption: see spec bug 6952
+//                if (!getConversionRules().isDeclaredNotation(uri, parts[1])) {
+//                    //System.err.println(getConversionRules().isDeclaredNotation(uri, parts[1]));
+//                    return new ValidationFailure("Notation {" + uri + "}" + parts[1] + " is not declared in the schema");
+//                }
                 return new NotationValue(parts[0], uri, parts[1], false);
             } catch (QNameException err) {
                 return new ValidationFailure("Invalid lexical QName " + Err.wrap(input));
@@ -934,7 +936,7 @@ public abstract class StringConverter extends Converter {
             super(rules);
         }
 
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             if (getConversionRules().isValidURI(input.toString())) {
@@ -982,7 +984,7 @@ public abstract class StringConverter extends Converter {
          * @return either an {@link net.sf.saxon.value.AtomicValue} of the appropriate type for this converter (if conversion
          * succeeded), or a {@link net.sf.saxon.type.ValidationFailure} if conversion failed.
          */
-
+        
         @Override
         public ConversionResult convertString(UnicodeString input) {
             try {

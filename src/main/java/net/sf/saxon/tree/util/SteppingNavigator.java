@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2017-2023 Saxonica Limited
+// Copyright (c) 2017-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,11 @@
 package net.sf.saxon.tree.util;
 
 import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.pattern.*;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 
 
 /**
@@ -104,7 +106,7 @@ public abstract class SteppingNavigator {
     private static class FollowingFilteredNodeStepper implements Stepper {
 
         SteppingNode anchor;
-        NodeTest test;
+        NodePredicate test;
 
         /**
          * Create a stepper to step successively through selected nodes in a subtree
@@ -113,7 +115,7 @@ public abstract class SteppingNavigator {
          * @param test   the test that returned nodes must satisfy
          */
 
-        FollowingFilteredNodeStepper(SteppingNode anchor, NodeTest test) {
+        FollowingFilteredNodeStepper(SteppingNode anchor, NodePredicate test) {
             this.anchor = anchor;
             this.test = test;
         }
@@ -197,64 +199,43 @@ public abstract class SteppingNavigator {
      * An iterator over the descendant or descendant-or-self axis
      */
 
-    public static class DescendantAxisIterator implements AxisIterator {
+    public static class DescendantAxisIterator implements SequenceIterator {
 
         private final SteppingNode start;
         private SteppingNode current;
         private boolean done;
-        private final Stepper stepper;
+        private Stepper stepper;
 
         /**
          * Create an iterator over the descendant or descendant-or-self axis
          *
          * @param start       the root of the subtree whose descendants are required
          * @param includeSelf true if this is the descendant-or-self axis
-         * @param test        the node-test that selected nodes must satisfy
+         * @param predicate   the node-test that selected nodes must satisfy
          */
 
-        public DescendantAxisIterator(SteppingNode start, boolean includeSelf, NodeTest test) {
+        public DescendantAxisIterator(SteppingNode start, boolean includeSelf, NodePredicate predicate) {
             this.start = start;
 
-            if (!(includeSelf && test.test(start))) {
+            if (!(includeSelf && (predicate == null || predicate.test(start)))) {
                 // initialize currNode to the start node if and only if this is NOT a descendant-or-self scan
                 current = start;
             }
 
-            if (test == null || test == AnyNodeTest.getInstance()) {
+            if (predicate == null || predicate == AnyGNodeType.getInstance()) {
                 stepper = new FollowingNodeStepper(start);
-            } else if (test instanceof NameTest) {
-                if (((NameTest)test).getPrimitiveType() == Type.ELEMENT) {
-                    NameTest nt = (NameTest) test;
-                    if (start.hasFingerprint()) {
-                        stepper = new FollowingFingerprintedElementStepper(start, nt.getFingerprint());
-                    } else {
-                        stepper = new FollowingElementStepper(start, nt.getNamespaceURI(), nt.getLocalPart());
-                    }
-                } else {
-                    stepper = new FollowingFilteredNodeStepper(start, test);
+            } else if (predicate instanceof NamedXNodePredicate) {
+                NamedXNodePredicate fpTest = (NamedXNodePredicate) predicate;
+                int fingerprint = fpTest.getRequiredFingerprint();
+                if (fingerprint != -1
+                        && start.getTreeInfo().isFingerprinted()
+                        && fpTest.getNodeKind() == Type.ELEMENT
+                        && fpTest.isFingerprintSufficient()) {
+                    stepper = new FollowingFingerprintedElementStepper(start, fingerprint);
                 }
-            } else if (test instanceof NodeKindTest) {
-                if (((NodeKindTest)test).getPrimitiveType() == Type.ELEMENT) {
-                    stepper = new FollowingElementStepper(start, null, null);
-                } else {
-                    stepper = new FollowingFilteredNodeStepper(start, test);
-                }
-            } else if (test instanceof LocalNameTest) {
-                if (((LocalNameTest)test).getPrimitiveType() == Type.ELEMENT) {
-                    LocalNameTest nt = (LocalNameTest) test;
-                    stepper = new FollowingElementStepper(start, null, nt.getLocalName());
-                } else {
-                    stepper = new FollowingFilteredNodeStepper(start, test);
-                }
-            } else if (test instanceof NamespaceTest) {
-                if (((NamespaceTest)test).getPrimitiveType() == Type.ELEMENT) {
-                    NamespaceTest nt = (NamespaceTest) test;
-                    stepper = new FollowingElementStepper(start, nt.getNamespaceURI(), null);
-                } else {
-                    stepper = new FollowingFilteredNodeStepper(start, test);
-                }
-            } else {
-                stepper = new FollowingFilteredNodeStepper(start, test);
+            }
+            if (stepper == null) {
+                stepper = new FollowingFilteredNodeStepper(start, predicate);
             }
         }
 

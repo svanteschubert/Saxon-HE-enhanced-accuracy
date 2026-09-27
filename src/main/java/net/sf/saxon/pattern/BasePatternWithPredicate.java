@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.pattern;
 
+//import com.saxonica.ee.stream.Streamability;
+//import com.saxonica.ee.stream.Sweep;
+//import com.saxonica.ee.trans.ContextItemStaticInfoEE;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.elab.BooleanEvaluator;
 import net.sf.saxon.expr.instruct.SlotManager;
@@ -38,10 +41,7 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
     public BasePatternWithPredicate(Pattern basePattern, Expression predicate) {
         basePatternOp = new Operand(this, basePattern, OperandRole.ATOMIC_SEQUENCE);
         predicateOp = new Operand(this, predicate, OperandRole.FOCUS_CONTROLLED_ACTION);
-        if (basePattern instanceof ItemTypePattern) {
-            // TODO: this is a pragmatic approximation to the actual rules
-            setPriority(basePattern.getDefaultPriority() - 1e-12);
-        }
+        setPriority(0.5);
         adoptChildExpression(getBasePattern());
         adoptChildExpression(getPredicate());
     }
@@ -168,8 +168,8 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
      * or it if matches atomic values
      */
     @Override
-    public int getFingerprint() {
-        return getBasePattern().getFingerprint();
+    public int getFingerprint(int nodeKind) {
+        return getBasePattern().getFingerprint(nodeKind);
     }
 
     /**
@@ -206,7 +206,7 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
     public Pattern typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
         basePatternOp.setChildExpression(getBasePattern().typeCheck(visitor, contextItemType));
         ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(
-                getBasePattern().getItemType(), false);
+                getBasePattern().getItemType());
         predicateOp.setChildExpression(getPredicate().typeCheck(visitor, cit));
         return this;
     }
@@ -230,7 +230,7 @@ public class BasePatternWithPredicate extends Pattern implements PatternWithPred
     public Pattern optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         basePatternOp.setChildExpression(getBasePattern().optimize(visitor, contextInfo));
         ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(
-                getBasePattern().getItemType(), false);
+                getBasePattern().getItemType());
         predicateOp.setChildExpression(getPredicate().optimize(visitor, cit));
         predicateOp.setChildExpression(visitor.obtainOptimizer().eliminateCommonSubexpressions(getPredicate()));
         return this;

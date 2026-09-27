@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,15 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.Calculator;
+import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.XPathComparable;
+import net.sf.saxon.functions.Round;
+import net.sf.saxon.ma.map.BigDecimalMapKey;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.str.BMPString;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ValidationFailure;
@@ -78,17 +82,17 @@ public final class BigIntegerValue extends IntegerValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     /*@NotNull*/
     @Override
-    public AtomicValue copyAsSubType(/*@NotNull*/ AtomicType typeLabel) {
-        if (typeLabel.getPrimitiveType() == StandardNames.XS_INTEGER) {
-            return new BigIntegerValue(value, typeLabel);
+    public AtomicValue withMetadata(/*@NotNull*/ AtomicMetadata metadata) {
+        if (metadata.getType().getPrimitiveType() == StandardNames.XS_INTEGER) {
+            return new BigIntegerValue(value, metadata.getType());
         } else {
-            return new BigDecimalValue(new BigDecimal(value), typeLabel);
+            return new BigDecimalValue(new BigDecimal(value), metadata);
         }
 
     }
@@ -122,7 +126,7 @@ public final class BigIntegerValue extends IntegerValue {
      */
 
     public int hashCode() {
-        if (value.compareTo(MIN_INT) >= 0 && value.compareTo(MAX_INT) <= 0) {
+        if (isWithinIntRange()) {
             return value.intValue();
         } else {
             return Double.valueOf(getDoubleValue()).hashCode();
@@ -162,6 +166,16 @@ public final class BigIntegerValue extends IntegerValue {
     }
 
     /**
+     * Test whether the value is within the range that can be held in a 32-bit signed integer
+     *
+     * @return true if the value is within range for a long
+     */
+
+    public boolean isWithinIntRange() {
+        return value.compareTo(MIN_INT) >= 0 && value.compareTo(MAX_INT) <= 0;
+    }
+
+    /**
      * Convert the value to a BigDecimal
      *
      * @return the resulting BigDecimal
@@ -180,6 +194,30 @@ public final class BigIntegerValue extends IntegerValue {
     @Override
     public boolean effectiveBooleanValue() {
         return value.compareTo(BigInteger.ZERO) != 0;
+    }
+
+    /**
+     * Get a value whose {@code equals()} and {@code hashcode()} methods follows the "same key"
+     * rules for comparing the keys of a map. For numeric values, this is done as follows:
+     * <ul>
+     *     <li>For NaN, return {@code AtomicSortComparer.COLLATION_KEY_NaN;}</li>
+     *     <li>For +INF and -INF, call {@code java.lang.Double.hashcode()}</li>
+     *     <li>For any value that is numerically equal to some 32-bit signed integer, return
+     *         a {@link net.sf.saxon.ma.map.Int32MapKey}</li>
+     *     <li>For any other value, return a {@link net.sf.saxon.ma.map.BigDecimalMapKey}</li>
+     * </ul>
+     *
+     * @return a value with the property that the {@code equals()} and {@code hashcode()} methods follow the rules for comparing
+     * keys in maps.
+     */
+
+    @Override
+    public AtomicMatchKey asMapKey(int specVersion) {
+        if (isWithinIntRange()) {
+            return new net.sf.saxon.ma.map.Int32MapKey(value.intValue());
+        } else {
+            return new BigDecimalMapKey(new BigDecimal(value));
+        }
     }
 
     /**
@@ -311,48 +349,67 @@ public final class BigIntegerValue extends IntegerValue {
 
     @Override
     public NumericValue round(int scale) {
-        if (scale >= 0) {
-            return this;
-        } else {
-            BigInteger factor = BigInteger.valueOf(10).pow(-scale);
-            BigInteger[] pair = value.divideAndRemainder(factor);
-            int up = pair[1].compareTo(factor.divide(BigInteger.valueOf(2)));
-            if (up >= 0) {
-                // remainder is > .5
-                pair[0] = pair[0].add(BigInteger.valueOf(1));
-            }
-            return makeIntegerValue(pair[0].multiply(factor));
-        }
+        return round(scale, Round.RoundingRule.HALF_TO_CEILING);
     }
 
     /**
-     * Implement the XPath round-to-half-even() function
+     * Implement the XPath round-to-half-even() or round#3 function
      *
-     * @param scale number of digits required after the decimal point; the
-     *              value -2 (for example) means round to a multiple of 100
+     * @param scale        number of digits required after the decimal point; the
+     *                     value -2 (for example) means round to a multiple of 100
+     * @param roundingRule how rounding is performed
      * @return if the scale is &gt;=0, return this value unchanged. Otherwise
-     *         round it to a multiple of 10**-scale
+     * round it to a multiple of 10**-scale
      */
 
     @Override
-    public NumericValue roundHalfToEven(int scale) {
-        if (scale >= 0) {
+    public NumericValue round(int scale, Round.RoundingRule roundingRule) {
+        if (scale >= 0 || value.signum() == 0) {
             return this;
         } else {
-            BigInteger factor = BigInteger.valueOf(10).pow(-scale);
-            BigInteger[] pair = value.divideAndRemainder(factor);
-            int up = pair[1].compareTo(factor.divide(BigInteger.valueOf(2)));
-            if (up > 0) {
-                // remainder is > .5
-                pair[0] = pair[0].add(BigInteger.valueOf(1));
-            } else if (up == 0) {
-                // remainder == .5
-                if (pair[0].mod(BigInteger.valueOf(2)).signum() != 0) {
-                    // last digit of quotient is odd: make it even
-                    pair[0] = pair[0].add(BigInteger.valueOf(1));
-                }
+            boolean negative = value.signum() < 0;
+
+            // factor is 1 for scale=0, 10 for scale=-1, 100 for scale=-2, etc
+            long factor = 1;
+            for (long i = 1; i <= -scale; i++) {
+                factor *= 10;
             }
-            return makeIntegerValue(pair[0].multiply(factor));
+            BigInteger factorB = BigInteger.valueOf(factor);
+
+            BigInteger towardsZero = value.divide(factorB).multiply(factorB);
+            if (towardsZero.equals(value)) {
+                return this;
+            }
+            BigInteger awayFromZero = negative ? towardsZero.subtract(factorB) : towardsZero.add(factorB);
+            BigInteger floor = negative ? awayFromZero : towardsZero;
+            BigInteger ceiling = negative ? towardsZero : awayFromZero;
+            BigInteger midpoint = floor.add(ceiling.subtract(floor).divide(BigInteger.valueOf(2)));
+            boolean midway = value.equals(midpoint);
+            BigInteger nearest = value.compareTo(midpoint) > 0 ? ceiling : floor;
+            switch (roundingRule) {
+                case FLOOR:
+                    return IntegerValue.makeIntegerValue(floor);
+                case TOWARD_ZERO:
+                    return IntegerValue.makeIntegerValue(towardsZero);
+                case CEILING:
+                    return IntegerValue.makeIntegerValue(ceiling);
+                case AWAY_FROM_ZERO:
+                    return IntegerValue.makeIntegerValue(awayFromZero);
+                case HALF_TO_FLOOR:
+                    return IntegerValue.makeIntegerValue(midway ? floor : nearest);
+                case HALF_TO_CEILING:
+                default:
+                    return IntegerValue.makeIntegerValue(midway ? ceiling : nearest);
+                case HALF_TOWARD_ZERO:
+                    return IntegerValue.makeIntegerValue(midway ? towardsZero : nearest);
+                case HALF_AWAY_FROM_ZERO:
+                    return IntegerValue.makeIntegerValue(midway ? awayFromZero : nearest);
+                case HALF_TO_EVEN:
+                    return IntegerValue.makeIntegerValue(
+                            midway
+                                    ? (floor.divide(factorB).mod(BigInteger.valueOf(2)).signum() == 0 ? floor : ceiling)
+                                    : nearest);
+            }
         }
     }
 
@@ -520,7 +577,7 @@ public final class BigIntegerValue extends IntegerValue {
     @Override
     public IntegerValue reduce() {
         if (compareTo(Long.MAX_VALUE) < 0 && compareTo(Long.MIN_VALUE) > 0) {
-            return new Int64Value(longValue(), typeLabel);
+            return new Int64Value(longValue(), getItemType());
         }
         return this;
     }

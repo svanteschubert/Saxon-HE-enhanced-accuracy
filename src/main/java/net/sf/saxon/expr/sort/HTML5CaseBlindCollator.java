@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -205,17 +205,17 @@ public class HTML5CaseBlindCollator implements StringCollator, SubstringMatcher 
      */
 
     private UnicodeString normalize(UnicodeString cs) {
-        UnicodeBuilder sb = new UnicodeBuilder(cs.length32());
+        TwineBuilder tb = TwineBuilder.make(cs.length32());
         IntIterator iter = cs.codePoints();
         while (iter.hasNext()) {
             int c = iter.next();
             if ('a' <= c && c <= 'z') {
-                sb.append((char)(c + 'A' - 'a'));
+                tb = tb.append((char)(c + 'A' - 'a'));
             } else {
-                sb.append(c);
+                tb = tb.append(c);
             }
         }
-        return sb.toUnicodeString();
+        return tb.toUnicodeString();
     }
 }
 

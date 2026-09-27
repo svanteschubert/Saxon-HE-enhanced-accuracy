@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,25 +8,27 @@
 package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.z.IntPredicateProxy;
+
+import java.util.function.IntPredicate;
 
 /**
  * Iterate over the following axis starting at a given node.
  * The start node must not be a namespace or attribute node.
  */
 
-final class FollowingIterator implements AxisIterator {
+final class FollowingIterator implements SequenceIterator {
 
     private final TinyTree tree;
     private final TinyNodeImpl startNode;
     private NodeInfo current;
-    private final NodeTest test;
+    private final NodePredicate predicate;
     private final boolean includeDescendants;
     int position = 0;
-    private final IntPredicateProxy matcher;
+    private final IntPredicate matcher;
     private NodeInfo pending;
 
     /**
@@ -35,19 +37,19 @@ final class FollowingIterator implements AxisIterator {
      * @param doc                the containing TinyTree
      * @param node               the start node. If the actual start was an attribute or namespace node, this will
      *                           be the parent element of that attribute or namespace
-     * @param nodeTest           condition that all the returned nodes must satisfy
+     * @param predicate          condition that all the returned nodes must satisfy
      * @param includeDescendants true if descendants of the start node are to be included. This will
      *                           be false if the actual start was an element node, true if it was an attribute or namespace node
      *                           (since the children of their parent follow the attribute or namespace in document order).
      */
 
     public FollowingIterator(TinyTree doc, TinyNodeImpl node,
-                             NodeTest nodeTest, boolean includeDescendants) {
+                             NodePredicate predicate, boolean includeDescendants) {
         tree = doc;
-        test = nodeTest;
+        this.predicate = predicate;
         startNode = node;
         this.includeDescendants = includeDescendants;
-        this.matcher = nodeTest.getMatcher(doc);
+        this.matcher = Navigator.getNumberedNodeMatcher(predicate, doc);
     }
 
     /*@Nullable*/
@@ -106,12 +108,12 @@ final class FollowingIterator implements AxisIterator {
                 TinyTextualElement e = (TinyTextualElement)tree.getNode(nodeNr);
                 NodeInfo t = e.getTextNode();
                 if (matcher.test(nodeNr)) {
-                    if (test.test(t)) {
+                    if (predicate == null || predicate.test(t)) {
                         pending = t;
                     }
                     position++;
                     return current = tree.getNode(nodeNr);
-                } else if (test.test(t)) {
+                } else if (predicate == null || predicate.test(t)) {
                     position++;
                     return current = t;
                 }

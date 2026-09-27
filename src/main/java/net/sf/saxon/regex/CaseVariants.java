@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,13 +11,12 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Version;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NameTest;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NamedXNodeType;
 import net.sf.saxon.z.IntArraySet;
 import net.sf.saxon.z.IntHashMap;
 import net.sf.saxon.z.IntToIntHashMap;
@@ -73,15 +72,15 @@ public class CaseVariants {
             throw new RuntimeException("Failed to build casevariants.xml", e);
         }
 
-        AxisIterator iter = doc.iterateAxis(AxisInfo.DESCENDANT, new NameTest(Type.ELEMENT, NamespaceUri.NULL, "c", config.getNamePool()));
+        SequenceIterator iter = doc.iterateDescendantAxis(NamedXNodeType.make(Type.ELEMENT, NamespaceUri.NULL, "c", config));
         while (true) {
-            NodeInfo item = iter.next();
+            NodeInfo item = (NodeInfo)iter.next();
             if (item == null) {
                 break;
             }
-            String code = item.getAttributeValue("", "n");
+            String code = item.getAttributeValue(NamespaceUri.NULL, "n");
             int icode = Integer.parseInt(code, 16);
-            String variants = item.getAttributeValue("", "v");
+            String variants = item.getAttributeValue(NamespaceUri.NULL, "v");
             String[] vhex = variants.split(",");
             int[] vint = new int[vhex.length];
             for (int i = 0; i < vhex.length; i++) {

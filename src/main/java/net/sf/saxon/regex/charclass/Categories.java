@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,16 +12,15 @@ import net.sf.saxon.Version;
 import net.sf.saxon.event.Builder;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.serialize.charcode.XMLCharacterData;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.tiny.TinyElementImpl;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.z.*;
 
 import javax.xml.transform.stream.StreamSource;
@@ -147,11 +146,11 @@ public class Categories {
         int fp_f = config.getNamePool().allocateFingerprint(NamespaceUri.NULL, "f");
         int fp_t = config.getNamePool().allocateFingerprint(NamespaceUri.NULL, "t");
 
-        AxisIterator iter = doc.iterateAxis(AxisInfo.DESCENDANT, new NameTest(Type.ELEMENT, NamespaceUri.NULL, "cat", config.getNamePool()));
-        for (NodeInfo item; (item = iter.next()) != null; ) {
+        SequenceIterator iter = doc.iterateDescendantAxis(NamedXNodeType.make(Type.ELEMENT, NamespaceUri.NULL, "cat", config));
+        for (NodeInfo item; (item = (NodeInfo)iter.next()) != null; ) {
             String cat = ((TinyElementImpl)item).getAttributeValue(fp_name);
             IntRangeSet irs = new IntRangeSet();
-            for (NodeInfo r : item.children(NodeKindTest.ELEMENT)) {
+            for (NodeInfo r : item.children(NodeKindType.ELEMENT)) {
                 String from = ((TinyElementImpl)r).getAttributeValue(fp_f);
                 String to = ((TinyElementImpl) r).getAttributeValue(fp_t);
                 irs.addRange(Integer.parseInt(from, 16), Integer.parseInt(to, 16));

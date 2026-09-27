@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -41,7 +41,7 @@ public class ArithmeticExpression extends BinaryExpression {
      * @param p1       the second operand
      */
 
-    public ArithmeticExpression(Expression p0, int operator, Expression p1) {
+    public ArithmeticExpression(Expression p0, OperatorSymbol operator, Expression p1) {
         super(p0, operator, p1);
     }
 
@@ -111,12 +111,12 @@ public class ArithmeticExpression extends BinaryExpression {
 
         SequenceType atomicType = SequenceType.OPTIONAL_ATOMIC;
 
-        Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+        Supplier<RoleDiagnostic> role0 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 0);
         //role0.setSourceLocator(this);
         setLhsExpression(tc.staticTypeCheck(getLhsExpression(), atomicType, role0, visitor));
         final ItemType itemType0 = getLhsExpression().getItemType();
         if (itemType0 instanceof ErrorType) {
-            return Literal.makeEmptySequence();
+            return getLhsExpression();
         }
         AtomicType type0 = (AtomicType) itemType0.getPrimitiveItemType();
         if (type0.getFingerprint() == StandardNames.XS_UNTYPED_ATOMIC) {
@@ -131,11 +131,11 @@ public class ArithmeticExpression extends BinaryExpression {
 
         // System.err.println("First operand"); operand0.display(10);
 
-        Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
+        Supplier<RoleDiagnostic> role1 = () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 1);
         setRhsExpression(tc.staticTypeCheck(getRhsExpression(), atomicType, role1, visitor));
         final ItemType itemType1 = getRhsExpression().getItemType();
         if (itemType1 instanceof ErrorType) {
-            return Literal.makeEmptySequence();
+            return getRhsExpression();
         }
         AtomicType type1 = (AtomicType) itemType1.getPrimitiveItemType();
         if (type1.getFingerprint() == StandardNames.XS_UNTYPED_ATOMIC) {
@@ -168,7 +168,7 @@ public class ArithmeticExpression extends BinaryExpression {
 
 
 
-        if (operator == Token.NEGATE) {
+        if (operator == OperatorSymbol.NEGATE) {
             if (getRhsExpression() instanceof Literal && ((Literal) getRhsExpression()).getGroundedValue() instanceof NumericValue) {
                 NumericValue nv = (NumericValue) ((Literal) getRhsExpression()).getGroundedValue();
                 return Literal.makeLiteral(nv.negate(), this);
@@ -225,68 +225,6 @@ public class ArithmeticExpression extends BinaryExpression {
     }
 
     /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    /*@Nullable*/
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        IntegerValue[] bounds0 = getLhsExpression().getIntegerBounds();
-        IntegerValue[] bounds1 = getRhsExpression().getIntegerBounds();
-        if (bounds0 == null || bounds1 == null) {
-            return null;
-        } else {
-            switch (operator) {
-                case Token.PLUS:
-                    return new IntegerValue[]{bounds0[0].plus(bounds1[0]), bounds0[1].plus(bounds1[1])};
-                case Token.MINUS:
-                    return new IntegerValue[]{bounds0[0].minus(bounds1[1]), bounds0[1].minus(bounds1[0])};
-                case Token.MULT:
-                    if (getRhsExpression() instanceof Literal) {
-                        IntegerValue val1 = bounds1[0];
-                        if (val1.signum() > 0) {
-                            return new IntegerValue[]{bounds0[0].times(val1), bounds0[1].times(val1)};
-                        } else {
-                            return null;
-                        }
-                    } else if (getLhsExpression() instanceof Literal) {
-                        IntegerValue val0 = bounds1[0];
-                        if (val0.signum() > 0) {
-                            return new IntegerValue[]{bounds1[0].times(val0), bounds1[1].times(val0)};
-                        } else {
-                            return null;
-                        }
-                    }
-                    return null;
-                case Token.DIV:
-                case Token.IDIV:
-                    if (getRhsExpression() instanceof Literal) {
-                        IntegerValue val1 = bounds1[0];
-                        if (val1.signum() > 0) {
-                            try {
-                                return new IntegerValue[]{bounds0[0].idiv(val1), bounds0[1].idiv(val1)};
-                            } catch (XPathException e) {
-                                return null;
-                            }
-                        }
-                    }
-                    return null;
-                default:
-                    return null;
-            }
-        }
-    }
-
-    /**
      * Copy an expression. This makes a deep copy.
      *
      * @return the copy of the original expression
@@ -329,20 +267,20 @@ public class ArithmeticExpression extends BinaryExpression {
      *         {@link Calculator#PLUS}
      */
 
-    public static int mapOpCode(int op) {
+    public static int mapOpCode(OperatorSymbol op) {
         switch (op) {
-            case Token.PLUS:
+            case PLUS:
                 return Calculator.PLUS;
-            case Token.MINUS:
-            case Token.NEGATE:
+            case MINUS:
+            case NEGATE:
                 return Calculator.MINUS;
-            case Token.MULT:
+            case TIMES:
                 return Calculator.TIMES;
-            case Token.DIV:
+            case DIV:
                 return Calculator.DIV;
-            case Token.IDIV:
+            case IDIV:
                 return Calculator.IDIV;
-            case Token.MOD:
+            case MOD:
                 return Calculator.MOD;
             default:
                 throw new IllegalArgumentException();
@@ -381,7 +319,7 @@ public class ArithmeticExpression extends BinaryExpression {
                 // is unknown, we can still infer that the result is numeric. (Not so for X*2, however, where it could
                 // be a duration)
                 TypeHierarchy th = getConfiguration().getTypeHierarchy();
-                if ((operator == Token.PLUS || operator == Token.MINUS) &&
+                if ((operator == OperatorSymbol.PLUS || operator == OperatorSymbol.MINUS) &&
                         (NumericType.isNumericType(t2) || NumericType.isNumericType(t1))) {
                     resultType = NumericType.getInstance();
                 }
@@ -402,7 +340,7 @@ public class ArithmeticExpression extends BinaryExpression {
         // The rationale for this is in the XSLT 3.0 spec
         if (getParentExpression() instanceof FilterExpression && ((FilterExpression)getParentExpression()).getRhsExpression() == this) {
             return UType.NUMERIC;
-        } else if (operator == Token.NEGATE) {
+        } else if (operator == OperatorSymbol.NEGATE) {
             return UType.NUMERIC;
         } else {
             return UType.ANY_ATOMIC;

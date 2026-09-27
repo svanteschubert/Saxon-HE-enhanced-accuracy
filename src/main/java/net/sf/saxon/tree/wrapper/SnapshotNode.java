@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,14 +10,12 @@ package net.sf.saxon.tree.wrapper;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.AtomicSequence;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodePredicate;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
@@ -36,7 +34,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
     /**
      * Protected constructor: create a virtual copy of a node
      *
-     * @param base the node in the source tree to which the new node should correspond
+     * @param base  the node in the source tree to which the new node should correspond
      * @param pivot the pivot node is the node supplied as argument to the snapshot() function; the snapshot
      *              includes all ancestors of this node, and all descendants of this node (plus their attributes
      *              and namespaces)
@@ -88,6 +86,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
      * as the string value for the corresponding node in the source tree; the string value for a node above the pivot
      * is the same as the string value of the pivot. For attributes and namespaces the string value is the same
      * as in the original tree.
+     *
      * @return the string value of the node, as a {@code UnicodeString}
      */
 
@@ -110,7 +109,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
     @Override
     public NodeInfo getParent() {
         if (parent == null) {
-            NodeInfo basep = original.getParent();
+            NodeInfo basep = (NodeInfo)original.getParent();
             if (basep == null) {
                 return null;
             }
@@ -132,6 +131,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
 
     /**
      * Copy this node to a given outputter
+     *
      * @param out         the Receiver to which the node should be copied
      * @param copyOptions a selection of the options defined in {@link net.sf.saxon.om.CopyOptions}
      * @param locationId  Identifies the location of the instruction
@@ -144,6 +144,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
 
     /**
      * Get the typed value of this node
+     *
      * @return the typed value.
      */
 
@@ -208,7 +209,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
      * triggered the event appears.</p>
      *
      * @return A string containing the public identifier, or
-     *         null if none is available.
+     * null if none is available.
      * @see #getSystemId
      */
     /*@Nullable*/
@@ -218,71 +219,130 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
     }
 
     /**
-     * Return an iteration over all the nodes reached by the given axis from this node
-     * that match a given NodeTest
-     *
-     * @param axisNumber an integer identifying the axis; one of the constants
-     *                   defined in class net.sf.saxon.om.Axis
-     * @param nodeTest   A pattern to be matched by the returned nodes; nodes
-     *                   that do not match this pattern are not included in the result
-     * @return an AxisIterator that scans the nodes reached by the axis in
-     * turn.
-     * @throws UnsupportedOperationException if the namespace axis is
-     *                                       requested and this axis is not supported for this implementation.
-     * @see net.sf.saxon.om.AxisInfo
+     * Test whether this node is an ancestor of the pivot node
      */
 
+    public boolean isAncestorOfPivot() {
+        return !original.isSameNodeInfo(pivot) && Navigator.isAncestorOrSelf(original, pivot);
+    }
+
+
+    /**
+     * Get an iterator over the child axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
     @Override
-    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
-        switch (getNodeKind()) {
-            case Type.ATTRIBUTE:
-            case Type.NAMESPACE:
-            case Type.TEXT:
-            case Type.COMMENT:
-            case Type.PROCESSING_INSTRUCTION:
-                switch (axisNumber) {
-                    case AxisInfo.CHILD:
-                    case AxisInfo.DESCENDANT:
-                    case AxisInfo.DESCENDANT_OR_SELF:
-                    case AxisInfo.PRECEDING_SIBLING:
-                    case AxisInfo.FOLLOWING_SIBLING:
-                    case AxisInfo.PRECEDING:
-                    case AxisInfo.FOLLOWING:
-                        return EmptyIterator.ofNodes();
-                    default:
-                        return super.iterateAxis(axisNumber, nodeTest);
-                }
-            default:
-                if (!original.isSameNodeInfo(pivot) && Navigator.isAncestorOrSelf(original, pivot)) {
-                    // We're on a node above the pivot node
-                    switch (axisNumber) {
-                        case AxisInfo.CHILD:
-                            // return only the child that is included in the snapshot, that is, the one
-                            // that is an ancestor-or-self of the pivot node
-                            return Navigator.filteredSingleton(getChildOfAncestorNode(), nodeTest);
-                        case AxisInfo.DESCENDANT:
-                        case AxisInfo.DESCENDANT_OR_SELF:
-                            // Use the child axis recursively, for efficiency
-                            AxisIterator iter = new Navigator.DescendantEnumeration(
-                                this, axisNumber == AxisInfo.DESCENDANT_OR_SELF, true);
-                            if (!(nodeTest instanceof AnyNodeTest)) {
-                                iter = new Navigator.AxisFilter(iter, nodeTest);
-                            }
-                            return iter;
-                        case AxisInfo.PRECEDING_SIBLING:
-                        case AxisInfo.FOLLOWING_SIBLING:
-                        case AxisInfo.PRECEDING:
-                        case AxisInfo.FOLLOWING:
-                            return EmptyIterator.ofNodes();
-                        default:
-                            return super.iterateAxis(axisNumber, nodeTest);
-                    }
-
-                } else {
-                    return super.iterateAxis(axisNumber, nodeTest);
-                }
+    public SequenceIterator iterateChildAxis(NodePredicate predicate) {
+        if (isAncestorOfPivot()) {
+            return Navigator.filteredSingleton(getChildOfAncestorNode(), predicate);
+        } else {
+            return super.iterateChildAxis(predicate);
         }
+    }
 
+    /**
+     * Get an iterator over the descendant axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantAxis(NodePredicate predicate) {
+        if (isAncestorOfPivot()) {
+            // We're on a node above the pivot node. This uses the child axis recursively
+            SequenceIterator iter = new Navigator.DescendantIterator(this, false, true);
+            return Navigator.filter(iter, predicate);
+        } else {
+            return super.iterateDescendantAxis(predicate);
+        }
+    }
+
+    /**
+     * Get an iterator over the descendant-or-self axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantOrSelfAxis(NodePredicate predicate) {
+        if (isAncestorOfPivot()) {
+            // We're on a node above the pivot node. This uses the child axis recursively
+            SequenceIterator iter = new Navigator.DescendantIterator(this, true, true);
+            return Navigator.filter(iter, predicate);
+        } else {
+            return super.iterateDescendantOrSelfAxis(predicate);
+        }
+    }
+
+    /**
+     * Get an iterator over the following-sibling axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingSiblingAxis(NodePredicate predicate) {
+        if (isAncestorOfPivot()) {
+            return EmptyIterator.INSTANCE;
+        } else {
+            return super.iterateFollowingSiblingAxis(predicate);
+        }
+    }
+
+    /**
+     * Get an iterator over the preceding-sibling axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingSiblingAxis(NodePredicate predicate) {
+        if (isAncestorOfPivot()) {
+            return EmptyIterator.INSTANCE;
+        } else {
+            return super.iteratePrecedingSiblingAxis(predicate);
+        }
+    }
+
+    /**
+     * Get an iterator over the following axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingAxis(NodePredicate predicate) {
+        if (isAncestorOfPivot()) {
+            return EmptyIterator.INSTANCE;
+        } else {
+            return Navigator.filter(
+                    new Navigator.FollowingIterator(this), predicate);
+        }
+    }
+
+    /**
+     * Get an iterator over the preceding axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingAxis(NodePredicate predicate) {
+        if (isAncestorOfPivot()) {
+            return EmptyIterator.INSTANCE;
+        } else {
+            return Navigator.filter(
+                    new Navigator.PrecedingIterator(this, false), predicate);
+        }
     }
 
     /**
@@ -316,7 +376,7 @@ public class SnapshotNode extends VirtualCopy implements NodeInfo {
         switch (sourceNode.getNodeKind()) {
             case Type.ATTRIBUTE:
             case Type.NAMESPACE:
-                return isIncludedInCopy(sourceNode.getParent());
+                return isIncludedInCopy((NodeInfo)sourceNode.getParent());
             default:
                 return Navigator.isAncestorOrSelf(pivot, sourceNode) || Navigator.isAncestorOrSelf(sourceNode, pivot);
         }

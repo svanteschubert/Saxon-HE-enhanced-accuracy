@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,13 +11,13 @@ import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.pattern.MultipleNodeKindTest;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.*;
+import net.sf.saxon.type.Schema;
+import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.type.UType;
+import net.sf.saxon.type.Untyped;
 import net.sf.saxon.value.SequenceType;
 
 /**
@@ -33,6 +33,7 @@ public abstract class ParentNodeConstructor extends Instruction
 
     protected Operand contentOp;
     private ParseOptions validationOptions = null;
+    protected Schema schema;
 
     /**
      * Flag set to true if validation=preserve and no schema type supplied for validation; also true
@@ -78,24 +79,27 @@ public abstract class ParentNodeConstructor extends Instruction
     /**
      * Set the validation mode for the new document or element node
      *
+     * @param schema     the schema to be used for validation (can be null if not validating)
      * @param mode       the validation mode, for example {@link Validation#STRICT}
      * @param schemaType the required type (for validation by type). Null if not
      *                   validating by type
      */
 
 
-    public void setValidationAction(int mode, /*@Nullable*/ SchemaType schemaType) {
+    public void setValidationAction(Schema schema, int mode, /*@Nullable*/ SchemaType schemaType) {
+        this.schema = schema;
         preservingTypes = mode == Validation.PRESERVE && schemaType == null;
         if (!preservingTypes) {
             if (validationOptions == null) {
                 validationOptions = new ParseOptions();
             }
-            if (schemaType == Untyped.getInstance()) {
+            if (schemaType == Untyped.INSTANCE) {
                 validationOptions = validationOptions.withSchemaValidationMode(Validation.SKIP);
             } else {
                 validationOptions = validationOptions.withSchemaValidationMode(mode)
                         .withTopLevelType(schemaType);
             }
+            validationOptions = validationOptions.withSchema(schema);
         }
     }
 
@@ -108,6 +112,11 @@ public abstract class ParentNodeConstructor extends Instruction
     @Override
     public int getValidationAction() {
         return validationOptions == null ? Validation.PRESERVE : validationOptions.getSchemaValidationMode();
+    }
+
+
+    public Schema getSchema() {
+        return schema;
     }
 
     /**
@@ -163,7 +172,7 @@ public abstract class ParentNodeConstructor extends Instruction
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         typeCheckChildren(visitor, contextInfo);
-        checkContentSequence(visitor.getStaticContext());
+        checkContentSequence();
         return this;
     }
 
@@ -183,11 +192,10 @@ public abstract class ParentNodeConstructor extends Instruction
     /**
      * Check that the child instructions don't violate any obvious constraints for this kind of node
      *
-     * @param env the static context
      * @throws XPathException if the check fails
      */
 
-    protected abstract void checkContentSequence(StaticContext env) throws XPathException;
+    protected abstract void checkContentSequence() throws XPathException;
 
     /*@NotNull*/
     @Override
@@ -205,16 +213,18 @@ public abstract class ParentNodeConstructor extends Instruction
             }
         }
         if (visitor.getStaticContext().getPackageData().isSchemaAware()) {
-            TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
             if (getValidationAction() == Validation.STRIP) {
-                if (getContentExpression().hasSpecialProperty(StaticProperty.ALL_NODES_UNTYPED) ||
-                    th.relationship(getContentExpression().getItemType(), MultipleNodeKindTest.DOC_ELEM_ATTR) == Affinity.DISJOINT) {
+                if (getContentExpression().hasSpecialProperty(StaticProperty.ALL_NODES_UNTYPED)) {
+                    setNoNeedToStrip();
+                }
+                UType contentType = getContentExpression().getItemType().getUType();
+                if (!contentType.overlaps(UType.DOCUMENT.union(UType.ELEMENT).union(UType.ATTRIBUTE))) {
                     // No need to strip type annotations if there are none needing to be stripped
                     setNoNeedToStrip();
                 }
             }
         } else {
-            setValidationAction(Validation.STRIP, null);
+            setValidationAction(null, Validation.STRIP, null);
             setNoNeedToStrip();
         }
         return this;
@@ -247,39 +257,6 @@ public abstract class ParentNodeConstructor extends Instruction
     @Override
     public int getCardinality() {
         return StaticProperty.EXACTLY_ONE;
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNodeSet representing the points in the source document that are both reachable by this
-     *         expression, and that represent possible results of this expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet result = super.addToPathMap(pathMap, pathMapNodeSet);
-        result.setReturnable(false);
-        TypeHierarchy th = getConfiguration().getTypeHierarchy();
-        ItemType type = getItemType();
-        if (th.relationship(type, NodeKindTest.ELEMENT) != Affinity.DISJOINT ||
-                th.relationship(type, NodeKindTest.DOCUMENT) != Affinity.DISJOINT) {
-            result.addDescendants();
-        }
-        return new PathMap.PathMapNodeSet(pathMap.makeNewRoot(this));
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,12 +21,17 @@ import net.sf.saxon.trans.DecimalFormatManager;
 import net.sf.saxon.trans.KeyManager;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
-
-import java.util.Set;
+import net.sf.saxon.type.Schema;
+import net.sf.saxon.value.SequenceType;
 
 /**
  * A StaticContext contains the information needed while an expression or pattern
- * is being parsed. The information is also sometimes needed at run-time.
+ * is being parsed. The information is also sometimes needed at run-time. The StaticContext
+ * object can be used to parse multiple expressions, so in general it must be immutable.
+ * The XPath 4.0 "declare namespace" mechanism, which modifies the static context for
+ * a single XPath expression is handled by an implementation {@link StaticContextOverlay}
+ * which handles the mutable parts of the static context and delegates everything else
+ * to an immutable implementation.
  */
 
 public interface StaticContext {
@@ -45,6 +50,12 @@ public interface StaticContext {
      */
 
     PackageData getPackageData();
+
+    /**
+     * Get the in-scope schema declarations for the static context
+     */
+
+    Schema getImportedSchema();
 
     /**
      * Construct a dynamic context for early evaluation of constant subexpressions.
@@ -120,6 +131,20 @@ public interface StaticContext {
     Expression bindVariable(StructuredQName qName) throws XPathException;
 
     /**
+     * Register a namespace that is explicitly declared in the prolog of the expression or
+     * query module.
+     *
+     * @param prefix The namespace prefix. Must not be null.
+     * @param uri    The namespace URI. Must not be null. The value "" (zero-length string) is used
+     *               to undeclare a namespace; it is not an error if there is no existing binding for
+     *               the namespace prefix.
+     * @throws net.sf.saxon.trans.XPathException if the declaration is invalid
+     */
+
+    //void declarePrologNamespace(String prefix, NamespaceUri uri) throws XPathException;
+
+
+    /**
      * Get the function library containing all the in-scope functions available in this static
      * context
      *
@@ -138,12 +163,36 @@ public interface StaticContext {
     String getDefaultCollationName();
 
     /**
+     * Register a namespace that is explicitly declared in the prolog of the XPath expression or query module.
+     *
+     * @param prefix The namespace prefix. Must not be null. May be zero-length to declare the default namespace
+     *               for elements and types.
+     * @param uri    The namespace URI. Must not be null. The value "" (zero-length string) is used
+     *               to undeclare a namespace; it is not an error if there is no existing binding for
+     *               the namespace prefix. Must not be "##any", which is handled separately.
+     * @throws net.sf.saxon.trans.XPathException if the declaration is invalid
+     */
+
+    void declarePrologNamespace(String prefix, NamespaceUri uri) throws XPathException;
+
+    /**
      * Get the default XPath namespace for elements and types
      *
      * @return the default namespace, or {@link NamespaceConstant#NULL} for the non-namespace
      */
 
     NamespaceUri getDefaultElementNamespace();
+
+    /**
+     * Set the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
+     * The value can be any of {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE} (the default),
+     * which uses the value of {@link #getDefaultElementNamespace()}, or {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE_OR_NONE},
+     * which matches both the namespace given in {@link #getDefaultElementNamespace()} and the null namespace,
+     * or {@link UnprefixedElementMatchingPolicy#ANY_NAMESPACE}, which matches any namespace (that is, it
+     * matches by local name only).
+     */
+
+    void setUnprefixedElementMatchingPolicy(UnprefixedElementMatchingPolicy policy);
 
     /**
      * Get the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
@@ -155,9 +204,7 @@ public interface StaticContext {
      * @return the policy for matching unprefixed element names
      */
 
-    default UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy() {
-        return UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
-    }
+    UnprefixedElementMatchingPolicy getUnprefixedElementMatchingPolicy();
 
     /**
      * Get the default function namespace
@@ -170,33 +217,10 @@ public interface StaticContext {
     /**
      * Determine whether backwards compatibility mode is used
      *
-     * @return true if 1.0 compaibility mode is in force.
+     * @return true if 1.0 compatibility mode is in force.
      */
 
     boolean isInBackwardsCompatibleMode();
-
-    /**
-     * Ask whether a Schema for a given target namespace has been imported. Note that the
-     * in-scope element declarations, attribute declarations and schema types are the types registered
-     * with the (schema-aware) configuration, provided that their namespace URI is registered
-     * in the static context as being an imported schema namespace. (A consequence of this is that
-     * within a Configuration, there can only be one schema for any given namespace, including the
-     * null namespace).
-     *
-     * @param namespace the target namespace in question
-     * @return true if the given namespace has been imported
-     */
-
-    boolean isImportedSchema(NamespaceUri namespace);
-
-    /**
-     * Get the set of imported schemas
-     *
-     * @return a Set, the set of URIs representing the target namespaces of imported schemas,
-     *         using the zero-length string to denote the "null" namespace.
-     */
-
-    Set<NamespaceUri> getImportedSchemaNamespaces();
 
     /**
      * Get a namespace resolver to resolve the namespaces declared in this static context.
@@ -215,6 +239,8 @@ public interface StaticContext {
      */
 
     ItemType getRequiredContextItemType();
+
+    SequenceType getRequiredContextValueType();
 
     /**
      * Get a DecimalFormatManager to resolve the names of decimal formats used in calls

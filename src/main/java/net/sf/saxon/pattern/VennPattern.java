@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,14 @@
 
 package net.sf.saxon.pattern;
 
-import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.LocalBinding;
+import net.sf.saxon.expr.Operand;
+import net.sf.saxon.expr.OperandRole;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.ItemType;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -25,6 +26,7 @@ import java.util.Set;
  * Bug #5368 concludes that we can't simply treat "A except B" as meaning that a node must
  * match pattern A and not match pattern B; similarly for the intersect operator. There
  * are however special cases where we can do so, for example "@* except @code".
+ * The spec is changed in 4.0 so that intersect and except have the intuitive meanings.
  */
 
 public abstract class VennPattern extends Pattern {
@@ -91,15 +93,15 @@ public abstract class VennPattern extends Pattern {
     }
 
     private void mustBeNodePattern(Pattern p) throws XPathException {
-        if (p instanceof NodeTestPattern) {
-            ItemType it = p.getItemType();
-            if (!(it instanceof NodeTest)) {
-                XPathException err = new XPathException("The operands of a union, intersect, or except pattern " +
-                        "must be patterns that match nodes", "XPTY0004");
-                err.setIsTypeError(true);
-                throw err;
-            }
-        }
+//        if (p instanceof NodeTestPattern) {
+//            ItemType it = p.getItemType();
+//            if (it.getGenre() != Genre.XNODE && it.getGenre() != Genre.JNODE) {
+//                XPathException err = new XPathException("The operands of a union, intersect, or except pattern " +
+//                        "must be patterns that match nodes", "XPTY0004");
+//                err.setIsTypeError(true);
+//                throw err;
+//            }
+//        }
     }
 
     /**

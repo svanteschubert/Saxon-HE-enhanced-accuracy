@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2023 Saxonica Limited
+// Copyright (c) 2023-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,6 @@ import net.sf.saxon.expr.VariableReference;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.ma.zeno.ZenoSequence;
-import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
@@ -35,7 +34,7 @@ public class SharedAppendEvaluator implements SequenceEvaluator {
             Expression child = expr.getOperanda()[i].getChildExpression();
             if (child instanceof VariableReference) {
                 SequenceEvaluator eval = child.makeElaborator().eagerly();
-                actions[i] = (chain, context) -> chain.appendSequence((GroundedValue) eval.evaluate(context));
+                actions[i] = (chain, context) -> chain.appendSequence(eval.evaluate(context).materialize());
             } else {
                 PullEvaluator pull = child.makeElaborator().elaborateForPull();
                 actions[i] = (chain, context) -> {

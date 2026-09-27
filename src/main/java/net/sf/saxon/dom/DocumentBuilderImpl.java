@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -273,13 +273,13 @@ public class DocumentBuilderImpl extends DocumentBuilder {
         SpaceStrippingRule rule;
         switch (stripAction) {
             case Whitespace.ALL:
-                rule = AllElementsSpaceStrippingRule.getInstance();
+                rule = AllElementsSpaceStrippingRule.INSTANCE;
                 break;
             case Whitespace.NONE:
-                rule = NoElementsSpaceStrippingRule.getInstance();
+                rule = NoElementsSpaceStrippingRule.INSTANCE;
                 break;
             case Whitespace.IGNORABLE:
-                rule = IgnorableSpaceStrippingRule.getInstance();
+                rule = IgnorableSpaceStrippingRule.INSTANCE;
                 break;
             case Whitespace.UNSPECIFIED:
                 rule = null;
@@ -301,11 +301,11 @@ public class DocumentBuilderImpl extends DocumentBuilder {
     @Deprecated
     public int getStripSpace() {
         SpaceStrippingRule rule = parseOptions.getSpaceStrippingRule();
-        if (rule == AllElementsSpaceStrippingRule.getInstance()) {
+        if (rule == AllElementsSpaceStrippingRule.INSTANCE) {
             return Whitespace.ALL;
-        } else if (rule == NoElementsSpaceStrippingRule.getInstance()) {
+        } else if (rule == NoElementsSpaceStrippingRule.INSTANCE) {
             return Whitespace.NONE;
-        } else if (rule == IgnorableSpaceStrippingRule.getInstance()) {
+        } else if (rule == IgnorableSpaceStrippingRule.INSTANCE) {
             return Whitespace.IGNORABLE;
         } else if (rule == null) {
             return Whitespace.IGNORABLE;

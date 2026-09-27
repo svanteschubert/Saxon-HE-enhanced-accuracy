@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,17 +10,21 @@ package net.sf.saxon.style;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
-import net.sf.saxon.expr.instruct.*;
+import net.sf.saxon.expr.instruct.Block;
+import net.sf.saxon.expr.instruct.FixedAttribute;
+import net.sf.saxon.expr.instruct.FixedElement;
+import net.sf.saxon.expr.instruct.UseAttributeSet;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.linked.DocumentImpl;
 import net.sf.saxon.tree.linked.LinkedTreeBuilder;
 import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Untyped;
 import net.sf.saxon.z.IntHashSet;
@@ -58,6 +62,7 @@ public class LiteralResultElement extends StyleElement {
             StandardNames.XSL_EXPAND_TEXT,
             StandardNames.XSL_VERSION,
             StandardNames.XSL_XPATH_DEFAULT_NAMESPACE,
+            StandardNames.XSL_SCHEMA_ROLE,
             StandardNames.XSL_TYPE,
             StandardNames.XSL_USE_WHEN,
             StandardNames.XSL_VALIDATION);
@@ -336,12 +341,12 @@ public class LiteralResultElement extends StyleElement {
         if (toplevel) {
             return null;
         }
-
+        Schema schema = getImportedSchema();
         FixedElement inst = new FixedElement(
                 resultNodeName,
                 retainedNamespaces,
                 inheritNamespaces,
-                true, schemaType,
+                true, schema, schemaType,
                 validation);
 
         inst.setLocation(allocateLocation());
@@ -395,33 +400,33 @@ public class LiteralResultElement extends StyleElement {
     }
 
     /**
-     * Make a top-level literal result element into a stylesheet. This implements
+     * Make a top-level literal result element (or in 4.0, any XSLT instruction) into a stylesheet. This implements
      * the "Simplified Stylesheet" facility.
      * @param topLevel true if this is the top level module of a stylesheet; false if it is included or imported
      * @return the reconstructed stylesheet with an xsl:stylesheet and xsl:template element added
      * @throws XPathException if anything goes wrong
      */
 
-    public DocumentImpl makeStylesheet(boolean topLevel) throws XPathException {
+    public static DocumentImpl makeStylesheet(StyleElement top, boolean topLevel) throws XPathException {
 
         // the implementation grafts the LRE node onto a containing xsl:template and
         // xsl:stylesheet
 
-        int processorVersion = getCompilation().getCompilerInfo().getXsltVersion();
-        StyleNodeFactory nodeFactory = getCompilation().getStyleNodeFactory(topLevel);
-        if (!isInScopeNamespace(NamespaceUri.XSLT) && processorVersion < 40) {
+        int processorVersion = top.getCompilation().getCompilerInfo().getXsltVersion();
+        StyleNodeFactory nodeFactory = top.getCompilation().getStyleNodeFactory(topLevel);
+        if (!top.isInScopeNamespace(NamespaceUri.XSLT) && processorVersion < 40) {
             String message;
-            if (getLocalPart().equals("stylesheet") || getLocalPart().equals("transform")) {
+            if (top.getLocalPart().equals("stylesheet") || top.getLocalPart().equals("transform")) {
                 message = "Namespace for stylesheet element should be " + NamespaceConstant.XSLT;
             } else {
                 message = "The supplied file does not appear to be a stylesheet";
             }
             XPathException err = new XPathException(message)
-                    .withLocation(allocateLocation())
+                    .withLocation(top.allocateLocation())
                     .withErrorCode("XTSE0150")
                     .asStaticError();
             //noinspection EmptyCatchBlock
-            compileError(err);
+            top.compileError(err);
             throw err;
 
         }
@@ -429,49 +434,50 @@ public class LiteralResultElement extends StyleElement {
         // check there is an xsl:version attribute (it's mandatory until 4.0), and copy
         // it to the new xsl:stylesheet element
 
-        String version = getAttributeValue(NamespaceUri.XSLT, "version");
+        String version = top.getAttributeValue(NamespaceUri.XSLT, "version");
         if (version == null && processorVersion < 40) {
             XPathException err = new XPathException("Simplified stylesheet: xsl:version attribute is missing")
                     .withErrorCode("XTSE0150")
                     .asStaticError()
-                    .withLocation(allocateLocation());
+                    .withLocation(top.allocateLocation());
             //noinspection EmptyCatchBlock
-            compileError(err);
+            top.compileError(err);
             throw err;
         }
 
         try {
-            DocumentImpl oldRoot = (DocumentImpl) getRoot();
+            DocumentImpl oldRoot = (DocumentImpl) top.getRoot();
             LinkedTreeBuilder builder = new LinkedTreeBuilder(
-                    getConfiguration().makePipelineConfiguration(), Durability.LASTING);
+                    top.getConfiguration().makePipelineConfiguration(), Durability.LASTING);
             builder.setNodeFactory(nodeFactory);
-            builder.setSystemId(this.getSystemId());
+            builder.setSystemId(top.getSystemId());
 
             builder.open();
             builder.startDocument(ReceiverOption.NONE);
 
             final Location loc = Loc.NONE;
 
-            NamespaceMap map = getAllNamespaces().put("xsl", NamespaceUri.XSLT);
-            AttributeMap atts = EmptyAttributeMap.getInstance();
+            NamespaceMap map = top.getAllNamespaces().put("xsl", NamespaceUri.XSLT);
+            AttributeMap atts = EmptyAttributeMap.INSTANCE;
             atts = atts.put(new AttributeInfo(
                     new NoNamespaceName("version"), BuiltInAtomicType.UNTYPED_ATOMIC, version==null ? "4.0" : version, loc, ReceiverOption.NONE));
-            if (processorVersion >= 40 && getAttributeValue(NamespaceUri.XSLT, "expand-text") == null) {
+            if (processorVersion >= 40 && top.getAttributeValue(NamespaceUri.XSLT, "expand-text") == null) {
                 atts = atts.put(new AttributeInfo(
                         new NoNamespaceName("expand-text"), BuiltInAtomicType.UNTYPED_ATOMIC, "yes", loc, ReceiverOption.NONE));
             }
             int st = StandardNames.XSL_STYLESHEET;
-            builder.startElement(new CodedName(st, "xsl", getNamePool()), Untyped.getInstance(),
+            builder.startElement(new CodedName(st, "xsl", top.getNamePool()), Untyped.INSTANCE,
                                  atts, map, loc, ReceiverOption.NONE);
 
-            atts = EmptyAttributeMap.getInstance();
-            atts = atts.put(new AttributeInfo(new NoNamespaceName("match"), BuiltInAtomicType.UNTYPED_ATOMIC, "/", loc, ReceiverOption.NONE));
+            atts = EmptyAttributeMap.INSTANCE;
+            String match = processorVersion < 40 ? "/" : ".";
+            atts = atts.put(new AttributeInfo(new NoNamespaceName("match"), BuiltInAtomicType.UNTYPED_ATOMIC, match, loc, ReceiverOption.NONE));
 
             int te = StandardNames.XSL_TEMPLATE;
-            builder.startElement(new CodedName(te, "xsl", getNamePool()), Untyped.getInstance(),
+            builder.startElement(new CodedName(te, "xsl", top.getNamePool()), Untyped.INSTANCE,
                                  atts, map, loc, ReceiverOption.NONE);
 
-            builder.graftElement(this);
+            builder.graftElement(top);
 
             builder.endElement();
             builder.endElement();
@@ -482,7 +488,7 @@ public class LiteralResultElement extends StyleElement {
             newRoot.graftLocationMap(oldRoot);
             return newRoot;
         } catch (XPathException err) {
-            throw err.withLocation(allocateLocation());
+            throw err.withLocation(top.allocateLocation());
         }
 
     }
@@ -497,7 +503,7 @@ public class LiteralResultElement extends StyleElement {
 
     @Override
     public StructuredQName getObjectName() {
-        return new StructuredQName(getPrefix(), getNamespaceUri(), getLocalPart());
+        return getQName();
     }
 
 }

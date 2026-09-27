@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -76,10 +76,13 @@ public class QNameFn extends SystemFunction {
         return new QNameFnElaborator();
     }
 
-    public static class QNameFnElaborator extends ItemElaborator {
+    private static class QNameFnElaborator extends ItemElaborator {
 
         public ItemEvaluator elaborateForItem() {
             SystemFunctionCall sfc = (SystemFunctionCall) getExpression();
+            final int qNameFormat = sfc.getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40
+                    ? StructuredQName.QUPL
+                    : StructuredQName.QUL;
             if (sfc.getArity() == 2) {
                 ItemEvaluator arg0eval = sfc.getArg(0).makeElaborator().elaborateForItem();
                 ItemEvaluator arg1eval = sfc.getArg(1).makeElaborator().elaborateForItem();
@@ -92,7 +95,7 @@ public class QNameFn extends SystemFunction {
                     if (in == null) {
                         return null;
                     }
-                    StructuredQName qn = StructuredQName.fromLexicalQName(in.getStringValue(), false, true, resolver);
+                    StructuredQName qn = StructuredQName.fromLexicalQName(in.getStringValue(), false, qNameFormat, resolver);
                     return new QNameValue(qn, BuiltInAtomicType.QNAME);
                 };
             }

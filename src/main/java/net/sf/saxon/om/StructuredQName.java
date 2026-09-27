@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,7 @@
 
 package net.sf.saxon.om;
 
-import net.sf.saxon.str.StringTool;
 import net.sf.saxon.trans.XPathException;
-
 import net.sf.saxon.value.Whitespace;
 
 import javax.xml.namespace.QName;
@@ -93,13 +91,13 @@ public class StructuredQName implements IdentityComparable {
      * Make a structured QName from a lexical QName, using a supplied NamespaceResolver to
      * resolve the prefix
      *
-     *
      * @param lexicalName the QName as a lexical name (prefix:local), or (Q{uri}local) if
      *                    allowEQName is set to true. Leading and trailing whitespace is
      *                    ignored.
      * @param useDefault  set to true if an absent prefix implies use of the default namespace;
      *                    set to false if an absent prefix implies no namespace
-     * @param allowEQName true if the EQName syntax Q{uri}local is acceptable
+     * @param format      +1 {@link #QUL} if the syntax Q{uri}local is acceptable;
+     *                    +2 {@link #QUPL} if the syntax Q{uri}prefix:local is acceptable
      * @param resolver    NamespaceResolver used to look up a URI for the prefix
      * @return the StructuredQName object corresponding to this lexical QName
      * @throws XPathException if the namespace prefix is not in scope or if the value is lexically
@@ -109,27 +107,51 @@ public class StructuredQName implements IdentityComparable {
      */
 
     public static StructuredQName fromLexicalQName(String lexicalName, boolean useDefault,
-                                                   boolean allowEQName, NamespaceResolver resolver)
+                                                   int format, NamespaceResolver resolver)
             throws XPathException {
         lexicalName = Whitespace.trim(lexicalName);
-        if (allowEQName && lexicalName.length() >= 4 && lexicalName.charAt(0) == 'Q' && lexicalName.charAt(1) == '{') {
-            String name = lexicalName.toString();
-            int endBrace = name.indexOf('}', 2);
+        int len = lexicalName.length();
+        if (format != 0 && len >= 4 && lexicalName.charAt(0) == 'Q' && lexicalName.charAt(1) == '{') {
+            int endBrace = lexicalName.indexOf('}', 2);
             if (endBrace < 0) {
-                throw new XPathException("Invalid EQName: closing brace not found", "FOCA0002");
-            } else if (endBrace == name.length() - 1) {
-                throw new XPathException("Invalid EQName: local part is missing", "FOCA0002");
+                throw new XPathException("Invalid EQName '" + lexicalName + "': closing brace not found", "FOCA0002");
+            } else if (endBrace == len - 1) {
+                throw new XPathException("Invalid EQName '" + lexicalName + ": 'local part is missing", "FOCA0002");
             }
-            String uri = name.substring(2, endBrace);
+            String uri = lexicalName.substring(2, endBrace);
             if (uri.indexOf('{', 0) >= 0) {
                 throw new XPathException("Namespace URI must not contain '{'", "FOCA0002");
             }
-            String local = name.substring(endBrace + 1, name.length());
-            if (!NameChecker.isValidNCName(StringTool.codePoints(local))) {
+            String remainder = lexicalName.substring(endBrace + 1, len);
+            if ((format & QUPL) != 0) {
+                int colon = remainder.indexOf(':');
+                if (colon < 0) {
+                    if (!NameChecker.isValidNCName(remainder)) {
+                        throw new XPathException("Invalid QName local part '" + remainder + "'", "FOCA0002");
+                    }
+                    return new StructuredQName("", NamespaceUri.of(uri), remainder);
+                } else if (colon == 0) {
+                    throw new XPathException("Invalid EQName: zero-length prefix", "FOCA0002");
+                } else if (colon == remainder.length() - 1) {
+                    throw new XPathException("Invalid EQName: zero-length local part", "FOCA0002");
+                } else {
+                    String prefix = remainder.substring(0, colon);
+                    String local = remainder.substring(colon + 1);
+                    if (!NameChecker.isValidNCName(prefix)) {
+                        throw new XPathException("Invalid QName prefix '" + prefix + "'", "FOCA0002");
+                    }
+                    if (!NameChecker.isValidNCName(local)) {
+                        throw new XPathException("Invalid QName local part '" + local + "'", "FOCA0002");
+                    }
+                    return new StructuredQName(prefix, NamespaceUri.of(uri), local);
+                }
+            }
+            if (!NameChecker.isValidNCName(remainder)) {
                 throw new XPathException("Invalid EQName: local part is not a valid NCName", "FOCA0002");
             }
-            return new StructuredQName("", NamespaceUri.of(uri), local);
+            return new StructuredQName("", NamespaceUri.of(uri), remainder);
         }
+        // Handle a lexical qname (prefix:local)
         try {
             String[] parts = NameChecker.getQNameParts(lexicalName);
             NamespaceUri uri = resolver.getURIForPrefix(parts[0], useDefault);
@@ -147,6 +169,24 @@ public class StructuredQName implements IdentityComparable {
     }
 
     /**
+     * Format option for {@link #fromLexicalQName(String, boolean, int, NamespaceResolver)}: allow
+     * the format <code>Q{uri}local</code>
+     */
+    public final static int QUL = 1;
+
+    /**
+     * Format option for {@link #fromLexicalQName(String, boolean, int, NamespaceResolver)}: allow
+     * the format <code>Q{uri}prefix:local</code>
+     */
+    public final static int QUPL = 2;
+
+    private void checkNCName(String name, String message) {
+        if (!NameChecker.isValidNCName(name)) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+    
+    /**
      * Make a structured QName from an EQName in {@code Q{uri}local} format.
      *
      * @param eqName the QName as an EQName ({@code Q{uri}local}), or an unqualified local name. The format
@@ -158,7 +198,7 @@ public class StructuredQName implements IdentityComparable {
 
     public static StructuredQName fromEQName(String eqName) {
         eqName = Whitespace.trim(eqName);
-        if (eqName.length() >= 4 && eqName.startsWith("Q{")) {
+        if (eqName.startsWith("Q{")) {
             int endBrace = eqName.indexOf('}');
             if (endBrace < 0) {
                 throw new IllegalArgumentException("Invalid EQName: closing brace not found");
@@ -171,6 +211,45 @@ public class StructuredQName implements IdentityComparable {
             }
             String local = eqName.substring(endBrace + 1);
             return new StructuredQName("", NamespaceUri.of(uri), local);
+        } else {
+            return new StructuredQName("", NamespaceUri.NULL, eqName);
+        }
+    }
+
+    /**
+     * Make a structured QName from an EQName in {@code Q{uri}[prefix:]local} format.
+     *
+     * @param eqName the QName as an EQName ({@code Q{uri}[prefix:]local}), or an unqualified local name. The format
+     *               of the prefix and local name is not checked.
+     * @return the StructuredQName object corresponding to this EQName
+     * @throws IllegalArgumentException if the eqName syntax is invalid (but the format of the
+     *                                  URI and local name parts are not checked)
+     */
+
+    public static StructuredQName fromEQName40(String eqName) {
+        eqName = Whitespace.trim(eqName);
+        if (eqName.startsWith("Q{")) {
+            int endBrace = eqName.indexOf('}');
+            if (endBrace < 0) {
+                throw new IllegalArgumentException("Invalid EQName: closing brace not found");
+            } else if (endBrace == eqName.length() - 1) {
+                throw new IllegalArgumentException("Invalid EQName: local part is missing");
+            }
+            String uri = eqName.substring(2, endBrace);
+            if (uri.indexOf('{') >= 0) {
+                throw new IllegalArgumentException("Invalid EQName: open brace in URI part");
+            }
+            String remainder = eqName.substring(endBrace + 1);
+            int colon = remainder.indexOf(':');
+            if (colon < 0) {
+                return new StructuredQName("", NamespaceUri.of(uri), remainder);
+            } else if (colon == 0) {
+                throw new IllegalArgumentException("Invalid EQName: zero-length prefix");
+            } else if (colon == remainder.length() - 1) {
+                throw new IllegalArgumentException("Invalid EQName: zero-length local part");
+            } else {
+                return new StructuredQName(remainder.substring(0, colon), NamespaceUri.of(uri), remainder.substring(colon + 1));
+            }
         } else {
             return new StructuredQName("", NamespaceUri.NULL, eqName);
         }
@@ -348,7 +427,7 @@ public class StructuredQName implements IdentityComparable {
     public QName toJaxpQName() {
         return new javax.xml.namespace.QName(getNamespaceUri().toString(), getLocalPart(), getPrefix());
     }
-
+    
     /**
      * Get the NamespaceBinding (prefix/uri pair) corresponding to this name
      *

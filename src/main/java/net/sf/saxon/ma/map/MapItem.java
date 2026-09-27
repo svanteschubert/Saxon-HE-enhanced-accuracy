@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,29 +11,75 @@ import net.sf.saxon.expr.ContextOriginator;
 import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.OperandRole;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.AtomicMatcher;
+import net.sf.saxon.functions.CallableFunction;
 import net.sf.saxon.functions.DeepEqual;
-import net.sf.saxon.functions.DeepEqual40;
+import net.sf.saxon.functions.SaxonDeepEqual;
+import net.sf.saxon.ma.MapOrArray;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.iter.SequenceIteratorOverJavaIterator;
 import net.sf.saxon.type.*;
-import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.EmptySequence;
-import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.type.gnode.NodeKindType;
+import net.sf.saxon.value.*;
+
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.Stack;
 
 /**
- * Interface supported by different implementations of an XDM map item
+ * Abstract superclass for different implementations of an XDM map item
+ *
+ * <p>The main implementations of {@code MapItem} are as follows:</p>
+ *
+ * <ul>
+ *     <li>{@link EmptyMap} - an empty map</li>
+ *     <li>{@link SingleEntryMap} - a map with exactly one entry</li>
+ *     <li>{@link ExtensibleMap} - a fully "functional" map implementation of ordered maps,
+ *     with constant-time {@code put} and {@code remove} operations, based on the
+ *     CHAMP fork of the VAVR library LinkedHashMap</li>
+ *     <li>{@link AbstractFixedMap} - an implementation backed by a Java {@code HashMap}. Can
+ *     handle any keys and values, but a {@code put} or {@code remove} operation causes
+ *     the data to be bulk-copied to a more flexible structure. Useful when changes to
+ *     the map (after initial building) are unlikely, and when there is no requirement
+ *     to maintain order.</li>
+ *     <li>{@link ShapedMap} - used for record structures where many map instances use the
+ *     same set of string-valued keys; the record type is represented by a {@link Shape}
+ *     object, and the instance stores data in fixed numbered slots in an array.</li>
+ *     <li>{@link com.saxonica.xsltextn.pedigree.DelegatingMapItem} - a map that
+ *     augments an underlying map with additional functinolity, such as the ability
+ *     to attach labels.</li>
+ *     <li>{@link RangeKey} - a sorted map used to support Saxon extensions</li>
+ * </ul>
+ *
+ * <p>A {@code MapItem} has a property {@code specVersion} which determines the comparison
+ * semantics for key values. If {@code specVersion < 40}, hexBinary values are considered
+ * distinct from base64Binary values. If {@code specVersion >= 40}, the two types are
+ * mutually comparable. The value of the property depends on whether 4.0 processing was
+ * enabled for the stylesheet, query, or XPath expression that constructed the map.</p>
  */
-public abstract class MapItem implements FunctionItem {
+public abstract class MapItem extends MapOrArray implements FunctionItem {
+
+
+    private int specVersion = 31;
+
+    public int getSpecVersion() {
+        return specVersion;
+    }
+
+    protected void setSpecVersion(int v) {
+        this.specVersion = v;
+    }
 
     /**
      * Get an entry from the Map
@@ -42,6 +88,38 @@ public abstract class MapItem implements FunctionItem {
      */
 
     abstract public GroundedValue get(AtomicValue key);
+
+    /**
+     * Get an entry from the Map using a string-valued key. The method call
+     * <code>getU(key)</code> is guaranteed to return the same result as
+     * <code>get(new StringValue(key))</code>; it is provided for convenience
+     * and efficiency when accessing maps whose keys are known to be strings.
+     *
+     * @param key the required key
+     * @return the value associated with the given key, or null if the key is not present in the map.
+     */
+
+    public GroundedValue getU(UnicodeString key) {
+        return get(new StringValue(key));
+    }
+
+
+    /**
+     * Get an entry from the Map, supplying an execution plan which the callee can add information to.
+     *
+     * @param key the value of the key
+     * @param plans a list of suggested lookup plans; the callee is free to use these or ignore them
+     *              as it wishes, and can also add new plans for use on future evaluation of the
+     *              same expression. The plan is specific to a particular key value: in practice,
+     *              the method is only used when the lookup key is known statically.
+     * @return the value associated with the given key, or null if the key is not present in the map.
+     */
+
+    public GroundedValue getWithPlan(AtomicValue key, Stack<LookupPlan> plans) {
+        // TODO: not currently used
+        return get(key);
+    }
+
 
     /**
      * Get the size of the map
@@ -62,12 +140,15 @@ public abstract class MapItem implements FunctionItem {
     }
 
     /**
-     * Get the set of all key values in the map.
+     * Get the set of all key values in the map. Default implementation invokes
+     * {@code #keyValuePairs}.
      *
      * @return a set containing all the key values present in the map, in unpredictable order
      */
 
-    abstract public AtomicIterator keys();
+    public AtomicIterator keys() {
+        return new KeyIterator(keyValuePairs().iterator());
+    }
 
     /**
      * Get the set of all key-value pairs in the map
@@ -75,6 +156,62 @@ public abstract class MapItem implements FunctionItem {
      */
 
     abstract public Iterable<KeyValuePair> keyValuePairs();
+
+    /**
+     * Get the sequence of all key-value pairs that follow a given key, in forwards iteration
+     * order of the map.
+     * @param key the starting point of the iteration.
+     * @return an iterator over all the entries in the map that follow the entry for the supplied
+     * key. This key is NOT included in the result. If the key is not present in the map, the method
+     * returns null.
+     */
+
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
+    public Iterator<KeyValuePair> followingKeyValuePairs(AtomicValue key) {
+        // TODO: provide a more efficient implementation for AbstractFixedMap and ExtensibleMap
+        int specVersion = getSpecVersion();
+        AtomicMatchKey matchKey = key.asMapKey(specVersion);
+        Iterator<KeyValuePair> all = keyValuePairs().iterator();
+        while (all.hasNext()) {
+            KeyValuePair current = all.next();
+            if (current.key().asMapKey(specVersion).equals(matchKey)) {
+                return all;
+            }
+        }
+        return Collections.emptyIterator();
+
+    }
+
+    /**
+     * Get the sequence of all key-value pairs that precede a given key, in reverse iteration
+     * order of the map.
+     *
+     * @param key the starting point of the iteration.
+     * @return an iterator over all the entries in the map that precede the entry for the supplied
+     * key. This key is NOT included in the result. If the key is not present in the map, the method
+     * returns null.
+     */
+
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
+    public Iterator<KeyValuePair> precedingKeyValuePairs(AtomicValue key) {
+        // TODO: provide a more efficient implementation for AbstractFixedMap and ExtensibleMap
+        int specVersion = getSpecVersion();
+        if (get(key) == null) {
+            return null;
+        }
+        AtomicMatchKey matchKey = key.asMapKey(specVersion);
+        Iterator<KeyValuePair> all = keyValuePairs().iterator();
+        LinkedList<KeyValuePair> preceding = new LinkedList<>();
+        while (all.hasNext()) {
+            KeyValuePair current = all.next();
+            if (current.key().asMapKey(specVersion).equals(matchKey)) {
+                break;
+            } else {
+                preceding.addFirst(current);
+            }
+        }
+        return preceding.iterator();
+    }
 
     /**
      * Get an iterator over the entries in the map, each represented as a singleton map (representing
@@ -85,7 +222,8 @@ public abstract class MapItem implements FunctionItem {
     public SequenceIterator entries() {
         return new SequenceIteratorOverJavaIterator<KeyValuePair>(
                 keyValuePairs().iterator(),
-                entry -> new SingleEntryMap(entry.key, entry.value));
+                (entry, pos)
+                        -> new SingleEntryMap(((KeyValuePair)entry).key(), ((KeyValuePair) entry).value(), specVersion));
     }
 
 
@@ -99,11 +237,10 @@ public abstract class MapItem implements FunctionItem {
      * @return the new map containing the additional entry
      */
 
-    abstract public MapItem addEntry(AtomicValue key, GroundedValue value);
+    abstract public MapItem put(AtomicValue key, GroundedValue value);
 
     /**
      * Remove an entry from the map
-     *
      *
      * @param key     the key of the entry to be removed
      * @return a new map in which the requested entry has been removed; or this map
@@ -113,13 +250,24 @@ public abstract class MapItem implements FunctionItem {
     abstract public MapItem remove(AtomicValue key);
 
     /**
-     * Ask whether the map conforms to a given map type
-     * @param keyType the required keyType
+     * Ask whether the map conforms to a given map type. This implementation performs
+     * no optimization, it simply scans the entries in the map.
+     *
+     * @param keyType   the required keyType
      * @param valueType the required valueType
-     * @param th the type hierarchy cache for the configuration
      * @return true if the map conforms to the required type
      */
-    abstract public boolean conforms(PlainType keyType, SequenceType valueType, TypeHierarchy th);
+    public boolean conforms(PlainType keyType, SequenceType valueType) {
+        for (KeyValuePair pair : keyValuePairs()) {
+            if (!keyType.matches(pair.key())) {
+                return false;
+            }
+            if (!valueType.matches(pair.value())) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /**
      * Get the type of the map. This method is used largely for diagnostics, to report
@@ -128,16 +276,44 @@ public abstract class MapItem implements FunctionItem {
      * @return the type of this map
      */
 
-    abstract public ItemType getItemType(TypeHierarchy th);
+    public ItemType getItemType(TypeHierarchy th) {
+        if (isEmpty()) {
+            return MapType.EMPTY_MAP_TYPE;
+        }
+        ItemType commonKeyType = ErrorType.getInstance();
+        ItemType commonValueType = ErrorType.getInstance();
+        int minCardinality = Integer.MAX_VALUE;
+        int maxCardinality = 0;
+        for (KeyValuePair pair : keyValuePairs()) {
+            commonKeyType = combinedItemType(th, commonKeyType, pair.key().getItemType());
+            maxCardinality = Math.max(maxCardinality, pair.value().getLength());
+            minCardinality = Math.min(minCardinality, pair.value().getLength());
+            for (Item item : pair.value().asIterable()) {
+                commonValueType = combinedItemType(th,commonValueType, Type.getItemType(item,th));
+            }
+        }
+        SequenceType valueType;
+        if (maxCardinality == 0) {
+            valueType = SequenceType.EMPTY_SEQUENCE;
+        } else {
+            valueType = SequenceType.makeSequenceType(commonValueType,
+                                                      Cardinality.fromMinAndMax(minCardinality, maxCardinality));
 
-    /**
-     * Get the lowest common item type of the keys in the map
-     *
-     * @return the most specific type to which all the keys belong. If the map is
-     *         empty, return UType.VOID
-     */
+        }
+        if (!(commonKeyType instanceof PlainType)) {
+            commonKeyType = BuiltInAtomicType.ANY_ATOMIC;
+        }
+        return new MapType((PlainType)commonKeyType, valueType);
+    }
 
-    abstract public UType getKeyUType();
+    private static ItemType combinedItemType(TypeHierarchy th, ItemType commonItemType, ItemType thisItemType) {
+        Affinity affinity = th.relationship(commonItemType, thisItemType);
+        return switch (affinity) {
+            case SAME_TYPE, SUBSUMES -> commonItemType;
+            case SUBSUMED_BY -> thisItemType;
+            default -> Type.getCommonSuperType(commonItemType, thisItemType, th);
+        };
+    }
 
     /**
      * Provide a short string showing the contents of the item, suitable
@@ -148,7 +324,7 @@ public abstract class MapItem implements FunctionItem {
     @Override
     public String toShortString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("map{");
+        sb.append("{");
         int count = size();
         if (count == 0) {
             sb.append("}");
@@ -156,15 +332,25 @@ public abstract class MapItem implements FunctionItem {
             int pos = 0;
             for (KeyValuePair pair : keyValuePairs()) {
                 if (pos++ > 0) {
-                    sb.append(",");
+                    sb.append(", ");
                 }
-                sb.append(Err.depict(pair.key))
+                sb.append(Err.depict(pair.key()))
                         .append(":")
-                        .append(Err.depictSequence(pair.value));
+                        .append(Err.depictSequence(pair.value()));
             }
             sb.append("}");
         } else {
-            sb.append("(:size ").append(count).append(":)}");
+            int pos = 0;
+            for (KeyValuePair pair : keyValuePairs()) {
+                if (pos++ > 0) {
+                    sb.append(", ");
+                }
+                sb.append(Err.depict(pair.key()));
+                if (pos > 5) {
+                    break;
+                }
+            }
+            sb.append("... (:size ").append(count).append(":)}");
         }
         return sb.toString();
     }
@@ -233,7 +419,7 @@ public abstract class MapItem implements FunctionItem {
 
     public static boolean isKnownToConform(Sequence value, ItemType itemType) {
         // Problem is we don't have access to a TypeHierarchy object...
-        if (itemType == AnyItemType.getInstance()) {
+        if (itemType == AnyItemType.INSTANCE) {
             return true;
         }
         try {
@@ -278,24 +464,24 @@ public abstract class MapItem implements FunctionItem {
         try {
             Item first = val.head();
             if (first == null) {
-                return AnyItemType.getInstance();
+                return AnyItemType.INSTANCE;
             } else {
                 ItemType type;
                 if (first instanceof AtomicValue) {
                     type = ((AtomicValue) first).getItemType();
                 } else if (first instanceof NodeInfo) {
-                    type = NodeKindTest.makeNodeKindTest(((NodeInfo) first).getNodeKind());
+                    type = NodeKindType.makeNodeKindTest(((NodeInfo) first).getNodeKind());
                 } else {
-                    type = AnyFunctionType.getInstance();
+                    type = AnyFunctionType.INSTANCE;
                 }
                 if (isKnownToConform(val, type)) {
                     return type;
                 } else {
-                    return AnyItemType.getInstance();
+                    return AnyItemType.INSTANCE;
                 }
             }
         } catch (XPathException e) {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         }
     }
 
@@ -380,7 +566,7 @@ public abstract class MapItem implements FunctionItem {
         AtomicValue key = (AtomicValue) args[0].head();
         Sequence value = get(key);
         if (value == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else {
             return value;
         }
@@ -431,20 +617,16 @@ public abstract class MapItem implements FunctionItem {
      * @param other the other function item
      */
     @Override
-    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicMatcher comparer, int flags) throws XPathException {
         if (other instanceof MapItem &&
                 ((MapItem) other).size() == size()) {
-            AtomicIterator keyIter = keys();
-            AtomicValue key;
-            while ((key = keyIter.next()) != null) {
-                Sequence thisValue = get(key);
-                assert thisValue != null;
-                Sequence otherValue = ((MapItem) other).get(key);
+            for (KeyValuePair kvp : keyValuePairs()) {
+                Sequence otherValue = ((MapItem) other).get(kvp.key());
                 if (otherValue == null) {
                     return false;
                 }
-                if (!DeepEqual.deepEqual(otherValue.iterate(),
-                                         thisValue.iterate(), comparer, context, flags)) {
+                if (!SaxonDeepEqual.deepEqual(otherValue.iterate(),
+                                              kvp.value().iterate(), comparer, context, flags)) {
                     return false;
                 }
             }
@@ -454,24 +636,40 @@ public abstract class MapItem implements FunctionItem {
     }
 
     @Override
-    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) throws XPathException {
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual.DeepEqualOptions options) throws XPathException {
         if (other instanceof MapItem &&
                 ((MapItem) other).size() == size()) {
-            AtomicIterator keyIter = keys();
-            AtomicValue key;
-            while ((key = keyIter.next()) != null) {
-                Sequence thisValue = get(key);
-                assert thisValue != null;
-                Sequence otherValue = ((MapItem) other).get(key);
-                if (otherValue == null) {
-                    return false;
+            if (options.mapOrderSignificant) {
+                int specVersion = getSpecVersion();
+                Iterator<KeyValuePair> it1 = keyValuePairs().iterator();
+                Iterator<KeyValuePair> it2 = ((MapItem)other).keyValuePairs().iterator();
+                while (it1.hasNext() && it2.hasNext()) {
+                    KeyValuePair kvp1 = it1.next();
+                    KeyValuePair kvp2 = it2.next();
+                    if (!kvp1.key().asMapKey(specVersion).equals(kvp2.key().asMapKey(specVersion))) {
+                        return false;
+                    }
+                    if (!DeepEqual.deepEqual(kvp1.value().iterate(),
+                                             kvp2.value().iterate(),
+                                             context, options)) {
+                        return false;
+                    }
                 }
-                if (!DeepEqual40.deepEqual(otherValue.iterate(),
-                                         thisValue.iterate(), context, options)) {
-                    return false;
+                return true;
+            } else {
+                for (KeyValuePair kvp : keyValuePairs()) {
+                    GroundedValue otherValue = ((MapItem) other).get(kvp.key());
+                    if (otherValue == null) {
+                        return false;
+                    }
+                    if (!DeepEqual.deepEqual(otherValue.iterate(),
+                                             kvp.value().iterate(), context, options)) {
+                        return false;
+                    }
                 }
+                return true;
             }
-            return true;
         }
         return false;
     }
@@ -495,14 +693,14 @@ public abstract class MapItem implements FunctionItem {
 
     public static String mapToString(MapItem map) {
         StringBuilder buffer = new StringBuilder(256);
-        buffer.append("map{");
+        buffer.append("{");
         for (KeyValuePair pair : map.keyValuePairs()) {
             if (buffer.length() > 4) {
                 buffer.append(",");
             }
-            buffer.append(pair.key.toString());
+            buffer.append(pair.key().toString());
             buffer.append(":");
-            buffer.append(pair.value.toString());
+            buffer.append(pair.value().toString());
         }
         buffer.append("}");
         return buffer.toString();
@@ -516,8 +714,8 @@ public abstract class MapItem implements FunctionItem {
         out.startElement("map");
         out.emitAttribute("size", "" + size());
         for (KeyValuePair kvp : keyValuePairs()) {
-            Literal.exportAtomicValue(kvp.key, out);
-            Literal.exportValue(kvp.value, out);
+            Literal.exportAtomicValue(kvp.key(), out);
+            Literal.exportValue(kvp.value(), out);
         }
         out.endElement();
     }
@@ -527,7 +725,49 @@ public abstract class MapItem implements FunctionItem {
         return true;
     }
 
+    public static class KeyIterator implements AtomicIterator {
+
+        private final Iterator<KeyValuePair> kvpIterator;
+
+        public KeyIterator(Iterator<KeyValuePair> kvpIterator) {
+            this.kvpIterator = kvpIterator;
+        }
+
+        @Override
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
+        public AtomicValue next () {
+            if (kvpIterator.hasNext()) {
+                return kvpIterator.next().key();
+            } else {
+                return null;
+            }
+        }
+    }
+
+
+    public final static CallableFunction mapConstructorDuplicatesAction = new CallableFunction(
+            (context, arguments) -> {
+                throw new UncheckedXPathException("Duplicate key in map constructor", "XQDY0137");
+            },
+            new SpecificFunctionType(new SequenceType[]{}, SequenceType.ANY_SEQUENCE)
+    ).withTag("mapConstructorDuplicatesAction");
+
+    public final static CallableFunction xslMapDuplicatesAction = new CallableFunction(
+            (context, arguments) -> {
+                throw new UncheckedXPathException("Duplicate key in xsl:map instruction", "XTDE3365");
+            },
+            new SpecificFunctionType(new SequenceType[]{}, SequenceType.ANY_SEQUENCE)
+    ).withTag("xslMapDuplicatesAction");
+
+    public final static CallableFunction xslRecordDuplicatesAction = new CallableFunction(
+            (context, arguments) -> {
+                throw new UncheckedXPathException("Duplicate key in xsl:record instruction", "XTDE3365");
+            },
+            new SpecificFunctionType(new SequenceType[]{}, SequenceType.ANY_SEQUENCE)
+
+    ).withTag("xslRecordDuplicatesAction");
+
 
 }
 
-// Copyright (c) 2011-2023 Saxonica Limited
+// Copyright (c) 2011-2026 Saxonica Limited

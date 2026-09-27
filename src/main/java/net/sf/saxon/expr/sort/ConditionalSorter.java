@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -100,7 +100,7 @@ public class ConditionalSorter extends Expression {
 
     @Override
     public Expression simplify() throws XPathException {
-        return rewrite(Expression::simplify);
+        return rewrite(expression -> expression.simplify());
     }
 
     /**
@@ -314,8 +314,9 @@ public class ConditionalSorter extends Expression {
         public PullEvaluator elaborateForPull() {
             final ConditionalSorter expr = (ConditionalSorter) getExpression();
             final BooleanEvaluator condition = expr.getCondition().makeElaborator().elaborateForBoolean();
-            final PullEvaluator sorter = expr.getDocumentSorter().makeElaborator().elaborateForPull();
-            final PullEvaluator nonSorter = expr.getDocumentSorter().getBaseExpression().makeElaborator().elaborateForPull();
+            final DocumentSorter docSorter = expr.getDocumentSorter();
+            final PullEvaluator sorter = docSorter.makeElaborator().elaborateForPull();
+            final PullEvaluator nonSorter = docSorter.getBaseExpression().makeElaborator().elaborateForPull();
             return context -> {
                 boolean b = condition.eval(context);
                 if (b) {

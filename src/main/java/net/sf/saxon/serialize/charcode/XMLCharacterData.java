@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -59,7 +59,7 @@ public class XMLCharacterData {
      */
 
     public static boolean isValid10(int i) {
-        return i < 65536 ? (data[i] & VALID_10_MASK) != 0 : (UTF16CharacterSet.NONBMP_MIN <= i && i <= UTF16CharacterSet.NONBMP_MAX);
+        return i < 65536 ? (data[i] & VALID_10_MASK) != 0 : i <= UTF16CharacterSet.NONBMP_MAX;
     }
 
     /**
@@ -92,7 +92,7 @@ public class XMLCharacterData {
      */
 
     public static boolean isValid11(int i) {
-        return i < 65536 ? (data[i] & VALID_11_MASK) != 0 : (UTF16CharacterSet.NONBMP_MIN <= i && i <= UTF16CharacterSet.NONBMP_MAX);
+        return i < 65536 ? (data[i] & VALID_11_MASK) != 0 : i <= UTF16CharacterSet.NONBMP_MAX;
     }
 
     /**
@@ -103,7 +103,7 @@ public class XMLCharacterData {
      */
 
     public static boolean isNCName11(int i) {
-        return i < 65536 ? (data[i] & NAME_11_MASK) != 0 : (UTF16CharacterSet.NONBMP_MIN <= i && i <= MAX_XML11_NAME_CHAR);
+        return i < 65536 ? (data[i] & NAME_11_MASK) != 0 : i <= MAX_XML11_NAME_CHAR;
     }
 
     /**
@@ -114,7 +114,7 @@ public class XMLCharacterData {
      */
 
     public static boolean isNCNameStart11(int i) {
-        return i < 65536 ? (data[i] & NAME_START_11_MASK) != 0 : (UTF16CharacterSet.NONBMP_MIN <= i && i <= MAX_XML11_NAME_CHAR);
+        return i < 65536 ? (data[i] & NAME_START_11_MASK) != 0 : i <= MAX_XML11_NAME_CHAR;
     }
 
     /**

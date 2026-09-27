@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,11 +7,9 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 /**
@@ -29,17 +27,6 @@ public interface Binding {
      */
 
     SequenceType getRequiredType();
-
-    /**
-     * If the variable is bound to an integer, get the minimum and maximum possible values.
-     * Return null if unknown or not applicable
-     *
-     * @return a pair of integers containing the minimum and maximum values for the integer value;
-     *         or null if the value is not an integer or the range is unknown
-     */
-
-    /*@Nullable*/
-    IntegerValue[] getIntegerBoundsForVariable();
 
     /**
      * Evaluate the variable

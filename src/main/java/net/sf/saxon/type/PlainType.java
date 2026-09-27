@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -39,12 +39,11 @@ public interface PlainType extends ItemType, HyperType {
      * Test whether a given item conforms to this type
      *
      * @param item The item to be tested
-     * @param th   The type hierarchy cache. Currently used only when matching function items.
      * @return true if the item is an instance of this type; false otherwise
      */
 
     @Override
-    boolean matches(Item item, TypeHierarchy th);
+    boolean matches(Item item);
 
     /**
      * Redeclare getPrimitiveItemType() to return a more specific result type

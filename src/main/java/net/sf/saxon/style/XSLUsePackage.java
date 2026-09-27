@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,14 +9,14 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.instruct.GlobalContextRequirement;
+import net.sf.saxon.expr.parser.Optionality;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeSelector;
+import net.sf.saxon.pattern.NodePredicateLambda;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.trans.packages.PackageDetails;
 import net.sf.saxon.trans.rules.RuleManager;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.Whitespace;
 
 import java.util.ArrayList;
@@ -58,9 +58,11 @@ public class XSLUsePackage extends StyleElement {
                 usedPackage.setJustInTimeCompilation(info.isJustInTimeCompilation());
             }
             GlobalContextRequirement gcr = usedPackage.getContextItemRequirements();
-            if (gcr != null && !gcr.isMayBeOmitted()) {
-                compileError("Package " + getAttributeValue("name") +
-                                     " requires a global context item, so it cannot be used as a library package", "XTTE0590");
+            if (gcr != null) {
+                if (gcr.getContextValueOptionality() == Optionality.REQUIRED) {
+                    compileError("Package " + getAttributeValue("name") +
+                                         " requires a global context item, so it cannot be used as a library package", "XTTE0590");
+                }
             }
         }
     }
@@ -210,7 +212,7 @@ public class XSLUsePackage extends StyleElement {
             return; // error already reported
         }
         for (NodeInfo override : children(XSLOverride.class::isInstance)) {
-            for (NodeInfo overridingDeclaration : override.children(NodeSelector.of(StylesheetComponent.class::isInstance))) {
+            for (NodeInfo overridingDeclaration : override.children(NodePredicateLambda.of(StylesheetComponent.class::isInstance))) {
                 ComponentDeclaration decl = new ComponentDeclaration(module, (StyleElement) overridingDeclaration);
                 topLevel.add(decl);
                 SymbolicName name = ((StylesheetComponent) overridingDeclaration).getSymbolicName();
@@ -229,13 +231,13 @@ public class XSLUsePackage extends StyleElement {
 
     private Set<SymbolicName> getNamedOverrides() {
         Set<SymbolicName> overrides = new HashSet<>();
-        AxisIterator kids = iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+        SequenceIterator kids = iterateChildAxis(NodeKindType.ELEMENT);
         NodeInfo override;
-        while ((override = kids.next()) != null) {
+        while ((override = (NodeInfo)kids.next()) != null) {
             if (override instanceof XSLOverride) {
-                AxisIterator overridings = override.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+                SequenceIterator overridings = override.iterateChildAxis(NodeKindType.ELEMENT);
                 NodeInfo overridingDeclaration;
-                while ((overridingDeclaration = overridings.next()) != null) {
+                while ((overridingDeclaration = (NodeInfo)overridings.next()) != null) {
                     if (overridingDeclaration instanceof StylesheetComponent) {
                         SymbolicName name = ((StylesheetComponent) overridingDeclaration).getSymbolicName();
                         if (name != null) {
@@ -265,16 +267,16 @@ public class XSLUsePackage extends StyleElement {
             throws XPathException {
         StylesheetPackage thisPackage = module.getStylesheetPackage();
         RuleManager ruleManager = module.getRuleManager();
-        AxisIterator kids = iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+        SequenceIterator kids = iterateChildAxis(NodeKindType.ELEMENT);
         Set<SymbolicName> overriddenModes = new HashSet<>();
 
         // Process all template rules within xsl:override elements
         NodeInfo override;
-        while ((override = kids.next()) != null) {
+        while ((override = (NodeInfo)kids.next()) != null) {
             if (override instanceof XSLOverride) {
-                AxisIterator overridings = override.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+                SequenceIterator overridings = override.iterateChildAxis(NodeKindType.ELEMENT);
                 NodeInfo overridingDeclaration;
-                while ((overridingDeclaration = overridings.next()) != null) {
+                while ((overridingDeclaration = (NodeInfo)overridings.next()) != null) {
                     if (overridingDeclaration instanceof XSLTemplate &&
                             overridingDeclaration.getAttributeValue(NamespaceUri.NULL, "match") != null) {
                         StructuredQName[] modeNames = ((XSLTemplate) overridingDeclaration).getModeNames();
@@ -324,7 +326,7 @@ public class XSLUsePackage extends StyleElement {
                                 newCompoundMode.setDeclaringComponent(derivedComponent);
                                 ruleManager.registerMode(newCompoundMode);
                                 derivedComponent.setActor(newCompoundMode);
-                            }
+                            }   
                         }
                     }
 

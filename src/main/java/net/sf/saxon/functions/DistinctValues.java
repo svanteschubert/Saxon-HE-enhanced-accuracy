@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,13 +9,15 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.AtomicSortComparer;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.om.*;
-import net.sf.saxon.trans.NoDynamicContextException;
+import net.sf.saxon.om.Action;
+import net.sf.saxon.om.LazySequence;
+import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.QNameValue;
 
 import java.util.HashSet;
 
@@ -26,12 +28,6 @@ import java.util.HashSet;
 public class DistinctValues extends CollatingFunctionFixed {
 
 
-    /**
-     * A match key for use in situations where NaN = NaN
-     */
-
-    public static final AtomicMatchKey NaN_MATCH_KEY = new QNameValue("", NamespaceUri.SAXON, "+NaN+");
-
     @Override
     public String getStreamerName() {
         return "DistinctValues";
@@ -40,7 +36,8 @@ public class DistinctValues extends CollatingFunctionFixed {
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         StringCollator collator = getStringCollator();
-        return new LazySequence(new DistinctIterator(arguments[0].iterate(), collator, context));
+        int specVersion = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+        return new LazySequence(new DistinctIterator(arguments[0].iterate(), collator, context, specVersion));
     }
 
 
@@ -55,6 +52,7 @@ public class DistinctValues extends CollatingFunctionFixed {
         private final XPathContext context;
         private final HashSet<AtomicMatchKey> lookup = new HashSet<>(40);
         private Action onDuplicates = null;
+        private final int specVersion;
 
         /**
          * Create an iterator over the distinct values in a sequence
@@ -63,12 +61,14 @@ public class DistinctValues extends CollatingFunctionFixed {
          * @param collator The comparer used to obtain comparison keys from each value;
          *                 these comparison keys are themselves compared using equals().
          * @param context the XPath dynamic context
+         * @param specVersion the XPath language version
          */
 
-        public DistinctIterator(SequenceIterator base, StringCollator collator, XPathContext context) {
+        public DistinctIterator(SequenceIterator base, StringCollator collator, XPathContext context, int specVersion) {
             this.base = base;
             this.collator = collator;
             this.context = context;
+            this.specVersion = specVersion;
         }
 
         /**
@@ -87,13 +87,9 @@ public class DistinctValues extends CollatingFunctionFixed {
                 }
                 AtomicMatchKey key;
                 if (nextBase.isNaN()) {
-                    key = NaN_MATCH_KEY;
+                    key = AtomicSortComparer.COLLATION_KEY_NaN;
                 } else {
-                    try {
-                        key = nextBase.getXPathMatchKey(collator, implicitTimezone);
-                    } catch (NoDynamicContextException e) {
-                        throw new UncheckedXPathException(e);
-                    }
+                    key = nextBase.getXPathMatchKey(collator, implicitTimezone, specVersion);
                 }
                 if (lookup.add(key)) {
                     // returns true if newly added (if not, keep looking)

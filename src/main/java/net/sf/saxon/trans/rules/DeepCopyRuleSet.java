@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,19 +23,22 @@ import net.sf.saxon.type.Type;
  */
 public class DeepCopyRuleSet implements BuiltInRuleSet {
 
-    private static final DeepCopyRuleSet THE_INSTANCE = new DeepCopyRuleSet();
+    private static final DeepCopyRuleSet INSTANCE_WITH_COPY_NS = new DeepCopyRuleSet(true);
+    private static final DeepCopyRuleSet INSTANCE_WITH_NO_COPY_NS = new DeepCopyRuleSet(false);
 
+    private boolean copyNamespaces;
     /**
      * Get the singleton instance of this class
      *
      * @return the singleton instance
      */
 
-    public static DeepCopyRuleSet getInstance() {
-        return THE_INSTANCE;
+    public static DeepCopyRuleSet getInstance(boolean copyNamespaces) {
+        return copyNamespaces ? INSTANCE_WITH_COPY_NS : INSTANCE_WITH_NO_COPY_NS;
     }
 
-    private DeepCopyRuleSet() {
+    private DeepCopyRuleSet(boolean copyNamespaces) {
+        this.copyNamespaces = copyNamespaces;
     }
 
     /**
@@ -61,7 +64,8 @@ public class DeepCopyRuleSet implements BuiltInRuleSet {
                     if (out.getSystemId() == null) {
                         out.setSystemId(node.getBaseURI());
                     }
-                    Navigator.copy(node, out, CopyOptions.ALL_NAMESPACES | CopyOptions.TYPE_ANNOTATIONS, locationId);
+                    int option = (copyNamespaces ? CopyOptions.ALL_NAMESPACES : 0) | CopyOptions.TYPE_ANNOTATIONS;
+                    Navigator.copy(node, out, option, locationId);
                     return;
                 }
                 case Type.TEXT:
@@ -80,7 +84,7 @@ public class DeepCopyRuleSet implements BuiltInRuleSet {
                     out.attribute(NameOfNode.makeName(node), (SimpleType) node.getSchemaType(), node.getStringValue(),
                                                     locationId, ReceiverOption.NONE);
                     return;
-
+                    
                 case Type.NAMESPACE:
                     out.namespace(node.getLocalPart(), NamespaceUri.of(node.getStringValue()), ReceiverOption.NONE);
                     return;

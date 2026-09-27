@@ -1,11 +1,13 @@
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+/// /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon.trans;
+
+////import com.saxonica.trans.XSLRecord;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.CheckSumFilter;
@@ -28,36 +30,52 @@ import net.sf.saxon.functions.hof.*;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
 import net.sf.saxon.functions.registry.XPath30FunctionSet;
 import net.sf.saxon.lib.*;
+import net.sf.saxon.ma.MapOrArray;
 import net.sf.saxon.ma.arrays.ArrayFunctionSet;
 import net.sf.saxon.ma.arrays.SimpleArrayItem;
 import net.sf.saxon.ma.arrays.SquareArrayConstructor;
-import net.sf.saxon.ma.json.JsonParser;
-import net.sf.saxon.ma.map.HashTrieMap;
+import net.sf.saxon.ma.jnode.AnyJNodeType;
+import net.sf.saxon.ma.jnode.RootJNode;
+import net.sf.saxon.ma.map.AbstractFixedMap;
+import net.sf.saxon.ma.map.GeneralMapBuilder;
 import net.sf.saxon.ma.map.MapFunctionSet;
+import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTestStar;
+import net.sf.saxon.pattern.qname.*;
 import net.sf.saxon.query.XQueryFunctionLibrary;
+import net.sf.saxon.regex.ARegularExpression;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.serialize.CharacterMap;
 import net.sf.saxon.serialize.CharacterMapIndex;
 import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeChar;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.style.PackageVersion;
 import net.sf.saxon.style.StylesheetFunctionLibrary;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.sxpath.IndependentContext;
+import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.packages.IPackageLoader;
 import net.sf.saxon.trans.rules.BuiltInRuleSet;
 import net.sf.saxon.trans.rules.Rule;
 import net.sf.saxon.trans.rules.RuleManager;
 import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.transpile.CSharpDelegate;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.jiter.TopDownStackIterable;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.tree.wrapper.VirtualCopy;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.GNodeSequenceConverter;
+import net.sf.saxon.type.coercion.SequenceCoercer;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.*;
 import net.sf.saxon.z.IntHashMap;
 
@@ -76,9 +94,10 @@ import java.util.function.Supplier;
 
 public class PackageLoaderHE implements IPackageLoader {
 
-    private final static NestedIntegerValue SAXON9911 = new NestedIntegerValue(new int[]{9,9,1,1});
+    private final static NestedIntegerValue SAXON9911 = new NestedIntegerValue(new int[]{9, 9, 1, 1});
 
     private final Configuration config;
+    //private Schema importedSchema;
     protected final Stack<StylesheetPackage> packStack = new Stack<>();
     private final XPathParser parser;
     public final Stack<List<ComponentInvocation>> fixups = new Stack<>();
@@ -95,6 +114,7 @@ public class PackageLoaderHE implements IPackageLoader {
     private final Map<Component, String> externalReferences = new HashMap<>();
     private String relocatableBase = null;
     private NestedIntegerValue originalVersion = null;
+    private Map<String, Schema> usedSchemata = null;
 
     public PackageLoaderHE(Configuration config) {
         this.config = config;
@@ -102,7 +122,7 @@ public class PackageLoaderHE implements IPackageLoader {
         underriding = new ExecutableFunctionLibrary(config);
         try {
             parser = config.newExpressionParser("XP", false, new IndependentContext(config));
-            QNameParser qNameParser = new QNameParser(null).withAcceptEQName(true);
+            QNameParser qNameParser = new QNameParser(null).withAcceptEQName(true, 40);
             parser.setQNameParser(qNameParser);
         } catch (XPathException e) {
             throw new AssertionError(e);
@@ -115,7 +135,7 @@ public class PackageLoaderHE implements IPackageLoader {
             StringTokenizer tokenizer = new StringTokenizer(accumulatorNames);
             while (tokenizer.hasMoreTokens()) {
                 String token = tokenizer.nextToken();
-                StructuredQName name = StructuredQName.fromEQName((token));
+                StructuredQName name = StructuredQName.fromEQName40((token));
                 accNameList.add(name);
             }
             final StylesheetPackage pack = loader.getPackStack().peek();
@@ -135,6 +155,10 @@ public class PackageLoaderHE implements IPackageLoader {
 
     public Configuration getConfiguration() {
         return config;
+    }
+
+    public Schema getSchema() {
+        return contextStack.peek().getImportedSchema();
     }
 
     public StylesheetPackage getTopLevelPackage() {
@@ -159,10 +183,10 @@ public class PackageLoaderHE implements IPackageLoader {
     }
 
     @Override
-    public StylesheetPackage loadPackage(Source source) throws XPathException {
-
+    public StylesheetPackage loadPackage(Source source, Map<String, Schema> usedSchemata) throws XPathException {
+        this.usedSchemata = usedSchemata;
         ParseOptions options = new ParseOptions()
-                .withSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance())
+                .withSpaceStrippingRule(AllElementsSpaceStrippingRule.INSTANCE)
                 .withSchemaValidationMode(Validation.SKIP)
                 .withDTDValidationMode(Validation.SKIP);
 
@@ -193,11 +217,12 @@ public class PackageLoaderHE implements IPackageLoader {
         pack.setRuleManager(new RuleManager(pack));
         pack.setCharacterMapIndex(new CharacterMapIndex());
         pack.setJustInTimeCompilation(false);
+        pack.setImportedSchema("", config.emptySchema());
         if (packStack.isEmpty()) {
             topLevelPackage = pack;
         }
         packStack.push(pack);
-        NodeInfo packageElement = doc.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+        NodeInfo packageElement = (NodeInfo) doc.iterateChildAxis(NodeKindType.ELEMENT).next();
         if (packageElement.getNamespaceUri() != NamespaceUri.SAXON_XSLT_EXPORT) {
             throw new XPathException("Incorrect namespace for XSLT export file", SaxonErrorCode.SXPK0002);
         }
@@ -208,12 +233,12 @@ public class PackageLoaderHE implements IPackageLoader {
         if (versionAtt != null) {
             pack.setHostLanguage(HostLanguage.XSLT, Integer.parseInt(versionAtt));
         }
-        String saxonVersionAtt = packageElement.getAttributeValue(NamespaceUri.NULL,"saxonVersion");
+        String saxonVersionAtt = packageElement.getAttributeValue(NamespaceUri.NULL, "saxonVersion");
         if (saxonVersionAtt == null) {
             saxonVersionAtt = "9.8.0.1"; //Arbitrarily; older SEF files do not have this attribute
         }
         originalVersion = NestedIntegerValue.parse(saxonVersionAtt);
-        String dmk = packageElement.getAttributeValue(NamespaceUri.NULL,"dmk");
+        String dmk = packageElement.getAttributeValue(NamespaceUri.NULL, "dmk");
         if (dmk != null) {
             int licenseId = config.registerLocalLicense(dmk);
             pack.setLocalLicenseId(licenseId);
@@ -252,23 +277,23 @@ public class PackageLoaderHE implements IPackageLoader {
     public void loadPackageElement(NodeInfo packageElement, StylesheetPackage pack) throws XPathException {
 
         fixups.push(new ArrayList<>());
-        String packageName = packageElement.getAttributeValue(NamespaceUri.NULL,"name");
-        String packageId = packageElement.getAttributeValue(NamespaceUri.NULL,"id");
+        String packageName = packageElement.getAttributeValue(NamespaceUri.NULL, "name");
+        String packageId = packageElement.getAttributeValue(NamespaceUri.NULL, "id");
         String packageKey = packageId == null ? packageName : packageId; // for backwards compatibility with 9.8
-        boolean relocatable = "true".equals(packageElement.getAttributeValue(NamespaceUri.NULL,"relocatable"));
+        boolean relocatable = "true".equals(packageElement.getAttributeValue(NamespaceUri.NULL, "relocatable"));
         if (packageName != null) {
             pack.setPackageName(packageName);
             allPackages.put(packageKey, pack);
         }
         pack.setPackageVersion(
-                new PackageVersion(packageElement.getAttributeValue(NamespaceUri.NULL,"packageVersion")));
+                new PackageVersion(packageElement.getAttributeValue(NamespaceUri.NULL, "packageVersion")));
         int xsltVersion = getIntegerAttribute(packageElement, "version");
         pack.setLanguageVersion(xsltVersion);
-        pack.setSchemaAware("1".equals(packageElement.getAttributeValue(NamespaceUri.NULL,"schemaAware")));
+        pack.setSchemaAware("1".equals(packageElement.getAttributeValue(NamespaceUri.NULL, "schemaAware")));
         if (pack.isSchemaAware()) {
             needsEELicense("schema-awareness");
         }
-        String implicitAtt = packageElement.getAttributeValue(NamespaceUri.NULL,"implicit");
+        String implicitAtt = packageElement.getAttributeValue(NamespaceUri.NULL, "implicit");
         if (implicitAtt != null) {
             pack.setImplicitPackage(implicitAtt.equals("true"));
         } else {
@@ -277,10 +302,10 @@ public class PackageLoaderHE implements IPackageLoader {
             // has no "visibility" attribute
             pack.setImplicitPackage(originalVersion.compareTo(SAXON9911) <= 0);
         }
-        pack.setStripsTypeAnnotations("1".equals(packageElement.getAttributeValue(NamespaceUri.NULL,"stripType")));
+        pack.setStripsTypeAnnotations("1".equals(packageElement.getAttributeValue(NamespaceUri.NULL, "stripType")));
         pack.setKeyManager(new KeyManager(pack.getConfiguration(), pack));
-        pack.setDeclaredModes("1".equals(packageElement.getAttributeValue(NamespaceUri.NULL,"declaredModes")));
-        for (NodeInfo usePack : packageElement.children(NodeSelector.of(n -> n.getLocalPart().equals("package")))) {
+        pack.setDeclaredModes("1".equals(packageElement.getAttributeValue(NamespaceUri.NULL, "declaredModes")));
+        for (NodeInfo usePack : packageElement.children(NodePredicateLambda.of(n -> ((NodeInfo) n).getLocalPart().equals("package")))) {
             StylesheetPackage subPack = config.makeStylesheetPackage();
             subPack.setRuleManager(new RuleManager(pack));
             subPack.setCharacterMapIndex(new CharacterMapIndex());
@@ -298,7 +323,7 @@ public class PackageLoaderHE implements IPackageLoader {
         addVendorFunctionLibrary(functionLibrary, config);
         functionLibrary.addFunctionLibrary(MapFunctionSet.getInstance(xpathVersion));
         functionLibrary.addFunctionLibrary(ArrayFunctionSet.getInstance(xpathVersion));
-        functionLibrary.addFunctionLibrary(MathFunctionSet.getInstance());
+        functionLibrary.addFunctionLibrary(MathFunctionSet.getInstance(xpathVersion));
         //functionLibrary.addFunctionLibrary(overriding);
         functionLibrary.addFunctionLibrary(new StylesheetFunctionLibrary(pack, true));
 
@@ -313,7 +338,7 @@ public class PackageLoaderHE implements IPackageLoader {
 
         pack.setFunctionLibraryDetails(functionLibrary, overriding, underriding);
 
-        RetainedStaticContext rsc = new RetainedStaticContext(config);
+        RetainedStaticContext rsc = new RetainedStaticContext(config, pack);
         if (relocatable) {
             // For a relocatable package, take the base URI from the location of the SEF file
             relocatableBase = packageElement.getBaseURI();
@@ -325,10 +350,12 @@ public class PackageLoaderHE implements IPackageLoader {
 
         readGlobalContext(packageElement);
         readSchemaNamespaces(packageElement);
+        readSchemata(packageElement, usedSchemata);
+        rsc.setImportedSchema(packStack.peek().getImportedSchema(""));
         readKeys(packageElement);
         readComponents(packageElement, false);
-        NodeInfo overridden = packageElement.iterateAxis(AxisInfo.CHILD,
-                                                         new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "overridden", config.getNamePool())).next();
+        NodeInfo overridden = (NodeInfo) packageElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "overridden", config)).next();
         if (overridden != null) {
             readComponents(overridden, true);
         }
@@ -353,26 +380,23 @@ public class PackageLoaderHE implements IPackageLoader {
 
     private void readGlobalContext(NodeInfo packageElement) throws XPathException {
         GlobalContextRequirement req = null;
-        //NameTest condition = new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "glob", config.getNamePool());
-        for (NodeInfo varElement : packageElement.children(NodeSelector.of(n -> n.getLocalPart().equals("glob")))) {
+        //NameTest condition = NameTest.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "glob", config.getNamePool());
+        for (NodeInfo varElement : packageElement.children(NodePredicateLambda.of(n -> ((NodeInfo) n).getLocalPart().equals("glob")))) {
             if (req == null) {
                 req = new GlobalContextRequirement();
                 packStack.peek().setContextItemRequirements(req);
             }
-            String use = varElement.getAttributeValue(NamespaceUri.NULL,"use");
+            String use = varElement.getAttributeValue(NamespaceUri.NULL, "use");
             if ("opt".equals(use)) {
-                req.setMayBeOmitted(true);
-                req.setAbsentFocus(false);
+                req.setContextValueOptionality(Optionality.OPTIONAL);
             } else if ("pro".equals(use)) {
-                req.setMayBeOmitted(true);
-                req.setAbsentFocus(true);
+                req.setContextValueOptionality(Optionality.PROHIBITED);
             } else if ("req".equals(use)) {
-                req.setMayBeOmitted(false);
-                req.setAbsentFocus(false);
+                req.setContextValueOptionality(Optionality.REQUIRED);
             }
             ItemType requiredType = parseItemTypeAttribute(varElement, "type");
             if (requiredType != null) {
-                req.addRequiredItemType(requiredType);
+                req.addRequiredSequenceType(SequenceType.one(requiredType), true);
             }
         }
     }
@@ -381,16 +405,20 @@ public class PackageLoaderHE implements IPackageLoader {
         // No action in Saxon-HE
     }
 
+    protected void readSchemata(NodeInfo packageElement, Map<String, Schema> usedSchemata) throws XPathException {
+        // No action in Saxon-HE
+    }
+
     private void readKeys(NodeInfo packageElement) throws XPathException {
         StylesheetPackage pack = packStack.peek();
         NodeInfo keyElement;
-        AxisIterator iterator = packageElement.iterateAxis(AxisInfo.CHILD,
-                                                           new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "key", config.getNamePool()));
-        while ((keyElement = iterator.next()) != null) {
+        SequenceIterator iterator = packageElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "key", config));
+        while ((keyElement = (NodeInfo) iterator.next()) != null) {
             StructuredQName keyName = getQNameAttribute(keyElement, "name");
             SymbolicName symbol = new SymbolicName(StandardNames.XSL_KEY, keyName);
 
-            String flags = keyElement.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = keyElement.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean backwards = flags != null && flags.contains("b");
             boolean range = flags != null && flags.contains("r");
             boolean reusable = flags != null && flags.contains("u");
@@ -399,7 +427,7 @@ public class PackageLoaderHE implements IPackageLoader {
             boolean strictComparison = flags != null && flags.contains("s");
             Pattern match = getFirstChildPattern(keyElement);
             Expression use = getSecondChildExpression(keyElement);
-            String collationName = keyElement.getAttributeValue(NamespaceUri.NULL,"collation");
+            String collationName = keyElement.getAttributeValue(NamespaceUri.NULL, "collation");
             if (collationName == null) {
                 collationName = NamespaceConstant.CODEPOINT_COLLATION_URI;
             }
@@ -409,7 +437,7 @@ public class PackageLoaderHE implements IPackageLoader {
             if (slots != Integer.MIN_VALUE) {
                 keyDefinition.setStackFrameMap(new SlotManager(slots));
             }
-            String binds = keyElement.getAttributeValue(NamespaceUri.NULL,"binds");
+            String binds = keyElement.getAttributeValue(NamespaceUri.NULL, "binds");
             Component keyComponent = keyDefinition.makeDeclaringComponent(Visibility.PRIVATE, pack);
             externalReferences.put(keyComponent, binds);
             if (backwards) {
@@ -432,15 +460,15 @@ public class PackageLoaderHE implements IPackageLoader {
     private void readComponents(NodeInfo packageElement, boolean overridden) throws XPathException {
         StylesheetPackage pack = packStack.peek();
         NodeInfo child;
-        AxisIterator iterator = packageElement.iterateAxis(AxisInfo.CHILD,
-                                                           new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "co", config.getNamePool()));
-        while ((child = iterator.next()) != null) {
+        SequenceIterator iterator = packageElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "co", config));
+        while ((child = (NodeInfo) iterator.next()) != null) {
             int id = getIntegerAttribute(child, "id");
-            String visAtt = child.getAttributeValue(NamespaceUri.NULL,"vis");
+            String visAtt = child.getAttributeValue(NamespaceUri.NULL, "vis");
             Visibility vis = visAtt == null ? Visibility.PRIVATE : Visibility.valueOf(visAtt.toUpperCase());
             VisibilityProvenance provenance = visAtt == null ? VisibilityProvenance.DEFAULTED : VisibilityProvenance.EXPLICIT;
-            String binds = child.getAttributeValue(NamespaceUri.NULL,"binds");
-            String dPackKey = child.getAttributeValue(NamespaceUri.NULL,"dpack");
+            String binds = child.getAttributeValue(NamespaceUri.NULL, "binds");
+            String dPackKey = child.getAttributeValue(NamespaceUri.NULL, "dpack");
             StylesheetPackage declaringPackage;
             if (dPackKey == null) {
                 declaringPackage = pack;
@@ -458,7 +486,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 // Note, this cannot be a forwards reference
                 Component baseComponent = componentIdMap.get(base);
                 if (baseComponent == null) {
-                    throw new AssertionError(base+"");
+                    throw new AssertionError(base + "");
                 }
                 component = Component.makeComponent(baseComponent.getActor(), vis, provenance, pack, declaringPackage);
                 component.setBaseComponent(baseComponent);
@@ -467,31 +495,18 @@ public class PackageLoaderHE implements IPackageLoader {
                     pack.getRuleManager().obtainMode(baseComponent.getActor().getComponentName(), true);
                 }
             } else {
-                NodeInfo grandchild = child.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+                NodeInfo grandchild = (NodeInfo) child.iterateChildAxis(NodeKindType.ELEMENT).next();
                 Actor cc;
                 String kind = grandchild.getLocalPart();
-                switch (kind) {
-                    case "template":
-                        cc = readNamedTemplate(grandchild);
-                        break;
-                    case "globalVariable":
-                        cc = readGlobalVariable(grandchild);
-                        break;
-                    case "globalParam":
-                        cc = readGlobalParam(grandchild);
-                        break;
-                    case "function":
-                        cc = readGlobalFunction(grandchild);
-                        break;
-                    case "mode":
-                        cc = readMode(grandchild);
-                        break;
-                    case "attributeSet":
-                        cc = readAttributeSet(grandchild);
-                        break;
-                    default:
-                        throw new XPathException("unknown component kind " + kind);
-                }
+                cc = switch (kind) {
+                    case "template" -> readNamedTemplate(grandchild);
+                    case "globalVariable" -> readGlobalVariable(grandchild);
+                    case "globalParam" -> readGlobalParam(grandchild);
+                    case "function" -> readGlobalFunction(grandchild);
+                    case "mode" -> readMode(grandchild);
+                    case "attributeSet" -> readAttributeSet(grandchild);
+                    default -> throw new XPathException("unknown component kind " + kind);
+                };
                 component = Component.makeComponent(cc, vis, provenance, pack, declaringPackage);
                 cc.setDeclaringComponent(component);
                 cc.setDeclaredVisibility(vis);
@@ -517,7 +532,7 @@ public class PackageLoaderHE implements IPackageLoader {
         var.setVariableQName(variableName);
         var.setPackageData(pack);
         var.setRequiredType(parseAlphaCode(varElement, "as"));
-        String flags = varElement.getAttributeValue(NamespaceUri.NULL,"flags");
+        String flags = varElement.getAttributeValue(NamespaceUri.NULL, "flags");
         if (flags != null) {
             if (flags.contains("a")) {
                 var.setAssignable(true);
@@ -533,7 +548,7 @@ public class PackageLoaderHE implements IPackageLoader {
         if (slots > 0) {
             var.setContainsLocals(new SlotManager(slots));
         }
-        NodeInfo bodyElement = varElement.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+        NodeInfo bodyElement = (NodeInfo) varElement.iterateChildAxis(NodeKindType.ELEMENT).next();
         if (bodyElement == null) {
             var.setBody(Literal.makeEmptySequence());
         } else {
@@ -556,7 +571,7 @@ public class PackageLoaderHE implements IPackageLoader {
         var.setVariableQName(variableName);
         var.setPackageData(pack);
         var.setRequiredType(parseAlphaCode(varElement, "as"));
-        String flags = varElement.getAttributeValue(NamespaceUri.NULL,"flags");
+        String flags = varElement.getAttributeValue(NamespaceUri.NULL, "flags");
         if (flags != null) {
             if (flags.contains("a")) {
                 var.setAssignable(true);
@@ -575,7 +590,7 @@ public class PackageLoaderHE implements IPackageLoader {
         if (slots > 0) {
             var.setContainsLocals(new SlotManager(slots));
         }
-        NodeInfo bodyElement = varElement.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+        NodeInfo bodyElement = (NodeInfo) varElement.iterateChildAxis(NodeKindType.ELEMENT).next();
         if (bodyElement == null) {
             var.setBody(Literal.makeEmptySequence());
         } else {
@@ -591,16 +606,28 @@ public class PackageLoaderHE implements IPackageLoader {
         StylesheetPackage pack = packStack.peek();
         localBindings = new Stack<>();
         StructuredQName templateName = getQNameAttribute(templateElement, "name");
-        String flags = templateElement.getAttributeValue(NamespaceUri.NULL,"flags");
+        String flags = templateElement.getAttributeValue(NamespaceUri.NULL, "flags");
         int slots = getIntegerAttribute(templateElement, "slots");
         SequenceType contextType = parseAlphaCode(templateElement, "cxt");
-        ItemType contextItemType = contextType == null ? AnyItemType.getInstance() : contextType.getPrimaryType();
+        ItemType contextItemType;
+        if (contextType == null) {
+            contextItemType = AnyItemType.INSTANCE;
+        } else {
+            contextItemType = contextType.getPrimaryType();
+        }
 
         NamedTemplate template = new NamedTemplate(templateName, getConfiguration());
         template.setStackFrameMap(new SlotManager(slots));
         template.setPackageData(pack);
         template.setRequiredType(parseAlphaCode(templateElement, "as"));
-        template.setContextItemRequirements(contextItemType, flags.contains("o"), !flags.contains("s"));
+        Optionality optionality;
+        // 'o' = may be absent; 's' = may be present
+        if (flags.contains("o")) {
+            optionality = flags.contains("s") ? Optionality.OPTIONAL : Optionality.PROHIBITED;
+        } else {
+            optionality = Optionality.REQUIRED;
+        }
+        template.setContextItemRequirements(contextItemType, optionality);
         NodeInfo bodyElement = getChildWithRole(templateElement, "body");
         if (bodyElement == null) {
             template.setBody(Literal.makeEmptySequence());
@@ -631,7 +658,7 @@ public class PackageLoaderHE implements IPackageLoader {
         StylesheetPackage pack = packStack.peek();
         StructuredQName functionName = getQNameAttribute(functionElement, "name");
         int slots = getIntegerAttribute(functionElement, "slots");
-        String flags = functionElement.getAttributeValue(NamespaceUri.NULL,"flags");
+        String flags = functionElement.getAttributeValue(NamespaceUri.NULL, "flags");
         if (flags == null) {
             flags = "";
         }
@@ -682,19 +709,28 @@ public class PackageLoaderHE implements IPackageLoader {
 
         currentFunction = function;
         List<UserFunctionParameter> params = new ArrayList<>();
-        AxisIterator argIterator = functionElement.iterateAxis(AxisInfo.CHILD,
-                                                               new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "arg", config.getNamePool()));
+        SequenceIterator argIterator = functionElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "arg", config));
         NodeInfo argElement;
         int slot = 0;
-        while ((argElement = argIterator.next()) != null) {
+        int optionalArgs = 0;
+        while ((argElement = (NodeInfo) argIterator.next()) != null) {
             UserFunctionParameter arg = new UserFunctionParameter();
             arg.setVariableQName(getQNameAttribute(argElement, "name"));
             arg.setRequiredType(parseAlphaCode(argElement, "as"));
             arg.setSlotNumber(slot++);
+            Expression dflt = getFirstChildExpression(argElement);
+            if (dflt != null) {
+                arg.setDefaultValueExpression(() -> dflt);
+                optionalArgs++;
+            }
             params.add(arg);
             localBindings.push(arg);
         }
         function.setParameterDefinitions(params.toArray(new UserFunctionParameter[0]));
+        if (optionalArgs > 0) {
+            function.setMinimumArity(params.size() - optionalArgs);
+        }
         if (streaming) {
             params.get(0).setFunctionStreamability(function.getDeclaredStreamability());
         }
@@ -733,7 +769,7 @@ public class PackageLoaderHE implements IPackageLoader {
         aSet.setStackFrameMap(new SlotManager(slots));
         aSet.setPackageData(pack);
         aSet.setBody(getFirstChildExpression(aSetElement));
-        aSet.setDeclaredStreamable("s".equals(aSetElement.getAttributeValue(NamespaceUri.NULL,"flags")));
+        aSet.setDeclaredStreamable("s".equals(aSetElement.getAttributeValue(NamespaceUri.NULL, "flags")));
 
         return aSet;
 
@@ -750,32 +786,41 @@ public class PackageLoaderHE implements IPackageLoader {
         int patternSlots = getIntegerAttribute(modeElement, "patternSlots");
         mode.allocatePatternSlots(patternSlots);
 
-        String onNoMatch = modeElement.getAttributeValue(NamespaceUri.NULL,"onNo");
+        String flags = modeElement.getAttributeValue(NamespaceUri.NULL, "flags");
+        if (flags == null) {
+            flags = "";
+        }
+
+        String onNoMatch = modeElement.getAttributeValue(NamespaceUri.NULL, "onNo");
         BuiltInRuleSet base;
         if (onNoMatch != null) {
-            base = mode.getBuiltInRuleSetForCode(onNoMatch);
+            String asAtt = modeElement.getAttributeValue(NamespaceUri.NULL, "as");
+            SequenceType requiredType = asAtt == null ?
+                    SequenceType.ANY_SEQUENCE :
+                    AlphaCode.toSequenceType(asAtt, config, pack.getImportedSchema(""));
+            boolean copyNamespaces = !flags.contains("n");
+            base = Mode.getBuiltInRuleSetForCode(onNoMatch, requiredType, copyNamespaces);
             mode.setBuiltInRuleSet(base);
         }
 
-        String flags = modeElement.getAttributeValue(NamespaceUri.NULL,"flags");
-        if (flags != null) {
-            mode.setStreamable(flags.contains("s"));
-            if (flags.contains("t")) {
-                mode.setExplicitProperty("typed", "yes", 1);
-            }
-            if (flags.contains("u")) {
-                mode.setExplicitProperty("typed", "no", 1);
-            }
-            if (flags.contains("F")) {
-                mode.setRecoveryPolicy(RecoveryPolicy.DO_NOT_RECOVER);
-            }
-            if (flags.contains("W")) {
-                mode.setRecoveryPolicy(RecoveryPolicy.RECOVER_WITH_WARNINGS);
-            }
-            if (flags.contains("e")) {
-                mode.setHasRules(false);
-            }
+
+        mode.setStreamable(flags.contains("s"));
+        if (flags.contains("t")) {
+            mode.setExplicitProperty("typed", "yes", 1);
         }
+        if (flags.contains("u")) {
+            mode.setExplicitProperty("typed", "no", 1);
+        }
+        if (flags.contains("F")) {
+            mode.setRecoveryPolicy(RecoveryPolicy.DO_NOT_RECOVER);
+        }
+        if (flags.contains("W")) {
+            mode.setRecoveryPolicy(RecoveryPolicy.RECOVER_WITH_WARNINGS);
+        }
+        if (flags.contains("e")) {
+            mode.setHasRules(false);
+        }
+
 
         final List<StructuredQName> accNames = getListOfQNameAttribute(modeElement, "useAcc");
         addCompletionAction(() -> {
@@ -789,18 +834,18 @@ public class PackageLoaderHE implements IPackageLoader {
             mode.setAccumulators(accumulators);
         });
 
-        AxisIterator iterator2 = modeElement.iterateAxis(AxisInfo.DESCENDANT,
-                                                         new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "templateRule", config.getNamePool()));
+        SequenceIterator iterator2 = modeElement.iterateDescendantAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "templateRule", config));
         NodeInfo templateRuleElement0;
         LinkedList<NodeInfo> ruleStack = new LinkedList<>();
-        while ((templateRuleElement0 = iterator2.next()) != null) {
+        while ((templateRuleElement0 = (NodeInfo) iterator2.next()) != null) {
             // process rules in reverse order
             ruleStack.addFirst(templateRuleElement0);
         }
         for (NodeInfo templateRuleElement : ruleStack) {
             int precedence = getIntegerAttribute(templateRuleElement, "prec");
             int rank = getIntegerAttribute(templateRuleElement, "rank");
-            String priorityAtt = templateRuleElement.getAttributeValue(NamespaceUri.NULL,"prio");
+            String priorityAtt = templateRuleElement.getAttributeValue(NamespaceUri.NULL, "prio");
             double priority = Double.parseDouble(priorityAtt);
             int sequence = getIntegerAttribute(templateRuleElement, "seq");
             int part = getIntegerAttribute(templateRuleElement, "part");
@@ -809,10 +854,15 @@ public class PackageLoaderHE implements IPackageLoader {
             }
             int minImportPrecedence = getIntegerAttribute(templateRuleElement, "minImp");
             int slots = getIntegerAttribute(templateRuleElement, "slots");
-            boolean streamable = "1".equals(templateRuleElement.getAttributeValue(NamespaceUri.NULL,"streamable"));
-            String tflags = templateRuleElement.getAttributeValue(NamespaceUri.NULL,"flags");
+            boolean streamable = "1".equals(templateRuleElement.getAttributeValue(NamespaceUri.NULL, "streamable"));
+            String tflags = templateRuleElement.getAttributeValue(NamespaceUri.NULL, "flags");
             SequenceType contextType = parseAlphaCode(templateRuleElement, "cxt");
-            ItemType contextItemType = contextType == null ? AnyItemType.getInstance() : contextType.getPrimaryType();
+            ItemType contextItemType;
+            if (contextType == null) {
+                contextItemType = AnyItemType.INSTANCE;
+            } else {
+                contextItemType = contextType.getPrimaryType();
+            }
 
             NodeInfo matchElement = getChildWithRole(templateRuleElement, "match");
             Pattern match = loadPattern(matchElement);
@@ -824,7 +874,7 @@ public class PackageLoaderHE implements IPackageLoader {
             template.setPackageData(pack);
             template.setRequiredType(parseAlphaCode(templateRuleElement, "as"));
             template.setDeclaredStreamable(streamable);
-            template.setContextItemRequirements(contextItemType, !tflags.contains("s"));
+            template.setContextItemRequirements(contextItemType, tflags.contains("s") ? Optionality.OPTIONAL : Optionality.PROHIBITED);
             NodeInfo bodyElement = getChildWithRole(templateRuleElement, "action");
             if (bodyElement == null) {
                 template.setBody(Literal.makeEmptySequence());
@@ -850,9 +900,9 @@ public class PackageLoaderHE implements IPackageLoader {
     private void readAccumulators(NodeInfo packageElement) throws XPathException {
         StylesheetPackage pack = packStack.peek();
         NodeInfo accElement;
-        AxisIterator iterator = packageElement.iterateAxis(AxisInfo.CHILD,
-                                                           new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "accumulator", config.getNamePool()));
-        while ((accElement = iterator.next()) != null) {
+        SequenceIterator iterator = packageElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "accumulator", config));
+        while ((accElement = (NodeInfo) iterator.next()) != null) {
             StructuredQName accName = getQNameAttribute(accElement, "name");
             Accumulator acc = new Accumulator();
             Component component = Component.makeComponent(acc, Visibility.PRIVATE, VisibilityProvenance.DEFAULTED, pack, pack);
@@ -860,10 +910,10 @@ public class PackageLoaderHE implements IPackageLoader {
             int iniSlots = getIntegerAttribute(accElement, "slots");
             acc.setSlotManagerForInitialValueExpression(new SlotManager(iniSlots));
             acc.setAccumulatorName(accName);
-            String binds = accElement.getAttributeValue(NamespaceUri.NULL,"binds");
+            String binds = accElement.getAttributeValue(NamespaceUri.NULL, "binds");
             externalReferences.put(component, binds);
-            boolean streamable = "1".equals(accElement.getAttributeValue(NamespaceUri.NULL,"streamable"));
-            String flags = accElement.getAttributeValue(NamespaceUri.NULL,"flags");
+            boolean streamable = "1".equals(accElement.getAttributeValue(NamespaceUri.NULL, "streamable"));
+            String flags = accElement.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean universal = flags != null && flags.contains("u");
             acc.setDeclaredStreamable(streamable);
             acc.setUniversallyApplicable(universal);
@@ -879,17 +929,17 @@ public class PackageLoaderHE implements IPackageLoader {
     }
 
     private void readAccumulatorRules(Accumulator acc, NodeInfo owner) throws XPathException {
-        AxisIterator iterator = owner.iterateAxis(AxisInfo.CHILD,
-                                                  new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "accRule", config.getNamePool()));
+        SequenceIterator iterator = owner.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "accRule", config));
         NodeInfo accRuleElement;
         boolean preDescent = owner.getLocalPart().equals("pre");
         SimpleMode mode = preDescent ? acc.getPreDescentRules() : acc.getPostDescentRules();
         int patternSlots = getIntegerAttribute(owner, "slots");
         mode.setStackFrameSlotsNeeded(patternSlots);
-        while ((accRuleElement = iterator.next()) != null) {
+        while ((accRuleElement = (NodeInfo) iterator.next()) != null) {
             int slots = getIntegerAttribute(accRuleElement, "slots");
             int rank = getIntegerAttribute(accRuleElement, "rank");
-            String flags = accRuleElement.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = accRuleElement.getAttributeValue(NamespaceUri.NULL, "flags");
             SlotManager sm = new SlotManager(slots);
             Pattern pattern = getFirstChildPattern(accRuleElement);
             Expression select = getSecondChildExpression(accRuleElement);
@@ -905,21 +955,25 @@ public class PackageLoaderHE implements IPackageLoader {
     private void readOutputProperties(NodeInfo packageElement) {
         StylesheetPackage pack = packStack.peek();
         NodeInfo outputElement;
-        AxisIterator iterator = packageElement.iterateAxis(AxisInfo.CHILD,
-                                                           new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "output", config.getNamePool()));
-        while ((outputElement = iterator.next()) != null) {
+        SequenceIterator iterator = packageElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "output", config));
+        while ((outputElement = (NodeInfo) iterator.next()) != null) {
             StructuredQName outputName = getQNameAttribute(outputElement, "name");
             Properties props = new Properties();
             NodeInfo propertyElement;
-            AxisIterator iterator1 = outputElement.iterateAxis(AxisInfo.CHILD,
-                                                               new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "property", config.getNamePool()));
-            while ((propertyElement = iterator1.next()) != null) {
-                String name = propertyElement.getAttributeValue(NamespaceUri.NULL,"name");
+            SequenceIterator iterator1 = outputElement.iterateChildAxis(
+                    NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "property", config));
+            while ((propertyElement = (NodeInfo) iterator1.next()) != null) {
+                String name = propertyElement.getAttributeValue(NamespaceUri.NULL, "name");
                 if (name.startsWith("Q{")) {
                     name = name.substring(1);
                 }
-                String value = propertyElement.getAttributeValue(NamespaceUri.NULL,"value");
-                if (name.startsWith("{http://saxon.sf.net/}") && !name.equals(SaxonOutputKeys.STYLESHEET_VERSION)) {
+                if (name.equals("{http://saxon.sf.net/}stylesheet-version")) {
+                    // may be found in old SEF files
+                    name = SaxonOutputKeys.SPEC_VERSION;
+                }
+                String value = propertyElement.getAttributeValue(NamespaceUri.NULL, "value");
+                if (name.startsWith("{http://saxon.sf.net/}") && !name.equals(SaxonOutputKeys.SPEC_VERSION)) {
                     needsPELicense("Saxon output properties");
                 }
                 props.setProperty(name, value);
@@ -935,17 +989,17 @@ public class PackageLoaderHE implements IPackageLoader {
     private void readCharacterMaps(NodeInfo packageElement) throws XPathException {
         StylesheetPackage pack = packStack.peek();
         NodeInfo charMapElement;
-        AxisIterator iterator = packageElement.iterateAxis(AxisInfo.CHILD,
-                                                           new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "charMap", config.getNamePool()));
-        while ((charMapElement = iterator.next()) != null) {
+        SequenceIterator iterator = packageElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "charMap", config));
+        while ((charMapElement = (NodeInfo) iterator.next()) != null) {
             StructuredQName mapName = getQNameAttribute(charMapElement, "name");
             NodeInfo mappingElement;
-            AxisIterator iterator1 = charMapElement.iterateAxis(AxisInfo.CHILD,
-                                                                new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "m", config.getNamePool()));
+            SequenceIterator iterator1 = charMapElement.iterateChildAxis(
+                    NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "m", config));
             IntHashMap<String> map = new IntHashMap<>();
-            while ((mappingElement = iterator1.next()) != null) {
+            while ((mappingElement = (NodeInfo) iterator1.next()) != null) {
                 int c = getIntegerAttribute(mappingElement, "c");
-                String s = mappingElement.getAttributeValue(NamespaceUri.NULL,"s");
+                String s = mappingElement.getAttributeValue(NamespaceUri.NULL, "s");
                 map.put(c, s);
             }
             CharacterMap characterMap = new CharacterMap(mapName, map);
@@ -956,27 +1010,27 @@ public class PackageLoaderHE implements IPackageLoader {
     private void readSpaceStrippingRules(NodeInfo packageElement) throws XPathException {
         StylesheetPackage pack = packStack.peek();
         NodeInfo element;
-        AxisIterator iterator = packageElement.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
-        while ((element = iterator.next()) != null) {
+        SequenceIterator iterator = packageElement.iterateChildAxis(NodeKindType.ELEMENT);
+        while ((element = (NodeInfo) iterator.next()) != null) {
             String s = element.getLocalPart();
             switch (s) {
                 case "strip.all":
-                    pack.setStripperRules(new AllElementsSpaceStrippingRule());
+                    pack.setStripperRules(AllElementsSpaceStrippingRule.INSTANCE);
                     pack.setStripsWhitespace(true);
                     break;
                 case "strip.none":
-                    pack.setStripperRules(new NoElementsSpaceStrippingRule());
+                    pack.setStripperRules(NoElementsSpaceStrippingRule.INSTANCE);
                     break;
                 case "strip":
-                    AxisIterator iterator2 = element.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+                    SequenceIterator iterator2 = element.iterateChildAxis(NodeKindType.ELEMENT);
                     NodeInfo element2;
                     SelectedElementsSpaceStrippingRule rules = new SelectedElementsSpaceStrippingRule(false);
-                    while ((element2 = iterator2.next()) != null) {
+                    while ((element2 = (NodeInfo) iterator2.next()) != null) {
                         Stripper.StripRuleTarget which = element2.getLocalPart().equals("s") ? Stripper.STRIP : Stripper.PRESERVE;
-                        String value = element2.getAttributeValue(NamespaceUri.NULL,"test");
+                        String value = element2.getAttributeValue(NamespaceUri.NULL, "test");
                         NodeTest t;
                         if (value.equals("*")) {
-                            t = NodeKindTest.ELEMENT;
+                            t = NodeKindType.ELEMENT;
                         } else {
                             // See bug 4096: this is not a true item type, it also allows *:name and name:*
                             t = (NodeTest) parseAlphaCodeForItemType(element2, "test");
@@ -996,11 +1050,10 @@ public class PackageLoaderHE implements IPackageLoader {
     private void readDecimalFormats(NodeInfo packageElement) throws XPathException {
         NodeInfo formatElement;
         DecimalFormatManager decimalFormatManager = packStack.peek().getDecimalFormatManager();
-        AxisIterator iterator = packageElement.iterateAxis(AxisInfo.CHILD,
-                                                           new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "decimalFormat", config.getNamePool()));
+        SequenceIterator iterator = packageElement.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "decimalFormat", config));
 
-        String[] propertyNames = DecimalSymbols.propertyNames;
-        while ((formatElement = iterator.next()) != null) {
+        while ((formatElement = (NodeInfo) iterator.next()) != null) {
             StructuredQName name = getQNameAttribute(formatElement, "name");
             DecimalSymbols symbols;
             if (name == null) {
@@ -1008,27 +1061,24 @@ public class PackageLoaderHE implements IPackageLoader {
             } else {
                 symbols = decimalFormatManager.obtainNamedDecimalFormat(name);
             }
-            symbols.setHostLanguage(HostLanguage.XSLT, 31);
-            for (String p : propertyNames) {
-                if (formatElement.getAttributeValue(NamespaceUri.NULL,p) != null) {
-                    switch (p) {
-                        case "NaN":
-                            symbols.setNaN(formatElement.getAttributeValue(NamespaceUri.NULL,"NaN"));
-                            break;
-                        case "infinity":
-                            symbols.setInfinity(formatElement.getAttributeValue(NamespaceUri.NULL,"infinity"));
-                            break;
-                        case "name":
-                            // no action
-                            break;
-                        default:
-                            symbols.setIntProperty(p, getIntegerAttribute(formatElement, p));
-                            break;
+            SequenceIterator attributeIter = formatElement.iterateAttributeAxis(AnyGNode.TEST);
+            NodeInfo att;
+            while ((att = (NodeInfo) attributeIter.next()) != null) {
+                if (DecimalSymbols.isValidPropertyName(att.getLocalPart())) {
+                    // In releases before 13.x, single-character properties were output as a decimal codepoint.
+                    UnicodeString val = att.getUnicodeStringValue();
+                    if (val.length() >= 2 && allNumeric.matches(val)) {
+                        val = new UnicodeChar(Integer.parseInt(val.toString()));
                     }
+                    symbols.setProperty(att.getLocalPart(), val);
                 }
             }
+            symbols.setHostLanguage(HostLanguage.XSLT, 31);
+
         }
     }
+
+    private static ARegularExpression allNumeric = ARegularExpression.compile("[0-9]+", "");
 
 
     /**
@@ -1039,19 +1089,19 @@ public class PackageLoaderHE implements IPackageLoader {
      * @return the n'th child, or null if not available
      */
     public NodeInfo getChild(NodeInfo parent, int n) {
-        AxisIterator iter = parent.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
-        NodeInfo node = iter.next();
+        SequenceIterator iter = parent.iterateChildAxis(NodeKindType.ELEMENT);
+        NodeInfo node = (NodeInfo) iter.next();
         for (int i = 0; i < n; i++) {
-            node = iter.next();
+            node = (NodeInfo) iter.next();
         }
         return node;
     }
 
     public NodeInfo getChildWithRole(NodeInfo parent, String role) {
-        AxisIterator iter = parent.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+        SequenceIterator iter = parent.iterateChildAxis(NodeKindType.ELEMENT);
         NodeInfo node;
-        while ((node = iter.next()) != null) {
-            String roleAtt = node.getAttributeValue(NamespaceUri.NULL,"role");
+        while ((node = (NodeInfo) iter.next()) != null) {
+            String roleAtt = node.getAttributeValue(NamespaceUri.NULL, "role");
             if (role.equals(roleAtt)) {
                 return node;
             }
@@ -1060,7 +1110,7 @@ public class PackageLoaderHE implements IPackageLoader {
     }
 
     public Expression getFirstChildExpression(NodeInfo parent) throws XPathException {
-        NodeInfo node = parent.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+        NodeInfo node = (NodeInfo) parent.iterateChildAxis(NodeKindType.ELEMENT).next();
         return loadExpression(node);
     }
 
@@ -1117,17 +1167,17 @@ public class PackageLoaderHE implements IPackageLoader {
 
     public RetainedStaticContext makeRetainedStaticContext(NodeInfo element) {
         StylesheetPackage pack = packStack.peek();
-        String baseURIAtt = element.getAttributeValue(NamespaceUri.NULL,"baseUri");
-        String defaultCollAtt = element.getAttributeValue(NamespaceUri.NULL,"defaultCollation");
-        String defaultElementNS = element.getAttributeValue(NamespaceUri.NULL,"defaultElementNS");
-        String nsAtt = element.getAttributeValue(NamespaceUri.NULL,"ns");
-        String versionAtt = element.getAttributeValue(NamespaceUri.NULL,"vn");
+        String baseURIAtt = element.getAttributeValue(NamespaceUri.NULL, "baseUri");
+        String defaultCollAtt = element.getAttributeValue(NamespaceUri.NULL, "defaultCollation");
+        String defaultElementNS = element.getAttributeValue(NamespaceUri.NULL, "defaultElementNS");
+        String nsAtt = element.getAttributeValue(NamespaceUri.NULL, "ns");
+        String versionAtt = element.getAttributeValue(NamespaceUri.NULL, "vn");
+        String schemaRoleAtt = element.getAttributeValue(NamespaceUri.NULL, "schemaRole");
         if (baseURIAtt != null || defaultCollAtt != null || nsAtt != null ||
-                versionAtt != null || defaultElementNS != null ||
+                versionAtt != null || defaultElementNS != null || schemaRoleAtt != null ||
                 contextStack.peek().getDecimalFormatManager() == null // implies not fully initialized
         ) {
-            RetainedStaticContext rsc = new RetainedStaticContext(config);
-            rsc.setPackageData(pack);
+            RetainedStaticContext rsc = new RetainedStaticContext(config, pack);
             rsc.setDefaultCollationName(defaultCollAtt == null ? NamespaceConstant.CODEPOINT_COLLATION_URI : defaultCollAtt);
             if (baseURIAtt != null) {
                 rsc.setStaticBaseUriString(baseURIAtt);
@@ -1151,6 +1201,15 @@ public class PackageLoaderHE implements IPackageLoader {
             if (defaultElementNS != null) {
                 rsc.setDefaultElementNamespace(NamespaceUri.of(defaultElementNS));
             }
+            if (schemaRoleAtt == null) {
+                rsc.setImportedSchema(packStack.peek().getImportedSchema(""));
+            } else {
+                Schema schema = packStack.peek().getImportedSchema(schemaRoleAtt);
+                if (schema == null) {
+                    throw new IllegalStateException("Cannot find schema with role " + schemaRoleAtt);
+                }
+                rsc.setImportedSchema(schema);
+            }
             rsc.setDecimalFormatManager(packStack.peek().getDecimalFormatManager());
             return rsc;
         } else {
@@ -1160,7 +1219,7 @@ public class PackageLoaderHE implements IPackageLoader {
 
     public static NamespaceMap fromExportedNamespaces(String nsAtt) {
         NamespaceMap map = NamespaceMap.emptyMap();
-        if (nsAtt != null) {
+        if (nsAtt != null && !nsAtt.isEmpty()) {
             String[] namespaces = nsAtt.split(" ");
             for (String ns : namespaces) {
                 int eq = ns.indexOf('=');
@@ -1179,7 +1238,7 @@ public class PackageLoaderHE implements IPackageLoader {
     }
 
     private Pattern getFirstChildPattern(NodeInfo parent) throws XPathException {
-        NodeInfo node = parent.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+        NodeInfo node = (NodeInfo) parent.iterateChildAxis(NodeKindType.ELEMENT).next();
         return loadPattern(node);
     }
 
@@ -1211,28 +1270,28 @@ public class PackageLoaderHE implements IPackageLoader {
     }
 
     public SchemaType getTypeAttribute(NodeInfo element, String attName) {
-        String val = element.getAttributeValue(NamespaceUri.NULL,attName);
+        String val = element.getAttributeValue(NamespaceUri.NULL, attName);
         if (val == null) {
             return null;
         }
         if (val.startsWith("xs:")) {
-            return config.getSchemaType(new StructuredQName("xs", NamespaceUri.SCHEMA, val.substring(3)));
+            return getSchema().getSchemaType(new StructuredQName("xs", NamespaceUri.SCHEMA, val.substring(3)));
         } else {
             StructuredQName name = getQNameAttribute(element, attName);
-            return config.getSchemaType(name);
+            return getSchema().getSchemaType(name);
         }
     }
 
     public StructuredQName getQNameAttribute(NodeInfo element, String localName) {
-        String val = element.getAttributeValue(NamespaceUri.NULL,localName);
+        String val = element.getAttributeValue(NamespaceUri.NULL, localName);
         if (val == null) {
             return null;
         }
-        return StructuredQName.fromEQName((val));
+        return StructuredQName.fromEQName40((val));
     }
 
     public List<StructuredQName> getListOfQNameAttribute(NodeInfo element, String localName) throws XPathException {
-        String val = element.getAttributeValue(NamespaceUri.NULL,localName);
+        String val = element.getAttributeValue(NamespaceUri.NULL, localName);
         if (val == null) {
             return Collections.emptyList();
         }
@@ -1246,9 +1305,9 @@ public class PackageLoaderHE implements IPackageLoader {
 
     private StructuredQName resolveQName(String val, NodeInfo element) throws XPathException {
         if (val.startsWith("Q{")) {
-            return StructuredQName.fromEQName((val));
+            return StructuredQName.fromEQName40((val));
         } else if (val.contains(":")) {
-            return StructuredQName.fromLexicalQName((val), true, true, element.getAllNamespaces());
+            return StructuredQName.fromLexicalQName((val), true, 0, element.getAllNamespaces());
         } else {
             return new StructuredQName("", NamespaceUri.NULL, val);
         }
@@ -1264,7 +1323,7 @@ public class PackageLoaderHE implements IPackageLoader {
      */
 
     public int getIntegerAttribute(NodeInfo element, String localName) throws XPathException {
-        String val = element.getAttributeValue(NamespaceUri.NULL,localName);
+        String val = element.getAttributeValue(NamespaceUri.NULL, localName);
         if (val == null) {
             return Integer.MIN_VALUE;
         }
@@ -1273,17 +1332,33 @@ public class PackageLoaderHE implements IPackageLoader {
         } catch (NumberFormatException e) {
             throw new XPathException("Expected integer value for " +
                                              element.getDisplayName() + "/" + localName +
-                    ", found '" + val + "'", SaxonErrorCode.SXPK0002);
+                                             ", found '" + val + "'", SaxonErrorCode.SXPK0002);
         }
     }
 
+    public long getLongAttribute(NodeInfo element, String localName) throws XPathException {
+        String val = element.getAttributeValue(NamespaceUri.NULL, localName);
+        if (val == null) {
+            return Long.MIN_VALUE;
+        }
+        try {
+            return Long.parseLong(val);
+        } catch (NumberFormatException e) {
+            throw new XPathException("Expected long integer value for " +
+                                             element.getDisplayName() + "/" + localName +
+                                             ", found '" + val + "'", SaxonErrorCode.SXPK0002);
+        }
+    }
+
+
+
     public String getInheritedAttribute(NodeInfo element, String localName) {
         while (element != null) {
-            String val = element.getAttributeValue(NamespaceUri.NULL,localName);
+            String val = element.getAttributeValue(NamespaceUri.NULL, localName);
             if (val != null) {
                 return val;
             }
-            element = element.getParent();
+            element = (NodeInfo) element.getParent();
         }
         return null;
     }
@@ -1299,11 +1374,11 @@ public class PackageLoaderHE implements IPackageLoader {
 
     public SequenceType parseSequenceType(NodeInfo element, String name) throws XPathException {
         IndependentContext env = makeStaticContext(element);
-        String attValue = element.getAttributeValue(NamespaceUri.NULL,name);
+        String attValue = element.getAttributeValue(NamespaceUri.NULL, name);
         if (attValue == null) {
             return SequenceType.ANY_SEQUENCE;
         } else {
-            return parser.parseExtendedSequenceType(attValue, env);
+            return parser.parseSequenceType(attValue, env);
         }
     }
 
@@ -1317,12 +1392,12 @@ public class PackageLoaderHE implements IPackageLoader {
      */
 
     public SequenceType parseAlphaCode(NodeInfo element, String name) throws XPathException {
-        String attValue = element.getAttributeValue(NamespaceUri.NULL,name);
+        String attValue = element.getAttributeValue(NamespaceUri.NULL, name);
         if (attValue == null) {
             return SequenceType.ANY_SEQUENCE;
         } else {
             try {
-                return AlphaCode.toSequenceType(attValue, config);
+                return AlphaCode.toSequenceType(attValue, config, getSchema());
             } catch (IllegalArgumentException | IllegalStateException e) {
                 throw new XPathException("Invalid alpha code " + element.getDisplayName() + "/@" + name + "='" + attValue + "': " + e.getMessage());
             }
@@ -1330,16 +1405,26 @@ public class PackageLoaderHE implements IPackageLoader {
     }
 
     public ItemType parseAlphaCodeForItemType(NodeInfo element, String name) throws XPathException {
-        String attValue = element.getAttributeValue(NamespaceUri.NULL,name);
+        String attValue = element.getAttributeValue(NamespaceUri.NULL, name);
         if (attValue == null) {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         } else {
             try {
-                return AlphaCode.toItemType(attValue, config);
+                return AlphaCode.toItemType(attValue, config, getSchema());
             } catch (IllegalArgumentException | IllegalStateException e) {
                 throw new XPathException("Invalid alpha code " + element.getDisplayName() + "/@" + name + "='" + attValue + "': " + e.getMessage());
             }
         }
+    }
+
+    public NodeTest parseAlphaCodeForNodeTest(NodeInfo element, String name, int axis) throws XPathException {
+        String attValue = element.getAttributeValue(NamespaceUri.NULL, name);
+        if (attValue == null) {
+            return AnyGNodeType.getInstance();
+        } else {
+            return parseAlphaCodeForNodeTest(attValue, axis);
+        }
+
     }
 
     private IndependentContext makeStaticContext(NodeInfo element) {
@@ -1347,10 +1432,103 @@ public class PackageLoaderHE implements IPackageLoader {
         IndependentContext env = new IndependentContext(config);
         final NamespaceResolver resolver = element.getAllNamespaces();
         env.setNamespaceResolver(resolver);
-        env.setImportedSchemaNamespaces(pack.getSchemaNamespaces());
-        env.getImportedSchemaNamespaces().add(NamespaceUri.ANONYMOUS);
+        env.setXPathLanguageLevel(pack.getHostLanguageVersion());
+        env.setImportedSchema(pack.getImportedSchema(""));
         parser.setQNameParser(parser.getQNameParser().withNamespaceResolver(resolver));
         return env;
+    }
+
+    private NodeTest parseAlphaCodeForNodeTest(String attValue, int axis) throws XPathException {
+        if (attValue.startsWith("$ST(")) {
+            // This is a SelectorTest
+            int firstComma = attValue.indexOf(',');
+            int secondComma = attValue.indexOf(',', firstComma + 1);
+            int closeParen = attValue.indexOf(')', secondComma + 1);
+            String names = attValue.substring(4, firstComma);
+            String asNCName = attValue.substring(firstComma + 1, secondComma);
+            String kind = attValue.substring(secondComma + 1, closeParen);
+            return new SelectorTest(
+                    parseQNameTestList(names, getConfiguration().getNamePool()),
+                    asNCName.equals("true"),
+                    Integer.parseInt(kind));
+        } else if (attValue.startsWith("$NT-")) {
+            return parseCombinedNodeTest(attValue, axis);
+        } else {
+            try {
+                ItemType it = AlphaCode.toItemType(attValue, config, getSchema());
+                if (it instanceof NodeTest nt) {
+                    return nt;
+                }
+                if (it instanceof ChoiceItemType cit) {
+                    MultipleNodeKindTest test = cit.toMultipleNodeKindTest();
+                    if (test != null) {
+                        return test;
+                    }
+                    List<? extends ItemType> memberTypes = cit.getMemberTypes();
+                    if (memberTypes.size() == 2) {
+                        if (memberTypes.get(0) == AnyJNodeType.getInstance() && memberTypes.get(1) == NodeKindType.ELEMENT) {
+                            return new NodeTestStar(AxisInfo.principalNodeType[axis]);
+                        }
+                        if (memberTypes.get(1) == AnyJNodeType.getInstance() && memberTypes.get(0) == NodeKindType.ELEMENT) {
+                            return new NodeTestStar(AxisInfo.principalNodeType[axis]);
+                        }
+                        if (memberTypes.get(0) == AnyJNodeType.getInstance() && memberTypes.get(1) == NodeKindType.ATTRIBUTE) {
+                            return new NodeTestStar(AxisInfo.principalNodeType[axis]);
+                        }
+                        if (memberTypes.get(1) == AnyJNodeType.getInstance() && memberTypes.get(0) == NodeKindType.ATTRIBUTE) {
+                            return new NodeTestStar(AxisInfo.principalNodeType[axis]);
+                        }
+                    }
+                    List<QNameTest> qNameTests = new ArrayList<>();
+                    boolean failed = false;
+                    int kind = -1;
+                    for (ItemType m : memberTypes) {
+                        if (m instanceof NamedXNodeType namedXNodeType) {
+                            if (kind == -1) {
+                                kind = namedXNodeType.getNodeKind();
+                            } else if (kind != namedXNodeType.getNodeKind()) {
+                                failed = true;
+                                break;
+                            }
+                            qNameTests.add(namedXNodeType.getQNameTest());
+                        } else {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    if (!failed) {
+                        UnionQNameTest union = new UnionQNameTest(qNameTests);
+                        return new NamedXNodeType(kind, union, getConfiguration());
+                    }
+                }
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                throw new XPathException("Invalid alpha code " + attValue + "': " + e.getMessage());
+            }
+        }
+        throw new XPathException("Bad alpha code "+attValue);
+    }
+
+    private NodeTest parseCombinedNodeTest(String value, int axis) throws XPathException {
+       int lparen = value.indexOf('(');
+       String op = value.substring(4, lparen);
+       int hash1 = value.indexOf('#', lparen + 1);
+       int len1 = Integer.parseInt(value.substring(lparen + 1, hash1));
+       int end1 = hash1 + 1 + len1;
+       String nt1 = value.substring(hash1 + 1, end1);
+       NodeTest test1 = parseAlphaCodeForNodeTest(nt1, axis);
+       int comma = value.indexOf(',', end1);
+       int hash2 = value.indexOf('#', comma + 1);
+       int len2 = Integer.parseInt(value.substring(comma + 1, hash2));
+       int end2 = hash2 + 1 + len2;
+       String nt2 = value.substring(hash2 + 1, end2);
+       NodeTest test2 = parseAlphaCodeForNodeTest(nt2, axis);
+       OperatorSymbol symbol = switch(op) {
+           case "union" -> OperatorSymbol.UNION;
+           case "intersect" -> OperatorSymbol.INTERSECT;
+           case "except" -> OperatorSymbol.EXCEPT;
+           default -> throw new XPathException("Invalid operator symbol " + op);
+       };
+       return new CombinedNodeTest(test1, symbol, test2);
     }
 
     /**
@@ -1363,16 +1541,16 @@ public class PackageLoaderHE implements IPackageLoader {
      */
 
     public ItemType parseItemTypeAttribute(NodeInfo element, String attName) throws XPathException {
-        String attValue = element.getAttributeValue(NamespaceUri.NULL,attName);
+        String attValue = element.getAttributeValue(NamespaceUri.NULL, attName);
         if (attValue == null) {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         }
         return parseItemType(element, attValue);
     }
 
     private ItemType parseItemType(NodeInfo element, String attValue) throws XPathException {
         IndependentContext env = makeStaticContext(element);
-        return parser.parseExtendedItemType(attValue, env);
+        return parser.parseItemType(attValue, env);
     }
 
     public AtomicComparer makeAtomicComparer(String name, NodeInfo element) throws XPathException {
@@ -1380,9 +1558,12 @@ public class PackageLoaderHE implements IPackageLoader {
             return CodepointCollatingComparer.getInstance();
         } else if (name.equals("CAVC")) {
             return ContextFreeAtomicComparer.getInstance();
+        } else if (name.equals("CFAC40")) {
+            return ContextFreeAtomicComparer40.getInstance();
         } else if (name.startsWith("GAC|")) {
             StringCollator collator = config.getCollation(name.substring(4));
-            return new GenericAtomicComparer(collator, null);
+            int version = packStack.peek().getHostLanguageVersion();
+            return new GenericAtomicComparer(collator, version, null);
         } else if (name.equals("CalVC")) {
             return new CalendarValueComparer(null);
         } else if (name.equals("EQC")) {
@@ -1405,7 +1586,9 @@ public class PackageLoaderHE implements IPackageLoader {
             String fps = name.substring(5, nextBar);
             int fp = Integer.parseInt(fps);
             String collName = name.substring(nextBar + 1);
-            return AtomicSortComparer.makeSortComparer(config.getCollation(collName), fp, new EarlyEvaluationContext(config));
+            int version = packStack.peek().getHostLanguageVersion();
+            return AtomicSortComparer.makeSortComparer(
+                    config.getCollation(collName), fp, version, new EarlyEvaluationContext(config));
         } else if (name.startsWith("DESC|")) {
             AtomicComparer base = makeAtomicComparer(name.substring(5), element);
             return new DescendingComparer(base);
@@ -1427,11 +1610,12 @@ public class PackageLoaderHE implements IPackageLoader {
     private SortKeyDefinitionList loadSortKeyDefinitions(NodeInfo element) throws XPathException {
         List<SortKeyDefinition> skdl = new ArrayList<>(4);
         NodeInfo sortKeyElement;
-        AxisIterator iterator = element.iterateAxis(AxisInfo.CHILD,
-                                                    new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "sortKey", config.getNamePool()));
-        while ((sortKeyElement = iterator.next()) != null) {
-            SortKeyDefinition skd = new SortKeyDefinition();
-            String compAtt = sortKeyElement.getAttributeValue(NamespaceUri.NULL,"comp");
+        SequenceIterator iterator = element.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "sortKey", config));
+        int version = packStack.peek().getHostLanguageVersion();
+        while ((sortKeyElement = (NodeInfo) iterator.next()) != null) {
+            SortKeyDefinition skd = new SortKeyDefinition(version);
+            String compAtt = sortKeyElement.getAttributeValue(NamespaceUri.NULL, "comp");
             if (compAtt != null) {
                 AtomicComparer ac = makeAtomicComparer(compAtt, sortKeyElement);
                 skd.setFinalComparator(ac);
@@ -1451,10 +1635,10 @@ public class PackageLoaderHE implements IPackageLoader {
     private WithParam[] loadWithParams(NodeInfo element, Expression parent, boolean needTunnel) throws XPathException {
         List<WithParam> wps = new ArrayList<>(4);
         NodeInfo wpElement;
-        AxisIterator iterator = element.iterateAxis(AxisInfo.CHILD,
-                                                    new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "withParam", config.getNamePool()));
-        while ((wpElement = iterator.next()) != null) {
-            String flags = wpElement.getAttributeValue(NamespaceUri.NULL,"flags");
+        SequenceIterator iterator = element.iterateChildAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "withParam", config));
+        while ((wpElement = (NodeInfo) iterator.next()) != null) {
+            String flags = wpElement.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean isTunnel = flags != null && flags.contains("t");
             if (needTunnel == isTunnel) {
                 WithParam wp = new WithParam();
@@ -1477,11 +1661,11 @@ public class PackageLoaderHE implements IPackageLoader {
             while ((line = lnr.readLine()) != null) {
                 int eq = line.indexOf('=');
                 String key = line.substring(0, eq);
-                String val = eq == line.length() - 1 ? "" : line.substring(eq+1);
+                String val = eq == line.length() - 1 ? "" : line.substring(eq + 1);
                 if (key.equals("item-separator") || key.equals("Q" + SaxonOutputKeys.NEWLINE)) {
                     try {
-                        val = JsonParser.unescape(val, 0, "", -1);
-                    } catch (XPathException ignored) {
+                        val = ExpressionPresenter.jsUnescape(val);
+                    } catch (Exception ignored) {
                         // No action, leave unescaped
                     }
                 }
@@ -1520,7 +1704,6 @@ public class PackageLoaderHE implements IPackageLoader {
         licensableConstructs.put("stream", "EE");
         licensableConstructs.put("switch", "EE");
 
-        licensableConstructs.put("acFnRef", "PE");
         licensableConstructs.put("assign", "PE");
         licensableConstructs.put("do", "PE");
         licensableConstructs.put("javaCall", "PE");
@@ -1529,10 +1712,45 @@ public class PackageLoaderHE implements IPackageLoader {
 
     static {
 
+        eMap.put("acFnRef", (loader, element) -> {
+            StructuredQName name = loader.getQNameAttribute(element, "name");
+            SchemaType type = loader.getSchema().getSchemaType(name);
+
+            NamespaceResolver resolver = null;
+
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
+            if (flags == null) {
+                flags = "";
+            }
+            if (flags.contains("l")) {
+                if (type instanceof ListType lt) {
+                    if (lt.isNamespaceSensitive()) {
+                        RetainedStaticContext rsc = loader.makeRetainedStaticContext(element);
+                        resolver = rsc.getNamespaceMap();
+                    }
+                    ListConstructorFunction fn = new ListConstructorFunction(lt, resolver, flags.contains("e"));
+                    return new FunctionLiteral(fn);
+                } else {
+                    throw new XPathException("No list type " + name.getEQName() + " found");
+                }
+            } else {
+                if (type instanceof AtomicType at) {
+                    if (at.isNamespaceSensitive()) {
+                        RetainedStaticContext rsc = loader.makeRetainedStaticContext(element);
+                        resolver = rsc.getNamespaceMap();
+                    }
+                    AtomicConstructorFunction fn = new AtomicConstructorFunction(at, resolver);
+                    return new FunctionLiteral(fn);
+                } else {
+                    throw new XPathException("No atomic type " + name.getEQName() + " found");
+                }
+            }
+        });
+
         eMap.put("among", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            return new SingletonIntersectExpression(lhs, Token.INTERSECT, rhs);
+            return new SingletonIntersectExpression(lhs, OperatorSymbol.INTERSECT, rhs);
         });
 
         eMap.put("analyzeString", (loader, element) -> {
@@ -1572,7 +1790,7 @@ public class PackageLoaderHE implements IPackageLoader {
             } else {
                 mode = (SimpleMode) pack.getRuleManager().obtainMode(null, true);
             }
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             if (flags == null) {
                 flags = "";
             }
@@ -1602,10 +1820,10 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("arith", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            final String code = element.getAttributeValue(NamespaceUri.NULL,"calc");
+            final String code = element.getAttributeValue(NamespaceUri.NULL, "calc");
             Calculator calc = Calculator.reconstructCalculator(code);
             int operator = Calculator.operatorFromCode(code.charAt(1));
-            int token = Calculator.getTokenFromOperator(operator);
+            OperatorSymbol token = Calculator.getArithmeticOperatorSymbol(operator);
             ArithmeticExpression exp = new ArithmeticExpression(lhs, token, rhs);
             exp.setCalculator(calc);
             return exp;
@@ -1614,10 +1832,10 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("arith10", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            final String code = element.getAttributeValue(NamespaceUri.NULL,"calc");
+            final String code = element.getAttributeValue(NamespaceUri.NULL, "calc");
             Calculator calc = Calculator.reconstructCalculator(code);
             int operator = Calculator.operatorFromCode(code.charAt(1));
-            int token = Calculator.getTokenFromOperator(operator);
+            OperatorSymbol token = Calculator.getArithmeticOperatorSymbol(operator);
             ArithmeticExpression10 exp = new ArithmeticExpression10(lhs, token, rhs);
             exp.setCalculator(calc);
             return exp;
@@ -1638,24 +1856,30 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("atomic", (loader, element) -> {
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"val");
-            AtomicType type = (AtomicType)loader.parseAlphaCodeForItemType(element, "type");
-            AtomicValue val = type.getStringConverter(loader.config.getConversionRules())
-                    .convertString(StringView.of(valAtt).tidy()).asAtomic();
-            return Literal.makeLiteral(val);
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "val");
+            ItemType type = loader.parseAlphaCodeForItemType(element, "type");
+            if (type instanceof AtomicType at) {
+                AtomicValue val = at.getStringConverter(loader.config.getConversionRules())
+                        .convertString(StringView.of(valAtt).tidy()).asAtomic();
+                return Literal.makeLiteral(val);
+            } else if (type instanceof EnumerationUnionType enut) {
+                return Literal.makeLiteral(new StringValue(valAtt));
+            } else {
+                throw new IllegalStateException("Unrecognized atomic type: " + type);
+            }
         });
 
         eMap.put("atomSing", (loader, element) -> {
             Expression body = loader.getFirstChildExpression(element);
-            String savedRole = element.getAttributeValue(NamespaceUri.NULL,"diag");
+            String savedRole = element.getAttributeValue(NamespaceUri.NULL, "diag");
             Supplier<RoleDiagnostic> role = () -> RoleDiagnostic.reconstruct(savedRole);
-            String cardAtt = element.getAttributeValue(NamespaceUri.NULL,"card");
+            String cardAtt = element.getAttributeValue(NamespaceUri.NULL, "card");
             boolean allowEmpty = "?".equals(cardAtt);
             return new SingletonAtomizer(body, role, allowEmpty);
         });
 
         eMap.put("att", (loader, element) -> {
-            String displayName = element.getAttributeValue(NamespaceUri.NULL,"name");
+            String displayName = element.getAttributeValue(NamespaceUri.NULL, "name");
             String[] parts;
             try {
                 parts = NameChecker.getQNameParts((displayName));
@@ -1669,7 +1893,7 @@ public class PackageLoaderHE implements IPackageLoader {
             StructuredQName name = new StructuredQName(parts[0], NamespaceUri.of(uri), parts[1]);
             NodeName attName = new FingerprintedQName(name, loader.config.getNamePool());
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
@@ -1690,10 +1914,17 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("axis", (loader, element) -> {
-            String axisName = element.getAttributeValue(NamespaceUri.NULL,"name");
+            String axisName = element.getAttributeValue(NamespaceUri.NULL, "name");
             int axis = AxisInfo.getAxisNumber(axisName);
-            NodeTest nt = (NodeTest) loader.parseAlphaCodeForItemType(element, "nodeTest");
+            NodeTest nt = loader.parseAlphaCodeForNodeTest(element, "nodeTest", axis);
             return new AxisExpression(axis, nt);
+        });
+
+        eMap.put("axisGet", (loader, element) -> {
+            String axisName = element.getAttributeValue(NamespaceUri.NULL, "name");
+            int axis = AxisInfo.getAxisNumber(axisName);
+            Expression selector = loader.getFirstChildExpression(element);
+            return new AxisGetExpression(axis, selector);
         });
 
         eMap.put("break", (loader, element) -> new BreakInstr());
@@ -1709,7 +1940,7 @@ public class PackageLoaderHE implements IPackageLoader {
             } else {
                 t = (NamedTemplate) target.getActor();
             }
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean useTailRecursion = flags != null && flags.contains("t");
             boolean inStreamableConstruct = flags != null && flags.contains("d");
             CallTemplate inst = new CallTemplate(t, name, useTailRecursion, inStreamableConstruct);
@@ -1723,28 +1954,50 @@ public class PackageLoaderHE implements IPackageLoader {
             return inst;
         });
 
+        eMap.put("callable", (loader, element) -> {
+            String tag = element.getAttributeValue(NamespaceUri.NULL, "tag");
+            CallableFunction fn = switch (tag) {
+                case "mapConstructorDuplicatesAction" -> MapItem.mapConstructorDuplicatesAction;
+                case "xslMapDuplicatesAction" -> MapItem.xslMapDuplicatesAction;
+                case "xslRecordDuplicatesAction" -> MapItem.xslRecordDuplicatesAction;
+                default -> throw new IllegalStateException("Unknown callable function tag: " + tag);
+            };
+            return Literal.makeLiteral(fn);
+        });
+
         eMap.put("cast", (loader, element) -> {
+            // Expect either an "as" attribute containing the alphacode of an item type,
+            // or a "to" attribute containing the name of a schema type
             Expression body = loader.getFirstChildExpression(element);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean allowEmpty = flags.contains("e");
+            String toAtt = element.getAttributeValue(NamespaceUri.NULL, "to");
+            StructuredQName typeName = toAtt == null ? null : StructuredQName.fromEQName40(toAtt);
+            String asAtt = element.getAttributeValue(NamespaceUri.NULL, "as");
+            ItemType itemType = asAtt == null ? null : loader.parseAlphaCode(element, "as").getPrimaryType();
             if (flags.contains("a")) {
-                SequenceType seqType = loader.parseAlphaCode(element, "as");
-                return new CastExpression(body, (AtomicType) seqType.getPrimaryType(), allowEmpty);
+                // Atomic type
+                return new CastExpression(body, (AtomicType) itemType, allowEmpty);
             } else if (flags.contains("l")) {
-                StructuredQName typeName = StructuredQName.fromEQName((element.getAttributeValue(NamespaceUri.NULL,"as")));
-                SchemaType type = loader.config.getSchemaType(typeName);
-                NamespaceResolver resolver = element.getAllNamespaces();
-                ListConstructorFunction ucf = new ListConstructorFunction((ListType) type, resolver, allowEmpty);
-                return new StaticFunctionCall(ucf, new Expression[]{body});
+                if (toAtt != null) {
+                    SchemaType type = loader.getSchema().getSchemaType(typeName);
+                    NamespaceResolver resolver = element.getAllNamespaces();
+                    ListConstructorFunction ucf = new ListConstructorFunction((ListType) type, resolver, allowEmpty);
+                    return new StaticFunctionCall(ucf, new Expression[]{body});
+                } else {
+                    SchemaType type = (SchemaType) itemType;
+                    NamespaceResolver resolver = element.getAllNamespaces();
+                    ListConstructorFunction ucf = new ListConstructorFunction((ListType) type, resolver, allowEmpty);
+                    return new StaticFunctionCall(ucf, new Expression[]{body});
+                }
             } else if (flags.contains("u")) {
-                if (element.getAttributeValue(NamespaceUri.NULL,"as") != null) {
-                    StructuredQName typeName = StructuredQName.fromEQName((element.getAttributeValue(NamespaceUri.NULL,"as")));
-                    SchemaType type = loader.config.getSchemaType(typeName);
+                if (toAtt != null) {
+                    SchemaType type = loader.getSchema().getSchemaType(typeName);
                     NamespaceResolver resolver = element.getAllNamespaces();
                     UnionConstructorFunction ucf = new UnionConstructorFunction((UnionType) type, resolver, allowEmpty);
                     return new StaticFunctionCall(ucf, new Expression[]{body});
                 } else {
-                    LocalUnionType type = (LocalUnionType) loader.parseAlphaCode(element, "to").getPrimaryType();
+                    LocalUnionType type = (LocalUnionType) itemType;
                     NamespaceResolver resolver = element.getAllNamespaces();
                     UnionConstructorFunction ucf = new UnionConstructorFunction(type, resolver, allowEmpty);
                     return new StaticFunctionCall(ucf, new Expression[]{body});
@@ -1756,26 +2009,26 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("castable", (loader, element) -> {
             Expression body = loader.getFirstChildExpression(element);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean allowEmpty = flags.contains("e");
             if (flags.contains("a")) {
                 SequenceType seqType = loader.parseAlphaCode(element, "as");
                 return new CastableExpression(body, (AtomicType) seqType.getPrimaryType(), allowEmpty);
             } else if (flags.contains("l")) {
-                StructuredQName typeName = StructuredQName.fromEQName((element.getAttributeValue(NamespaceUri.NULL,"as")));
-                SchemaType type = loader.config.getSchemaType(typeName);
+                StructuredQName typeName = StructuredQName.fromEQName40((element.getAttributeValue(NamespaceUri.NULL, "as")));
+                SchemaType type = loader.getSchema().getSchemaType(typeName);
                 NamespaceResolver resolver = element.getAllNamespaces();
                 ListCastableFunction ucf = new ListCastableFunction((ListType) type, resolver, allowEmpty);
                 return new StaticFunctionCall(ucf, new Expression[]{body});
             } else if (flags.contains("u")) {
-                if (element.getAttributeValue(NamespaceUri.NULL,"as") != null) {
-                    StructuredQName typeName = StructuredQName.fromEQName((element.getAttributeValue(NamespaceUri.NULL,"as")));
-                    SchemaType type = loader.config.getSchemaType(typeName);
+                if (element.getAttributeValue(NamespaceUri.NULL, "as") != null) {
+                    StructuredQName typeName = StructuredQName.fromEQName40((element.getAttributeValue(NamespaceUri.NULL, "as")));
+                    SchemaType type = loader.getSchema().getSchemaType(typeName);
                     NamespaceResolver resolver = element.getAllNamespaces();
                     UnionCastableFunction ucf = new UnionCastableFunction((UnionType) type, resolver, allowEmpty);
                     return new StaticFunctionCall(ucf, new Expression[]{body});
                 } else {
-                    LocalUnionType type = (LocalUnionType)loader.parseAlphaCode(element, "to").getPrimaryType();
+                    LocalUnionType type = (LocalUnionType) loader.parseAlphaCode(element, "to").getPrimaryType();
                     NamespaceResolver resolver = element.getAllNamespaces();
                     UnionCastableFunction ucf = new UnionCastableFunction(type, resolver, allowEmpty);
                     return new StaticFunctionCall(ucf, new Expression[]{body});
@@ -1783,51 +2036,20 @@ public class PackageLoaderHE implements IPackageLoader {
             } else {
                 throw new AssertionError("Unknown simple type variety " + flags);
             }
-//            Expression body = loader.getFirstChildExpression(element);
-//            SchemaType st = loader.getTypeAttribute(element, "as");
-//            boolean allowEmpty = element.getAttributeValue(NamespaceUri.NULL,"emptiable").equals("1");
-//            if (st == null) {
-//                throw new AssertionError("Unknown simple type " + element.getAttributeValue(NamespaceUri.NULL,"as"));
-//            } else if (st instanceof AtomicType) {
-//                return new CastableExpression(body, (AtomicType) st, allowEmpty);
-//            } else if (st instanceof ListType) {
-//                NamespaceResolver resolver = element.getAllNamespaces();
-//                ListCastableFunction ucf = new ListCastableFunction((ListType) st, resolver, allowEmpty);
-//                return new StaticFunctionCall(ucf, new Expression[]{body});
-//            } else if (st instanceof UnionType) {
-//                NamespaceResolver resolver = element.getAllNamespaces();
-//                UnionCastableFunction ucf = new UnionCastableFunction((UnionType) st, resolver, allowEmpty);
-//                return new StaticFunctionCall(ucf, new Expression[]{body});
-//            } else {
-//                throw new AssertionError("Unknown simple type variety " + st.getClass());
-//            }
         });
 
         eMap.put("check", (loader, element) -> {
             Expression body = loader.getFirstChildExpression(element);
-            String cardAtt = element.getAttributeValue(NamespaceUri.NULL,"card");
-            int c;
-            switch (cardAtt) {
-                case "?":
-                    c = StaticProperty.ALLOWS_ZERO_OR_ONE;
-                    break;
-                case "*":
-                    c = StaticProperty.ALLOWS_ZERO_OR_MORE;
-                    break;
-                case "+":
-                    c = StaticProperty.ALLOWS_ONE_OR_MORE;
-                    break;
-                case "\u00B0":   // Obsolescent, drop this
-                case "0":
-                    c = StaticProperty.ALLOWS_ZERO;
-                    break;
-                case "1":
-                    c = StaticProperty.EXACTLY_ONE;
-                    break;
-                default:
-                    throw new IllegalStateException("Occurrence indicator: '" + cardAtt + "'");
-            }
-            String savedRole = element.getAttributeValue(NamespaceUri.NULL,"diag");
+            String cardAtt = element.getAttributeValue(NamespaceUri.NULL, "card");
+            int c = switch (cardAtt) {
+                case "?" -> StaticProperty.ALLOWS_ZERO_OR_ONE;
+                case "*" -> StaticProperty.ALLOWS_ZERO_OR_MORE;
+                case "+" -> StaticProperty.ALLOWS_ONE_OR_MORE;
+                case "°", "0" -> StaticProperty.ALLOWS_ZERO;
+                case "1" -> StaticProperty.EXACTLY_ONE;
+                default -> throw new IllegalStateException("Occurrence indicator: '" + cardAtt + "'");
+            };
+            String savedRole = element.getAttributeValue(NamespaceUri.NULL, "diag");
             Supplier<RoleDiagnostic> role = () -> RoleDiagnostic.reconstruct(savedRole);
             return CardinalityChecker.makeCardinalityChecker(body, c, role);
         });
@@ -1835,10 +2057,10 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("choose", (loader, element) -> {
             List<Expression> conditions = new ArrayList<>();
             List<Expression> actions = new ArrayList<>();
-            AxisIterator iter = element.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+            SequenceIterator iter = element.iterateChildAxis(NodeKindType.ELEMENT);
             NodeInfo child;
             boolean odd = true;
-            while ((child = iter.next()) != null) {
+            while ((child = (NodeInfo) iter.next()) != null) {
                 if (odd) {
                     conditions.add(loader.loadExpression(child));
                 } else {
@@ -1850,6 +2072,16 @@ public class PackageLoaderHE implements IPackageLoader {
                               actions.toArray(new Expression[0]));
         });
 
+        eMap.put("coercer", (loader, element) -> {
+            SequenceType type = loader.parseAlphaCode(element, "type");
+            Expression target = loader.getFirstChildExpression(element);
+            String savedRole = element.getAttributeValue(NamespaceUri.NULL, "diag");
+            Supplier<RoleDiagnostic> role = () -> RoleDiagnostic.reconstruct(savedRole);
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
+            boolean allow40 = flags != null && flags.contains("4");
+            return SequenceCoercer.makeSequenceCoercer(target, type, role, allow40);
+        });
+
         eMap.put("coercedFn", (loader, element) -> {
             ItemType type = loader.parseItemTypeAttribute(element, "type");
             Expression target = loader.getFirstChildExpression(element);
@@ -1859,14 +2091,21 @@ public class PackageLoaderHE implements IPackageLoader {
                 coercedFn = new CoercedFunction((SpecificFunctionType) type);
                 final CoercedFunction coercedFn2 = coercedFn;
                 final SymbolicName name = ((UserFunctionReference) target).getSymbolicName();
-                loader.addCompletionAction(() -> coercedFn2.setTargetFunction(loader.getUserFunction((SymbolicName.F)name)));
+                loader.addCompletionAction(() -> coercedFn2.setTargetFunction(loader.getUserFunction((SymbolicName.F) name)));
             } else if (target instanceof Literal) {
                 targetFn = (FunctionItem) ((Literal) target).getGroundedValue();
-                coercedFn = new CoercedFunction(targetFn, (SpecificFunctionType) type, true);
+                coercedFn = new CoercedFunction(targetFn, (SpecificFunctionType) type, true, false);
             } else {
                 throw new AssertionError();
             }
             return Literal.makeLiteral(coercedFn);
+        });
+
+        eMap.put("coerceToGNode", (loader, element) -> {
+            Expression body = loader.getFirstChildExpression(element);
+            String savedRole = element.getAttributeValue(NamespaceUri.NULL, "diag");
+            Supplier<RoleDiagnostic> role = () -> RoleDiagnostic.reconstruct(savedRole);
+            return new GNodeSequenceConverter(body, role);
         });
 
 
@@ -1878,15 +2117,15 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("compareToInt", (loader, element) -> {
-            BigInteger i = new BigInteger(element.getAttributeValue(NamespaceUri.NULL,"val"));
-            String opAtt = element.getAttributeValue(NamespaceUri.NULL,"op");
+            BigInteger i = new BigInteger(element.getAttributeValue(NamespaceUri.NULL, "val"));
+            String opAtt = element.getAttributeValue(NamespaceUri.NULL, "op");
             Expression lhs = loader.getFirstChildExpression(element);
             return new CompareToIntegerConstant(lhs, parseValueComparisonOperator(opAtt), i.longValue());
         });
 
         eMap.put("compareToString", (loader, element) -> {
-            String s = element.getAttributeValue(NamespaceUri.NULL,"val");
-            String opAtt = element.getAttributeValue(NamespaceUri.NULL,"op");
+            String s = element.getAttributeValue(NamespaceUri.NULL, "val");
+            String opAtt = element.getAttributeValue(NamespaceUri.NULL, "op");
             Expression lhs = loader.getFirstChildExpression(element);
             return new CompareToStringConstant(lhs, parseValueComparisonOperator(opAtt), StringView.tidy(s));
         });
@@ -1896,7 +2135,7 @@ public class PackageLoaderHE implements IPackageLoader {
             Expression namespace = loader.getExpressionWithRole(element, "namespace");
             Expression content = loader.getExpressionWithRole(element, "select");
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
@@ -1915,7 +2154,7 @@ public class PackageLoaderHE implements IPackageLoader {
             Expression namespace = loader.getExpressionWithRole(element, "namespace");
             Expression content = loader.getExpressionWithRole(element, "content");
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
@@ -1923,8 +2162,9 @@ public class PackageLoaderHE implements IPackageLoader {
             if (schemaType != null) {
                 validation = Validation.BY_TYPE;
             }
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
-            ComputedElement inst = new ComputedElement(name, namespace, schemaType, validation, true, false);
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
+            ComputedElement inst = new ComputedElement(
+                    name, namespace, loader.getSchema(), schemaType, validation, true, false);
             if (flags != null) {
                 inst.setInheritanceFlags(flags);
             }
@@ -1964,12 +2204,12 @@ public class PackageLoaderHE implements IPackageLoader {
                 Converter promoter = TypeChecker.makePromotingConverter(fromType, toType.getPrimitiveType(), loader.config.getConversionRules(), allow40);
                 asc.setConverter(promoter);
             } else if ("d".equals(flags)) {   // Bug 5968
-                asc.setConverter(new Converter.DownCastingConverter((AtomicType)toType, loader.config.getConversionRules()));
+                asc.setConverter(new Converter.DownCastingConverter((AtomicType) toType, loader.config.getConversionRules()));
             } else {
                 Converter c = asc.allocateConverter(loader.config, false, fromType);
                 asc.setConverter(c);
             }
-            String diag = element.getAttributeValue(NamespaceUri.NULL,"diag");
+            String diag = element.getAttributeValue(NamespaceUri.NULL, "diag");
             if (diag != null) {
                 asc.setRoleDiagnostic(() -> RoleDiagnostic.reconstruct(diag));
             }
@@ -1978,7 +2218,7 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("copy", (loader, element) -> {
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
@@ -1986,16 +2226,16 @@ public class PackageLoaderHE implements IPackageLoader {
             if (schemaType != null) {
                 validation = Validation.BY_TYPE;
             }
-            String sType = element.getAttributeValue(NamespaceUri.NULL,"sit");
+            String sType = element.getAttributeValue(NamespaceUri.NULL, "sit");
 
-            Copy inst = new Copy(false, false, schemaType, validation);
+            Copy inst = new Copy(false, false, loader.getSchema(), schemaType, validation);
             inst.setContentExpression(loader.getFirstChildExpression(element));
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             inst.setCopyNamespaces(flags.contains("c"));
             inst.setBequeathNamespacesToChildren(flags.contains("i"));
             inst.setInheritNamespacesFromParent(flags.contains("n"));
             if (sType != null) {
-                SequenceType st = AlphaCode.toSequenceType(sType, loader.getConfiguration());
+                SequenceType st = AlphaCode.toSequenceType(sType, loader.getConfiguration(), loader.getSchema());
                 inst.setSelectItemType(st.getPrimaryType());
             }
             return inst;
@@ -2003,14 +2243,14 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("copyOf", (loader, element) -> {
             Expression select = loader.getFirstChildExpression(element);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             if (flags == null) {
                 flags = "";
             }
             boolean copyNamespaces = flags.contains("c");
             boolean rejectDups = flags.contains("d");
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
@@ -2034,10 +2274,10 @@ public class PackageLoaderHE implements IPackageLoader {
             Expression target = loader.getFirstChildExpression(element);
             FunctionItem targetFn = (FunctionItem) ((Literal) target).getGroundedValue();
             NodeInfo args = loader.getChild(element, 1);
-            int count = Count.count(args.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT));
+            int count = Count.count(args.iterateChildAxis(NodeKindType.ELEMENT));
             Sequence[] argValues = new Sequence[count];
             count = 0;
-            for (NodeInfo child : args.children(NodeKindTest.ELEMENT)) {
+            for (NodeInfo child : args.children(NodeKindType.ELEMENT)) {
                 if (child.getLocalPart().equals("x")) {
                     argValues[count++] = null;
                 } else {
@@ -2045,7 +2285,7 @@ public class PackageLoaderHE implements IPackageLoader {
                     argValues[count++] = ((Literal) arg).getGroundedValue();
                 }
             }
-            FunctionItem f = new CurriedFunction(targetFn, argValues);
+            FunctionItem f = new CurriedFunction(targetFn, argValues, null); // TODO: FIXME
             return Literal.makeLiteral(f);
         });
 
@@ -2057,7 +2297,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 return UntypedSequenceConverter.makeUntypedSequenceRejector(loader.config, body, (PlainType) toType);
             } else {
                 UntypedSequenceConverter cv = UntypedSequenceConverter.makeUntypedSequenceConverter(loader.config, body, (PlainType) toType);
-                String diag = element.getAttributeValue(NamespaceUri.NULL,"diag");
+                String diag = element.getAttributeValue(NamespaceUri.NULL, "diag");
                 if (diag != null) {
                     cv.setRoleDiagnostic(() -> RoleDiagnostic.reconstruct(diag));
                 }
@@ -2067,25 +2307,29 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("data", (loader, element) -> {
             Expression body = loader.getFirstChildExpression(element);
-            String diag = element.getAttributeValue(NamespaceUri.NULL,"diag");
+            String diag = element.getAttributeValue(NamespaceUri.NULL, "diag");
             Supplier<RoleDiagnostic> role = () -> RoleDiagnostic.reconstruct(diag);
-            return new Atomizer(body, diag==null ? null : role);
+            return new Atomizer(body, diag == null ? null : role);
         });
 
         eMap.put("dbl", (loader, element) -> {
-            String val = element.getAttributeValue(NamespaceUri.NULL,"val");
+            String val = element.getAttributeValue(NamespaceUri.NULL, "val");
             double d = StringToDouble.getInstance().stringToNumber(StringView.of(val).tidy());
             return Literal.makeLiteral(new DoubleValue(d));
         });
 
         eMap.put("dec", (loader, element) -> {
-            String val = element.getAttributeValue(NamespaceUri.NULL,"val");
-            return Literal.makeLiteral(BigDecimalValue.makeDecimalValue(val, false).asAtomic());
+            String val = element.getAttributeValue(NamespaceUri.NULL, "val");
+            AtomicValue av = BigDecimalValue.makeDecimalValue(val, false).asAtomic();
+            if (av instanceof IntegerValue) {
+                av = new BigDecimalValue(((IntegerValue) av).getDecimalValue());
+            }
+            return Literal.makeLiteral(av);
         });
 
         eMap.put("doc", (loader, element) -> {
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
@@ -2093,20 +2337,20 @@ public class PackageLoaderHE implements IPackageLoader {
             if (schemaType != null) {
                 validation = Validation.BY_TYPE;
             }
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean textOnly = flags != null && flags.contains("t");
-            String base = element.getAttributeValue(NamespaceUri.NULL,"base");
-            String constantText = element.getAttributeValue(NamespaceUri.NULL,"text");
+            String base = element.getAttributeValue(NamespaceUri.NULL, "base");
+            String constantText = element.getAttributeValue(NamespaceUri.NULL, "text");
             Expression body = loader.getFirstChildExpression(element);
             DocumentInstr inst = new DocumentInstr(textOnly, constantText == null ? null : StringView.tidy(constantText));
             inst.setContentExpression(body);
-            inst.setValidationAction(validation, schemaType);
+            inst.setValidationAction(loader.getSchema(), validation, schemaType);
             return inst;
         });
 
         eMap.put("docOrder", (loader, element) -> {
             Expression select = loader.getFirstChildExpression(element);
-            boolean intra = element.getAttributeValue(NamespaceUri.NULL,"intra").equals("1");
+            boolean intra = element.getAttributeValue(NamespaceUri.NULL, "intra").equals("1");
             return new DocumentSorter(select, intra);
         });
 
@@ -2115,8 +2359,26 @@ public class PackageLoaderHE implements IPackageLoader {
             SequenceType st = loader.parseAlphaCode(element, "type");
             ItemType type = st.getPrimaryType();
             boolean maybeAbsent = "a".equals(element.getAttributeValue(NamespaceUri.NULL, "flags"));
-            ContextItemStaticInfo info = loader.getConfiguration().makeContextItemStaticInfo(type, maybeAbsent);
+            ContextItemStaticInfo info = loader.getConfiguration()
+                    .makeContextItemStaticInfo(type, maybeAbsent ? Optionality.OPTIONAL : Optionality.REQUIRED);
+            if (maybeAbsent) {
+                info = info.withStatusUnknown();
+            }
             cie.setStaticInfo(info);
+            return cie;
+        });
+
+        eMap.put("dott", (loader, element) -> {
+            ContextValueExpression cie = new ContextValueExpression();
+            /*SequenceType st = loader.parseAlphaCode(element, "type");
+            ItemType type = st.getPrimaryType();
+            boolean maybeAbsent = "a".equals(element.getAttributeValue(NamespaceUri.NULL, "flags"));
+            ContextItemStaticInfo info = loader.getConfiguration()
+                    .makeContextItemStaticInfo(type, maybeAbsent ? Optionality.OPTIONAL : Optionality.REQUIRED);
+            if (maybeAbsent) {
+                info = info.withStatusUnknown();
+            }
+            cie.setStaticInfo(info);*/
             return cie;
         });
 
@@ -2126,18 +2388,18 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("elem", (loader, element) -> {
-            String displayName = element.getAttributeValue(NamespaceUri.NULL,"name");
+            String displayName = element.getAttributeValue(NamespaceUri.NULL, "name");
             String[] parts;
             try {
                 parts = NameChecker.getQNameParts((displayName));
             } catch (QNameException err) {
                 throw new XPathException(err);
             }
-            String nsuri = element.getAttributeValue(NamespaceUri.NULL,"nsuri");
+            String nsuri = element.getAttributeValue(NamespaceUri.NULL, "nsuri");
             StructuredQName name = new StructuredQName(parts[0], NamespaceUri.of(nsuri), parts[1]);
 
             NodeName elemName = new FingerprintedQName(name, loader.config.getNamePool());
-            String ns = element.getAttributeValue(NamespaceUri.NULL,"namespaces");
+            String ns = element.getAttributeValue(NamespaceUri.NULL, "namespaces");
             NamespaceMap bindings = NamespaceMap.emptyMap();
             if (ns != null && !ns.isEmpty()) {
                 String[] pairs = ns.split(" ");
@@ -2165,7 +2427,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 }
             }
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
@@ -2175,8 +2437,9 @@ public class PackageLoaderHE implements IPackageLoader {
             }
 
             Expression content = loader.getFirstChildExpression(element);
-            FixedElement elem = new FixedElement(elemName, bindings, true, true, schemaType, validation);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            FixedElement elem = new FixedElement(
+                    elemName, bindings, true, true, loader.getSchema(), schemaType, validation);
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             if (flags != null) {
                 elem.setInheritanceFlags(flags);
             }
@@ -2185,7 +2448,7 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
 
-        eMap.put("empty", (loader, element) -> Literal.makeLiteral(EmptySequence.getInstance()));
+        eMap.put("empty", (loader, element) -> Literal.makeLiteral(EmptySequence.INSTANCE));
 
         eMap.put("emptyTextNodeRemover", (loader, element) -> {
             Expression body = loader.getFirstChildExpression(element);
@@ -2193,9 +2456,12 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("error", (loader, element) -> {
-            String message = element.getAttributeValue(NamespaceUri.NULL,"message");
-            String code = element.getAttributeValue(NamespaceUri.NULL,"code");
-            boolean isTypeErr = "1".equals(element.getAttributeValue(NamespaceUri.NULL,"isTypeErr"));
+            String message = element.getAttributeValue(NamespaceUri.NULL, "message");
+            String code = element.getAttributeValue(NamespaceUri.NULL, "code");
+            if (code == null) {
+                code = "XXXX9999";
+            }
+            boolean isTypeErr = "1".equals(element.getAttributeValue(NamespaceUri.NULL, "isTypeErr"));
             return new ErrorExpression(message, code, isTypeErr);
         });
 
@@ -2214,17 +2480,17 @@ public class PackageLoaderHE implements IPackageLoader {
             if (optionsOp != null) {
                 inst.setOptionsExpression(optionsOp);
             }
-            String namespaces = element.getAttributeValue(NamespaceUri.NULL,"schNS");
+            String namespaces = element.getAttributeValue(NamespaceUri.NULL, "schNS");
             if (namespaces != null) {
                 String[] uris = namespaces.split(" ");
                 for (String nsUri : uris) {
-                    inst.importSchemaNamespace(nsUri.equals("##") ? NamespaceUri.NULL : NamespaceUri.of(nsUri));
+                    //inst.importSchemaNamespace(nsUri.equals("##") ? NamespaceUri.NULL : NamespaceUri.of(nsUri));
                 }
             }
 
             List<WithParam> nonTunnelParams = new ArrayList<>();
             int slotNumber = 0;
-            for (NodeInfo wp : element.children(NodeSelector.of(n -> n.getLocalPart().equals("withParam")))) {
+            for (NodeInfo wp : element.children(NodePredicateLambda.of(n -> ((NodeInfo) n).getLocalPart().equals("withParam")))) {
                 WithParam withParam = new WithParam();
                 StructuredQName paramName = loader.getQNameAttribute(wp, "name");
                 withParam.setVariableQName(paramName);
@@ -2250,7 +2516,7 @@ public class PackageLoaderHE implements IPackageLoader {
             StructuredQName name = loader.getQNameAttribute(element, "var");
             SequenceType requiredType = loader.parseAlphaCode(element, "as");
             QuantifiedExpression qEx = new QuantifiedExpression();
-            qEx.setOperator(Token.EVERY);
+            qEx.setOperator(QuantifiedExpression.Qualifier.EVERY);
             qEx.setSequence(select);
             qEx.setRequiredType(requiredType);
             qEx.setSlotNumber(slot);
@@ -2268,7 +2534,7 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("except", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            return new VennExpression(lhs, Token.EXCEPT, rhs);
+            return new VennExpression(lhs, OperatorSymbol.EXCEPT, rhs);
         });
 
         eMap.put("false", (loader, element) -> Literal.makeLiteral(BooleanValue.FALSE));
@@ -2276,9 +2542,16 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("filter", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             FilterExpression fe = new FilterExpression(lhs, rhs);
             fe.setFlags(flags);
+            return fe;
+        });
+
+        eMap.put("filterAM", (loader, element) -> {
+            Expression lhs = loader.getFirstChildExpression(element);
+            Expression rhs = loader.getSecondChildExpression(element);
+            FilterExpressionAM fe = new FilterExpressionAM(lhs, rhs);
             return fe;
         });
 
@@ -2291,10 +2564,13 @@ public class PackageLoaderHE implements IPackageLoader {
             RetainedStaticContext rsc = loader.makeRetainedStaticContext(element);
             loader.contextStack.push(rsc);
             final Expression[] args = getChildExpressionArray(loader, element);
-            String name = element.getAttributeValue(NamespaceUri.NULL,"name");
+            String name = element.getAttributeValue(NamespaceUri.NULL, "name");
             if (name.equals("_STRING-JOIN_2.0")) {
                 // encountered in files exported by Saxon 9.7
                 name = "string-join";
+            }
+            if (rsc.getConfiguration().isDisabledFunction(NamespaceUri.FN.qName(name))) {
+                throw new XPathException("System function " + name + " has been disabled", "XPST0017");
             }
             Expression e;
             try {
@@ -2306,7 +2582,7 @@ public class PackageLoaderHE implements IPackageLoader {
             if (e instanceof SystemFunctionCall) {
                 final SystemFunction fn = ((SystemFunctionCall) e).getTargetFunction();
                 fn.setRetainedStaticContext(rsc);
-                SequenceIterator iter = element.iterateAxis(AxisInfo.ATTRIBUTE);
+                SequenceIterator iter = element.iterateAttributeAxis(AnyGNode.TEST);
                 NodeInfo att;
                 Properties props = new Properties();
                 while ((att = (NodeInfo) iter.next()) != null) {
@@ -2321,30 +2597,41 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("fnCoercer", (loader, element) -> {
             SpecificFunctionType type = (SpecificFunctionType) loader.parseAlphaCode(element, "to").getPrimaryType();
-            final String diag = element.getAttributeValue(NamespaceUri.NULL,"diag");
+            final String diag = element.getAttributeValue(NamespaceUri.NULL, "diag");
             Expression arg = loader.getFirstChildExpression(element);
-            String flags = element.getAttributeValue("", "flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean allow40 = flags != null && flags.contains("4");
-            return new FunctionSequenceCoercer(arg, type, () -> RoleDiagnostic.reconstruct(diag), allow40);
+            boolean acceptReducedArity = flags != null && flags.contains("r");
+            return new FunctionSequenceCoercer(arg, type, () -> RoleDiagnostic.reconstruct(diag), allow40, acceptReducedArity);
         });
 
         eMap.put("fnRef", (loader, element) -> {
             loader.needsPELicense("higher order functions");
-            String name = element.getAttributeValue(NamespaceUri.NULL,"name");
+            String name = element.getAttributeValue(NamespaceUri.NULL, "name");
             int arity = loader.getIntegerAttribute(element, "arity");
             RetainedStaticContext rsc = loader.makeRetainedStaticContext(element);
             SystemFunction f = null;
             if (name.startsWith("Q{")) {
-                StructuredQName qName = StructuredQName.fromEQName((name));
+                StructuredQName qName = StructuredQName.fromEQName40((name));
+                if (rsc.getConfiguration().isDisabledFunction(qName)) {
+                    throw new XPathException("Function " + name + " has been disabled", "XPST0017");
+                }
                 NamespaceUri uri = qName.getNamespaceUri();
                 if (uri == NamespaceUri.MATH) {
-                    f = MathFunctionSet.getInstance().makeFunction(qName.getLocalPart(), arity);
+                    f = MathFunctionSet.getInstance(40).makeFunction(qName.getLocalPart(), arity);
                 } else if (uri == NamespaceUri.MAP_FUNCTIONS) {
                     f = MapFunctionSet.getInstance(40).makeFunction(qName.getLocalPart(), arity);
                 } else if (uri == NamespaceUri.ARRAY_FUNCTIONS) {
                     f = ArrayFunctionSet.getInstance(40).makeFunction(qName.getLocalPart(), arity);
                 } else if (uri == NamespaceUri.SAXON) {
                     f = loader.getConfiguration().bindSaxonExtensionFunction(qName.getLocalPart(), arity);
+                } else if (uri == NamespaceUri.EXPATH_BINARY) {
+                    f = loader.makeEXPathBinaryFunction(qName, arity);
+                } else if (uri == NamespaceUri.EXPATH_FILE) {
+                    f = loader.makeEXPathFileFunction(qName, arity);
+                }
+                if (f != null) {
+                    f.setRetainedStaticContext(rsc);
                 }
             } else {
                 f = SystemFunction.makeFunction(name, rsc, arity);
@@ -2359,7 +2646,13 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("follows", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            return new IdentityComparison(lhs, Token.FOLLOWS, rhs);
+            return new IdentityComparison(lhs, OperatorSymbol.FOLLOWS, rhs);
+        });
+
+        eMap.put("follows-or-is", (loader, element) -> {
+            Expression lhs = loader.getFirstChildExpression(element);
+            Expression rhs = loader.getSecondChildExpression(element);
+            return new IdentityComparison(lhs, OperatorSymbol.FOLLOWS_OR_IS, rhs);
         });
 
         eMap.put("for", (loader, element) -> {
@@ -2375,8 +2668,21 @@ public class PackageLoaderHE implements IPackageLoader {
             forEx.setVariableQName(name);
 
             loader.localBindings.push(forEx);
+
+            StructuredQName posName = loader.getQNameAttribute(element, "pos");
+            if (posName != null) {
+                LocalVariableBinding posVar = new LocalVariableBinding(posName, SequenceType.SINGLE_INTEGER);
+                posVar.setSlotNumber(loader.getIntegerAttribute(element, "posSlot"));
+                forEx.setPositionVariable(posVar);
+                loader.localBindings.push(posVar);
+            }
+
+
             Expression action = loader.getSecondChildExpression(element);
             loader.localBindings.pop();
+            if (posName != null) {
+                loader.localBindings.pop();
+            }
             forEx.setAction(action);
 
             return forEx;
@@ -2388,12 +2694,12 @@ public class PackageLoaderHE implements IPackageLoader {
 
             Expression threads = loader.getExpressionWithRole(element, "threads");
             if (threads == null) {
-                ForEach forEach =new ForEach(lhs, rhs);
+                ForEach forEach = new ForEach(lhs, rhs);
                 Expression sep = loader.getExpressionWithRole(element, "separator");
                 if (sep != null) {
                     forEach.setSeparatorExpression(sep);
                 }
-                String flags = element.getAttributeValue("", "flags");
+                String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
                 boolean containsTailCall = flags != null && flags.contains("t");
                 forEach.setContainsTailCall(containsTailCall);
                 return forEach;
@@ -2408,7 +2714,7 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("forEachGroup", (loader, element) -> {
-            String algorithmAtt = element.getAttributeValue(NamespaceUri.NULL,"algorithm");
+            String algorithmAtt = element.getAttributeValue(NamespaceUri.NULL, "algorithm");
             byte algo;
             if ("by".equals(algorithmAtt)) {
                 algo = ForEachGroup.GROUP_BY;
@@ -2423,7 +2729,7 @@ public class PackageLoaderHE implements IPackageLoader {
             } else {
                 throw new AssertionError("Unknown grouping algorithm: " + algorithmAtt);
             }
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean composite = flags != null && flags.contains("c");
             boolean inFork = flags != null && flags.contains("k");
             Expression select = loader.getExpressionWithRole(element, "select");
@@ -2441,7 +2747,7 @@ public class PackageLoaderHE implements IPackageLoader {
             Expression content = loader.getExpressionWithRole(element, "content");
             StringCollator collator = null;
             if (collationNameExp instanceof StringLiteral) {
-                String collationName = ((StringLiteral) collationNameExp).getString().toString();
+                String collationName = ((StringLiteral) collationNameExp).stringify();
                 collator = loader.config.getCollation(collationName);
             }
             ForEachGroup feg = new ForEachGroup(
@@ -2457,11 +2763,11 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("gc", (loader, element) -> {
-            String opAtt = element.getAttributeValue(NamespaceUri.NULL,"op");
-            int op = getOperator(opAtt);
+            String opAtt = element.getAttributeValue(NamespaceUri.NULL, "op");
+            OperatorSymbol op = getOperator(opAtt);
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            String compAtt = element.getAttributeValue(NamespaceUri.NULL,"comp");
+            String compAtt = element.getAttributeValue(NamespaceUri.NULL, "comp");
             AtomicComparer comp = loader.makeAtomicComparer(compAtt, element);
             GeneralComparison gc = new GeneralComparison20(lhs, op, rhs);
             gc.setAtomicComparer(comp);
@@ -2470,11 +2776,11 @@ public class PackageLoaderHE implements IPackageLoader {
 
 
         eMap.put("gc10", (loader, element) -> {
-            String opAtt = element.getAttributeValue(NamespaceUri.NULL,"op");
-            int op = getOperator(opAtt);
+            String opAtt = element.getAttributeValue(NamespaceUri.NULL, "op");
+            OperatorSymbol op = getOperator(opAtt);
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            String compAtt = element.getAttributeValue(NamespaceUri.NULL,"comp");
+            String compAtt = element.getAttributeValue(NamespaceUri.NULL, "comp");
             GeneralComparison10 gc = new GeneralComparison10(lhs, op, rhs);
             AtomicComparer comp = loader.makeAtomicComparer(compAtt, element);
             gc.setAtomicComparer(comp);
@@ -2498,9 +2804,12 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("ifCall", (loader, element) -> {
             Expression[] args = getChildExpressionArray(loader, element);
             StructuredQName name = loader.getQNameAttribute(element, "name");
+            if (loader.getConfiguration().isDisabledFunction(name)) {
+                throw new XPathException("Function " + name.getEQName() + " has been disabled", "XPST0017");
+            }
             Expression exp = null;
             if (name.hasURI(NamespaceUri.MATH)) {
-                exp = MathFunctionSet.getInstance().makeFunction(name.getLocalPart(), args.length).makeFunctionCall(args);
+                exp = MathFunctionSet.getInstance(40).makeFunction(name.getLocalPart(), args.length).makeFunctionCall(args);
             } else if (name.hasURI(NamespaceUri.MAP_FUNCTIONS)) {
                 exp = MapFunctionSet.getInstance(40).makeFunction(name.getLocalPart(), args.length).makeFunctionCall(args);
             } else if (name.hasURI(NamespaceUri.ARRAY_FUNCTIONS)) {
@@ -2509,6 +2818,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 if (name.getLocalPart().equals("apply")) {
                     // legacy saxon:apply function for dynamic function calls: generate fn:apply
                     exp = XPath30FunctionSet.getInstance().makeFunction("apply", 2).makeFunctionCall(args);
+                    exp.setRetainedStaticContext(loader.makeRetainedStaticContext(element));
                 } else {
                     loader.needsPELicense("Saxon extension functions");
                     exp = null;
@@ -2519,24 +2829,24 @@ public class PackageLoaderHE implements IPackageLoader {
                 SequenceType type = loader.parseAlphaCode(element, "type");
                 IndependentContext ic = new IndependentContext(loader.config);
                 RetainedStaticContext rsc = loader.makeRetainedStaticContext(element);
+                int vn = loader.getTopLevelPackage().getHostLanguageVersion();
                 ic.setBaseURI(rsc.getStaticBaseUriString());
                 ic.setPackageData(rsc.getPackageData());
-                ic.setXPathLanguageLevel(31);
+                ic.setXPathLanguageLevel(vn);
                 ic.setDefaultElementNamespace(rsc.getDefaultElementNamespace());
                 ic.setNamespaceResolver(rsc);
                 ic.setBackwardsCompatibilityMode(rsc.isBackwardsCompatibility());
                 ic.setDefaultCollationName(rsc.getDefaultCollationName());
-                ic.setDefaultFunctionNamespace(rsc.getDefaultFunctionNamespace());
                 ic.setDecimalFormatManager(rsc.getDecimalFormatManager());
                 List<String> reasons = new ArrayList<>();
                 exp = loader.config.getIntegratedFunctionLibrary().bind(sName, args, null, ic, reasons);
                 if (exp == null) {
-                    exp = loader.config.getBuiltInExtensionLibraryList(31).bind(sName, args, null, ic, reasons);
+                    exp = loader.config.getBuiltInExtensionLibraryList(vn).bind(sName, args, null, ic, reasons);
                 }
                 if (exp instanceof SystemFunctionCall) {
                     SystemFunction fn = ((SystemFunctionCall) exp).getTargetFunction();
                     fn.setRetainedStaticContext(loader.makeRetainedStaticContext(element));
-                    SequenceIterator iter = element.iterateAxis(AxisInfo.ATTRIBUTE);
+                    SequenceIterator iter = element.iterateAttributeAxis(AnyGNode.TEST);
                     NodeInfo att;
                     Properties props = new Properties();
                     while ((att = (NodeInfo) iter.next()) != null) {
@@ -2555,10 +2865,9 @@ public class PackageLoaderHE implements IPackageLoader {
                     ((IntegratedFunctionCall) exp).getFunction().supplyStaticContext(ic, -1, args);
                     ((IntegratedFunctionCall) exp).setResultType(type);
                 }
+            } else {
+                exp.setRetainedStaticContext(loader.makeRetainedStaticContext(element));
             }
-//            if (exp instanceof SystemFunctionCall) {
-//                ((SystemFunctionCall)exp).allocateArgumentEvaluators(args);
-//            }
             return exp;
         });
 
@@ -2575,14 +2884,14 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("int", (loader, element) -> {
-            BigInteger i = new BigInteger(element.getAttributeValue(NamespaceUri.NULL,"val"));
+            BigInteger i = new BigInteger(element.getAttributeValue(NamespaceUri.NULL, "val"));
             return Literal.makeLiteral(IntegerValue.makeIntegerValue(i));
         });
 
         eMap.put("intersect", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            return new VennExpression(lhs, Token.INTERSECT, rhs);
+            return new VennExpression(lhs, OperatorSymbol.INTERSECT, rhs);
         });
 
         eMap.put("intRangeTest", (loader, element) -> {
@@ -2595,11 +2904,22 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("is", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            return new IdentityComparison(lhs, Token.IS, rhs);
+            String op = element.getAttributeValue(NamespaceUri.NULL, "op");
+            IdentityComparison comp = new IdentityComparison(lhs, OperatorSymbol.IS, rhs);
+            if ("is-g".equals(op)) {
+                comp.setGenerateIdEmulation(true);
+            }
+            return comp;
+        });
+
+        eMap.put("is-not", (loader, element) -> {
+            Expression lhs = loader.getFirstChildExpression(element);
+            Expression rhs = loader.getSecondChildExpression(element);
+            return new IdentityComparison(lhs, OperatorSymbol.IS_NOT, rhs);
         });
 
         eMap.put("isLast", (loader, element) -> {
-            boolean cond = element.getAttributeValue(NamespaceUri.NULL,"test").equals("1");
+            boolean cond = element.getAttributeValue(NamespaceUri.NULL, "test").equals("1");
             return new IsLastExpression(cond);
         });
 
@@ -2609,6 +2929,13 @@ public class PackageLoaderHE implements IPackageLoader {
             Expression onCompletion = loader.getExpressionWithRole(element, "on-completion");
             Expression action = loader.getExpressionWithRole(element, "action");
             return new IterateInstr(select, params, action, onCompletion);
+        });
+
+        eMap.put("jnodeRoot", (loader, element) -> {
+            Expression child = loader.getFirstChildExpression(element);
+            MapOrArray content = (MapOrArray) ((Literal) child).getGroundedValue();
+            RootJNode root = new RootJNode(content);
+            return Literal.makeLiteral(root);
         });
 
         eMap.put("lastOf", (loader, element) -> {
@@ -2643,9 +2970,9 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("literal", (loader, element) -> {
             List<Item> children = new ArrayList<>();
-            AxisIterator iter = element.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+            SequenceIterator iter = element.iterateChildAxis(NodeKindType.ELEMENT);
             NodeInfo child;
-            while ((child = iter.next()) != null) {
+            while ((child = (NodeInfo) iter.next()) != null) {
                 Expression e = loader.loadExpression(child);
                 children.add(((Literal) e).getGroundedValue().head());
             }
@@ -2661,38 +2988,45 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("lookupAll", (loader, element) -> {
             Expression select = loader.getFirstChildExpression(element);
+            SequenceType type = SequenceType.ANY_SEQUENCE;
+            String typeAtt = element.getAttributeValue(NamespaceUri.NULL, "type");
+            if (typeAtt != null) {
+                final StylesheetPackage pack = loader.getPackStack().peek();
+                type = AlphaCode.toSequenceType(typeAtt, loader.getConfiguration(), pack.getImportedSchema(""));
+            }
             return new LookupAllExpression(select);
         });
 
         eMap.put("map", (loader, element) -> {
             List<Expression> children = getChildExpressionList(loader, element);
             AtomicValue key = null;
-            HashTrieMap map = new HashTrieMap();
+            int version = loader.getPackStack().peek().getHostLanguageVersion();
+            GeneralMapBuilder map = AbstractFixedMap.getBuilder(version);
             for (Expression child : children) {
                 if (key == null) {
-                    key = (AtomicValue)((Literal)child).getGroundedValue();
+                    key = (AtomicValue) ((Literal) child).getGroundedValue();
                 } else {
                     GroundedValue value = ((Literal) child).getGroundedValue();
-                    map.initialPut(key, value);
+                    map.put(key, value);
                     key = null;
                 }
             }
-            return Literal.makeLiteral(map);
+            return Literal.makeLiteral(map.getCompletedMap());
         });
 
         eMap.put("merge", (loader, element) -> {
             final MergeInstr inst = new MergeInstr();
-            AxisIterator kids = element.iterateAxis(AxisInfo.CHILD,
-                                                    new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "mergeSrc", loader.config.getNamePool()));
+            SequenceIterator kids = element.iterateChildAxis(
+                    NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "mergeSrc", loader.config));
             NodeInfo msElem;
             List<MergeInstr.MergeSource> list = new ArrayList<>();
-            while ((msElem = kids.next()) != null) {
+            while ((msElem = (NodeInfo) kids.next()) != null) {
                 final MergeInstr.MergeSource ms = new MergeInstr.MergeSource(inst);
-                String mergeSourceName = msElem.getAttributeValue(NamespaceUri.NULL,"name");
+                String mergeSourceName = msElem.getAttributeValue(NamespaceUri.NULL, "name");
                 if (mergeSourceName != null) {
                     ms.sourceName = mergeSourceName;
                 }
-                String valAtt = msElem.getAttributeValue(NamespaceUri.NULL,"validation");
+                String valAtt = msElem.getAttributeValue(NamespaceUri.NULL, "validation");
                 if (valAtt != null) {
                     ms.validation = Validation.getCode(valAtt);
                 }
@@ -2701,7 +3035,7 @@ public class PackageLoaderHE implements IPackageLoader {
                     ms.schemaType = schemaType;
                     ms.validation = Validation.BY_TYPE;
                 }
-                String flagsAtt = msElem.getAttributeValue(NamespaceUri.NULL,"flags");
+                String flagsAtt = msElem.getAttributeValue(NamespaceUri.NULL, "flags");
                 ms.streamable = "s".equals(flagsAtt);
                 if (ms.streamable) {
                     loader.addCompletionAction(CSharp.methodRef(ms::prepareForStreaming));
@@ -2709,7 +3043,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 RetainedStaticContext rsc = loader.makeRetainedStaticContext(element);
                 ms.baseURI = rsc.getStaticBaseUriString();
 
-                String accumulatorNames = msElem.getAttributeValue(NamespaceUri.NULL,"accum");
+                String accumulatorNames = msElem.getAttributeValue(NamespaceUri.NULL, "accum");
                 if (accumulatorNames == null) {
                     accumulatorNames = "";
                 }
@@ -2717,7 +3051,7 @@ public class PackageLoaderHE implements IPackageLoader {
                 StringTokenizer tokenizer = new StringTokenizer(accumulatorNames);
                 while (tokenizer.hasMoreTokens()) {
                     String token = tokenizer.nextToken();
-                    StructuredQName name = StructuredQName.fromEQName((token));
+                    StructuredQName name = StructuredQName.fromEQName40((token));
                     accNameList.add(name);
                 }
                 final StylesheetPackage pack = loader.getPackStack().peek();
@@ -2772,6 +3106,12 @@ public class PackageLoaderHE implements IPackageLoader {
             return new NegateExpression(body);
         });
 
+        eMap.put("multiSubscript", (loader, element) -> {
+            Expression lhs = loader.getFirstChildExpression(element);
+            Expression rhs = loader.getSecondChildExpression(element);
+            return new MultiSubscriptExpression(lhs, rhs);
+        });
+
         eMap.put("namespace", (loader, element) -> {
             Expression name = loader.getFirstChildExpression(element);
             Expression select = loader.getSecondChildExpression(element);
@@ -2782,13 +3122,13 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("nextIteration", (loader, element) -> {
             NextIteration inst = new NextIteration();
-            AxisIterator kids = element.iterateAxis(AxisInfo.CHILD,
-                                                    new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "withParam", loader.config.getNamePool()));
+            SequenceIterator kids = element.iterateChildAxis(
+                    NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "withParam", loader.config));
             NodeInfo wp;
             List<WithParam> params = new ArrayList<>();
-            while ((wp = kids.next()) != null) {
+            while ((wp = (NodeInfo) kids.next()) != null) {
                 WithParam withParam = new WithParam();
-                String flags = wp.getAttributeValue(NamespaceUri.NULL,"flags");
+                String flags = wp.getAttributeValue(NamespaceUri.NULL, "flags");
                 StructuredQName paramName = loader.getQNameAttribute(wp, "name");
                 withParam.setVariableQName(paramName);
                 int slot = loader.getIntegerAttribute(wp, "slot");
@@ -2804,7 +3144,7 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("nextMatch", (loader, element) -> {
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean useTailRecursion = flags != null && flags.contains("t");
             NextMatch inst = new NextMatch(useTailRecursion);
 
@@ -2818,8 +3158,8 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("node", (loader, element) -> {
             int kind = loader.getIntegerAttribute(element, "kind");
-            String content = element.getAttributeValue(NamespaceUri.NULL,"content");
-            String baseURI = element.getAttributeValue(NamespaceUri.NULL,"baseURI");
+            String content = element.getAttributeValue(NamespaceUri.NULL, "content");
+            String baseURI = element.getAttributeValue(NamespaceUri.NULL, "baseURI");
             NodeInfo node;
             switch (kind) {
                 case Type.DOCUMENT:
@@ -2827,7 +3167,7 @@ public class PackageLoaderHE implements IPackageLoader {
                     StreamSource source = new StreamSource(new StringReader(content), baseURI);
                     node = loader.config.buildDocumentTree(source).getRootNode();
                     if (kind == Type.ELEMENT) {
-                        node = VirtualCopy.makeVirtualCopy(node.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next());
+                        node = VirtualCopy.makeVirtualCopy((NodeInfo) node.iterateChildAxis(NodeKindType.ELEMENT).next());
                     }
                     break;
                 }
@@ -2843,9 +3183,9 @@ public class PackageLoaderHE implements IPackageLoader {
                     Orphan o = new Orphan(loader.getConfiguration());
                     o.setNodeKind((short) kind);
                     o.setStringValue(StringView.tidy(content));
-                    String prefix = element.getAttributeValue(NamespaceUri.NULL,"prefix");
+                    String prefix = element.getAttributeValue(NamespaceUri.NULL, "prefix");
                     String ns = element.getAttributeValue(NamespaceUri.NULL, "ns");
-                    String local = element.getAttributeValue(NamespaceUri.NULL,"localName");
+                    String local = element.getAttributeValue(NamespaceUri.NULL, "localName");
                     if (local != null) {
                         FingerprintedQName name = new FingerprintedQName(
                                 prefix == null ? "" : prefix,
@@ -2863,7 +3203,7 @@ public class PackageLoaderHE implements IPackageLoader {
 
 
         eMap.put("nodeNum", (loader, element) -> {
-            String levelAtt = element.getAttributeValue(NamespaceUri.NULL,"level");
+            String levelAtt = element.getAttributeValue(NamespaceUri.NULL, "level");
             int level = getLevelCode(levelAtt);
 
             Expression select = loader.getExpressionWithRole(element, "select");
@@ -2884,12 +3224,12 @@ public class PackageLoaderHE implements IPackageLoader {
             Expression ordinal = loader.getExpressionWithRole(element, "ordinal");
             Expression startAt = loader.getExpressionWithRole(element, "startAt");
             Expression lang = loader.getExpressionWithRole(element, "lang");
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean backwardsCompatible = flags != null && flags.contains("1");
             NumberFormatter formatter = null; // gets initialized by the NumberSequenceFormatter when possible
 
             NumberSequenceFormatter ni = new NumberSequenceFormatter(value, format, groupSize, groupSeparator,
-                                                         letterValue, ordinal, startAt, lang, formatter, backwardsCompatible);
+                                                                     letterValue, ordinal, startAt, lang, formatter, backwardsCompatible);
             ni.preallocateNumberer(loader.config);
             return ni;
         });
@@ -2912,7 +3252,7 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("origF", (loader, element) -> {
             StructuredQName name = loader.getQNameAttribute(element, "name");
-            String packKey = element.getAttributeValue(NamespaceUri.NULL,"pack");
+            String packKey = element.getAttributeValue(NamespaceUri.NULL, "pack");
             StylesheetPackage declPack = loader.getPackage(packKey);
             if (declPack == null) {
                 throw new XPathException("Unknown package key " + packKey);
@@ -2927,7 +3267,7 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("origFC", (loader, element) -> {
             StructuredQName name = loader.getQNameAttribute(element, "name");
-            String packKey = element.getAttributeValue(NamespaceUri.NULL,"pack");
+            String packKey = element.getAttributeValue(NamespaceUri.NULL, "pack");
             StylesheetPackage declPack = loader.getPackage(packKey);
             if (declPack == null) {
                 throw new XPathException("Unknown package key " + packKey);
@@ -2946,19 +3286,19 @@ public class PackageLoaderHE implements IPackageLoader {
             StructuredQName name = loader.getQNameAttribute(element, "name");
             int slot = loader.getIntegerAttribute(element, "slot");
             LocalParam param = new LocalParam();
+            param.setLocation(element.saveLocation());
             param.setVariableQName(name);
             param.setSlotNumber(slot);
             Expression select = loader.getExpressionWithRole(element, "select");
             if (select != null) {
                 param.setSelectExpression(select);
-                param.computeEvaluationMode();
             }
             Expression convert = loader.getExpressionWithRole(element, "conversion");
             if (convert != null) {
                 param.setConversion(convert);
             }
             param.setRequiredType(loader.parseAlphaCode(element, "as"));
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             if (flags != null) {
                 param.setTunnel(flags.contains("t"));
                 param.setRequiredParam(flags.contains("r"));
@@ -2970,36 +3310,49 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("params", (loader, element) -> {
             List<LocalParam> children = new ArrayList<>();
-            AxisIterator iter = element.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+            SequenceIterator iter = element.iterateChildAxis(NodeKindType.ELEMENT);
             NodeInfo child;
-            while ((child = iter.next()) != null) {
+            while ((child = (NodeInfo) iter.next()) != null) {
                 children.add((LocalParam) loader.loadExpression(child));
             }
             return new LocalParamBlock(children.toArray(new LocalParam[0]));
         });
 
         eMap.put("partialApply", (loader, element) -> {
-            int count = Count.count(element.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT));
+            int count = Count.count(element.iterateChildAxis(NodeKindType.ELEMENT));
             Expression base = null;
             Expression[] args = new Expression[count - 1];
             count = 0;
-            for (NodeInfo child : element.children(NodeKindTest.ELEMENT)) {
+            for (NodeInfo child : element.children(NodeKindType.ELEMENT)) {
                 if (count == 0) {
                     base = loader.loadExpression(child);
                 } else if (child.getLocalPart().equals("null")) {
-                    args[count - 1] = null;
+                    int newPos = loader.getIntegerAttribute(child, "at");
+                    args[count - 1] = new PlaceHolder(newPos);
                 } else {
                     args[count - 1] = loader.loadExpression(child);
                 }
                 count++;
             }
-            return new PartialApply(base, args);
+            return new DynamicPartialApply(base, args);
+        });
+
+        eMap.put("pipe", (loader, element) -> {
+            Expression lhs = loader.getFirstChildExpression(element);
+            Expression rhs = loader.getSecondChildExpression(element);
+            return new ContextValueSetter(lhs, rhs);
         });
 
         eMap.put("precedes", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            return new IdentityComparison(lhs, Token.PRECEDES, rhs);
+            return new IdentityComparison(lhs, OperatorSymbol.PRECEDES, rhs);
+        });
+
+        eMap.put("precedes-or-is", (loader, element) -> {
+            Expression lhs = loader.getFirstChildExpression(element);
+            Expression rhs = loader.getSecondChildExpression(element);
+            return new IdentityComparison(lhs, OperatorSymbol.PRECEDES_OR_IS, rhs);
         });
 
         eMap.put("procInst", (loader, element) -> {
@@ -3011,11 +3364,11 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("qName", (loader, element) -> {
-            String preAtt = element.getAttributeValue(NamespaceUri.NULL,"pre");
-            String uriAtt = element.getAttributeValue(NamespaceUri.NULL,"uri");
-            String locAtt = element.getAttributeValue(NamespaceUri.NULL,"loc");
+            String preAtt = element.getAttributeValue(NamespaceUri.NULL, "pre");
+            String uriAtt = element.getAttributeValue(NamespaceUri.NULL, "uri");
+            String locAtt = element.getAttributeValue(NamespaceUri.NULL, "loc");
             AtomicType type = BuiltInAtomicType.QNAME;
-            if (element.getAttributeValue(NamespaceUri.NULL,"type") != null) {
+            if (element.getAttributeValue(NamespaceUri.NULL, "type") != null) {
                 type = (AtomicType) loader.parseItemTypeAttribute(element, "type");
             }
             QualifiedNameValue val;
@@ -3028,8 +3381,8 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("range", (loader, element) -> {
-            int from = loader.getIntegerAttribute(element, "from");
-            int to = loader.getIntegerAttribute(element, "to");
+            long from = loader.getLongAttribute(element, "from");
+            long to = loader.getLongAttribute(element, "to");
             return Literal.makeLiteral(new IntegerRange(from, 1, to));
         });
 
@@ -3038,16 +3391,16 @@ public class PackageLoaderHE implements IPackageLoader {
             Expression href = null;
             Expression format = null;
             Expression content = null;
-            String globalProps = element.getAttributeValue(NamespaceUri.NULL,"global");
-            String localProps = element.getAttributeValue(NamespaceUri.NULL,"local");
+            String globalProps = element.getAttributeValue(NamespaceUri.NULL, "global");
+            String localProps = element.getAttributeValue(NamespaceUri.NULL, "local");
             Properties globals = globalProps == null ? new Properties() : loader.importProperties(globalProps);
             Properties locals = localProps == null ? new Properties() : loader.importProperties(localProps);
             Map<StructuredQName, Expression> dynamicProperties = new HashMap<>();
             NodeInfo child;
-            AxisIterator iter = element.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
-            while ((child = iter.next()) != null) {
+            SequenceIterator iter = element.iterateChildAxis(NodeKindType.ELEMENT);
+            while ((child = (NodeInfo) iter.next()) != null) {
                 Expression exp = loader.loadExpression(child);
-                String role = child.getAttributeValue(NamespaceUri.NULL,"role");
+                String role = child.getAttributeValue(NamespaceUri.NULL, "role");
                 if ("href".equals(role)) {
                     href = exp;
                 } else if ("format".equals(role)) {
@@ -3055,25 +3408,25 @@ public class PackageLoaderHE implements IPackageLoader {
                 } else if ("content".equals(role)) {
                     content = exp;
                 } else {
-                    StructuredQName name = StructuredQName.fromEQName((role));
+                    StructuredQName name = StructuredQName.fromEQName40((role));
                     dynamicProperties.put(name, exp);
                 }
             }
             int validation = Validation.SKIP;
-            String valAtt = element.getAttributeValue(NamespaceUri.NULL,"validation");
+            String valAtt = element.getAttributeValue(NamespaceUri.NULL, "validation");
             if (valAtt != null) {
                 validation = Validation.getCode(valAtt);
             }
             SchemaType schemaType = null;
             StructuredQName typeAtt = loader.getQNameAttribute(element, "type");
             if (typeAtt != null) {
-                schemaType = loader.config.getSchemaType(typeAtt);
+                schemaType = loader.getSchema().getSchemaType(typeAtt);
                 validation = Validation.BY_TYPE;
             }
-            ResultDocument instr = new ResultDocument(globals, locals, href, format, validation, schemaType,
+            ResultDocument instr = new ResultDocument(globals, locals, href, format, validation, loader.getSchema(), schemaType,
                                                       dynamicProperties, loader.packStack.peek().getCharacterMapIndex());
             instr.setContentExpression(content);
-            if ("a".equals(element.getAttributeValue(NamespaceUri.NULL,"flags"))) {
+            if ("a".equals(element.getAttributeValue(NamespaceUri.NULL, "flags"))) {
                 instr.setAsynchronous(true);
             }
             return instr;
@@ -3094,7 +3447,7 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("slash", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            String simpleAtt = element.getAttributeValue(NamespaceUri.NULL,"simple");
+            String simpleAtt = element.getAttributeValue(NamespaceUri.NULL, "simple");
             if ("1".equals(simpleAtt)) {
                 return new SimpleStepExpression(lhs, rhs);
             } else {
@@ -3113,7 +3466,7 @@ public class PackageLoaderHE implements IPackageLoader {
             StructuredQName name = loader.getQNameAttribute(element, "var");
             SequenceType requiredType = loader.parseAlphaCode(element, "as");
             QuantifiedExpression qEx = new QuantifiedExpression();
-            qEx.setOperator(Token.SOME);
+            qEx.setOperator(QuantifiedExpression.Qualifier.SOME);
             qEx.setSequence(select);
             qEx.setRequiredType(requiredType);
             qEx.setSlotNumber(slot);
@@ -3139,16 +3492,16 @@ public class PackageLoaderHE implements IPackageLoader {
             SchemaType schemaType = null;
             StructuredQName typeAtt = loader.getQNameAttribute(element, "schemaType");
             if (typeAtt != null) {
-                schemaType = loader.getConfiguration().getSchemaType(typeAtt);
+                schemaType = loader.getSchema().getSchemaType(typeAtt);
                 validation = Validation.BY_TYPE;
             }
             ParseOptions options = loader.getConfiguration().getParseOptions()
                     .withSchemaValidationMode(validation)
                     .withTopLevelType(schemaType);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             if (flags != null) {
                 if (flags.contains("S")) {
-                    options = options.withSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
+                    options = options.withSpaceStrippingRule(AllElementsSpaceStrippingRule.INSTANCE);
                 }
                 if (flags.contains("l")) {
                     options = options.withLineNumbering(true);
@@ -3160,6 +3513,9 @@ public class PackageLoaderHE implements IPackageLoader {
                 if (flags.contains("i")) {
                     options = options.withXIncludeAware(true);
                 }
+                if (validation != Validation.SKIP) {
+                    options = options.withSchema(loader.getSchema());
+                }
             }
             Expression body = loader.getExpressionWithRole(element, "body");
             Expression href = loader.getExpressionWithRole(element, "href");
@@ -3169,13 +3525,13 @@ public class PackageLoaderHE implements IPackageLoader {
             if (flags != null && flags.contains("s")) {
                 loader.addCompletionAction(() -> inst.setSpaceStrippingRule(loader.getTopLevelPackage().getSpaceStrippingRule()));
             }
-            String accumulatorNames = element.getAttributeValue(NamespaceUri.NULL,"accum");
+            String accumulatorNames = element.getAttributeValue(NamespaceUri.NULL, "accum");
             processAccumulatorList(loader, inst, accumulatorNames);
             return inst;
         });
 
         eMap.put("str", (loader, element) -> StringLiteral.makeLiteral(
-                new StringValue(element.getAttributeValue(NamespaceUri.NULL,"val"))
+                new StringValue(element.getAttributeValue(NamespaceUri.NULL, "val"))
         ));
 
 
@@ -3190,7 +3546,7 @@ public class PackageLoaderHE implements IPackageLoader {
             SuppliedParameterReference ref = new SuppliedParameterReference(slot);
             String sType = element.getAttributeValue(NamespaceUri.NULL, "sType");
             if (sType != null) {
-                ref.setSuppliedType(AlphaCode.toSequenceType(sType, loader.getConfiguration()));
+                ref.setSuppliedType(AlphaCode.toSequenceType(sType, loader.getConfiguration(), loader.getSchema()));
             }
             return ref;
         });
@@ -3215,7 +3571,7 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("treat", (loader, element) -> {
             Expression body = loader.getFirstChildExpression(element);
             ItemType type = loader.parseAlphaCodeForItemType(element, "as");
-            String savedRole = element.getAttributeValue(NamespaceUri.NULL,"diag");
+            String savedRole = element.getAttributeValue(NamespaceUri.NULL, "diag");
             Supplier<RoleDiagnostic> role = () -> RoleDiagnostic.reconstruct(savedRole);
             return new ItemChecker(body, type, role);
         });
@@ -3225,35 +3581,16 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("try", (loader, element) -> {
             Expression tryExp = loader.getFirstChildExpression(element);
             TryCatch tryCatch = new TryCatch(tryExp);
-            if ("r".equals(element.getAttributeValue(NamespaceUri.NULL,"flags"))) {
+            if ("r".equals(element.getAttributeValue(NamespaceUri.NULL, "flags"))) {
                 tryCatch.setRollbackOutput(true);
             }
-            AxisIterator iter = element.iterateAxis(
-                    AxisInfo.CHILD, new NameTest(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "catch", loader.config.getNamePool()));
+            SequenceIterator iter = element.iterateChildAxis(
+                    NamedXNodeType.make(Type.ELEMENT, NamespaceUri.SAXON_XSLT_EXPORT, "catch", loader.config));
             NodeInfo catchElement;
             NamePool pool = loader.getConfiguration().getNamePool();
-            while ((catchElement = iter.next()) != null) {
-                String errAtt = catchElement.getAttributeValue(NamespaceUri.NULL,"errors");
-                String[] tests = errAtt.split(" ");
-                List<QNameTest> list = new ArrayList<>();
-                for (String t : tests) {
-                    if (t.equals("*")) {
-                        list.add(AnyNodeTest.getInstance());
-                    } else if (t.startsWith("*:")) {
-                        list.add(new LocalNameTest(pool, Type.ELEMENT, t.substring(2)));
-                    } else if (t.endsWith("}*")) {
-                        list.add(new NamespaceTest(pool, Type.ELEMENT, NamespaceUri.of(t.substring(2, t.length()-2))));
-                    } else {
-                        StructuredQName qName = StructuredQName.fromEQName((t));
-                        list.add(new NameTest(Type.ELEMENT, new FingerprintedQName(qName, pool), pool));
-                    }
-                }
-                QNameTest test;
-                if (list.size() == 1) {
-                    test = list.get(0);
-                } else {
-                    test = new UnionQNameTest(list);
-                }
+            while ((catchElement = (NodeInfo) iter.next()) != null) {
+                String errAtt = catchElement.getAttributeValue(NamespaceUri.NULL, "errors");
+                final QNameTest test = parseQNameTestList(errAtt, pool);
                 Expression catchExpr = loader.getFirstChildExpression(catchElement);
                 tryCatch.addCatchExpression(test, catchExpr);
             }
@@ -3295,12 +3632,12 @@ public class PackageLoaderHE implements IPackageLoader {
         eMap.put("union", (loader, element) -> {
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
-            return new VennExpression(lhs, Token.UNION, rhs);
+            return new VennExpression(lhs, OperatorSymbol.UNION, rhs);
         });
 
         eMap.put("useAS", (loader, element) -> {
             StructuredQName name = loader.getQNameAttribute(element, "name");
-            boolean streamable = "s".equals(element.getAttributeValue(NamespaceUri.NULL,"flags"));
+            boolean streamable = "s".equals(element.getAttributeValue(NamespaceUri.NULL, "flags"));
             UseAttributeSet use = new UseAttributeSet(name, streamable);
             int bindingSlot = loader.getIntegerAttribute(element, "bSlot");
             use.setBindingSlot(bindingSlot);
@@ -3310,10 +3647,15 @@ public class PackageLoaderHE implements IPackageLoader {
 
         eMap.put("valueOf", (loader, element) -> {
             Expression select = loader.getFirstChildExpression(element);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
             boolean doe = flags != null && flags.contains("d");
             boolean notIfEmpty = flags != null && flags.contains("e");
-            return new ValueOf(select, doe, notIfEmpty);
+            ValueOf result = new ValueOf(select, doe, notIfEmpty);
+            Expression cdata = loader.getExpressionWithRole(element, "cdata");
+            if (cdata != null) {
+                result.setCdataExpression(cdata);
+            }
+            return result;
         });
 
         eMap.put("varRef", (loader, element) -> {
@@ -3330,16 +3672,15 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         eMap.put("vc", (loader, element) -> {
-            String opAtt = element.getAttributeValue(NamespaceUri.NULL,"op");
-            int op;
-            op = parseValueComparisonOperator(opAtt);
+            String opAtt = element.getAttributeValue(NamespaceUri.NULL, "op");
+            OperatorSymbol op = parseValueComparisonOperator(opAtt);
             Expression lhs = loader.getFirstChildExpression(element);
             Expression rhs = loader.getSecondChildExpression(element);
             ValueComparison vc = new ValueComparison(lhs, op, rhs);
 //            String compAtt = element.getAttributeValue(NamespaceUri.NULL,"comp");
 //            AtomicComparer comp = loader.makeAtomicComparer(compAtt, element);
 //            vc.setAtomicComparer(comp);
-            String onEmptyAtt = element.getAttributeValue(NamespaceUri.NULL,"onEmpty");
+            String onEmptyAtt = element.getAttributeValue(NamespaceUri.NULL, "onEmpty");
             if (onEmptyAtt != null) {
                 vc.setResultWhenEmpty(BooleanValue.get("1".equals(onEmptyAtt)));
             }
@@ -3348,22 +3689,50 @@ public class PackageLoaderHE implements IPackageLoader {
 
     }
 
+    private static QNameTest parseQNameTestList(String value, NamePool pool) {
+        String[] tests = value.split(" ");
+        List<QNameTest> list = new ArrayList<>();
+        for (String t : tests) {
+            if (t.equals("*")) {
+                list.add(AnyQNameTest.getInstance());
+            } else if (t.startsWith("*:")) {
+                list.add(new LocalQNameTest(t.substring(2)));
+            } else if (t.endsWith("}*")) {
+                list.add(new NamespaceQNameTest(NamespaceUri.of(t.substring(2, t.length() - 2))));
+            } else {
+                StructuredQName qName = StructuredQName.fromEQName40((t));
+                list.add(new SpecificQNameTest(qName, pool));
+            }
+        }
+        QNameTest test;
+        if (list.size() == 1) {
+            test = list.get(0);
+        } else {
+            test = new UnionQNameTest(list);
+        }
+        return test;
+    }
+
+    protected SystemFunction makeEXPathBinaryFunction(StructuredQName qName, int arity) throws XPathException {
+        throw new XPathException("Cannot reload SEF file: EXPath Binary functions require Saxon-PE/EE");
+    }
+
+    protected SystemFunction makeEXPathFileFunction(StructuredQName qName, int arity) throws XPathException {
+        throw new XPathException("Cannot reload SEF file: EXPath File functions require Saxon-PE/EE");
+    }
+
+
     private static int getLevelCode(String levelAtt) {
         if (levelAtt == null) {
             return NumberInstruction.SINGLE;
         } else {
-            switch (levelAtt) {
-                case "single":
-                    return NumberInstruction.SINGLE;
-                case "multi":
-                    return NumberInstruction.MULTI;
-                case "any":
-                    return NumberInstruction.ANY;
-                case "simple":
-                    return NumberInstruction.SIMPLE;
-                default:
-                    throw new AssertionError();
-            }
+            return switch (levelAtt) {
+                case "single" -> NumberInstruction.SINGLE;
+                case "multi" -> NumberInstruction.MULTI;
+                case "any" -> NumberInstruction.ANY;
+                case "simple" -> NumberInstruction.SIMPLE;
+                default -> throw new AssertionError();
+            };
         }
     }
 
@@ -3400,9 +3769,9 @@ public class PackageLoaderHE implements IPackageLoader {
 
     protected static List<Expression> getChildExpressionList(PackageLoaderHE loader, NodeInfo element) throws XPathException {
         List<Expression> children = new ArrayList<>();
-        AxisIterator iter = element.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+        SequenceIterator iter = element.iterateChildAxis(NodeKindType.ELEMENT);
         NodeInfo child;
-        while ((child = iter.next()) != null) {
+        while ((child = (NodeInfo) iter.next()) != null) {
             children.add(loader.loadExpression(child));
         }
         return children;
@@ -3413,58 +3782,28 @@ public class PackageLoaderHE implements IPackageLoader {
         return children.toArray(new Expression[0]);
     }
 
-    protected static int getOperator(String opAtt) {
-        int op;
-        switch (opAtt) {
-            case "=":
-                op = Token.EQUALS;
-                break;
-            case "!=":
-                op = Token.NE;
-                break;
-            case "<=":
-                op = Token.LE;
-                break;
-            case ">=":
-                op = Token.GE;
-                break;
-            case "<":
-                op = Token.LT;
-                break;
-            case ">":
-                op = Token.GT;
-                break;
-            default:
-                throw new IllegalStateException();
-        }
-        return op;
+    protected static OperatorSymbol getOperator(String opAtt) {
+        return switch (opAtt) {
+            case "=" -> OperatorSymbol.EQUALS;
+            case "!=" -> OperatorSymbol.NE;
+            case "<=" -> OperatorSymbol.LE;
+            case ">=" -> OperatorSymbol.GE;
+            case "<" -> OperatorSymbol.LT;
+            case ">" -> OperatorSymbol.GT;
+            default -> throw new IllegalStateException();
+        };
     }
 
-    private static int parseValueComparisonOperator(String opAtt) {
-        int op;
-        switch (opAtt) {
-            case "eq":
-                op = Token.FEQ;
-                break;
-            case "ne":
-                op = Token.FNE;
-                break;
-            case "le":
-                op = Token.FLE;
-                break;
-            case "ge":
-                op = Token.FGE;
-                break;
-            case "lt":
-                op = Token.FLT;
-                break;
-            case "gt":
-                op = Token.FGT;
-                break;
-            default:
-                throw new IllegalStateException();
-        }
-        return op;
+    private static OperatorSymbol parseValueComparisonOperator(String opAtt) {
+        return switch (opAtt) {
+            case "eq" -> OperatorSymbol.FEQ;
+            case "ne" -> OperatorSymbol.FNE;
+            case "le" -> OperatorSymbol.FLE;
+            case "ge" -> OperatorSymbol.FGE;
+            case "lt" -> OperatorSymbol.FLT;
+            case "gt" -> OperatorSymbol.FGT;
+            default -> throw new IllegalStateException();
+        };
     }
 
     static final Map<String, PatternLoader> pMap = new HashMap<>(200);
@@ -3481,16 +3820,16 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         pMap.put("p.genNode", (loader, element) -> {
-            NodeTest type = (NodeTest) loader.parseAlphaCodeForItemType(element, "test");
+            ItemType type = loader.parseAlphaCodeForItemType(element, "test");
             Expression exp = loader.getFirstChildExpression(element);
             return new GeneralNodePattern(exp, type);
         });
 
         pMap.put("p.genPos", (loader, element) -> {
-            NodeTest type = (NodeTest) loader.parseAlphaCodeForItemType(element, "test");
+            ItemType type = loader.parseAlphaCodeForItemType(element, "test");
             Expression exp = loader.getFirstChildExpression(element);
-            String flags = element.getAttributeValue(NamespaceUri.NULL,"flags");
-            GeneralPositionalPattern gpp = new GeneralPositionalPattern(type, exp);
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
+            GeneralPositionalPattern gpp = new GeneralPositionalPattern((NodeTest)type, exp);
             gpp.setUsesPosition(!"P".equals(flags));
             return gpp;
         });
@@ -3505,26 +3844,24 @@ public class PackageLoaderHE implements IPackageLoader {
 
         pMap.put("p.nodeTest", (loader, element) -> {
             ItemType test = loader.parseAlphaCodeForItemType(element, "test");
-            if (test instanceof NodeTest) {
-                return new NodeTestPattern((NodeTest) test);
-            } else {
+            String flags = element.getAttributeValue(NamespaceUri.NULL, "flags");
+            if ("t".equals(flags) || !(test instanceof NodeTest)) {
                 return new ItemTypePattern(test);
+            } else {
+                return new NodeTestPattern((NodeTest) test);
             }
         });
 
         pMap.put("p.venn", (loader, element) -> {
             Pattern p0 = loader.getFirstChildPattern(element);
             Pattern p1 = loader.getSecondChildPattern(element);
-            String operator = element.getAttributeValue(NamespaceUri.NULL,"op");
-            switch (operator) {
-                case "union":
-                    return new UnionPattern(p0, p1);
-                case "intersect":
-                    return new IntersectPattern(p0, p1);
-                case "except":
-                    return new ExceptPattern(p0, p1);
-            }
-            return null;
+            String operator = element.getAttributeValue(NamespaceUri.NULL, "op");
+            return switch (operator) {
+                case "union" -> new UnionPattern(p0, p1);
+                case "intersect" -> new IntersectPattern(p0, p1);
+                case "except" -> new ExceptPattern(p0, p1);
+                default -> null;
+            };
         });
 
         pMap.put("p.simPos", (loader, element) -> {
@@ -3543,7 +3880,7 @@ public class PackageLoaderHE implements IPackageLoader {
         });
 
         pMap.put("p.withUpper", (loader, element) -> {
-            String axisName = element.getAttributeValue(NamespaceUri.NULL,"axis");
+            String axisName = element.getAttributeValue(NamespaceUri.NULL, "axis");
             int axis = AxisInfo.getAxisNumber(axisName);
             Pattern basePattern = loader.getFirstChildPattern(element);
             Pattern upperPattern = loader.getSecondChildPattern(element);
@@ -3614,5 +3951,5 @@ public class PackageLoaderHE implements IPackageLoader {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 

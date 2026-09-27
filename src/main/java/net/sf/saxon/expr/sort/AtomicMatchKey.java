@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -29,5 +29,16 @@ public interface AtomicMatchKey {
      */
 
     AtomicValue asAtomic();
+
+    /**
+     * Get a 64-bit hash code. This is needed to make bloom filtering effective on a large set of values.
+     * The default implementation simply duplicates the normal 32-bit hash code, which isn't very effective,
+     * but suffices for data types that aren't often used as map keys.
+     */
+
+    default long longHashCode() {
+        long hash = hashCode();
+        return hash<<32 | hash;
+    }
 
 }

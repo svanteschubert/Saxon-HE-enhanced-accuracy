@@ -8,7 +8,6 @@
 package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.Configuration;
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.AbstractFunction;
 import net.sf.saxon.om.NamespaceResolver;
@@ -55,8 +54,8 @@ public class AtomicConstructorFunction extends AbstractFunction {
     @Override
     public FunctionItemType getFunctionItemType() {
         return new SpecificFunctionType(
-                new SequenceType[]{SequenceType.OPTIONAL_ATOMIC},
-                SequenceType.makeSequenceType(targetType, StaticProperty.ALLOWS_ZERO_OR_ONE));
+                SequenceType.OPTIONAL_ATOMIC,
+                SequenceType.optional(targetType));
     }
 
     /**
@@ -104,7 +103,7 @@ public class AtomicConstructorFunction extends AbstractFunction {
     public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
         AtomicValue val = (AtomicValue) args[0].head();
         if (val == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         Configuration config = context.getConfiguration();
         Converter converter = config.getConversionRules().getConverter(val.getItemType(), targetType);
@@ -130,5 +129,5 @@ public class AtomicConstructorFunction extends AbstractFunction {
     }
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 

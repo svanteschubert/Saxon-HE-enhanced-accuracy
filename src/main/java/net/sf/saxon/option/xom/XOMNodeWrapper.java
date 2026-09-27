@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,9 @@ package net.sf.saxon.option.xom;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.SteppingNavigator;
@@ -21,6 +19,7 @@ import net.sf.saxon.tree.util.SteppingNode;
 import net.sf.saxon.tree.wrapper.AbstractNodeWrapper;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 import net.sf.saxon.value.StringValue;
 import nu.xom.*;
 
@@ -252,7 +251,7 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         if (other instanceof XOMNodeWrapper) {
             return compareOrderFast(node, ((XOMNodeWrapper) other).node);
         } else {
@@ -623,42 +622,46 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
     }
 
     @Override
-    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
-        return new Navigator.AxisFilter(
-                new AttributeAxisIterator(this, nodeTest),
-                nodeTest);
-    }
-
-    @Override
-    protected AxisIterator iterateChildren(NodeTest nodeTest) {
-        if (hasChildNodes()) {
-            return new Navigator.AxisFilter(
-                    new ChildAxisIterator(this, true, true, nodeTest),
+    protected SequenceIterator iterateAttributes(NodePredicate nodeTest) {
+        if (getNodeKind() == Type.ELEMENT) {
+            return Navigator.filter(
+                    new AttributeAxisIterator(this, nodeTest),
                     nodeTest);
         } else {
-            return EmptyIterator.ofNodes();
+            return EmptyIterator.INSTANCE;
         }
     }
 
     @Override
-    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
-        return new Navigator.AxisFilter(
+    protected SequenceIterator iterateChildren(NodePredicate nodeTest) {
+        if (hasChildNodes()) {
+            return Navigator.filter(
+                    new ChildAxisIterator(this, true, true, nodeTest),
+                    nodeTest);
+        } else {
+            return EmptyIterator.INSTANCE;
+        }
+    }
+
+    @Override
+    protected SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards) {
+        return Navigator.filter(
                 new ChildAxisIterator(this, false, forwards, nodeTest),
                 nodeTest);
     }
 
     @Override
-    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
+    protected SequenceIterator iterateDescendants(NodePredicate predicate, boolean includeSelf) {
         if (includeSelf) {
             return new SteppingNavigator.DescendantAxisIterator(
-                    this, true, nodeTest);
+                    this, true, predicate);
 
         } else {
             if (hasChildNodes()) {
                 return new SteppingNavigator.DescendantAxisIterator(
-                        this, false, nodeTest);
+                        this, false, predicate);
             } else {
-                return EmptyIterator.ofNodes();
+                return EmptyIterator.INSTANCE;
             }
 
         }
@@ -833,18 +836,18 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
     /**
      * Handles the attribute axis in a rather direct manner.
      */
-    private final class AttributeAxisIterator implements AxisIterator {
+    private final class AttributeAxisIterator implements SequenceIterator {
 
         private final XOMNodeWrapper start;
 
         private int cursor;
 
-        private final NodeTest nodeTest;
+        private final NodePredicate nodeTest;
 
-        AttributeAxisIterator(XOMNodeWrapper start, NodeTest test) {
+        AttributeAxisIterator(XOMNodeWrapper start, NodePredicate test) {
             // use lazy instead of eager materialization (performance)
             this.start = start;
-            if (test == AnyNodeTest.getInstance()) {
+            if (test == AnyGNodeType.getInstance()) {
                 test = null;
             }
             nodeTest = test;
@@ -881,7 +884,7 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      * support the preceding and preceding-or-ancestor axes (the latter being
      * used by xsl:number)
      */
-    private final class ChildAxisIterator implements AxisIterator {
+    private final class ChildAxisIterator implements SequenceIterator {
 
         private final XOMNodeWrapper commonParent;
         private int ix;
@@ -890,12 +893,11 @@ public class XOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
         private final ParentNode par;
         private int cursor;
 
-        private final NodeTest nodeTest;
+        private final NodePredicate nodeTest;
 
-        private ChildAxisIterator(XOMNodeWrapper start, boolean downwards, boolean forwards, NodeTest test) {
+        private ChildAxisIterator(XOMNodeWrapper start, boolean downwards, boolean forwards, NodePredicate test) {
             this.forwards = forwards;
-
-            if (test == AnyNodeTest.getInstance()) {
+            if (test == AnyGNodeType.getInstance()) {
                 test = null;
             }
             nodeTest = test;

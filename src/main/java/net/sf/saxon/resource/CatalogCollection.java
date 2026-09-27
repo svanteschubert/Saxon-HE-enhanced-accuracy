@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,10 +16,9 @@ import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Resource;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.jiter.MappingJavaIterator;
 
 import javax.xml.transform.Source;
@@ -173,9 +172,9 @@ public class CatalogCollection extends AbstractResourceCollection {
 
         // Now return an iterator over the documents that it refers to
 
-        AxisIterator iter =
-                catalog.getRootNode().iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
-        NodeInfo top = iter.next();
+        SequenceIterator iter =
+                catalog.getRootNode().iterateChildAxis(NodeKindType.ELEMENT);
+        NodeInfo top = (NodeInfo)iter.next();
         if (top == null || !("collection".equals(top.getLocalPart()) && top.getNamespaceUri() == NamespaceUri.NULL)) {
             String message;
             if (top == null) {
@@ -204,10 +203,10 @@ public class CatalogCollection extends AbstractResourceCollection {
             }
         }
 
-        AxisIterator documents = top.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
+        SequenceIterator documents = top.iterateChildAxis(NodeKindType.ELEMENT);
         List<String> result = new ArrayList<>();
         NodeInfo item;
-        while ((item = documents.next()) != null) {
+        while ((item = (NodeInfo)documents.next()) != null) {
 
             if (!("doc".equals(item.getLocalPart()) &&
                           item.getNamespaceUri() == NamespaceUri.NULL)) {

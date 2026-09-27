@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
 import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.value.Whitespace;
 import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.PositiveIntIterator;
 
 import java.util.Arrays;
 
@@ -33,6 +34,27 @@ public class StringTool {
             }
         }
         return n;
+    }
+
+    /**
+     * Get the width of a string: 8, 16, or 24, being the number of bits needed
+     * to hold the highest codepoint
+     * @param s the string in question
+     * @return the width of the string, based on the highest codepoint present in the string
+     */
+
+    public static int getWidth(/*@NotNull*/ CharSequence s) {
+        boolean isLatin = true;
+        for (int i = 0; i < s.length(); i++) {
+            int c = s.charAt(i);
+            if (UTF16CharacterSet.isSurrogate(c)) {
+                return 24;
+            }
+            if (c > 255) {
+                isLatin = false;
+            }
+        }
+        return isLatin ? 8 : 16;
     }
 
     /**
@@ -73,11 +95,11 @@ public class StringTool {
 
     /*@NotNull*/
     public static UnicodeString fromCodePoints(int[] codes, int used) {
-        UnicodeBuilder sb = new UnicodeBuilder();
+        TwineBuilder tb = TwineBuilder.make(codes.length);
         for (int i = 0; i < used; i++) {
-            sb.append(codes[i]);
+            tb = tb.append(codes[i]);
         }
-        return sb.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     /**
@@ -87,27 +109,36 @@ public class StringTool {
      */
 
     public static UnicodeString fromCharSequence(CharSequence chars) {
-        int uLength = StringTool.getStringLength(chars);
-        if (uLength == chars.length()) {
-            // No surrogate pairs
-            return new BMPString(chars.toString());
-        } else {
-            byte[] triples = new byte[uLength * 3];
-            for (int i = 0, j = 0; i < chars.length(); i++) {
-                char c = chars.charAt(i);
-                if (UTF16CharacterSet.isSurrogate(c)) {
-                    int cp = UTF16CharacterSet.combinePair(c, chars.charAt(++i));
-                    triples[j++] = (byte) ((cp >> 16) & 0xff);
-                    triples[j++] = (byte) ((cp >> 8) & 0xff);
-                    triples[j++] = (byte) (cp & 0xff);
-                } else {
-                    triples[j++] = 0;
-                    triples[j++] = (byte) ((c >> 8) & 0xff);
-                    triples[j++] = (byte) (c & 0xff);
-                }
-            }
-            return new Twine24(triples);
+        int len = chars.length();
+        if (len == 0) {
+            return EmptyUnicodeString.getInstance();
         }
+        int width = getWidth(chars);
+        if (width == 8) {
+            return new Twine8(chars.toString());
+        }
+        if (width == 16) {
+            return new BMPString(chars.toString());
+        }
+        int uLength = StringTool.getStringLength(chars);
+        if (uLength > Integer.MAX_VALUE / 3) {
+            throw new UnsupportedOperationException("Non-BMP string (length " + uLength + ") exceeds Saxon limits");
+        }
+        byte[] triples = new byte[uLength * 3];
+        for (int i = 0, j = 0; i < chars.length(); i++) {
+            char c = chars.charAt(i);
+            if (UTF16CharacterSet.isSurrogate(c)) {
+                int cp = UTF16CharacterSet.combinePair(c, chars.charAt(++i));
+                triples[j++] = (byte) ((cp >> 16) & 0xff);
+                triples[j++] = (byte) ((cp >> 8) & 0xff);
+                triples[j++] = (byte) (cp & 0xff);
+            } else {
+                triples[j++] = 0;
+                triples[j++] = (byte) ((c >> 8) & 0xff);
+                triples[j++] = (byte) (c & 0xff);
+            }
+        }
+        return new Twine24(triples);
     }
 
     /**
@@ -126,7 +157,7 @@ public class StringTool {
         }
         return new Twine8(bytes);
     }
-
+    
     /**
      * Get an iterator over the codepoints in a {@link CharSequence} - typically a {@code String}
      * @param value the supplied string
@@ -165,6 +196,40 @@ public class StringTool {
             }
         };
     }
+
+    /**
+     * Get an iterator over the codepoints in a {@link CharSequence} - typically a {@code String}
+     *
+     * @param value the supplied string
+     * @return an {@code IntIterator} allowing iteration over the codepoints. Note the protocol
+     * for {@code IntIterator} requires exactly one call of {@link IntIterator#hasNext} before
+     * every call of {@link IntIterator#next}
+     */
+
+    @CSharpInnerClass(outer = false, extra = {"string value"})
+    public static PositiveIntIterator iterate(CharSequence value) {
+        return new PositiveIntIterator() {
+            int i = 0;
+
+            @Override
+            public int next() {
+                if (i >= value.length()) {
+                    return -1;
+                }
+                int c = value.charAt(i++);
+                if (UTF16CharacterSet.isHighSurrogate(c)) {
+                    int d = i < value.length() ? value.charAt(i++) : -1;
+                    if (!UTF16CharacterSet.isLowSurrogate(d)) {
+                        throw new IllegalStateException("Unmatched surrogate code value " + c + " at position " + i);
+                    }
+                    return UTF16CharacterSet.combinePair((char) c, (char) d);
+                } else {
+                    return c;
+                }
+            }
+        };
+    }
+
 
     /**
      * Produce a diagnostic representation of the contents of the string
@@ -377,7 +442,8 @@ public class StringTool {
     }
 
     /**
-     * Copy from an array of 16-bit characters to an array holding 16-bit characters.
+     * Copy from an array of 16-bit characters to an array holding 24-bit characters,
+     * organised as three bytes per character
      * The caller is responsible for ensuring that the offsets are in range and that the
      * destination array is large enough.
      *
@@ -385,7 +451,7 @@ public class StringTool {
      *                  contains no surrogates
      * @param sourcePos the position in the source array where copying is to start
      * @param dest      the destination array
-     * @param destPos   the position in the destination array where copying is to start
+     * @param destPos   the codepoint position (not byte position) in the destination array where copying is to start
      * @param count     the number of characters (codepoints) to copy
      */
 
@@ -398,5 +464,21 @@ public class StringTool {
             dest[j++] = (byte) (c & 0xff);
         }
     }
+
+    /**
+     * Get a long hash code for a string
+     * @return a hash code as a long. This is unrelated to the result of the normal int hashCode() method
+     */
+
+    public static long longHashCode(UnicodeString str) {
+        long h = 0;
+        IntIterator iter = str.codePoints();
+        while (iter.hasNext()) {
+            int cp = iter.next();
+            h = 31L * h + cp;
+        }
+        return h;
+    }
+
 }
 

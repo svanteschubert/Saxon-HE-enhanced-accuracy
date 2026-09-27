@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,9 +13,9 @@ import net.sf.saxon.event.TeeOutputter;
 import net.sf.saxon.serialize.SerializationProperties;
 
 /**
- * A TeeDestination allows writing to two destinations at once. For example the output of a transformation
+ * A {@code TeeDestination} allows writing to two destinations at once. For example the output of a transformation
  * can be written simultaneously to a Serializer and to a second Transformation. By chaining together a number
- * of TeeDestinations it is possible to write to any number of destinations at once.
+ * of {@code TeeDestination}s it is possible to write to any number of destinations at once.
  *
  * @since 9.1
  */

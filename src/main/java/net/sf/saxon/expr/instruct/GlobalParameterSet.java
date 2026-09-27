@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.Collection;
@@ -87,15 +88,15 @@ public class GlobalParameterSet {
      *
      * @param qName        the name of the parameter
      * @param requiredType the required type of the parameter
-     * @param convert      set to true if function conversion rules are to be applied, or to false if the value
-     *                     is simply to be checked against the required type
+     * @param coercion     set to 31 or 40 to indicate that the coercion rules from the relevant language
+     *                     version should be used; or to 0 to indicate that no coercion takes place
      * @param context      dynamic evaluation context
      * @return the value after conversion and type checking; or null if there is no value for this parameter
      * @throws XPathException if the value is of the wrong type
      */
 
     public GroundedValue convertParameterValue(
-            StructuredQName qName, SequenceType requiredType, boolean convert, XPathContext context)
+            StructuredQName qName, SequenceType requiredType, int coercion, XPathContext context)
             throws XPathException {
         Sequence val = get(qName);
         if (val == null) {
@@ -103,12 +104,12 @@ public class GlobalParameterSet {
         }
 
         if (requiredType != null) {
-            if (convert) {
+            if (coercion != 0) {
                 Supplier<RoleDiagnostic> role =
                         () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, qName.getDisplayName(), -1);
                 Configuration config = context.getConfiguration();
-                val = config.getTypeHierarchy().applyFunctionConversionRules(
-                        val, requiredType, role, Loc.NONE);
+                CoercionRules coercionRules = CoercionRules.forVersion(config, coercion);
+                val = coercionRules.coerce(val, requiredType, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE);
             } else {
                 XPathException err = TypeChecker.testConformance(val, requiredType, context);
                 if (err != null) {

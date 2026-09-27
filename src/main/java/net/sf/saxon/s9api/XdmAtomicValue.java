@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,9 +20,9 @@ import java.net.URI;
 import java.time.*;
 
 /**
- * The class XdmAtomicValue represents an item in an XPath sequence that is an atomic value.
+ * The class {@code XdmAtomicValue} represents an item in an XPath sequence that is an atomic value.
  * The value may belong to any of the 19 primitive types defined in XML Schema, or to a type
- * derived from these primitive types, or the XPath type xs:untypedAtomic. The type may
+ * derived from these primitive types, or to the XPath type {@code xs:untypedAtomic}. The type may
  * be either a built-in type or a user-defined type.
  * <p>An <code>XdmAtomicValue</code> is immutable.</p>
  */
@@ -30,13 +30,13 @@ import java.time.*;
 public class XdmAtomicValue extends XdmItem {
 
     /**
-     * Create an XdmAtomicValue that wraps a supplied <code>AtomicValue</code>. This
+     * Create an {@code XdmAtomicValue} that wraps a supplied <code>AtomicValue</code>. This
      * method is primarily for internal use, though it is also available to applications
      * that manipulate data using lower-level Saxon interfaces.
      *
      * @param value the value to be wrapped.
      */
-
+    
     public XdmAtomicValue(AtomicValue value) {
         super(value);
     }
@@ -74,7 +74,7 @@ public class XdmAtomicValue extends XdmItem {
     /**
      * Create an <code>xs:short</code> atomic value
      *
-     * @param value the <code>xs:integer</code> value, as a long
+     * @param value the <code>xs:integer</code> value, as a short
      */
 
     public XdmAtomicValue(short value) {
@@ -82,9 +82,9 @@ public class XdmAtomicValue extends XdmItem {
     }
 
     /**
-     * Create an <code>xs:short</code> atomic value
+     * Create an <code>xs:byte</code> atomic value
      *
-     * @param value the <code>xs:integer</code> value, as a long
+     * @param value the <code>xs:integer</code> value, as a byte
      */
 
     public XdmAtomicValue(byte value) {
@@ -212,7 +212,7 @@ public class XdmAtomicValue extends XdmItem {
         this(new DateValue(value));
     }
 
-
+    
     /**
      * Construct an atomic value given its lexical representation and the name of the required
      * built-in atomic type.
@@ -322,7 +322,7 @@ public class XdmAtomicValue extends XdmItem {
 
     /**
      * Get the result of converting the atomic value to a string. This has the same
-     * effect as the XPath string() function.
+     * effect as the XPath {@code string()} function.
      */
 
     public String toString() {
@@ -331,8 +331,9 @@ public class XdmAtomicValue extends XdmItem {
 
     /**
      * Get the primitive type of this atomic value, as a QName. The primitive types for this purpose are
-     * the 19 primitive types of XML Schema, plus xs:integer, xs:dayTimeDuration and xs:yearMonthDuration,
-     * and xs:untypedAtomic. For external objects, the result is xs:anyAtomicType.
+     * the 19 primitive types of XML Schema, plus {@code xs:integer}, {@code xs:dayTimeDuration}
+     * and {@code xs:yearMonthDuration},
+     * and {@code xs:untypedAtomic}. For external objects, the result is {@code xs:anyAtomicType}.
      *
      * @return a QName naming the primitive type of this atomic value. This will always be an atomic type.
      */
@@ -561,10 +562,10 @@ public class XdmAtomicValue extends XdmItem {
     }
 
     /**
-     * For an XdmAtomicValue representing an xs:dateTime value including timezone,
+     * For an {@code XdmAtomicValue} representing an {@code xs:dateTime} value including timezone,
      * get the value as an instance of {@link OffsetDateTime}
      *
-     * @return the corresponding OffsetDateTime if the value is an xs:dateTime including
+     * @return the corresponding {@link OffsetDateTime} if the value is an xs:dateTime including
      * a timezone; otherwise null
      * @since 10.0
      */
@@ -579,11 +580,11 @@ public class XdmAtomicValue extends XdmItem {
     }
 
     /**
-     * For an XdmAtomicValue representing an xs:dateTime value,
+     * For an {@code XdmAtomicValue} representing an {@code xs:dateTime} value,
      * get the value as an instance of {@link LocalDateTime}. Any timezone
      * information in the value is discarded
      *
-     * @return the corresponding LocalDateTime if the value is an xs:dateTime; otherwise null
+     * @return the corresponding {@link LocalDateTime} if the value is an {@code xs:dateTime}; otherwise null
      * @since 10.0
      */
 
@@ -597,11 +598,11 @@ public class XdmAtomicValue extends XdmItem {
     }
 
     /**
-     * For an XdmAtomicValue representing an xs:date value,
+     * For an {@code XdmAtomicValue} representing an xs:date value,
      * get the value as an instance of {@link LocalDate}. Any timezone
      * information in the value is discarded
      *
-     * @return the corresponding LocalDate if the value is an xs:date; otherwise null
+     * @return the corresponding {@link LocalDate} if the value is an {@code xs:date}; otherwise null
      * @since 10.0
      */
 
@@ -617,15 +618,17 @@ public class XdmAtomicValue extends XdmItem {
     /**
      * Compare values for equality.
      * Two atomic values are considered equal if they are equal according to the
-     * rules of the op:is-same-key() operation, used when comparing keys in maps
+     * rules of the {@code fn:atomic-equal()} operation, used when comparing keys in maps.
+     * The rules applied are the XPath 4.0 rules (for example, this means that
+     * a hexBinary value can be equal to a base64Binary value).
      * @param other the value to be compared
-     * @return true if the values are deemed equal
+     * @return true if the values are deemed equal under the XPath 4.0 rules
      */
 
     public boolean equals(Object other) {
         if (other instanceof XdmAtomicValue) {
-            AtomicMatchKey a = getUnderlyingValue().asMapKey();
-            AtomicMatchKey b = ((XdmAtomicValue)other).getUnderlyingValue().asMapKey();
+            AtomicMatchKey a = getUnderlyingValue().asMapKey(40);
+            AtomicMatchKey b = ((XdmAtomicValue)other).getUnderlyingValue().asMapKey(40);
             return a.equals(b);
         } else {
             return false;
@@ -633,13 +636,13 @@ public class XdmAtomicValue extends XdmItem {
     }
 
     /**
-     * Get a hashcode that reflects the rules for equality matching
+     * Get a hashcode that reflects the rules for equality matching (under XPath 4.0)
      * @return a suitable hashcode
      */
 
     @Override
     public int hashCode() {
-        return getUnderlyingValue().asMapKey().hashCode();
+        return getUnderlyingValue().asMapKey(40).hashCode();
     }
 }
 

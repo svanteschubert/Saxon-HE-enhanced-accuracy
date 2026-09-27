@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,11 +10,11 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.LocalVariableReference;
 import net.sf.saxon.expr.VariableReference;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 
 /**
  * Define the static context for expressions appearing between curly braces in a text value template.
@@ -55,8 +55,8 @@ public class TextValueTemplateContext extends ExpressionContext {
 
         // first search for a local variable declaration
 
-        AxisIterator preceding = curr.iterateAxis(AxisInfo.PRECEDING_SIBLING);
-        while ((curr = preceding.next()) != null) {
+        SequenceIterator preceding = curr.iteratePrecedingSiblingAxis(AnyGNode.TEST);
+        while ((curr = (NodeInfo)preceding.next()) != null) {
             if (curr instanceof XSLGeneralVariable) {
                 SourceBinding sourceBinding = ((XSLGeneralVariable) curr).getBindingInformation(qName);
                 if (sourceBinding != null) {

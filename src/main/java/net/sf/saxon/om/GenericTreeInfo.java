@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,7 +32,7 @@ public class GenericTreeInfo implements TreeInfo
     private String systemId;
     private Map<String, Object> userData;
     private long documentNumber = -1;
-    private SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.getInstance();
+    private SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.INSTANCE;
     private Durability durability = UNDEFINED;
 
     /**
@@ -97,6 +97,18 @@ public class GenericTreeInfo implements TreeInfo
     @Override
     public NodeInfo getRootNode() {
         return root;
+    }
+
+    /**
+     * Ask whether element and attribute nodes in this tree use fingerprints to represent
+     * node names
+     *
+     * @return true if element and attribute nodes in this tree maintain a fingerprint
+     * accessible using the {@link NodeInfo#getFingerprint()} method.
+     */
+    @Override
+    public boolean isFingerprinted() {
+        return false;
     }
 
     /**

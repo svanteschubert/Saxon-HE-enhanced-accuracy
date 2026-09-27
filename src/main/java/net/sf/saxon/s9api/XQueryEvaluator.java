@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -25,7 +25,9 @@ import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.tree.tiny.TinyBuilder;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.value.SequenceType;
 
 import javax.xml.transform.ErrorListener;
 import javax.xml.transform.Source;
@@ -44,13 +46,13 @@ import java.util.function.Supplier;
  * It is safe, however, to reuse the object within a single thread to run the same
  * query several times. Running the query does not change the context
  * that has been established.</p>
- * <p>An <code>XQueryEvaluator</code> is always constructed by running the <code>Load</code>
+ * <p>An <code>XQueryEvaluator</code> is always constructed by running the {@link XQueryExecutable#load()}
  * method of an {@link net.sf.saxon.s9api.XQueryExecutable}.</p>
  * <p>An <code>XQueryEvaluator</code> is itself a <code>Iterable</code>. This makes it possible to
  * evaluate the results in a for-each expression.</p>
  * <p>An <code>XQueryEvaluator</code> is itself a <code>Destination</code>. This means it is possible to use
- * one <code>XQueryEvaluator</code> as the destination to receive the results of another transformation,
- * this providing a simple way for transformations to be chained into a pipeline. When the query is executed
+ * one <code>XQueryEvaluator</code> as the destination to receive the results of another query or transformation,
+ * this providing a simple way for queries to be chained into a pipeline. When the query is executed
  * this way, {@link #setDestination(Destination)} must be called to provide a destination for the result of this query.</p>
  * <p>As a {@code Destination}, an {@code XQueryEvaluator} performs <b>sequence normalization</b> as defined
  * in the Serialization specification, including inserting item separators if required. The input to the
@@ -95,7 +97,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
 
     public void setSchemaValidationMode(ValidationMode mode) {
         if (mode != null) {
-            context.setSchemaValidationMode(mode.getNumber());
+            context.setSchemaValidationMode(Validation.fromValidationMode(mode));
         }
     }
 
@@ -110,8 +112,21 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      */
 
     public ValidationMode getSchemaValidationMode() {
-        return ValidationMode.get(context.getSchemaValidationMode());
+        return getSchemaValidationMode(context.getSchemaValidationMode());
     }
+
+    public static ValidationMode getSchemaValidationMode(int mode) {
+        return switch (mode) {
+            case Validation.STRICT -> ValidationMode.STRICT;
+            case Validation.LAX -> ValidationMode.LAX;
+            case Validation.STRIP -> ValidationMode.STRIP;
+            case Validation.PRESERVE -> ValidationMode.PRESERVE;
+            case Validation.DEFAULT -> ValidationMode.DEFAULT;
+            default -> ValidationMode.DEFAULT;
+        };
+    }
+
+    ;
 
 
     /**
@@ -152,24 +167,72 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
             if (gcr != null && !gcr.isExternal()) {
                 throw new SaxonApiException("The context item for the query is not defined as external");
             }
-            context.setContextItem(item.getUnderlyingValue());
+            context.setContextValue(item.getUnderlyingValue());
         }
     }
 
     /**
-     * Get the initial context item for the query, if one has been set
+     * Set the initial context value for the query. From 4.0, XQuery allows the initial context
+     * value to be a general sequence, not necessarily a single item.
+     *
+     * @param value the initial context value, or null if there is to be no initial context value
+     * @throws SaxonApiException if the query declares the context value and does not define
+     *                           it to be external
+     */
+
+    public void setContextValue(XdmValue value) throws SaxonApiException {
+        if (value != null) {
+            GlobalContextRequirement gcr = expression.getExecutable().getGlobalContextRequirement();
+            if (gcr != null && !gcr.isExternal()) {
+                throw new SaxonApiException("The context value for the query is not defined as external");
+            }
+            context.setContextValue(value.getUnderlyingValue());
+        }
+    }
+
+    /**
+     * Get the initial context item for the query, if one has been set.
+     *
+     * <p>From 4.0, XQuery allows setting of an initial context value (which need not be
+     * a single item).</p>
      *
      * @return the initial context item, or null if none has been set. This will not necessarily
      *         be the same object as was supplied, but it will be an XdmItem object that represents
      *         the same underlying node or atomic value.
+     * @since 13.0
      */
 
     public XdmItem getContextItem() {
-        Item item = context.getContextItem();
-        if (item == null) {
+        GroundedValue val = context.getContextValue();
+        if (val == null) {
             return null;
+        } else if (val.getLength() == 1) {
+            return (XdmItem) XdmValue.wrap(val.head());
+        } else {
+            throw new IllegalStateException("Context value is a sequence of length " + val.getLength());
         }
-        return (XdmItem) XdmValue.wrap(item);
+    }
+
+    /**
+     * Get the initial context item for the query, if one has been set.
+     *
+     * <p>From 4.0, XQuery allows setting of an initial context value (which need not be
+     * a single item). If the context value is a single item, this method will return it.
+     * If the context value is absent, this method returns null. If the context value
+     * is anything other than a singleton, this method throws an IllegalStateException.</p>
+     *
+     * @return the initial context item, or null if none has been set. This will not necessarily
+     * be the same object as was supplied, but it will be an XdmItem object that represents
+     * the same underlying node or atomic value.
+     */
+
+    public XdmValue getContextValue() {
+        GroundedValue val = context.getContextValue();
+        if (val == null) {
+            return null;
+        } else {
+            return XdmValue.wrap(val.head());
+        }
     }
 
     /**
@@ -365,7 +428,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
      * By default, the destination is System.err. If a TraceListener is in use,
      * this is ignored, and the trace() output is sent to the TraceListener.
      *
-     * @param stream the PrintStream to which trace output will be sent. If set to
+     * @param stream the Logger to which trace output will be sent. If set to
      *               null, trace output is suppressed entirely. It is the caller's responsibility
      *               to close the stream after use.
      * @since 9.1. Changed in 9.6 to use a Logger
@@ -396,6 +459,13 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
 
     public void setDestination(Destination destination) {
         this.destination = destination;
+        if (destination instanceof Serializer serializer &&
+                serializer.getOutputProperty(Serializer.Property.SAXON_SPEC_VERSION) == null) {
+            serializer.setOutputProperty(
+                    Serializer.Property.SAXON_SPEC_VERSION,
+                    expression.getPackageData().getHostLanguageVersion() + "");
+
+        }
     }
 
     /**
@@ -425,16 +495,6 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
                     throw new IllegalStateException("No destination supplied");
                 }
                 run(destination);
-//                Result receiver;
-//                if (destination instanceof Serializer) {
-//                    //receiver = ((Serializer) destination).getResult();
-//                    //context.set
-//                    receiver = ((Serializer) destination).getReceiver(expression.getExecutable());
-//                } else {
-//                    receiver = destination.getReceiver(expression.getConfiguration());
-//                }
-//                expression.run(context, receiver, null);
-//                destination.close();
             }
         } catch (TransformerException e) {
             throw new SaxonApiException(e);
@@ -602,6 +662,7 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
     private Receiver getDestinationReceiver(Destination destination) throws SaxonApiException {
         Executable exec = expression.getExecutable();
         PipelineConfiguration pipe = expression.getConfiguration().makePipelineConfiguration();
+        pipe.setHostLanguage(HostLanguage.XQUERY, exec.getTopLevelPackage().getHostLanguageVersion());
         Receiver out = destination.getReceiver(pipe, exec.getPrimarySerializationProperties());
         if (Configuration.isAssertionsEnabled()) {
             return new RegularSequenceChecker(out, true);
@@ -716,23 +777,26 @@ public class XQueryEvaluator extends AbstractDestination implements Iterable<Xdm
             throw new SaxonApiException("No function with name " + function.getEQName() +
                     " and arity " + arguments.length + " has been declared in the query");
         }
+        int version = expression.getMainModule().getXPathVersion();
+        Configuration config = processor.getUnderlyingConfiguration();
+        CoercionRules coercionRules = CoercionRules.forVersion(config, version);
         try {
             if (controller == null) {
                 controller = expression.newController(context);
             } else {
                 context.initializeController(controller);
             }
-            Configuration config = processor.getUnderlyingConfiguration();
             TypeHierarchy th = config.getTypeHierarchy();
             Sequence[] vr = SequenceTool.makeSequenceArray(arguments.length);
             for (int i = 0; i < arguments.length; i++) {
                 net.sf.saxon.value.SequenceType type = fn.getParameterDefinitions()[i].getRequiredType();
                 GroundedValue gVal = arguments[i].getUnderlyingValue();
-                if (!type.matches(gVal, th)) {
+                if (!type.matches(gVal)) {
                     final int pos = i;
                     Supplier<RoleDiagnostic> role =
                             () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, function.getStructuredQName().getDisplayName(), pos);
-                    gVal = th.applyFunctionConversionRules(gVal, type, role, Loc.NONE);
+                    gVal = coercionRules.coerce(gVal, type, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE)
+                            .materialize();
                 }
                 vr[i] = gVal;
             }

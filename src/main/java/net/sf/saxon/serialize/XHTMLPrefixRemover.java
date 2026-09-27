@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -50,8 +50,8 @@ public class XHTMLPrefixRemover extends ProxyReceiver {
             }
         }
 
-        if (isSpecial(elemName.getNamespaceUri())) {
-            NamespaceUri uri = elemName.getNamespaceUri();
+        NamespaceUri uri = elemName.getNamespaceUri();
+        if (isSpecial(uri)) {
             if (!elemName.getPrefix().isEmpty()) {
                 elemName = new FingerprintedQName("", uri, elemName.getLocalPart());
             }
@@ -59,8 +59,10 @@ public class XHTMLPrefixRemover extends ProxyReceiver {
         }
 
         for (AttributeInfo att : attributes) {
-            if (isSpecial(att.getNodeName().getNamespaceUri())) {
-                namespaces = namespaces.put(att.getNodeName().getPrefix(), att.getNodeName().getNamespaceUri());
+            NodeName name = att.getNodeName();
+            NamespaceUri attUri = name.getNamespaceUri();
+            if (isSpecial(attUri)) {
+                namespaces = namespaces.put(name.getPrefix(), attUri);
             }
         }
 

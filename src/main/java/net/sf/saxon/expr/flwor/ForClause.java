@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -182,8 +182,7 @@ public class ForClause extends Clause {
                             getSequence(), StaticProperty.ALLOWS_ONE_OR_MORE, emptyRole);
             setSequence(checker);
         }
-        SequenceType sequenceType = SequenceType.makeSequenceType(
-                decl.getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE);
+        SequenceType sequenceType = SequenceType.zeroOrMore(decl.getPrimaryType());
         Supplier<RoleDiagnostic> role =
                 () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, rangeVariable.getVariableQName().getDisplayName(), 0);
         if (visitor.getStaticContext().getXPathVersion() < 40) {
@@ -324,7 +323,7 @@ public class ForClause extends Clause {
                         }
                         selection = new FilterExpression(selection, predicate);
                         ExpressionTool.copyLocationInfo(predicate, selection);
-                        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(selectionContextItemType, true);
+                        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(selectionContextItemType, Optionality.OPTIONAL);
                         selection = selection.typeCheck(visitor, cit);
                         if (!ExpressionTool.dependsOnVariable(flwor, new Binding[]{positionVariable})) {
                             positionVariable = null;
@@ -350,7 +349,7 @@ public class ForClause extends Clause {
 
                 boolean found = ExpressionTool.inlineVariableReferences(condition, this.getRangeVariable(), replacement);
                 if (found) {
-                    ContextItemStaticInfo cit = config.makeContextItemStaticInfo(getSequence().getItemType(), true);
+                    ContextItemStaticInfo cit = config.makeContextItemStaticInfo(getSequence().getItemType(), Optionality.OPTIONAL);
                     Expression predicate = condition.typeCheck(visitor, cit);
                     // If the result of the predicate might be a number, wrap it in a call of boolean()
                     Affinity rel = th.relationship(predicate.getItemType(), BuiltInAtomicType.INTEGER);
@@ -360,7 +359,7 @@ public class ForClause extends Clause {
                     }
                     selection = new FilterExpression(selection, predicate);
                     ExpressionTool.copyLocationInfo(predicate, selection);
-                    cit = config.makeContextItemStaticInfo(selectionContextItemType, true);
+                    cit = config.makeContextItemStaticInfo(selectionContextItemType, Optionality.OPTIONAL);
                     selection = selection.typeCheck(visitor, cit);
                     changed = true;
                 }
@@ -406,19 +405,13 @@ public class ForClause extends Clause {
     public void refineVariableType(ExpressionVisitor visitor, List<VariableReference> references, Expression returnExpr) {
         ItemType actualItemType = getSequence().getItemType();
         if (actualItemType instanceof ErrorType) {
-            actualItemType = AnyItemType.getInstance();
+            actualItemType = AnyItemType.INSTANCE;
         }
         for (VariableReference ref : references) {
             ref.refineVariableType(actualItemType,
                     allowsEmpty ? StaticProperty.ALLOWS_ZERO_OR_ONE : StaticProperty.EXACTLY_ONE,
                     null, getSequence().getSpecialProperties());
         }
-    }
-
-    @Override
-    public void addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet varPath = getSequence().addToPathMap(pathMap, pathMapNodeSet);
-        pathMap.registerPathForVariable(rangeVariable, varPath);
     }
 
     /**

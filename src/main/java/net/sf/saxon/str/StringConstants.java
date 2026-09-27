@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,17 +22,20 @@ public class StringConstants {
         return s.getBytes(StandardCharsets.US_ASCII);
     }
 
-    public static final UnicodeString SINGLE_SPACE = new Twine8(bytes(" "));
-    public static final UnicodeString NEWLINE = new Twine8(bytes("\n"));
+    public static final UnicodeString SINGLE_SPACE = new UnicodeChar(' ');
+    public static final UnicodeString NEWLINE = new UnicodeChar('\n');
     public static final UnicodeString TRUE = new Twine8(bytes("true"));
     public static final UnicodeString FALSE = new Twine8(bytes("false"));
-    public static final UnicodeString ONE = new Twine8(bytes("1"));
-    public static final UnicodeString ZERO = new Twine8(bytes("0"));
+    public static final UnicodeString ONE = new UnicodeChar('1');
+    public static final UnicodeString ZERO = new UnicodeChar('0');
+    public static final UnicodeString NULL = new Twine8(bytes("null"));
     public static final UnicodeString ZERO_TO_NINE = new Twine8(bytes("0123456789"));
+    public static final UnicodeString DOT = new UnicodeChar('.');
+    public static final UnicodeString COMMA = new UnicodeChar(',');
 
     public static final UnicodeString MIN_LONG = new Twine8(bytes("-9223372036854775808"));
     public static final UnicodeString POINT_ZERO = new Twine8(bytes(".0"));
-    public static final UnicodeString ASTERISK = new Twine8(bytes("*"));
+    public static final UnicodeString ASTERISK = new UnicodeChar('*');
 
     public static final byte[] COMMENT_START = bytes("<!--");
     public static final byte[] COMMENT_END = bytes("-->");

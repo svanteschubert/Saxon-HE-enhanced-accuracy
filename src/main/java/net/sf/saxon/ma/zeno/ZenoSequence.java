@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,6 +18,7 @@ import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.iter.GroundedIterator;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.value.EmptySequence;
@@ -51,6 +52,21 @@ public class ZenoSequence implements GroundedValue {
 
     public static ZenoSequence fromList(List<Item> items) {
         ZenoChain<Item> chain = new ZenoChain<Item>().addAll(items);
+        return new ZenoSequence(chain);
+    }
+
+    /**
+     * Construct a ZenoSequence from a grounded value
+     *
+     * @param items the items to be included
+     * @return the new ZenoSequence
+     */
+
+    public static ZenoSequence fromGroundedValue(GroundedValue items) {
+        if (items instanceof ZenoSequence) {
+            return (ZenoSequence)items;
+        }
+        ZenoChain<Item> chain = new ZenoChain<Item>().addAll(items.asIterable());
         return new ZenoSequence(chain);
     }
 
@@ -117,7 +133,7 @@ public class ZenoSequence implements GroundedValue {
         }
         int size = chain.size();
         if (start >= size || length <= 0) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         if ((long)start + (long)length > (long)size) {
             length = size - start;
@@ -274,6 +290,7 @@ public class ZenoSequence implements GroundedValue {
         }
 
         @Override
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
         public Item next() {
             position++;
             return chainIterator.hasNext() ? chainIterator.next() : null;
@@ -312,6 +329,7 @@ public class ZenoSequence implements GroundedValue {
 
         @Override
         @CSharpReplaceBody(code="throw new InvalidOperationException();")
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
         public boolean hasNext() {
             return chainIterator.hasNext();
         }

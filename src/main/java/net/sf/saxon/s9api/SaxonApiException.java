@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.expr.instruct.TerminationException;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
@@ -123,6 +124,23 @@ public class SaxonApiException extends Exception {
         } else {
             return null;
         }
+    }
+
+    /**
+     * When a transformation is terminated using <code>xsl:message</code> with
+     * <code>terminate="yes"</code>, or using <code>xsl:assert</code>,
+     * this method provides access to the content
+     * of the final message that caused termination.
+     * @return the content of the final <code>xsl:message</code> or <code>xsl:assert</code>
+     * that caused termination; otherwise null.
+     */
+
+    public Message getTerminatingXsltMessage() {
+        Throwable cause = getCause();
+        if (cause instanceof TerminationException) {
+            return ((TerminationException)cause).getFinalMessage();
+        }
+        return null;
     }
 }
 

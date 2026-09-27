@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,10 +13,10 @@ import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.trans.XPathException;
-
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.CoercionPlan;
+import net.sf.saxon.type.coercion.MapCoercionPlan;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
@@ -33,16 +33,6 @@ public class MapType extends AnyFunctionType {
 
     // The type of a map with no entries. It's handled specially in some static type inferencing rules
     public final static MapType EMPTY_MAP_TYPE = new MapType(BuiltInAtomicType.ANY_ATOMIC, SequenceType.ANY_SEQUENCE, true);
-
-    /**
-     * A type that allows a sequence of zero or one map items
-     */
-    public static final SequenceType OPTIONAL_MAP_ITEM =
-            SequenceType.makeSequenceType(ANY_MAP_TYPE, StaticProperty.ALLOWS_ZERO_OR_ONE);
-    public static final SequenceType SINGLE_MAP_ITEM =
-            SequenceType.makeSequenceType(ANY_MAP_TYPE, StaticProperty.ALLOWS_ONE);
-    public static final SequenceType SEQUENCE_OF_MAPS =
-            SequenceType.makeSequenceType(ANY_MAP_TYPE, StaticProperty.ALLOWS_ZERO_OR_MORE);
 
     private final PlainType keyType;
     private final SequenceType valueType;
@@ -134,7 +124,7 @@ public class MapType extends AnyFunctionType {
 
     @Override
     public boolean isAtomizable(TypeHierarchy th) {
-        return false;
+        return false; 
     }
 
     /**
@@ -144,14 +134,14 @@ public class MapType extends AnyFunctionType {
      */
     @Override
     public double getDefaultPriority() {
-        return keyType.getNormalizedDefaultPriority() * valueType.getPrimaryType().getNormalizedDefaultPriority();
+        return this == ANY_MAP_TYPE ? -0.25 : 0;
     }
 
     /**
      * Test whether a given item conforms to this type
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) {
+    public boolean matches(Item item) {
         if (!(item instanceof MapItem)){
             return false;
         }
@@ -163,7 +153,7 @@ public class MapType extends AnyFunctionType {
         if (this == ANY_MAP_TYPE) {
             return true;
         } else {
-            return ((MapItem)item).conforms(keyType, valueType, th);
+            return ((MapItem)item).conforms(keyType, valueType);
         }
     }
 
@@ -186,7 +176,7 @@ public class MapType extends AnyFunctionType {
     @Override
     public SequenceType[] getArgumentTypes() {
         // regardless of the key type, a function call on this map can supply any atomic value
-        return new SequenceType[]{SequenceType.makeSequenceType(BuiltInAtomicType.ANY_ATOMIC, StaticProperty.EXACTLY_ONE)};
+        return new SequenceType[]{SequenceType.one(BuiltInAtomicType.ANY_ATOMIC)};
     }
 
     /**
@@ -205,6 +195,15 @@ public class MapType extends AnyFunctionType {
                     valueType.getPrimaryType(), Cardinality.union(valueType.getCardinality(), StaticProperty.ALLOWS_ZERO));
         }
     }
+
+    @Override
+    public CoercionPlan getCoercionPlan(int version) {
+        if (version >= 40 /*&& !(keyType == BuiltInAtomicType.ANY_ATOMIC && valueType == SequenceType.ANY_SEQUENCE)*/) {
+            return MapCoercionPlan.getInstance();
+        }
+        return super.getCoercionPlan(version);
+    }
+
 
     /**
      * Produce a representation of this type name for use in error messages.
@@ -263,11 +262,10 @@ public class MapType extends AnyFunctionType {
         if (this == other) {
             return true;
         }
-        if (other instanceof MapType) {
-            MapType f2 = (MapType) other;
+        if (other instanceof MapType f2) {
             return keyType.equals(f2.keyType) && valueType.equals(f2.valueType) && mustBeEmpty == f2.mustBeEmpty;
         }
-        return false;
+        return this == MapType.ANY_MAP_TYPE && other instanceof RecordType r && r.isExtensible() && r.getSize() == 0;
     }
 
     /**
@@ -285,8 +283,8 @@ public class MapType extends AnyFunctionType {
      */
 
     @Override
-    public Affinity relationship(FunctionItemType other, TypeHierarchy th) {
-        if (other == AnyFunctionType.getInstance()) {
+    public Affinity relationship(FunctionItemType other) {
+        if (other == INSTANCE) {
             return Affinity.SUBSUMED_BY;
         } else if (equals(other)) {
             return Affinity.SAME_TYPE;
@@ -294,17 +292,17 @@ public class MapType extends AnyFunctionType {
             return Affinity.SUBSUMED_BY;
         } else if (other.isArrayType()) {
             return Affinity.DISJOINT;
-        } else if (other instanceof RecordTest) {
-            return TypeHierarchy.inverseRelationship(other.relationship(this, th));
+        } else if (other instanceof RecordType) {
+            return Subsumption.inverseRelationship(other.relationship(this));
         } else if (other instanceof MapType) {
             // See bug 3720. Two map types can never be disjoint because the empty
             // map is an instance of every map type
             MapType f2 = (MapType) other;
-            Affinity keyRel = th.relationship(keyType, f2.keyType);
+            Affinity keyRel = Subsumption.computeRelationship(keyType, f2.keyType);
             if (keyRel == Affinity.DISJOINT) {
                 return Affinity.OVERLAPS;
             }
-            Affinity valueRel = th.sequenceTypeRelationship(valueType, f2.valueType);
+            Affinity valueRel = Subsumption.sequenceTypeRelationship(valueType, f2.valueType);
 
             if (valueRel == Affinity.DISJOINT) {
                 return Affinity.OVERLAPS;
@@ -328,8 +326,8 @@ public class MapType extends AnyFunctionType {
                 st = SequenceType.makeSequenceType(st.getPrimaryType(), Cardinality.union(st.getCardinality(), StaticProperty.ALLOWS_ZERO));
             }
             return new SpecificFunctionType(
-                    new SequenceType[]{SequenceType.ATOMIC_SEQUENCE}, st)
-                    .relationship(other, th);
+                    SequenceType.ATOMIC_SEQUENCE, st)
+                    .relationship(other);
         }
     }
 
@@ -347,16 +345,16 @@ public class MapType extends AnyFunctionType {
     public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
         if (item instanceof MapItem) {
             for (KeyValuePair kvp : ((MapItem)item).keyValuePairs()) {
-                if (!keyType.matches(kvp.key, th)) {
-                    String s = "The map contains a key (" + kvp.key.show() + ") of type " + kvp.key.getItemType() +
+                if (!keyType.matches(kvp.key())) {
+                    String s = "The map contains a key (" + kvp.key().show() + ") of type " + kvp.key().getItemType() +
                             " that is not an instance of the required type " + keyType;
                     return Optional.of(s);
                 }
-                if (!valueType.matches(kvp.value, th)) {
-                    String s = "The map contains an entry with key (" + kvp.key.show() +
-                            ") whose corresponding value (" + Err.depictSequence(kvp.value) +
+                if (!valueType.matches(kvp.value())) {
+                    String s = "The map contains an entry with key (" + kvp.key().show() +
+                            ") whose corresponding value (" + Err.depictSequence(kvp.value()) +
                             ") is not an instance of the required type " + valueType;
-                    Optional<String> more = valueType.explainMismatch(kvp.value, th);
+                    Optional<String> more = valueType.explainMismatch(kvp.value(), th);
                     if (more.isPresent()) {
                         s = s + ". " + more.get();
                     }
@@ -368,11 +366,10 @@ public class MapType extends AnyFunctionType {
     }
 
     @Override
-    public Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40)
-            throws XPathException {
+    public Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40) {
         return new SpecificFunctionType(getArgumentTypes(), getResultType()).makeFunctionSequenceCoercer(exp, role, false);
     }
 
 }
 
-// Copyright (c) 2011-2023 Saxonica Limited
+// Copyright (c) 2011-2026 Saxonica Limited

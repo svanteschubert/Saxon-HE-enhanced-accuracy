@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,9 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.AlphaCode;
@@ -55,7 +58,7 @@ public final class SimplePositionalPattern extends Pattern {
      * Get the node test
      * @return the node test used
      */
-    public NodeTest getNodeTest() {
+    public NodePredicate getNodeTest() {
         return nodeTest;
     }
     /**
@@ -88,8 +91,11 @@ public final class SimplePositionalPattern extends Pattern {
      */
 
     @Override
-    public int getFingerprint() {
-        return nodeTest.getFingerprint();
+    public int getFingerprint(int nodeKind) {
+        if (nodeTest instanceof NamedXNodePredicate) {
+            return ((NamedXNodePredicate) nodeTest).getRequiredFingerprint();
+        }
+        return -1;
     }
 
     /**
@@ -98,7 +104,7 @@ public final class SimplePositionalPattern extends Pattern {
 
     @Override
     public ItemType getItemType() {
-        return nodeTest.getPrimitiveItemType();
+        return nodeTest.getItemType();
     }
 
     /**
@@ -108,9 +114,8 @@ public final class SimplePositionalPattern extends Pattern {
      */
 
     public boolean equals(Object other) {
-        if (other instanceof SimplePositionalPattern) {
-            SimplePositionalPattern fp = (SimplePositionalPattern) other;
-            return nodeTest.equals(fp.nodeTest) && position == fp.position;
+        if (other instanceof SimplePositionalPattern spp) {
+            return nodeTest.equals(spp.nodeTest) && position == spp.position;
         } else {
             return false;
         }
@@ -174,7 +179,7 @@ public final class SimplePositionalPattern extends Pattern {
     /*@NotNull*/
     @Override
     public Pattern copy(RebindingMap rebindings) {
-        SimplePositionalPattern n = new SimplePositionalPattern(nodeTest.copy(), position);
+        SimplePositionalPattern n = new SimplePositionalPattern(nodeTest, position);
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
         return n;
@@ -191,7 +196,7 @@ public final class SimplePositionalPattern extends Pattern {
     @Override
     public void export(ExpressionPresenter presenter) {
         presenter.startElement("p.simPos");
-        presenter.emitAttribute("test", AlphaCode.fromItemType(nodeTest));
+        presenter.emitAttribute("test", AlphaCode.fromItemType(getItemType()));
         presenter.emitAttribute("pos", position + "");
         presenter.endElement();
     }

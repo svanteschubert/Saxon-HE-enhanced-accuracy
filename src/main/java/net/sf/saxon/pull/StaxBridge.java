@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.pull;
 
 
 import net.sf.saxon.event.PipelineConfiguration;
+import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.om.*;
@@ -44,14 +45,22 @@ public class StaxBridge implements PullProvider {
     private XMLStreamReader reader;
     private AttributeMap attributes;
     private PipelineConfiguration pipe;
-    private NamePool namePool;
-    private final HashMap<String, NodeName> nameCache = new HashMap<>();
     private final Stack<NamespaceMap> namespaceStack = new Stack<>();
     private List<?> unparsedEntities = null;
     PullEvent currentEvent = PullEvent.START_OF_INPUT;
     int depth = 0;
     boolean ignoreIgnorable = false;
 
+    /**
+     * A local cache is used to avoid allocating fingerprints for the same name more than once.
+     * This reduces contention on the NamePool. This is a two-level hashmap: the first level
+     * has the namespace URI as its key, and returns a HashMap which maps lexical QNames to integer
+     * namecodes.
+     */
+
+    private final HashMap<NamespaceUri, HashMap<String, NodeName>> nameCache = new HashMap<>(10);
+    private HashMap<String, NodeName> noNamespaceNameCache = new HashMap<>(10);
+    
     /**
      * Create a new instance of the class
      */
@@ -72,7 +81,6 @@ public class StaxBridge implements PullProvider {
     public void setInputStream(String systemId, InputStream inputStream) throws XPathException {
         try {
             XMLInputFactory factory = XMLInputFactory.newInstance();
-            //XMLInputFactory factory = new WstxInputFactory();
             factory.setXMLReporter(new StaxErrorReporter());
             reader = factory.createXMLStreamReader(systemId, inputStream);
         } catch (XMLStreamException e) {
@@ -99,8 +107,7 @@ public class StaxBridge implements PullProvider {
     @Override
     public void setPipelineConfiguration(PipelineConfiguration pipe) {
         this.pipe = new PipelineConfiguration(pipe);
-        this.namePool = pipe.getConfiguration().getNamePool();
-        ignoreIgnorable = pipe.getConfiguration().getParseOptions().getSpaceStrippingRule() != NoElementsSpaceStrippingRule.getInstance();
+        ignoreIgnorable = pipe.getConfiguration().getParseOptions().getSpaceStrippingRule() != NoElementsSpaceStrippingRule.INSTANCE;
     }
 
     /**
@@ -167,22 +174,33 @@ public class StaxBridge implements PullProvider {
                     for (int i = 0; i < n; i++) {
                         String prefix = reader.getNamespacePrefix(i);
                         String uri = reader.getNamespaceURI(i);
-                        nsMap = nsMap.bind(prefix==null ? "" : prefix, NamespaceUri.of(uri==null ? "" : uri));
+                        nsMap = nsMap.bind(prefix==null ? "" : prefix, NamespaceUri.of(uri));
                     }
                     namespaceStack.push(nsMap);
 
                     int attCount = reader.getAttributeCount();
                     if (attCount == 0) {
-                        attributes = EmptyAttributeMap.getInstance();
+                        attributes = EmptyAttributeMap.INSTANCE;
                     } else {
                         List<AttributeInfo> attList = new ArrayList<>();
-                        NamePool pool = getNamePool();
                         for (int i=0; i<attCount; i++) {
                             QName name = reader.getAttributeName(i);
-                            FingerprintedQName fName = new FingerprintedQName(
-                                    name.getPrefix(), NamespaceUri.of(name.getNamespaceURI()), name.getLocalPart(), pool);
+                            String uri = name.getNamespaceURI();
+                            NodeName fName;
+                            if (uri == null || uri.isEmpty()) {
+                                fName = getNoNamespaceNodeName(name.getLocalPart());
+                            } else {
+                                fName = getNamespacedNodeName(name.getPrefix(), NamespaceUri.of(uri), name.getLocalPart());
+                            }
                             String value = reader.getAttributeValue(i);
-                            AttributeInfo att = new AttributeInfo(fName, BuiltInAtomicType.UNTYPED_ATOMIC, value, Loc.NONE, 0);
+                            String attType = reader.getAttributeType(i);
+                            int props = 0;
+                            if (attType.equals("ID")) {
+                                props = ReceiverOption.IS_ID;
+                            } else if (attType.equals("IDREF") || attType.equals("IDREFS")) {
+                                props = ReceiverOption.IS_IDREF;
+                            }
+                            AttributeInfo att = new AttributeInfo(fName, BuiltInAtomicType.UNTYPED_ATOMIC, value, Loc.NONE, props);
                             attList.add(att);
                         }
                         attributes = SequenceTool.attributeMapFromList(attList);
@@ -412,20 +430,10 @@ public class StaxBridge implements PullProvider {
         if (currentEvent == PullEvent.START_ELEMENT || currentEvent == PullEvent.END_ELEMENT) {
             String local = reader.getLocalName();
             NamespaceUri uri = NamespaceUri.of(reader.getNamespaceURI());
-            // We keep a cache indexed by local name, on the assumption that most of the time, a given
-            // local name will only ever be used with the same prefix and URI
-            NodeName cached = nameCache.get(local);
-            if (cached != null && cached.hasURI(uri) && cached.getPrefix().equals(reader.getPrefix())) {
-                return cached;
+            if (uri.equals(NamespaceUri.NULL)) {
+                return getNoNamespaceNodeName(local);
             } else {
-                int fp = namePool.allocateFingerprint(uri, local);
-                if (uri == null) {
-                    cached = new NoNamespaceName(local, fp);
-                } else {
-                    cached = new FingerprintedQName(reader.getPrefix(), uri, local, fp);
-                }
-                nameCache.put(local, cached);
-                return cached;
+                return getNamespacedNodeName(reader.getPrefix(), uri, local);
             }
         } else if (currentEvent == PullEvent.PROCESSING_INSTRUCTION) {
             String local = reader.getPITarget();
@@ -434,6 +442,52 @@ public class StaxBridge implements PullProvider {
             throw new IllegalStateException();
         }
     }
+
+
+    private NodeName getNamespacedNodeName(String prefix, NamespaceUri uri, String localname) {
+
+        // Following code maintains a local cache to remember all the element/attribute names that have been
+        // allocated, which reduces contention on the NamePool. It also avoids parsing the lexical QName
+        // when the same name is used repeatedly. We also get a tiny improvement by avoiding the first hash
+        // table lookup for names in the null namespace.
+
+        HashMap<String, NodeName> map2 = nameCache.get(uri);
+        if (map2 == null) {
+            map2 = new HashMap<>(50);
+            nameCache.put(uri, map2);
+            if (uri.isEmpty()) {
+                noNamespaceNameCache = map2;
+            }
+        }
+        String rawname = prefix.isEmpty() ? localname : prefix + ":" + localname;
+        NodeName n = map2.get(rawname);
+        // we use the rawname (qname) rather than the local name because we want to retain the prefix
+        // Note that the NodeName objects generated do not contain a namecode or fingerprint; it will be generated
+        // later if we are building a TinyTree, but not necessarily on other paths (e.g. an identity transformation).
+        // The NodeName object is shared by all elements with the same name, so when the namecode is allocated to one
+        // of them, it is there for all of them.
+        if (n == null) {
+            FingerprintedQName qn = new FingerprintedQName(prefix, uri, localname);
+            map2.put(rawname, qn);
+            return qn;
+        } else {
+            return n;
+        }
+
+    }
+
+    private NodeName getNoNamespaceNodeName(String localname) {
+        HashMap<String, NodeName> map2 = noNamespaceNameCache;
+        NodeName n = map2.get(localname);
+        if (n == null) {
+            NoNamespaceName qn = new NoNamespaceName(localname);
+            map2.put(localname, qn);
+            return qn;
+        } else {
+            return n;
+        }
+    }
+
 
     /**
      * Get the string value of the current element, text node, processing-instruction,
@@ -519,7 +573,7 @@ public class StaxBridge implements PullProvider {
     @Override
     public SchemaType getSchemaType() {
         if (currentEvent == PullEvent.START_ELEMENT) {
-            return Untyped.getInstance();
+            return Untyped.INSTANCE;
         } else if (currentEvent == PullEvent.ATTRIBUTE) {
             return BuiltInAtomicType.UNTYPED_ATOMIC;
         } else {
@@ -554,7 +608,7 @@ public class StaxBridge implements PullProvider {
             return new Loc(location.getSystemId(), location.getLineNumber(), location.getColumnNumber());
         }
     }
-
+    
     /**
      * Get a list of unparsed entities.
      *

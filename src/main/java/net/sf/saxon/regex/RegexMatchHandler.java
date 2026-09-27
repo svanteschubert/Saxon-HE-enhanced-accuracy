@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -39,4 +39,13 @@ public interface RegexMatchHandler {
      */
 
     void onGroupEnd(int groupNumber) throws XPathException;
+
+    /**
+     * Method to be called when a lookahead captured group is encountered
+     * @param groupNumber the group number of the captured group
+     * @param position the position within the input string of the captured group
+     * @param value the captured substring
+     */
+
+    void onLookaheadGroup(int groupNumber, int position, UnicodeString value) throws XPathException;
 }

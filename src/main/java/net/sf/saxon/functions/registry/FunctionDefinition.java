@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2023 Saxonica Limited
+// Copyright (c) 2023-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,8 @@ package net.sf.saxon.functions.registry;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.om.StructuredQName;
+
+import java.util.function.Supplier;
 
 /**
  * A {@code FunctionDefinition} represents the declaration of a user-defined function in XQuery or XSLT; in 4.0
@@ -53,10 +55,10 @@ public interface FunctionDefinition {
      * @return the expression for computing the value of the Nth parameter, or null if there is none
      */
 
-    Expression getDefaultValueExpression(int i);
+    Supplier<Expression> getDefaultValueExpression(int i);
 
     /**
-     * Get the position in the parameter list of a given parameter name
+     * Get the position within the parameter list of a given parameter name
      *
      * @param name the name of the required parameter
      * @return the position of the parameter in the parameter list, or -1 if absent

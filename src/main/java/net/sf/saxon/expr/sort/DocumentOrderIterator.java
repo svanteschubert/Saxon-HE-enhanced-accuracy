@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,7 @@ package net.sf.saxon.expr.sort;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.NodeListIterator;
+import net.sf.saxon.tree.iter.ListIterator;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,8 +25,8 @@ import java.util.Comparator;
 public final class DocumentOrderIterator implements SequenceIterator {
 
     private final SequenceIterator iterator;
-    private final ArrayList<NodeInfo> sequence; // explicit type ArrayList used so C# List.Sort() is available
-    private NodeInfo current = null;
+    private final ArrayList<GNode> sequence; // explicit type ArrayList used so C# List.Sort() is available
+    private GNode current = null;
 
     /**
      * Iterate over a sequence in document order.
@@ -34,13 +34,12 @@ public final class DocumentOrderIterator implements SequenceIterator {
      * @param comparer the comparer used for comparing node positions
      */
 
-    public DocumentOrderIterator(SequenceIterator base, Comparator<? super NodeInfo> comparer) {
-
+    public DocumentOrderIterator(SequenceIterator base, Comparator<? super GNode> comparer) {
         int len = SequenceTool.supportsGetLength(base) ? SequenceTool.getLength(base) : 50;
         sequence = new ArrayList<>(len);
         SequenceTool.supply(base, (ItemConsumer<? super Item>) item -> {
-            if (item instanceof NodeInfo) {
-                sequence.add((NodeInfo) item);
+            if (item instanceof GNode) {
+                sequence.add((GNode) item);
             } else {
                 throw new XPathException("Item in input for sorting is not a node: " + Err.depict(item), "XPTY0004");
             }
@@ -50,16 +49,16 @@ public final class DocumentOrderIterator implements SequenceIterator {
         if (sequence.size() > 1) {
             sequence.sort(comparer);
         }
-        iterator = new NodeListIterator(sequence);
+        iterator = new ListIterator.Of<>(sequence);
     }
 
     // Implement the SequenceIterator as a wrapper around the underlying iterator
     // over the sequenceExtent, but looking ahead to remove duplicates.
 
     @Override
-    public NodeInfo next() {
+    public GNode next() {
         while (true) {
-            NodeInfo next = (NodeInfo)iterator.next();
+            GNode next = (GNode)iterator.next();
             if (next == null) {
                 current = null;
                 return null;
@@ -71,6 +70,6 @@ public final class DocumentOrderIterator implements SequenceIterator {
         }
     }
 
-
+ 
 }
 

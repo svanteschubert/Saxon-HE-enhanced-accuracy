@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,21 +18,29 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.transpile.CSharpSimpleEnum;
+import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 
 /**
  * Non-streaming implementation of accumulator-before() and accumulator-after()
  */
-public abstract class AccumulatorFn extends SystemFunction {
+public abstract class AccumulatorFn extends SystemFunction implements IContextAccessorFunction {
 
     @CSharpSimpleEnum
     public enum Phase {AFTER, BEFORE, UNSPECIFIED}
 
     public abstract Phase getPhase();
 
+    private ManualIterator boundContextItem = null;
+
+    @Override
+    public boolean dependsOnContext() {
+        return true;
+    }
 
     private Sequence getAccumulatorValue(String name, Phase phase, XPathContext context) throws XPathException {
+        //System.err.println("getAccumulatorValue(" + name + ", " + phase);
         AccumulatorRegistry registry = getRetainedStaticContext().getPackageData().getAccumulatorRegistry();
         Accumulator accumulator = getAccumulator(name, registry);
         Item node = context.getContextItem();
@@ -72,9 +80,12 @@ public abstract class AccumulatorFn extends SystemFunction {
      */
 
     private Accumulator getAccumulator(String name, AccumulatorRegistry registry) throws XPathException {
+        int qNameFormat = getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40
+                ? StructuredQName.QUPL
+                : StructuredQName.QUL;
         StructuredQName qName;
         try {
-            qName = StructuredQName.fromLexicalQName(name, false, true, getRetainedStaticContext());
+            qName = StructuredQName.fromLexicalQName(name, false, qNameFormat, getRetainedStaticContext());
         } catch (XPathException err) {
             throw new XPathException("Invalid accumulator name: " + err.getMessage(), "XTDE3340");
         }
@@ -150,8 +161,25 @@ public abstract class AccumulatorFn extends SystemFunction {
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+        if (boundContextItem != null) {
+            context = context.newMinorContext();
+            context.setCurrentIterator(boundContextItem);
+        }
         String name = arguments[0].head().getStringValue();
         return getAccumulatorValue(name, getPhase(), context);
+    }
+
+    /**
+     * Bind context information to appear as part of the function's closure. If this method
+     * has been called, the supplied context will be used in preference to the
+     * context at the point where the function is actually called.
+     *
+     * @param context the context to which the function applies. Must not be null.
+     */
+    @Override
+    public FunctionItem bindContext(XPathContext context) throws XPathException {
+        boundContextItem = new ManualIterator(context.getContextItem());
+        return this;
     }
 
     public static class AccumulatorBefore extends AccumulatorFn {

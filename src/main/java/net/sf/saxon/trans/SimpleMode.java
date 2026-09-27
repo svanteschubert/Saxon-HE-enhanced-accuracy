@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.trans;
 
+import net.sf.saxon.Controller;
 import net.sf.saxon.expr.ComponentBinding;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
@@ -14,8 +15,12 @@ import net.sf.saxon.expr.accum.Accumulator;
 import net.sf.saxon.expr.accum.AccumulatorRegistry;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.instruct.TemplateRule;
+import net.sf.saxon.ma.jnode.JNode;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.NodeTestPattern;
+import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.style.StylesheetModule;
 import net.sf.saxon.style.StylesheetPackage;
@@ -24,10 +29,10 @@ import net.sf.saxon.trans.rules.*;
 import net.sf.saxon.tree.tiny.TinyElementImpl;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.ErrorType;
-import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
 import net.sf.saxon.z.IntHashMap;
 import net.sf.saxon.z.IntIterator;
@@ -68,7 +73,7 @@ public class SimpleMode extends Mode {
 
 
     private final Map<String, Integer> explicitPropertyPrecedences = new HashMap<>();
-    private final Map<String, String> explicitPropertyValues = new HashMap<>();
+    private final Map<String, Object> explicitPropertyValues = new HashMap<>();
 
 
 
@@ -126,15 +131,17 @@ public class SimpleMode extends Mode {
     public void resolveProperties(RuleManager manager) throws XPathException {
         boolean failOnMultipleMatch = false;
         boolean warningOnMultipleMatch = true;
-        for (Map.Entry<String, String> entry : getActivePart().explicitPropertyValues.entrySet()) {
+        boolean copyNamespaces = !"no".equals(getActivePart().getPropertyValue("copy-namespaces"));
+        for (Map.Entry<String, Object> entry : getActivePart().explicitPropertyValues.entrySet()) {
             String prop = entry.getKey();
-            String value = entry.getValue();
-            if (value.equals("##conflict##")) {
+            Object value = entry.getValue();
+            if ("##conflict##".equals(value)) {
                 throw new XPathException(
                         "For " + getLabel() +
                                 ", there are conflicting values for xsl:mode/@" +
                                 prop +
-                                " at the same import precedence", "XTSE0545");
+                                " at the same import precedence", "XTSE0545")
+                        .maybeWithLocation(getActivePart());
             }
 
             switch (prop) {
@@ -152,15 +159,15 @@ public class SimpleMode extends Mode {
                     break;
                 case "on-no-match":
                     BuiltInRuleSet base = null;
-                    switch (value) {
+                    switch (value.toString()) {
                         case "text-only-copy":
                             base = TextOnlyCopyRuleSet.getInstance();
                             break;
                         case "shallow-copy":
-                            base = ShallowCopyRuleSet.getInstance();
+                            base = ShallowCopyRuleSet.getInstance(copyNamespaces);
                             break;
                         case "deep-copy":
-                            base = DeepCopyRuleSet.getInstance();
+                            base = DeepCopyRuleSet.getInstance(copyNamespaces);
                             break;
                         case "shallow-skip":
                             base = ShallowSkipRuleSet.getInstance();
@@ -172,7 +179,7 @@ public class SimpleMode extends Mode {
                             base = FailRuleSet.getInstance();
                             break;
                         case "shallow-copy-all":
-                            base = ShallowCopyAllRuleSet.getInstance();
+                            base = ShallowCopyAllRuleSet.getInstance(copyNamespaces);
                             break;
                         default:
                             // already validated
@@ -181,27 +188,37 @@ public class SimpleMode extends Mode {
                     if ("yes".equals(explicitPropertyValues.get("warning-on-no-match"))) {
                         base = new RuleSetWithWarnings(base);
                     }
+                    SequenceType reqType = (SequenceType) explicitPropertyValues.get("as");
+                    if (reqType != null && !reqType.equals(SequenceType.ANY_SEQUENCE)) {
+                        base = new RuleSetWithTypeCheck(base, reqType);
+                    }
                     setBuiltInRuleSet(base);
                     break;
                 case "on-multiple-match":
-                    if (value.equals("fail")) {
+                    if ("fail".equals(value)) {
                         failOnMultipleMatch = true;
                     }
                     break;
                 case "warning-on-multiple-match":
-                    warningOnMultipleMatch = value.equals("yes");
+                    warningOnMultipleMatch = "yes".equals(value);
                     break;
                 case "use-accumulators":
                     AccumulatorRegistry registry = manager.getStylesheetPackage().getAccumulatorRegistry();
                     Set<Accumulator> accumulators = new HashSet<>();
-                    if (!value.isEmpty()) {
-                        String[] tokens = value.split("[ \t\r\n]+");
+                    String stringValue = value.toString();
+                    if (!stringValue.isEmpty()) {
+                        String[] tokens = stringValue.split("[ \t\r\n]+");
                         for (String eqname : tokens) {
                             Accumulator acc = registry.getAccumulator(StructuredQName.fromEQName(eqname));
+                            // TODO: allow EQName40 under 4.0
                             accumulators.add(acc);
                         }
                     }
                     setAccumulators(accumulators);
+                    break;
+                case "as":
+                    SequenceType requiredType = (SequenceType)value;
+                    setDefaultResultType(requiredType);
                     break;
             }
         }
@@ -254,15 +271,15 @@ public class SimpleMode extends Mode {
      * @param precedence the import precedence of this property value
      */
 
-    public void setExplicitProperty(String name, String value, int precedence) {
+    public void setExplicitProperty(String name, Object value, int precedence) {
         int p = explicitPropertyPrecedences.getOrDefault(name, Integer.MIN_VALUE);
         if (p != Integer.MIN_VALUE) {
             if (p < precedence) {
                 explicitPropertyPrecedences.put(name, precedence);
                 explicitPropertyValues.put(name, value);
             } else if (p == precedence) {
-                String v = explicitPropertyValues.get(name);
-                if (v != null & !v.equals(value)) {
+                Object v = explicitPropertyValues.get(name);
+                if (v != null && !v.equals(value)) {
                     // We don't throw an exception, because the conflict is an error only if this
                     // is the highest-precedence declaration of this mode
                     explicitPropertyValues.put(name, "##conflict##");
@@ -275,10 +292,15 @@ public class SimpleMode extends Mode {
             explicitPropertyValues.put(name, value);
         }
 
-        final String typed = explicitPropertyValues.get("typed");
+        final String typed = (String)explicitPropertyValues.get("typed");
         mustBeTyped = "yes".equals(typed) || "strict".equals(typed) || "lax".equals(typed);
         mustBeUntyped = "no".equals(typed);
 
+    }
+
+    @Override
+    public boolean isCopyNamespaces() {
+        return !"no".equals(explicitPropertyValues.get("copy-namespaces"));
     }
 
     /**
@@ -288,7 +310,7 @@ public class SimpleMode extends Mode {
      * @return the property value
      */
 
-    public String getPropertyValue(String name) {
+    public Object getPropertyValue(String name) {
         return explicitPropertyValues.get(name);
     }
 
@@ -349,28 +371,25 @@ public class SimpleMode extends Mode {
         // This logic is designed to ensure that when a UnionPattern contains multiple branches
         // with the same priority, next-match doesn't select the same template twice (next-match-024)
         int moduleHash = module.hashCode();
-//        int sequence;
-//        if (mostRecentRule == null) {
-//            sequence = 0;
-//        } else if (action == mostRecentRule.getAction() && moduleHash == mostRecentModuleHash) {
-//            sequence = mostRecentRule.getSequence();
-//        } else {
-//            sequence = mostRecentRule.getSequence() + 1;
-//        }
+
         //int precedence = module.getPrecedence();
         int minImportPrecedence = module.getMinImportPrecedence();
 
         Rule newRule = makeRule(pattern, action, precedence, minImportPrecedence, priority, position, part);
 
         if (pattern instanceof NodeTestPattern) {
-            ItemType test = pattern.getItemType();
-            if (test instanceof AnyNodeTest) {
-                newRule.setAlwaysMatches(true);
-            } else if (test instanceof NodeKindTest) {
-                newRule.setAlwaysMatches(true);
-            } else if (test instanceof NameTest) {
-                int kind = test.getPrimitiveType();
-                if (kind == Type.ELEMENT || kind == Type.ATTRIBUTE) {
+            NodeTest test = ((NodeTestPattern)pattern).getNodeTest();
+            UType uType = test.getUType();
+            int kind = Type.XNODE;
+            if (uType == UType.ELEMENT) {
+                kind = Type.ELEMENT;
+            } else if (uType == UType.ATTRIBUTE) {
+                kind = Type.ATTRIBUTE;
+            }
+            if (test instanceof NamedXNodePredicate) {
+                NamedXNodePredicate fpTest = (NamedXNodePredicate) test;
+                int fingerprint = fpTest.getRequiredFingerprint();
+                if (fingerprint != -1 && fpTest.getNodeKind() == kind && fpTest.isFingerprintSufficient()) {
                     newRule.setAlwaysMatches(true);
                 }
             }
@@ -383,7 +402,7 @@ public class SimpleMode extends Mode {
     }
 
     /**
-     * Generate a new rule - so it can be overridden to make more specialist rules
+     * Generate a new rule (overridden in EE to make more specialist rules)
      *
      * @param pattern             the pattern that this rule matches
      * @param action              the object invoked by this rule (usually a Template)
@@ -402,11 +421,11 @@ public class SimpleMode extends Mode {
     public void addRule(Pattern pattern, Rule newRule) {
         UType uType = pattern.getUType();
         if (uType.equals(UType.ELEMENT)) {
-            int fp = pattern.getFingerprint();
+            int fp = pattern.getFingerprint(Type.ELEMENT);
             addRuleToNamedOrUnnamedChain(
                     newRule, fp, unnamedElementRuleChain, namedElementRuleChains);
         } else if (uType.equals(UType.ATTRIBUTE)) {
-            int fp = pattern.getFingerprint();
+            int fp = pattern.getFingerprint(Type.ATTRIBUTE);
             addRuleToNamedOrUnnamedChain(
                     newRule, fp, unnamedAttributeRuleChain, namedAttributeRuleChains);
         } else if (uType.equals(UType.DOCUMENT)) {
@@ -521,8 +540,7 @@ public class SimpleMode extends Mode {
         // search the specific list for this node type / node name
         Rule bestRule = null;
 
-        if (item instanceof NodeInfo) {
-            NodeInfo node = (NodeInfo) item;
+        if (item instanceof NodeInfo node) {
             bestRule = findBestRuleForNodeInfo(node, context);
         } else if (item instanceof AtomicValue) {
             if (atomicValueRuleChain != null) {
@@ -534,6 +552,8 @@ public class SimpleMode extends Mode {
             if (functionItemRuleChain != null) {
                 bestRule = searchRuleChain(item, context, bestRule, functionItemRuleChain);
             }
+            bestRule = searchRuleChain(item, context, bestRule, genericRuleChain);
+        } else if (item instanceof JNode) {
             bestRule = searchRuleChain(item, context, bestRule, genericRuleChain);
         }
 
@@ -550,7 +570,7 @@ public class SimpleMode extends Mode {
         int nodeKind;
 
         if (node instanceof TinyElementImpl) {
-            nodeKind = Type.ELEMENT;
+            nodeKind = Type.ELEMENT;  // avoid polymorphic call for common case
         } else {
             nodeKind = node.getNodeKind();
         }
@@ -663,7 +683,7 @@ public class SimpleMode extends Mode {
 
     protected Rule searchRuleChain(Item item, XPathContext context, /*@Nullable*/ Rule bestRule, RuleChain chain) throws XPathException {
 
-        context = context.getMajorContext();
+        XPathContextMajor contextMajor = context.getMajorContext();
 
         // Get the rule search state object - this could be reusable within a rule chain.
         RuleSearchState ruleSearchState = makeRuleSearchState(chain, context);
@@ -678,12 +698,14 @@ public class SimpleMode extends Mode {
                     break;
                 } else if (rank == 0) {
                     // this rule has the same precedence and priority as the matching rule already found
-                    if (ruleMatches(head, item, (XPathContextMajor) context, ruleSearchState)) {
-                        if (head.getSequence() != bestRule.getSequence()) {
-                            reportAmbiguity(item, bestRule, head, context);
+                    if (ruleMatches(head, item, contextMajor, ruleSearchState)) {
+                        int headSequence = head.getSequence();
+                        int bestRuleSequence = bestRule.getSequence();
+                        if (headSequence != bestRuleSequence) {
+                            reportAmbiguity(item, bestRule, head, context.getController());
                         }
                         // choose whichever one comes last (assuming the error wasn't fatal)
-                        int seqComp = Integer.compare(bestRule.getSequence(), head.getSequence());
+                        int seqComp = Integer.compare(bestRuleSequence, headSequence);
                         if (seqComp > 0) {
                             return bestRule;
                         } else if (seqComp < 0) {
@@ -698,7 +720,7 @@ public class SimpleMode extends Mode {
                     }
                 } else {
                     // this rule has higher rank than the matching rule already found
-                    if (ruleMatches(head, item, (XPathContextMajor) context, ruleSearchState)) {
+                    if (ruleMatches(head, item, contextMajor, ruleSearchState)) {
                         bestRule = head;
                     }
                 }
@@ -767,54 +789,47 @@ public class SimpleMode extends Mode {
 
         // Search the list for unnamed nodes of a particular kind
 
-        if (item instanceof NodeInfo) {
-            NodeInfo node = (NodeInfo) item;
+        if (item instanceof NodeInfo node) {
             switch (node.getNodeKind()) {
-                case Type.DOCUMENT:
-                    unnamedNodeChain = documentRuleChain;
-                    break;
-                case Type.ELEMENT: {
-                    unnamedNodeChain = unnamedElementRuleChain;
-                    RuleChain namedNodeChain;
-                    if (node.hasFingerprint()) {
-                        namedNodeChain = namedElementRuleChains.get(node.getFingerprint());
-                    } else {
-                        namedNodeChain = getNamedRuleChain(context, Type.ELEMENT, node.getNamespaceUri(), node.getLocalPart());
+                case Type.DOCUMENT ->
+                        unnamedNodeChain = documentRuleChain;
+                case Type.ELEMENT -> {
+                        unnamedNodeChain = unnamedElementRuleChain;
+                        RuleChain namedNodeChain;
+                        if (node.hasFingerprint()) {
+                            namedNodeChain = namedElementRuleChains.get(node.getFingerprint());
+                        } else {
+                            namedNodeChain = getNamedRuleChain(
+                                    context, Type.ELEMENT, node.getNamespaceUri(), node.getLocalPart());
+                        }
+                        if (namedNodeChain != null) {
+                            ruleSearchState = makeRuleSearchState(namedNodeChain, context);
+                            bestRule = searchRuleChain(item, context, null, namedNodeChain, ruleSearchState, filter);
+                        }
                     }
-                    if (namedNodeChain != null) {
-                        ruleSearchState = makeRuleSearchState(namedNodeChain, context);
-                        bestRule = searchRuleChain(item, context, null, namedNodeChain, ruleSearchState, filter);
+                case Type.ATTRIBUTE -> {
+                        unnamedNodeChain = unnamedAttributeRuleChain;
+                        RuleChain namedNodeChain;
+                        if (node.hasFingerprint()) {
+                            namedNodeChain = namedAttributeRuleChains.get(node.getFingerprint());
+                        } else {
+                            namedNodeChain = getNamedRuleChain(
+                                    context, Type.ATTRIBUTE, node.getNamespaceUri(), node.getLocalPart());
+                        }
+                        if (namedNodeChain != null) {
+                            ruleSearchState = makeRuleSearchState(namedNodeChain, context);
+                            bestRule = searchRuleChain(item, context, null, namedNodeChain, ruleSearchState, filter);
+                        }
                     }
-                    break;
-                }
-                case Type.ATTRIBUTE: {
-                    unnamedNodeChain = unnamedAttributeRuleChain;
-                    RuleChain namedNodeChain;
-                    if (node.hasFingerprint()) {
-                        namedNodeChain = namedAttributeRuleChains.get(node.getFingerprint());
-                    } else {
-                        namedNodeChain = getNamedRuleChain(context, Type.ATTRIBUTE, node.getNamespaceUri(), node.getLocalPart());
-                    }
-                    if (namedNodeChain != null) {
-                        ruleSearchState = makeRuleSearchState(namedNodeChain, context);
-                        bestRule = searchRuleChain(item, context, null, namedNodeChain, ruleSearchState, filter);
-                    }
-                    break;
-                }
-                case Type.TEXT:
-                    unnamedNodeChain = textRuleChain;
-                    break;
-                case Type.COMMENT:
-                    unnamedNodeChain = commentRuleChain;
-                    break;
-                case Type.PROCESSING_INSTRUCTION:
-                    unnamedNodeChain = processingInstructionRuleChain;
-                    break;
-                case Type.NAMESPACE:
-                    unnamedNodeChain = namespaceRuleChain;
-                    break;
-                default:
-                    throw new AssertionError("Unknown node kind");
+                case Type.TEXT ->
+                        unnamedNodeChain = textRuleChain;
+                case Type.COMMENT ->
+                        unnamedNodeChain = commentRuleChain;
+                case Type.PROCESSING_INSTRUCTION ->
+                        unnamedNodeChain = processingInstructionRuleChain;
+                case Type.NAMESPACE ->
+                        unnamedNodeChain = namespaceRuleChain;
+                default -> throw new AssertionError("Unknown node kind");
             }
 
             ruleSearchState = makeRuleSearchState(unnamedNodeChain, context);
@@ -839,6 +854,11 @@ public class SimpleMode extends Mode {
                 ruleSearchState = makeRuleSearchState(functionItemRuleChain, context);
                 bestRule = searchRuleChain(item, context, bestRule, functionItemRuleChain, ruleSearchState, filter);
             }
+            ruleSearchState = makeRuleSearchState(genericRuleChain, context);
+            bestRule = searchRuleChain(item, context, bestRule, genericRuleChain, ruleSearchState, filter);
+            return bestRule;
+
+        } else if (item instanceof JNode) {
             ruleSearchState = makeRuleSearchState(genericRuleChain, context);
             bestRule = searchRuleChain(item, context, bestRule, genericRuleChain, ruleSearchState, filter);
             return bestRule;
@@ -880,7 +900,7 @@ public class SimpleMode extends Mode {
                     } else if (rank == 0) {
                         // this rule has the same precedence and priority as the matching rule already found
                         if (ruleMatches(head, item, (XPathContextMajor) context, ruleSearchState)) {
-                            reportAmbiguity(item, bestRule, head, context);
+                            reportAmbiguity(item, bestRule, head, context.getController());
                             // choose whichever one comes last (assuming the error wasn't fatal)
                             bestRule = bestRule.getSequence() > head.getSequence() ? bestRule : head;
                             break;
@@ -913,12 +933,12 @@ public class SimpleMode extends Mode {
      * @param item The item that matches two or more rules
      * @param r1   The first rule that the node matches
      * @param r2   The second rule that the node matches
-     * @param c    The context for the transformation
+     * @param controller    The context for the transformation
      * @throws XPathException if the system is configured to treat ambiguous template matching as a
      *                        non-recoverable error
      */
 
-    protected void reportAmbiguity(Item item, Rule r1, Rule r2, XPathContext c)
+    protected void reportAmbiguity(Item item, Rule r1, Rule r2, Controller controller)
             throws XPathException {
 
         // Save the effort of constructing the message if it's not going to be reported anyway
@@ -926,7 +946,7 @@ public class SimpleMode extends Mode {
             return;
         }
         // don't report an error if the conflict is between two branches of the same Union pattern
-        if (r1.getAction() == r2.getAction() && r1.getSequence() == r2.getSequence()) {
+        if (r1.getSequence() == r2.getSequence()) {
             return;
         }
         String path;
@@ -959,7 +979,7 @@ public class SimpleMode extends Mode {
             case DO_NOT_RECOVER:
                 throw new XPathException(message, errorCode, getLocation());
             case RECOVER_WITH_WARNINGS:
-                c.getController().warning(message, errorCode, getLocation());
+                controller.warning(message, errorCode, getLocation());
                 break;
             case RECOVER_SILENTLY:
             default:
@@ -998,16 +1018,15 @@ public class SimpleMode extends Mode {
     public static void forceAllocateAllBindingSlots(
             final StylesheetPackage pack, final SimpleMode mode, final List<ComponentBinding> bindings) {
         final Set<TemplateRule> rulesProcessed = new HashSet<>();
-        final IdentityHashMap<Pattern, Boolean> patternsProcessed = new IdentityHashMap<>();
+        //final IdentityHashMap<Pattern, Boolean> patternsProcessed = new IdentityHashMap<>();
         try {
             mode.processRules(r -> {
                 // A rule can appear twice, for example at different import precedences or
-                // because the match pattern is a union pattern; only allocate slots once
+                // because the match pattern is a union pattern, or because it is used in
+                // more than one mode: only allocate slots once
                 Pattern pattern = r.getPattern();
-                if (!patternsProcessed.containsKey(pattern)) {
-                    allocateBindingSlotsRecursive(pack, mode, pattern, bindings);
-                    patternsProcessed.put(pattern, true);
-                }
+                allocateBindingSlotsRecursive(pack, mode, pattern, bindings);
+                
                 TemplateRule tr = (TemplateRule) r.getAction();
                 if (tr.getBody() != null && !rulesProcessed.contains(tr)) {
                     allocateBindingSlotsRecursive(pack, mode, tr.getBody(), bindings);
@@ -1018,7 +1037,7 @@ public class SimpleMode extends Mode {
             throw new AssertionError(e);
         }
     }
-
+    
     /**
      * Compute the streamability of all template rules. No action in Saxon-HE.
      */

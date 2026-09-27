@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,7 +22,7 @@ import net.sf.saxon.regex.ARegularExpression;
 import net.sf.saxon.regex.RegularExpression;
 import net.sf.saxon.regex.charclass.Categories;
 import net.sf.saxon.str.StringView;
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
@@ -374,15 +374,15 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
      */
     private static UnicodeString extractSeparators(UnicodeString arr, IntSet excludePositions) {
         // TODO: this doesn't do what the documentation says: it ignores the supplied positions entirely
-        UnicodeBuilder ub = new UnicodeBuilder(arr.length32());
+        TwineBuilder tb = TwineBuilder.make(arr.length32());
         IntIterator iter = arr.codePoints();
         while (iter.hasNext()) {
             int c = iter.next();
             if (NumberFormatter.isLetterOrDigit(c)) {
-                ub.append(c);
+                tb = tb.append(c);
             }
         }
-        return ub.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     @Override
@@ -393,4 +393,4 @@ public class FormatInteger extends SystemFunction implements StatefulSystemFunct
     }
 }
 
-// Copyright (c) 2010-2023 Saxonica Limited
+// Copyright (c) 2010-2026 Saxonica Limited

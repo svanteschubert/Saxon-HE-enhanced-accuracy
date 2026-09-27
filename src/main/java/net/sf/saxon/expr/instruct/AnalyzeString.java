@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -172,10 +172,10 @@ public class AnalyzeString extends Instruction implements ContextOriginator {
         flagsOp.typeCheck(visitor, contextInfo);
 
         if (matchingOp != null) {
-            matchingOp.typeCheck(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING, false));
+            matchingOp.typeCheck(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING));
         }
         if (nonMatchingOp != null) {
-            nonMatchingOp.typeCheck(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING, false));
+            nonMatchingOp.typeCheck(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING));
         }
 
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
@@ -185,10 +185,10 @@ public class AnalyzeString extends Instruction implements ContextOriginator {
         // see bug 7976
         setSelect(tc.staticTypeCheck(getSelect(), required, role, visitor));
 
-        role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "analyze-string/regex", 0);
+        role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:analyze-string/regex", 0);
         setRegex(tc.staticTypeCheck(getRegex(), SequenceType.SINGLE_STRING, role, visitor));
 
-        role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "analyze-string/flags", 0);
+        role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:analyze-string/flags", 0);
         setFlags(tc.staticTypeCheck(getFlags(), SequenceType.SINGLE_STRING, role, visitor));
 
         return this;
@@ -205,10 +205,10 @@ public class AnalyzeString extends Instruction implements ContextOriginator {
         flagsOp.optimize(visitor, contextInfo);
 
         if (matchingOp != null) {
-            matchingOp.optimize(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING, false));
+            matchingOp.optimize(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING));
         }
         if (nonMatchingOp != null) {
-            nonMatchingOp.optimize(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING, false));
+            nonMatchingOp.optimize(visitor, config.makeContextItemStaticInfo(BuiltInAtomicType.STRING));
         }
 
         List<String> warnings = new ArrayList<>();
@@ -226,7 +226,8 @@ public class AnalyzeString extends Instruction implements ContextOriginator {
                 final String regex = ((StringLiteral) this.getRegex()).stringify();
                 final String flagstr = ((StringLiteral) getFlags()).stringify();
 
-                String hostLang = "XP30";
+                int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+                String hostLang = version >= 40 ? "XP40" : "XP31";
                 pattern = config.compileRegularExpression(StringView.tidy(regex), flagstr, hostLang, warnings);
 
             } catch (XPathException err) {
@@ -450,7 +451,7 @@ public class AnalyzeString extends Instruction implements ContextOriginator {
                             return nonMatching.iterate(c2);
                         }
                     }
-                    return EmptyIterator.getInstance();
+                    return EmptyIterator.INSTANCE;
                 }, c2);
             };
         }
@@ -501,13 +502,15 @@ public class AnalyzeString extends Instruction implements ContextOriginator {
                 regexSupplier = context -> pattern;
             } else {
                 // regex or flags is dynamic
+                int languageVersion = expr.getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+                String regexLang = languageVersion >= 40 ? "XP40" : "XP31";
                 StringEvaluator flagsEval = expr.getFlags().makeElaborator().elaborateForString(true);
                 UnicodeStringEvaluator regexEval = expr.getRegex().makeElaborator().elaborateForUnicodeString(false);
                 regexSupplier = context -> {
                     String flagsStr = flagsEval.eval(context);
                     UnicodeString regexStr = regexEval.eval(context);
                     return context.getConfiguration().compileRegularExpression(
-                            regexStr, flagsStr, "XP31", null);
+                            regexStr, flagsStr, regexLang, null);
                 };
             }
             return regexSupplier;

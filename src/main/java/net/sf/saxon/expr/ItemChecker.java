@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.TypeCheckingFilter;
 import net.sf.saxon.expr.elab.*;
@@ -15,16 +16,16 @@ import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.CombinedNodeTest;
-import net.sf.saxon.pattern.DocumentNodeTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.DocumentNodeType;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.IntegerValue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -146,15 +147,24 @@ public final class ItemChecker extends UnaryExpression {
                                                                     message, SaxonErrorCode.SXWN9026, getLocation());
                 }
             } else {
+                int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
                 RoleDiagnostic role = roleSupplier.get();
                 String message = role.composeErrorMessage(requiredItemType, operand, th);
                 throw new XPathException(message)
                         .withErrorCode(role.getErrorCode())
                         .withLocation(this.getLocation())
-                        .asTypeErrorIf(role.isTypeError());
+                        .asTypeErrorIf(version >= 40 || role.isTypeError());
             }
         }
         return this;
+    }
+
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
+        if (requiredItemType == AnyGNodeType.getInstance() || requiredItemType == AnyXNodeType.getInstance()) {
+            return getBaseExpression().toPattern(config, firstInPath);
+        } else {
+            return super.toPattern(config, firstInPath);
+        }
     }
 
     /**
@@ -209,25 +219,6 @@ public final class ItemChecker extends UnaryExpression {
     }
 
     /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    /*@Nullable*/
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        return getBaseExpression().getIntegerBounds();
-    }
-
-    /**
      * Iterate over the sequence of values
      */
 
@@ -241,14 +232,15 @@ public final class ItemChecker extends UnaryExpression {
         final Expression baseExpr = getBaseExpression();
         final TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
         Consumer<Item> checker = item -> {
-            if (!requiredItemType.matches(item, th)) {
+            if (!requiredItemType.matches(item)) {
+                int version = baseExpr.getRetainedStaticContext().getPackageData().getHostLanguageVersion();
                 RoleDiagnostic role = roleSupplier.get();
                 String message = role.composeErrorMessage(requiredItemType, item, th);
                 String errorCode = role.getErrorCode();
                 XPathException te = new XPathException(message, errorCode)
                         .withFailingExpression(baseExpr)
                         .withLocation(baseExpr.getLocation())
-                        .asTypeErrorIf(!"XPDY0050".equals(errorCode));
+                        .asTypeErrorIf(version >= 40 || !"XPDY0050".equals(errorCode));
                 throw new UncheckedXPathException(te);
             }
         };
@@ -270,7 +262,7 @@ public final class ItemChecker extends UnaryExpression {
         if (item == null) {
             return null;
         }
-        if (requiredItemType.matches(item, th)) {
+        if (requiredItemType.matches(item)) {
             return item;
         } else {
             RoleDiagnostic role = roleSupplier.get();
@@ -324,23 +316,7 @@ public final class ItemChecker extends UnaryExpression {
         ItemType operandType = getBaseExpression().getItemType();
         TypeHierarchy th = getConfiguration().getTypeHierarchy();
         Affinity relationship = th.relationship(requiredItemType, operandType);
-        switch (relationship) {
-            case OVERLAPS:
-                if (requiredItemType instanceof NodeTest && operandType instanceof NodeTest) {
-                    return new CombinedNodeTest((NodeTest) requiredItemType, Token.INTERSECT, (NodeTest) operandType);
-                } else {
-                    // we don't know how to intersect atomic types, it doesn't actually happen
-                    return requiredItemType;
-                }
-
-            case SUBSUMES:
-            case SAME_TYPE:
-                // shouldn't happen, but it doesn't matter
-                return operandType;
-            case SUBSUMED_BY:
-            default:
-                return requiredItemType;
-        }
+        return relationship == Affinity.SUBSUMES ? operandType : requiredItemType;
     }
 
     /**
@@ -463,7 +439,7 @@ public final class ItemChecker extends UnaryExpression {
                 card = ((CardinalityChecker) arg).getRequiredCardinality();
                 arg = ((CardinalityChecker) arg).getBaseExpression();
             }
-            if ((arg.getImplementationMethod() & PROCESS_METHOD) != 0 && !(expr.requiredItemType instanceof DocumentNodeTest)) {
+            if ((arg.getImplementationMethod() & PROCESS_METHOD) != 0 && !(expr.requiredItemType instanceof DocumentNodeType)) {
                 Expression finalArg = arg;
                 int finalCard = card;
                 return (output, context) -> {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,13 @@ package net.sf.saxon.dom;
 
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.str.*;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.SteppingNavigator;
@@ -22,6 +24,8 @@ import net.sf.saxon.tree.wrapper.AbstractNodeWrapper;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.NamedXNodeType;
 import org.w3c.dom.*;
 
 import java.util.ArrayList;
@@ -204,7 +208,7 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         // Use the DOM Level-3 compareDocumentPosition() method
         if (other instanceof DOMNodeWrapper && docWrapper.domLevel3) {
             if (equals(other)) {
@@ -555,9 +559,9 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
                         }
                     case Type.ATTRIBUTE:
                         ix = 0;
-                        AxisIterator iter = parent.iterateAxis(AxisInfo.ATTRIBUTE);
+                        SequenceIterator iter = parent.iterateAttributeAxis(AnyGNode.TEST);
                         while (true) {
-                            NodeInfo n = iter.next();
+                            NodeInfo n = (NodeInfo)iter.next();
                             if (n == null || Navigator.haveSameName(this, n)) {
                                 index = ix;
                                 return ix;
@@ -567,9 +571,9 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
 
                     case Type.NAMESPACE:
                         ix = 0;
-                        iter = parent.iterateAxis(AxisInfo.NAMESPACE);
+                        iter = parent.iterateNamespaceAxis(AnyGNode.TEST);
                         while (true) {
-                            NodeInfo n = iter.next();
+                            NodeInfo n = (NodeInfo)iter.next();
                             if (n == null || Navigator.haveSameName(this, n)) {
                                 index = ix;
                                 return ix;
@@ -586,43 +590,43 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
     }
 
     @Override
-    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
-        AxisIterator iter = new AttributeEnumeration(this);
-        if (nodeTest != AnyNodeTest.getInstance()) {
-            iter = new Navigator.AxisFilter(iter, nodeTest);
+    protected SequenceIterator iterateAttributes(NodePredicate nodeTest) {
+        SequenceIterator iter = new AttributeEnumeration(this);
+        if (nodeTest != null && nodeTest != AnyGNodeType.getInstance()) {
+            iter = Navigator.filter(iter, nodeTest);
         }
         return iter;
     }
 
-    private boolean isElementOnly(NodeTest nodeTest) {
-        return nodeTest.getUType() == UType.ELEMENT;
+    private boolean isElementOnly(NodePredicate predicate) {
+        return Navigator.getPotentialNodeKinds(predicate) == UType.ELEMENT;
     }
 
     @Override
-    protected AxisIterator iterateChildren(NodeTest nodeTest) {
-        boolean elementOnly = isElementOnly(nodeTest);
-        AxisIterator iter = new Navigator.EmptyTextFilter(
+    protected SequenceIterator iterateChildren(NodePredicate nodeTest) {
+        boolean elementOnly = nodeTest != null && isElementOnly(nodeTest);
+        SequenceIterator iter = new Navigator.EmptyTextFilter(
                 new ChildEnumeration(this, true, true, elementOnly));
-        if (nodeTest != AnyNodeTest.getInstance()) {
-            iter = new Navigator.AxisFilter(iter, nodeTest);
+        if (nodeTest != null && nodeTest != AnyGNodeType.getInstance()) {
+            iter = Navigator.filter(iter, nodeTest);
         }
         return iter;
     }
 
     @Override
-    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
+    protected SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards) {
         boolean elementOnly = isElementOnly(nodeTest);
-        AxisIterator iter = new Navigator.EmptyTextFilter(
+        SequenceIterator iter = new Navigator.EmptyTextFilter(
                 new ChildEnumeration(this, false, forwards, elementOnly));
-        if (nodeTest != AnyNodeTest.getInstance()) {
-            iter = new Navigator.AxisFilter(iter, nodeTest);
+        if (nodeTest != AnyGNodeType.getInstance()) {
+            iter = Navigator.filter(iter, nodeTest);
         }
         return iter;
     }
 
     @Override
-    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
-        return new SteppingNavigator.DescendantAxisIterator(this, includeSelf, nodeTest);
+    protected SequenceIterator iterateDescendants(NodePredicate predicate, boolean includeSelf) {
+        return new SteppingNavigator.DescendantAxisIterator(this, includeSelf, predicate);
     }
 
     /**
@@ -637,9 +641,9 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      */
     @Override
     public String getAttributeValue(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String local) {
-        NameTest test = new NameTest(Type.ATTRIBUTE, uri, local, getNamePool());
-        AxisIterator iterator = iterateAxis(AxisInfo.ATTRIBUTE, test);
-        NodeInfo attribute = iterator.next();
+        NodeTest test = NamedXNodeType.make(Type.ATTRIBUTE, uri, local, getConfiguration());
+        SequenceIterator iterator = iterateAttributeAxis(test);
+        NodeInfo attribute = (NodeInfo)iterator.next();
         if (attribute == null) {
             return null;
         } else {
@@ -969,7 +973,7 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
         }
     }
 
-    private final class AttributeEnumeration implements AxisIterator, LookaheadIterator {
+    private final class AttributeEnumeration implements SequenceIterator, LookaheadIterator {
 
         private final ArrayList<Node> attList = new ArrayList<>(10);
         private int ix;
@@ -1023,7 +1027,7 @@ public class DOMNodeWrapper extends AbstractNodeWrapper implements SiblingCounti
      * preceding and preceding-or-ancestor axes (the latter being used by xsl:number)
      */
 
-    private final class ChildEnumeration implements AxisIterator, LookaheadIterator {
+    private final class ChildEnumeration implements SequenceIterator, LookaheadIterator {
 
         private final DOMNodeWrapper start;
         private final DOMNodeWrapper commonParent;

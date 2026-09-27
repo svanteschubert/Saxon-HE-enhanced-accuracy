@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,7 +18,7 @@ import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.TypeChecker;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -30,14 +30,11 @@ import net.sf.saxon.value.BooleanValue;
  */
 
 
-public class BooleanFn extends SystemFunction {
+public class BooleanFn extends SystemFunction implements ArityOneFunction {
 
     @Override
     public void supplyTypeInformation(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType, Expression[] arguments) throws XPathException {
-        XPathException err = TypeChecker.ebvError(arguments[0], visitor.getConfiguration().getTypeHierarchy());
-        if (err != null) {
-            throw err;
-        }
+        TypeChecker.ebvTypeCheck(arguments[0], visitor);
     }
 
     /**
@@ -57,7 +54,9 @@ public class BooleanFn extends SystemFunction {
         Configuration config = visitor.getConfiguration();
         TypeHierarchy th = config.getTypeHierarchy();
         boolean forStreaming = visitor.isOptimizeForStreaming();
-        exp = ExpressionTool.unsortedIfHomogeneous(exp, forStreaming);
+        Expression e2 = ExpressionTool.unsortedIfHomogeneous(exp, forStreaming);
+        boolean changed = e2 != exp;
+        exp = e2;
         if (exp instanceof Literal) {
             GroundedValue val = ((Literal)exp).getGroundedValue();
             if (val instanceof BooleanValue) {
@@ -67,15 +66,14 @@ public class BooleanFn extends SystemFunction {
                 BooleanValue.get(
                     ExpressionTool.effectiveBooleanValue(val.iterate())), exp);
         }
-        if (exp instanceof ValueComparison) {
-            ValueComparison vc = (ValueComparison) exp;
+        if (exp instanceof ValueComparison vc) {
             if (vc.getResultWhenEmpty() == null) {
                 vc.setResultWhenEmpty(BooleanValue.FALSE);
             }
             return exp;
         } else if (exp.isCallOn(BooleanFn.class)) {
             return ((SystemFunctionCall) exp).getArg(0);
-        } else if (th.isSubType(exp.getItemType(), BuiltInAtomicType.BOOLEAN) &&
+        } else if (BuiltInAtomicType.BOOLEAN.hasSubType(exp.getItemType()) &&
                 exp.getCardinality() == StaticProperty.EXACTLY_ONE) {
             return exp;
         } else if (exp.isCallOn(Count.class)) {
@@ -89,13 +87,19 @@ public class BooleanFn extends SystemFunction {
             ExpressionTool.copyLocationInfo(exp, exists);
             return exists.optimize(visitor, contextItemType);
         } else {
-            return null;
+            return changed ? exp : null;
         }
     }
 
     @Override
     public BooleanValue call(XPathContext c, Sequence[] arguments) throws XPathException {
         boolean bValue = ExpressionTool.effectiveBooleanValue(arguments[0].iterate());
+        return BooleanValue.get(bValue);
+    }
+
+    @Override
+    public BooleanValue call1(XPathContext c, Sequence arg0) throws XPathException {
+        boolean bValue = ExpressionTool.effectiveBooleanValue(arg0.iterate());
         return BooleanValue.get(bValue);
     }
 

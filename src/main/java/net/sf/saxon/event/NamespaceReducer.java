@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -106,92 +106,6 @@ public class NamespaceReducer extends ProxyReceiver implements NamespaceResolver
 
     }
 
-//    /**
-//     * Output a namespace node (binding)
-//     *
-//     * @param namespaceBindings the prefix/uri pair to be output
-//     * @param properties       the properties of the namespace binding
-//     * @throws XPathException if any downstream error occurs
-//     */
-//
-//    public void namespaces(NamespaceMap namespaceBindings, int properties) throws XPathException {
-//        nextReceiver.namespaces(namespaceBindings, properties);
-//    }
-
-    /**
-     * Determine whether a namespace declaration is needed
-     *
-     * @param nsBinding the namespace binding
-     * @return true if the namespace is needed: that is, if it not the XML namespace, is not a duplicate,
-     *         and is not a redundant xmlns="".
-     */
-
-    private boolean isNeeded(NamespaceBinding nsBinding) {
-        if (nsBinding.isXmlNamespace()) {
-            // Ignore the XML namespace
-            return false;
-        }
-
-        // First cancel any pending undeclaration of this namespace prefix (there may be more than one)
-
-        String prefix = nsBinding.getPrefix();
-        if (pendingUndeclarations != null) {
-            for (int p = 0; p < pendingUndeclarations.length; p++) {
-                NamespaceBinding nb = pendingUndeclarations[p];
-                if (nb != null && prefix.equals(nb.getPrefix())) {
-                    pendingUndeclarations[p] = null;
-                    //break;
-                }
-            }
-        }
-
-        for (int i = namespacesSize - 1; i >= 0; i--) {
-            if (namespaces[i].equals(nsBinding)) {
-                // it's a duplicate so we don't need it
-                return false;
-            }
-            if (namespaces[i].getPrefix().equals(nsBinding.getPrefix())) {
-                // same prefix, different URI.
-                return true;
-            }
-        }
-
-        // we need it unless it's a redundant xmlns=""
-        return !nsBinding.isDefaultUndeclaration();
-    }
-
-    /**
-     * Add a namespace declaration to the stack
-     *
-     * @param nsBinding the namespace code to be added
-     */
-
-    private void addToStack(NamespaceBinding nsBinding) {
-        // expand the stack if necessary
-        if (namespacesSize + 1 >= namespaces.length) {
-            namespaces = Arrays.copyOf(namespaces, namespacesSize * 2);
-        }
-        namespaces[namespacesSize++] = nsBinding;
-    }
-
-    /**
-     * Ask whether the namespace reducer is disinheriting namespaces at the current level
-     * @return true if namespaces are being disinherited
-     */
-
-    public boolean isDisinheritingNamespaces() {
-        return depth > 0 && disinheritStack[depth-1];
-    }
-
-//    /**
-//     * startContent: Add any namespace undeclarations needed to stop
-//     * namespaces being inherited from parent elements
-//     */
-//
-//    public void startContent() throws XPathException {
-//        pendingUndeclarations = null;
-//        nextReceiver.startContent();
-//    }
 
     /**
      * endElement: Discard the namespaces declared on this element.

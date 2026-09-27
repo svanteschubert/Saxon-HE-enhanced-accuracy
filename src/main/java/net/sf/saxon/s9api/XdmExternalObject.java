@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,7 +11,7 @@ import net.sf.saxon.value.AnyExternalObject;
 import net.sf.saxon.value.ObjectValue;
 
 /**
- * The class XdmExternalObject represents an XDM item that wraps an external (Java or .NET) object.
+ * The class {@code XdmExternalObject} represents an XDM item that wraps an external (Java or .NET) object.
  * As such, it is outside the scope of the XDM specification (but permitted as an extension).
  * <p>In releases prior to 9.5, external objects in Saxon were represented as atomic values. From
  * 9.5 they are represented as a fourth kind of item, alongside nodes, atomic values, and functions.</p>
@@ -40,7 +40,7 @@ public class XdmExternalObject extends XdmItem {
 
     /**
      * Get the result of converting the external value to a string.
-     * @return the result of applying toString() to the wrapped external object.
+     * @return the result of applying {@code toString()} to the wrapped external object.
      */
 
     public String toString() {

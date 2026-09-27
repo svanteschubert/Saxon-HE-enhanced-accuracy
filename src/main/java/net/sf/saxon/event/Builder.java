@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.event;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.lib.Logger;
 import net.sf.saxon.om.Durability;
 import net.sf.saxon.om.NamePool;
 import net.sf.saxon.om.NodeInfo;
@@ -49,10 +50,6 @@ public abstract class Builder implements Receiver {
     public static final int AXIOM_TREE = 5;
     public static final int DOMINO_TREE = 6;
 
-    /**
-     * Constant denoting the "mutable linked tree" in which each node is represented as an object
-     */
-    public static final int MUTABLE_LINKED_TREE = 7;
 
     protected PipelineConfiguration pipe;
     protected Configuration config;
@@ -259,20 +256,24 @@ public abstract class Builder implements Receiver {
                 sysId = "(unknown systemId)";
             }
             getConfiguration().getLogger().info(
-                    "Building tree for " + sysId + " using " + getClass());
+                    "Building " + getTreeKind() + " tree for " + sysId);
             startTime = System.nanoTime();
         }
         opened = true;
+    }
+
+    protected String getTreeKind() {
+        return getClass().getSimpleName();
     }
 
     @Override
     public void close() throws XPathException {
         if (timing && opened) {
             long endTime = System.nanoTime();
-            getConfiguration().getLogger().info(
-                    "Tree built in " + Timer.showExecutionTimeNano(endTime - startTime));
-            if (currentRoot instanceof TinyDocumentImpl) {
-                ((TinyDocumentImpl) currentRoot).showSize();
+            Logger logger = getConfiguration().getLogger();
+            logger.info("Tree built in " + Timer.showExecutionTimeNano(endTime - startTime));
+            if (currentRoot instanceof TinyDocumentImpl tinyDoc) {
+                tinyDoc.showSize(logger);
             }
             startTime = endTime;
         }

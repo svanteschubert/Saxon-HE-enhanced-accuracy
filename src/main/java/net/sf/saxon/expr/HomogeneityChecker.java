@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,17 +7,17 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.expr.elab.PullEvaluator;
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.PullElaborator;
-import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.sort.DocumentSorter;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
@@ -57,9 +57,9 @@ public class HomogeneityChecker extends UnaryExpression {
         TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
         ItemType type = getBaseExpression().getItemType();
         if (type.equals(ErrorType.getInstance())) {
-            return Literal.makeEmptySequence();
+            return getBaseExpression();
         }
-        Affinity rel = th.relationship(type, AnyNodeTest.getInstance());
+        Affinity rel = th.relationship(type, AnyGNodeType.getInstance());
         if (rel == Affinity.DISJOINT) {
             // expression cannot return nodes, so this checker is redundant
               // code deleted by bug 4298
@@ -89,13 +89,14 @@ public class HomogeneityChecker extends UnaryExpression {
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath
      * @return the equivalent pattern
      * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
-        return getBaseExpression().toPattern(config);
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
+        return getBaseExpression().toPattern(config, firstInPath);
     }
 
     /*@NotNull*/

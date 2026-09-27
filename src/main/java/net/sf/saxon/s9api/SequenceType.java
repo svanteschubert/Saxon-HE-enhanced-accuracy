@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,15 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.value.Cardinality;
+
 /**
- * A SequenceType is the combination of an ItemType and an OccurrenceIndicator
+ * A {@code SequenceType} is the combination of an {@link ItemType} and an {@link OccurrenceIndicator}.
+ *
+ * <p>The most convenient way to obtain a {@code SequenceType} is often with
+ * a method such as <code>ItemType.BOOLEAN.one()</code>, representing the
+ * sequence type <code>xs:boolean</code>, or <code>ItemType.ANY_NODE.zeroOrMore()</code>
+ * representing the type <code>node()*</code>.</p>
  */
 public class SequenceType {
 
@@ -117,7 +124,7 @@ public class SequenceType {
     @SuppressWarnings("WeakerAccess")
     public net.sf.saxon.value.SequenceType getUnderlyingSequenceType() {
         return net.sf.saxon.value.SequenceType.makeSequenceType(
-                itemType.getUnderlyingItemType(), occurrenceIndicator.getCardinality());
+                itemType.getUnderlyingItemType(), Cardinality.staticPropertyFromOccurrenceIndicator(occurrenceIndicator));
     }
 
     /**
@@ -133,7 +140,7 @@ public class SequenceType {
             Processor processor, net.sf.saxon.value.SequenceType st) {
         ItemTypeFactory factory = new ItemTypeFactory(processor);
         ItemType it = factory.exposeItemType(st.getPrimaryType());
-        OccurrenceIndicator oc = OccurrenceIndicator.getOccurrenceIndicator(st.getCardinality());
+        OccurrenceIndicator oc = Cardinality.getOccurrenceIndicatorForCardinality(st.getCardinality());
         return makeSequenceType(it, oc);
     }
 

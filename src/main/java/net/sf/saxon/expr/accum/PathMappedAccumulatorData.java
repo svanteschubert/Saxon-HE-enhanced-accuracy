@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,14 @@
 
 package net.sf.saxon.expr.accum;
 
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.tiny.TinyNodeImpl;
 import net.sf.saxon.tree.util.Navigator;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 
 import java.util.Stack;
 
@@ -54,15 +54,15 @@ public class PathMappedAccumulatorData implements IAccumulatorData {
             Stack<Integer> path = new Stack<Integer>();
             NodeInfo ancestor = node;
             while (ancestor != null) {
-                path.push(Navigator.getSiblingPosition(ancestor, AnyNodeTest.getInstance(), Integer.MAX_VALUE));
-                ancestor = ancestor.getParent();
+                path.push(Navigator.getSiblingPosition(ancestor, AnyGNodeType.getInstance(), Integer.MAX_VALUE));
+                ancestor = (NodeInfo)ancestor.getParent();
             }
             NodeInfo target = origin;
             while (!path.isEmpty()) {
                 int pos = path.pop();
-                AxisIterator kids = target.iterateAxis(AxisInfo.CHILD);
+                SequenceIterator kids = target.iterateChildAxis(AnyGNode.TEST);
                 while (pos-- > 0) {
-                    target = kids.next();
+                    target = (NodeInfo)kids.next();
                     assert (target != null);
                 }
             }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -46,6 +46,7 @@ public abstract class HTMLEmitter extends XMLEmitter {
     private NamespaceUri uri;
     private boolean escapeNonAscii = false;
     private final Stack<NodeName> nodeNameStack = new Stack<>();
+    protected boolean isQt40;
 
     /**
      * Decode preferred representation
@@ -56,18 +57,13 @@ public abstract class HTMLEmitter extends XMLEmitter {
 
     private static int representationCode(String rep) {
         rep = rep.toLowerCase();
-        switch (rep) {
-            case "native":
-                return REP_NATIVE;
-            case "entity":
-                return REP_ENTITY;
-            case "decimal":
-                return REP_DECIMAL;
-            case "hex":
-                return REP_HEX;
-            default:
-                return REP_ENTITY;
-        }
+        return switch (rep) {
+            case "native" -> REP_NATIVE;
+            case "entity" -> REP_ENTITY;
+            case "decimal" -> REP_DECIMAL;
+            case "hex" -> REP_HEX;
+            default -> REP_ENTITY;
+        };
     }
 
     /**
@@ -182,7 +178,7 @@ public abstract class HTMLEmitter extends XMLEmitter {
      */
 
     @Override
-    public void setEscapeNonAscii(Boolean escape) {
+    public void setEscapeNonAscii(boolean escape) {
         escapeNonAscii = escape;
     }
 
@@ -212,6 +208,11 @@ public abstract class HTMLEmitter extends XMLEmitter {
         if (started) {
             return;
         }
+        String specVn = outputProperties.getProperty(SaxonOutputKeys.SPEC_VERSION);
+        if ("40".equals(specVn) || "4.0".equals(specVn)) {
+            isQt40 = true;
+        }
+
         String byteOrderMark = outputProperties.getProperty(SaxonOutputKeys.BYTE_ORDER_MARK);
 
         if ("yes".equals(byteOrderMark) &&
@@ -354,7 +355,7 @@ public abstract class HTMLEmitter extends XMLEmitter {
                 // used to switch escaping on and off
                 disabled = !disabled;
             } else if (disabled) {
-                writeCodePoint(ch);
+                writer.writeCodePoint(ch);
             } else if (ch <= 127) {
                 // handle a special ASCII character
                 if (inAttribute) {

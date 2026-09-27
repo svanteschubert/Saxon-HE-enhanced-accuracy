@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,9 @@
 
 package net.sf.saxon.s9api;
 
-import net.sf.saxon.ma.map.HashTrieMap;
-import net.sf.saxon.ma.map.KeyValuePair;
-import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.ma.map.*;
 import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.jiter.MappingJavaIterator;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.Int64Value;
@@ -24,11 +23,11 @@ import java.util.function.Function;
  * is a pair comprising a key (which is an atomic value) and a value (which is an arbitrary value).
  * The map itself is an XDM item.
  * <p>An XdmMap is immutable.</p>
- * <p>As originally issued in Saxon 9.8, this class implemented the {@link java.util.Map} interface.
- * It no longer does so, because it was found that the methods {@link #size()}, {@link #put(XdmAtomicValue, XdmValue)},
- * and {@link #remove} did not adhere to the semantic contract of that interface. Instead, it is now
- * possible to obtain a view of this object as an immutable Java {@link java.util.Map} by calling the
- * method {@link #asImmutableMap()}. See bug 3824.</p>
+ * <p>It is possible to obtain a view of this object as an immutable Java {@link java.util.Map} by calling the
+ * method {@link #asImmutableMap()}.</p>
+ * <p>An {@code XdmMap} constructed using the methods in this class will be labelled as an XDM 4.0 map,
+ * meaning that it uses the key comparison rules from the 4.0 specification. Specifically, this means
+ * that {@code hexBinary} and {@code base64Binary} keys are considered comparable.</p>
  *
  * @since 9.8
  */
@@ -36,16 +35,17 @@ import java.util.function.Function;
 public class XdmMap extends XdmFunctionItem {
 
     /**
-     * Create an empty XdmMap
+     * Create an empty {@code XdmMap}
      */
 
     public XdmMap() {
-        this(new HashTrieMap());
+        this(EmptyMap.INSTANCE_40);
     }
 
     /**
-     * Create an XdmMap whose underlying value is a MapItem
-     * @param map the MapItem to be encapsulated
+     * Create an {@code XdmMap} based on a Saxon internal {@link MapItem}. This method is
+     * intended primarily for system use.
+     * @param map the {@link MapItem} to be encapsulated
      */
 
     public XdmMap(MapItem map) {
@@ -53,10 +53,11 @@ public class XdmMap extends XdmFunctionItem {
     }
 
     /**
-     * Create an XdmMap supplying the entries in the form of a Java Map,
+     * Create an {@code XdmMap} supplying the entries in the form of a Java {@link Map},
      * where the keys and values in the Java Map are XDM values
      *
-     * @param map a Java map whose entries are the (key, value) pairs
+     * @param map a Java map whose entries are the (key, value) pairs. Subsequent changes to the
+     *            Java map have no effect on the constructed {@code XdmMap}.
      * @since 9.8
      */
 
@@ -64,12 +65,12 @@ public class XdmMap extends XdmFunctionItem {
         this(fromJavaMap(map));
     }
 
-    private static HashTrieMap fromJavaMap(Map<? extends XdmAtomicValue, ? extends XdmValue> map) {
-        HashTrieMap val = new HashTrieMap();
+    private static MapItem fromJavaMap(Map<? extends XdmAtomicValue, ? extends XdmValue> map) {
+        GeneralMapBuilder val = AbstractFixedMap.getBuilder(40);
         for (Map.Entry<? extends XdmAtomicValue, ? extends XdmValue> entry : map.entrySet()) {
-            val.initialPut(entry.getKey().getUnderlyingValue(), entry.getValue().getUnderlyingValue());
+            val.put(entry.getKey().getUnderlyingValue(), entry.getValue().getUnderlyingValue());
         }
-        return val;
+        return val.getCompletedMapConfidently();
     }
 
     /**
@@ -105,7 +106,7 @@ public class XdmMap extends XdmFunctionItem {
      */
 
     public XdmMap put(XdmAtomicValue key, XdmValue value) {
-        return new XdmMap(getUnderlyingValue().addEntry(key.getUnderlyingValue(), value.getUnderlyingValue()));
+        return new XdmMap(getUnderlyingValue().put(key.getUnderlyingValue(), value.getUnderlyingValue()));
     }
 
     /**
@@ -129,7 +130,7 @@ public class XdmMap extends XdmFunctionItem {
             @Override
             public Iterator<XdmAtomicValue> iterator() {
                 final Function<KeyValuePair, XdmAtomicValue> atomicValueFunction =
-                        kvp -> (XdmAtomicValue) XdmValue.wrap(kvp.key);
+                        kvp -> (XdmAtomicValue) XdmValue.wrap(kvp.key());
                 return new MappingJavaIterator<>(
                         getUnderlyingValue().keyValuePairs().iterator(),
                         atomicValueFunction);
@@ -171,7 +172,7 @@ public class XdmMap extends XdmFunctionItem {
 
             @Override
             public boolean isEmpty() {
-                return base.isEmpty();
+                return base.isEmptyMap();
             }
 
             @Override
@@ -231,7 +232,7 @@ public class XdmMap extends XdmFunctionItem {
     }
 
     /**
-     * Removes all of the mappings from this map (optional operation).
+     * Removes all the mappings from this map (optional operation).
      * The map will be empty after this call returns.
      *
      * @throws UnsupportedOperationException if the <code>clear</code> operation
@@ -245,9 +246,24 @@ public class XdmMap extends XdmFunctionItem {
      * Returns <code>true</code> if this map contains no key-value mappings.
      *
      * @return <code>true</code> if this map contains no key-value mappings
+     * @deprecated since 12.9, because this method does not respect the semantics
+     * of the method it overrides, which is designed to test whether the value
+     * is an empty sequence. Use {@link #isEmptyMap()} instead.
      */
     @Override
+    @Deprecated
     public boolean isEmpty() {
+        return getUnderlyingValue().isEmpty();
+    }
+
+    /**
+     * Returns <code>true</code> if this map contains no key-value mappings.
+     *
+     * @return <code>true</code> if this map contains no key-value mappings
+     * @since 12.9
+     */
+
+    public boolean isEmptyMap() {
         return getUnderlyingValue().isEmpty();
     }
 
@@ -349,7 +365,7 @@ public class XdmMap extends XdmFunctionItem {
     public Collection<XdmValue> values() {
         List<XdmValue> result = new ArrayList<>();
         for (KeyValuePair keyValuePair : getUnderlyingValue().keyValuePairs()) {
-            result.add(XdmValue.wrap(keyValuePair.value));
+            result.add(XdmValue.wrap(keyValuePair.value()));
         }
         return result;
     }
@@ -378,19 +394,25 @@ public class XdmMap extends XdmFunctionItem {
      * @param <V> the type of the values
      * @return the resulting XdmMap
      * @throws IllegalArgumentException if any value in the input map cannot be converted
-     * to a corresponding XDM value.
+     * to a corresponding XDM value; or if two keys in the input map, which are non-equal
+     * to each other as Java values, produce XDM items that are equal to each other as
+     * XDM values. The comparison semantics used are the XPath 4.0 semantics.
      */
 
     public static <K, V> XdmMap makeMap(Map<K, V> input) throws IllegalArgumentException {
-        HashTrieMap result = new HashTrieMap();
+        GeneralMapBuilder result = AbstractFixedMap.getBuilder(40);
         for (Map.Entry<K, V> entry : input.entrySet()) {
             K key = entry.getKey();
             V value = entry.getValue();
             XdmAtomicValue xKey = XdmAtomicValue.makeAtomicValue(key);
             XdmValue xValue = XdmValue.makeValue(value);
-            result.initialPut(xKey.getUnderlyingValue(), xValue.getUnderlyingValue());
+            result.put(xKey.getUnderlyingValue(), xValue.getUnderlyingValue());
         }
-        return new XdmMap(result);
+        try {
+            return new XdmMap(result.getCompletedMap());
+        } catch (XPathException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     private static class XdmMapEntry implements Map.Entry<XdmAtomicValue, XdmValue> {
@@ -410,7 +432,7 @@ public class XdmMap extends XdmFunctionItem {
          */
         @Override
         public XdmAtomicValue getKey() {
-            return (XdmAtomicValue)XdmValue.wrap(pair.key);
+            return (XdmAtomicValue)XdmValue.wrap(pair.key());
         }
 
         /**
@@ -425,7 +447,7 @@ public class XdmMap extends XdmFunctionItem {
          */
         @Override
         public XdmValue getValue() {
-            return XdmValue.wrap(pair.value);
+            return XdmValue.wrap(pair.value());
         }
 
         /**

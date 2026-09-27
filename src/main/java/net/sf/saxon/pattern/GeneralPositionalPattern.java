@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,8 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ManualIterator;
@@ -108,7 +110,7 @@ public class GeneralPositionalPattern extends Pattern {
     public Pattern typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
 
         // analyze each component of the pattern
-        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(getItemType(), false);
+        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(getItemType());
 
         positionExpr = positionExpr.typeCheck(visitor, cit);
         positionExpr = ExpressionTool.unsortedIfHomogeneous(positionExpr, false);
@@ -136,14 +138,14 @@ public class GeneralPositionalPattern extends Pattern {
     @Override
     public Pattern optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         Configuration config = visitor.getConfiguration();
-        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(getItemType(), false);
+        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(getItemType());
         positionExpr = positionExpr.optimize(visitor, cit);
 
         if (Literal.isConstantBoolean(positionExpr, true)) {
             return new NodeTestPattern(nodeTest);
         } else if (Literal.isConstantBoolean(positionExpr, false)) {
             // if a filter is constant false, the pattern doesn't match anything
-            return new NodeTestPattern(ErrorType.getInstance());
+            return new ItemTypePattern(ErrorType.getInstance());
         }
 
         if ((positionExpr.getDependencies() & StaticProperty.DEPENDS_ON_POSITION) == 0) {
@@ -153,9 +155,9 @@ public class GeneralPositionalPattern extends Pattern {
         // See if the expression is now known to be non-positional (see bugs 1908, 1992, test mode-0011)
         if (!FilterExpression.isPositionalFilter(positionExpr, config.getTypeHierarchy())) {
             byte axis = AxisInfo.CHILD;
-            if (nodeTest.getPrimitiveType() == Type.ATTRIBUTE) {
+            if (nodeTest.getUType() == UType.ATTRIBUTE) {
                 axis = AxisInfo.ATTRIBUTE;
-            } else if (nodeTest.getPrimitiveType() == Type.NAMESPACE) {
+            } else if (nodeTest.getUType() == UType.NAMESPACE) {
                 axis = AxisInfo.NAMESPACE;
             }
             AxisExpression ae = new AxisExpression(axis, nodeTest);
@@ -291,8 +293,11 @@ public class GeneralPositionalPattern extends Pattern {
      */
 
     @Override
-    public int getFingerprint() {
-        return nodeTest.getFingerprint();
+    public int getFingerprint(int nodeKind) {
+        if (nodeTest instanceof NamedXNodePredicate) {
+            return ((NamedXNodePredicate) nodeTest).getRequiredFingerprint();
+        }
+        return -1;
     }
 
     /**
@@ -301,7 +306,7 @@ public class GeneralPositionalPattern extends Pattern {
 
     @Override
     public ItemType getItemType() {
-        return nodeTest;
+        return nodeTest.getItemType();
     }
 
     /**
@@ -339,7 +344,7 @@ public class GeneralPositionalPattern extends Pattern {
     /*@NotNull*/
     @Override
     public Pattern copy(RebindingMap rebindings) {
-        GeneralPositionalPattern n = new GeneralPositionalPattern(nodeTest.copy(), positionExpr.copy(rebindings));
+        GeneralPositionalPattern n = new GeneralPositionalPattern(nodeTest, positionExpr.copy(rebindings));
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
         return n;
@@ -358,7 +363,7 @@ public class GeneralPositionalPattern extends Pattern {
     @Override
     public void export(ExpressionPresenter presenter) throws XPathException {
         presenter.startElement("p.genPos");
-        presenter.emitAttribute("test", AlphaCode.fromItemType(nodeTest));
+        presenter.emitAttribute("test", AlphaCode.fromItemType(nodeTest.getItemType()));
         if (!usesPosition) {
             // flag is this way around for backwards compatibility with 9.8
             presenter.emitAttribute("flags", "P");
@@ -369,4 +374,4 @@ public class GeneralPositionalPattern extends Pattern {
 
 
 }
-// Copyright (c) 2012-2023 Saxonica Limited
+// Copyright (c) 2012-2026 Saxonica Limited

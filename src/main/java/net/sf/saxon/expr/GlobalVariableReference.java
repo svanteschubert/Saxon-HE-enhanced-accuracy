@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -38,7 +38,6 @@ public class GlobalVariableReference extends VariableReference implements Compon
     @Override
     public Expression copy(RebindingMap rebindings) {
         if (binding == null) {
-            //System.err.println("copy unbound variable " + this);
             throw new UnsupportedOperationException("Cannot copy a variable reference whose binding is unknown");
         }
         GlobalVariableReference ref = new GlobalVariableReference(getVariableName());
@@ -112,7 +111,6 @@ public class GlobalVariableReference extends VariableReference implements Compon
      */
     @Override
     public GroundedValue evaluateVariable(XPathContext c) throws XPathException {
-
         if (bindingSlot >= 0) {
             if (c.getCurrentComponent() == null) {
                 throw new AssertionError("No current component");

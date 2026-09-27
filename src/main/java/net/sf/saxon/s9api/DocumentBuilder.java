@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,13 +12,13 @@ import net.sf.saxon.event.*;
 import net.sf.saxon.expr.EarlyEvaluationContext;
 import net.sf.saxon.expr.JPConverter;
 import net.sf.saxon.lib.AugmentedSource;
+import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.NoElementsSpaceStrippingRule;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.TreeInfo;
 import net.sf.saxon.om.TreeModel;
-import net.sf.saxon.query.XQueryExpression;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
@@ -54,7 +54,7 @@ public class DocumentBuilder {
     private TreeModel treeModel = TreeModel.TINY_TREE;
     private WhitespaceStrippingPolicy whitespacePolicy = WhitespaceStrippingPolicy.UNSPECIFIED;
     private URI baseURI;
-    private XQueryExecutable projectionQuery;
+    private ErrorReporter errorReporter;
 
     /**
      * Create a DocumentBuilder. This is a protected constructor. Users should construct a DocumentBuilder
@@ -96,6 +96,31 @@ public class DocumentBuilder {
     public TreeModel getTreeModel() {
         return treeModel;
     }
+
+    /**
+     * Supply a callback which will be notified of all errors and warnings
+     * encountered during XML parsing using this {@code DocumentBuilder}.
+     * <p>If no error reporter is supplied by the caller, error information
+     * will be written to the standard error stream.</p>
+     *
+     * @param reporter a callback function which will be notified of all errors and warnings
+     *                 encountered during XML parsing.
+     * @since 13.0
+     */
+
+    public void setErrorReporter(ErrorReporter reporter) {
+        this.errorReporter = reporter;
+    }
+
+    /**
+     * Get the error reporter previously set using {@link #setErrorReporter(ErrorReporter)}
+     * @return the current error reporter, or null if none has been explicitly set
+     */
+
+    public ErrorReporter getErrorReporter() {
+        return this.errorReporter;
+    }
+
 
     /**
      * Say whether line and column numbering and is to be enabled for documents constructed using this DocumentBuilder.
@@ -157,6 +182,7 @@ public class DocumentBuilder {
      * how schema validation is performed by the <code>DocumentBuilder</code>. The particular properties
      * that take effect include:</p>
      * <ul>
+     *     <li>The schema itself</li>
      *     <li>The validation mode (strict or lax)</li>
      *     <li>The required top-level element declaration (see {@link SchemaValidator#setDocumentElementName(QName)}</li>
      *     <li>The required type of the top-level element (see {@link SchemaValidator#setDocumentElementTypeName(QName)}</li>
@@ -282,10 +308,12 @@ public class DocumentBuilder {
      *
      * @param query the compiled query used to control document projection
      * @since 9.3
+     * @deprecated since 13.0 - document projection is no longer supported
      */
 
+    @Deprecated(since="13.0", forRemoval=true)
     public void setDocumentProjectionQuery(XQueryExecutable query) {
-        this.projectionQuery = query;
+        throw new UnsupportedOperationException("Document projection was dropped in Saxon 13");
     }
 
     /**
@@ -294,10 +322,12 @@ public class DocumentBuilder {
      * @return the query set using {@link #setDocumentProjectionQuery} if this
      *         has been called, or null otherwise
      * @since 9.3. In 9.4 the unused and undocumented first argument is removed.
+     * @deprecated since 13.0 - document projection is no longer supported
      */
 
+    @Deprecated(since = "13.0", forRemoval = true)
     public XQueryExecutable getDocumentProjectionQuery() {
-        return this.projectionQuery;
+        return null;
     }
 
     /**
@@ -349,10 +379,17 @@ public class DocumentBuilder {
                 throw new SaxonApiException("When schema validation is used, the whitespace stripping policy must be IGNORABLE");
             }
         }
-        ParseOptions options = config.getParseOptions()
-                .withDTDValidationMode(dtdValidation ? Validation.STRICT : Validation.STRIP);
+        ParseOptions options;
+        if (source instanceof AugmentedSource) {
+            options = ((AugmentedSource)source).getParseOptions();
+            source = ((AugmentedSource)source).getContainedSource();
+        } else {
+            options = config.getParseOptions()
+                    .withDTDValidationMode(dtdValidation ? Validation.STRICT : Validation.STRIP);
+        }
 
         if (schemaValidator != null) {
+            options = options.withSchema(schemaValidator.getSchema().getUnderlyingSchema());
             options = options.withSchemaValidationMode(schemaValidator.isLax() ? Validation.LAX : Validation.STRICT);
             if (schemaValidator.getDocumentElementName() != null) {
                 QName qn = schemaValidator.getDocumentElementName();
@@ -373,22 +410,18 @@ public class DocumentBuilder {
         if (whitespacePolicy != null && whitespacePolicy != WhitespaceStrippingPolicy.UNSPECIFIED) {
             int option = whitespacePolicy.ordinal();
             if (option == Whitespace.XSLT) {
-                options = options.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                options = options.withSpaceStrippingRule(NoElementsSpaceStrippingRule.INSTANCE);
                 options = options.withFilter(whitespacePolicy.makeStripper());
             } else {
                 options = options.withSpaceStrippingRule(whitespacePolicy.getSpaceStrippingRule());
             }
         }
         options = options.withLineNumbering(lineNumbering);
+        if (errorReporter != null) {
+            options = options.withErrorReporter(errorReporter);
+        }
         if (source.getSystemId() == null && baseURI != null) {
             source.setSystemId(baseURI.toString());
-        }
-        if (projectionQuery != null) {
-            XQueryExpression exp = projectionQuery.getUnderlyingCompiledQuery();
-            FilterFactory ff = config.makeDocumentProjector(exp);
-            if (ff != null) {
-                options = options.withFilter(ff);
-            }
         }
         if (source instanceof AugmentedSource) {
             options = options.merge(((AugmentedSource)source).getParseOptions());
@@ -436,7 +469,7 @@ public class DocumentBuilder {
         r = injectValidator(r, builder);
         return new BuildingContentHandlerImpl(r, builder);
     }
-
+    
     private Receiver injectValidator(Receiver r, Builder builder) throws SaxonApiException {
         if (schemaValidator != null) {
             PipelineConfiguration pipe = builder.getPipelineConfiguration();
@@ -449,7 +482,7 @@ public class DocumentBuilder {
         }
         return r;
     }
-
+    
     /**
      * Private implementation of BuildingContentHandler
      */
@@ -481,10 +514,11 @@ public class DocumentBuilder {
      *         a well formed (and namespace-well-formed) document, the effect is undefined; Saxon may fail
      *         to detect the error, and construct an unusable tree. </p>
      * @throws SaxonApiException if any failure occurs
-     * @since 9.3
+     * @since 9.3. Changed in 13 to return the interface type {@link BuildingStreamWriter} rather than
+     * a specific implementation type.
      */
 
-    public BuildingStreamWriterImpl newBuildingStreamWriter() throws SaxonApiException {
+    public BuildingStreamWriter newBuildingStreamWriter() throws SaxonApiException {
         PipelineConfiguration pipe = config.makePipelineConfiguration();
         Builder builder = treeModel.makeBuilder(pipe);
         builder.setLineNumbering(lineNumbering);

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -145,6 +145,13 @@ public class SaxonOutputKeys {
     public static final String ITEM_SEPARATOR = "item-separator";
 
     /**
+     * escape-solidus = yes|no.
+     * <p>Defines whether forward slash is escaped by the JSON output method</p>
+     */
+
+    /*@NotNull*/ public static final String JSON_LINES = "json-lines";
+
+    /**
      * json-node-output-method = method-name
      * <p>Defines the serialization method for nodes encountered while serializing as JSON</p>
      */
@@ -162,7 +169,7 @@ public class SaxonOutputKeys {
     /*@NotNull*/ public static final String ATTRIBUTE_ORDER = "{http://saxon.sf.net/}attribute-order";
 
     /**
-     * saxon:canonical = yes/no
+     * saxon:canonical = yes/no or canonical = yes/no
      * <p>When used in conjunction with the XML output method, delivers the output in C14N canonical form.
      * Any serialization properties inconsistent with C14N (for example, encoding, indent, or character maps) are
      * ignored if saxon:canonical=yes is specified. Provisions of the W3C serialization specification
@@ -170,7 +177,7 @@ public class SaxonOutputKeys {
      * @since 9.9
      */
 
-    /*@NotNull*/ public static final String CANONICAL = "{http://saxon.sf.net/}canonical";
+    /*@NotNull*/ public static final String CANONICAL = "canonical";
 
     /**
      * saxon:property-order = list of strings
@@ -197,13 +204,14 @@ public class SaxonOutputKeys {
     /*@NotNull*/ public static final String NEWLINE = "{http://saxon.sf.net/}newline";
 
     /**
-     * stylesheet-version. This serialization parameter is set automatically by the XSLT processor
-     * to the value of the version attribute on the principal stylesheet module. This is because
-     * in backwards compatibility mode (version="1.0") the default output method for an XHTML result
-     * document is XML rather than XHTML.
+     * spec-version. This serialization parameter controls which version of the serialization
+     * specification applies. The default is "3.1", meaning version 3.1. The decimal point
+     * is optional: "31" is treated as "3.1".
+     *
+     * <p>In earlier Saxon releases this parameter was named "stylesheet version".</p>
      */
 
-    /*@NotNull*/ public static final String STYLESHEET_VERSION = "{http://saxon.sf.net/}stylesheet-version";
+    /*@NotNull*/ public static final String SPEC_VERSION = "{http://saxon.sf.net/}spec-version";
 
     /**
      * use-character-map = list-of-qnames.
@@ -317,6 +325,16 @@ public class SaxonOutputKeys {
     /*@NotNull*/ public static final String WRAP = "{http://saxon.sf.net/}wrap-result-sequence";
 
     /**
+     * Property saxon:conditional-cdata indicates that CDATA, if requested for a particular
+     * element, should be used only if the value of a text node actually includes a character
+     * that needs escaping, viz {@code '<'} or {@code '&'}. The values of the property are yes/no,
+     * defaulting to no. The property has no effect unless the element name is listed in
+     * the CDATA_SECTION_ELEMENTS property.
+     */
+
+    public static final String CONDITIONAL_CDATA = "{http://saxon.sf.net/}conditional-cdata";
+
+    /**
      * Property saxon:unfailing used to indicate that serialization should not fail. This is used when a serialization method such
      * as XML or JSON is invoked from the ADAPTIVE serialization method, and it tailors the error-handling behaviour
      * of the subsidiary output method. There is nothing to stop the property being set directly by the user, though
@@ -324,7 +342,7 @@ public class SaxonOutputKeys {
      */
 
     public static final String UNFAILING = "{http://saxon.sf.net/}unfailing";
-
+    
     /**
      * Process a serialization property whose value is a list of element names, for example cdata-section-elements
      *

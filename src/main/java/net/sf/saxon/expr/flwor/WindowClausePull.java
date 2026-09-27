@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -234,7 +234,7 @@ public class WindowClausePull extends TuplePull {
         }
         binding = clause.getVariableBinding(WindowClause.START_ITEM_POSITION);
         if (binding != null) {
-            context.setLocalVariable(binding.getLocalSlotNumber(), new Int64Value(w.startPosition));
+            context.setLocalVariable(binding.getLocalSlotNumber(), Int64Value.makeIntegerValue(w.startPosition));
         }
         binding = clause.getVariableBinding(WindowClause.START_NEXT_ITEM);
         if (binding != null) {
@@ -250,7 +250,7 @@ public class WindowClausePull extends TuplePull {
         }
         binding = clause.getVariableBinding(WindowClause.END_ITEM_POSITION);
         if (binding != null) {
-            context.setLocalVariable(binding.getLocalSlotNumber(), new Int64Value(w.endPosition));
+            context.setLocalVariable(binding.getLocalSlotNumber(), Int64Value.makeIntegerValue(w.endPosition));
         }
         binding = clause.getVariableBinding(WindowClause.END_NEXT_ITEM);
         if (binding != null) {
@@ -274,4 +274,4 @@ public class WindowClausePull extends TuplePull {
 
 }
 
-// Copyright (c) 2011-2023 Saxonica Limited
+// Copyright (c) 2011-2026 Saxonica Limited

@@ -40,16 +40,22 @@ public interface UnicodeWriter {
     void writeAscii(byte[] content) throws IOException;
 
     /**
-     * Process a single character. The default implementation wraps the codepoint
-     * into a single-character {@link UnicodeString}
+     * Process a single character.
      *
-     * @param codepoint the character to be processed. Must not be a surrogate
+     * @param codepoint the Unicode character to be processed. Must not be a surrogate
      * @throws IOException if processing fails for any reason
      */
 
-    default void writeCodePoint(int codepoint) throws IOException {
-        write(new UnicodeChar(codepoint));
-    }
+    void writeCodePoint(int codepoint) throws IOException;
+
+    /**
+     * Process a single ASCII character.
+     *
+     * @param codepoint the Unicode character to be processed. Must be in the range 0-127; this is not necessarily checked
+     * @throws IOException if processing fails for any reason
+     */
+
+    void writeAscii(int codepoint) throws IOException;
 
     /**
      * Process a single character repeatedly. The default implementation fills a byte

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,6 @@ import net.sf.saxon.expr.instruct.*;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
-import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
 import net.sf.saxon.lib.NamespaceConstant;
@@ -30,7 +29,9 @@ import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.util.IndexedStack;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.value.SequenceType;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -50,27 +51,22 @@ public class QueryModule implements StaticContext {
     private URI locationURI;
     private String baseURI;
     private NamespaceUri moduleNamespace; // null only if moduleIsMainModule is false
-    private HashMap<String, NamespaceUri> explicitPrologNamespaces;
-    private IndexedStack<NamespaceBinding> activeNamespaces;  // The namespace bindings declared in element constructors
+    private HashMap<String, NamespaceUri> prologNamespaces;
+    private Stack<NamespaceMap> constructedNamespaces;  // The namespace bindings declared in element constructors
     private HashMap<StructuredQName, GlobalVariable> variables;
     // global variables declared in this module
     private HashMap<StructuredQName, GlobalVariable> libraryVariables;
     // all global variables defined in library modules
     // defined only on the top-level module
     private HashMap<StructuredQName, UndeclaredVariable> undeclaredVariables;
-    private HashSet<NamespaceUri> importedSchemata;    // The schema target namespaces imported into this module
     private HashMap<NamespaceUri, HashSet<String>> loadedSchemata;
     // For the top-level module only, all imported schemas for all modules,
     // Key is the targetNamespace, value is the set of absolutized location URIs
     private Executable executable;
-    private List<QueryModule> importers;  // A list of QueryModule objects representing the modules that import this one,
-    // Null for the main module
-    // This is needed *only* to implement the rules banning cyclic imports
     private FunctionLibraryList functionLibraryList;
     private XQueryFunctionLibrary globalFunctionLibrary;      // used only on a top-level module
     private int localFunctionLibraryNr;
     private int importedFunctionLibraryNr;
-    private int unboundFunctionLibraryNr;
     private Set<NamespaceUri> importedModuleNamespaces;
     private boolean inheritNamespaces = true;
     private boolean preserveNamespaces = true;
@@ -83,7 +79,7 @@ public class QueryModule implements StaticContext {
     private String defaultCollationName;
     private int revalidationMode = Validation.SKIP;
     private boolean updating = false;
-    private ItemType requiredContextItemType = AnyItemType.getInstance(); // must be the same for all modules
+    private SequenceType requiredContextValueType = SequenceType.SINGLE_ITEM; // must be the same for all modules
     private DecimalFormatManager decimalFormatManager = null;   // used only in XQuery 3.0
     private CodeInjector codeInjector;
     private PackageData packageData;
@@ -93,6 +89,7 @@ public class QueryModule implements StaticContext {
     private int languageLevel;
     private UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy
             = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
+    private final Set<QueryModule> importedModules = new HashSet<>();
 
     /**
      * Create a QueryModule for a main module, copying the data that has been set up in a
@@ -107,7 +104,7 @@ public class QueryModule implements StaticContext {
         moduleIsMainModule = true;
         topModule = this;
         languageLevel = sqc.getLanguageVersion();
-        activeNamespaces = new IndexedStack<>();
+        constructedNamespaces = new Stack<>();
         baseURI = sqc.getBaseURI();
         defaultCollationName = sqc.getDefaultCollationName();
         try {
@@ -116,7 +113,6 @@ public class QueryModule implements StaticContext {
             throw new XPathException("Invalid location URI: " + baseURI);
         }
         executable = sqc.makeExecutable();
-        importers = null;
         init(sqc);
 
         PackageData pd = new PackageData(config);
@@ -141,6 +137,15 @@ public class QueryModule implements StaticContext {
         }
         optimizerOptions = sqc.getOptimizerOptions();
         unprefixedElementMatchingPolicy = sqc.getUnprefixedElementMatchingPolicy();
+
+        Schema preloadedSchema = sqc.getPreLoadedSchema();
+        if (preloadedSchema != null) {
+//            // TODO : HE build...
+//            for (Map.Entry<NamespaceUri, List<String>> entry : ((PreparedSchema)preloadedSchema).getTargetNamespaceMap().entrySet()) {
+//                addImportedSchema(entry.getKey(), null, entry.getValue());
+//            }
+            getPackageData().setImportedSchema("", preloadedSchema);
+        }
     }
 
     /**
@@ -153,18 +158,15 @@ public class QueryModule implements StaticContext {
 
     public QueryModule(Configuration config, /*@Nullable*/ QueryModule importer) {
         this.config = config;
-        importers = null;
         if (importer == null) {
             topModule = this;
         } else {
             topModule = importer.topModule;
             userQueryContext = importer.userQueryContext;
-            importers = new ArrayList<>(2);
-            importers.add(importer);
         }
         init(userQueryContext);
         packageData = importer.getPackageData();
-        activeNamespaces = new IndexedStack<>();
+        constructedNamespaces = new Stack<>();
         executable = null;
         optimizerOptions = importer.optimizerOptions;
     }
@@ -184,13 +186,11 @@ public class QueryModule implements StaticContext {
         if (isTopLevelModule()) {
             libraryVariables = new HashMap<>(10);
         }
-        importedSchemata = new HashSet<>(5);
-        //importedSchemata.add(NamespaceConstant.JSON);
         importedModuleNamespaces = new HashSet<>(5);
         moduleNamespace = null;
-        activeNamespaces = new IndexedStack<>();
+        constructedNamespaces = new Stack<>();
 
-        explicitPrologNamespaces = new HashMap<>(10);
+        prologNamespaces = new HashMap<>(10);
         if (sqc != null) {
             //executable = sqc.getExecutable();
             inheritNamespaces = sqc.isInheritNamespaces();
@@ -205,7 +205,7 @@ public class QueryModule implements StaticContext {
                 // if not schema-aware, generate untyped output by default
                 constructionMode = Validation.STRIP;
             }
-            requiredContextItemType = sqc.getRequiredContextItemType();
+            requiredContextValueType = sqc.getRequiredContextValueType();
             updating = sqc.isUpdatingEnabled();
             codeInjector = sqc.getCodeInjector();
             optimizerOptions = sqc.getOptimizerOptions();
@@ -235,6 +235,7 @@ public class QueryModule implements StaticContext {
         Objects.requireNonNull(baseURI, "Base URI of XQuery module must not be null");
         Configuration config = executable.getConfiguration();
         QueryModule module = new QueryModule(config, importer);
+        importer.addImportedModule(module);
         try {
             module.setLocationURI(new URI(baseURI));
         } catch (URISyntaxException e) {
@@ -243,7 +244,7 @@ public class QueryModule implements StaticContext {
         module.setBaseURI(baseURI);
         module.setExecutable(executable);
         module.setModuleNamespace(namespaceURI);
-
+        module.setXPathVersion(importer.getXPathVersion());
         executable.addQueryLibraryModule(module);
         XQueryParser qp = (XQueryParser) config.newExpressionParser(
                 "XQ", importer.isUpdating(), module);
@@ -253,7 +254,7 @@ public class QueryModule implements StaticContext {
             qp.setCodeInjector(new XQueryTraceCodeInjector());
         }
         QNameParser qnp = new QNameParser(module.getLiveNamespaceResolver())
-            .withAcceptEQName(importer.getXPathVersion() >= 30)
+            .withAcceptEQName(importer.getXPathVersion() >= 30, importer.getXPathVersion())
             .withUnescaper(new XQueryParser.Unescaper(config.getValidCharacterChecker()));
         qp.setQNameParser(qnp);
 
@@ -299,8 +300,8 @@ public class QueryModule implements StaticContext {
         functionLibraryList.addFunctionLibrary(config.getIntegratedFunctionLibrary());
         config.addExtensionBinders(functionLibraryList);
 
-        unboundFunctionLibraryNr = functionLibraryList.addFunctionLibrary(
-                new UnboundFunctionLibrary());
+//        unboundFunctionLibraryNr = functionLibraryList.addFunctionLibrary(
+//                new UnboundFunctionLibrary());
     }
 
     public BuiltInFunctionSet getBuiltInFunctionSet() {
@@ -309,6 +310,14 @@ public class QueryModule implements StaticContext {
         } else {
             return config.getXPathFunctionSet(languageLevel);
         }
+    }
+
+    /**
+     * Get the in-scope schema declarations for the static context
+     */
+    @Override
+    public Schema getImportedSchema() {
+        return getPackageData().getImportedSchema("");
     }
 
     /**
@@ -378,31 +387,6 @@ public class QueryModule implements StaticContext {
     }
 
     /**
-     * Check whether this module is allowed to import a module with namespace N. Note that before
-     * calling this we have already handled the exception case where a module imports another in the same
-     * namespace (this is the only case where cycles are allowed, though as a late change to the spec they
-     * are no longer useful, since they cannot depend on each other cyclically)
-     *
-     * @param namespace the namespace to be tested
-     * @return true if the import is permitted
-     */
-
-    public boolean mayImportModule(/*@NotNull*/ String namespace) {
-        if (namespace.equals(moduleNamespace)) {
-            return false;
-        }
-        if (importers == null) {
-            return true;
-        }
-        for (QueryModule importer : importers) {
-            if (!importer.mayImportModule(namespace)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
      * Ask whether expressions compiled under this static context are schema-aware.
      * They must be schema-aware if the expression is to handle typed (validated) nodes
      *
@@ -437,7 +421,7 @@ public class QueryModule implements StaticContext {
         // The only part of the RetainedStaticContext that can change as the query module is parsed is the
         // "activeNamespaces", that is, namespaces declared on direct element constructors. If this is empty,
         // we can reuse the top-level static context on each request.
-        if (activeNamespaces.isEmpty()) {
+        if (constructedNamespaces.isEmpty()) {
             if (moduleStaticContext == null) {
                 moduleStaticContext = new RetainedStaticContext(this);
             }
@@ -563,6 +547,14 @@ public class QueryModule implements StaticContext {
 
     public XQueryFunctionLibrary getGlobalFunctionLibrary() {
         return globalFunctionLibrary;
+    }
+
+    public void setGlobalFunctionLibrary(XQueryFunctionLibrary library) {
+        if (!isMainModule()) {
+            throw new AssertionError();
+        }
+        globalFunctionLibrary = library;
+        functionLibraryList.libraryList.set(localFunctionLibraryNr, library);
     }
 
     /**
@@ -800,7 +792,7 @@ public class QueryModule implements StaticContext {
 
         final HashMap<StructuredQName, GlobalVariable> libVars = getTopLevelModule().libraryVariables;
         GlobalVariable old = libVars.get(key);
-        if (old == null || old == var) {
+        if (old == null || old == var || old.getUltimateOriginalVariable() == var.getUltimateOriginalVariable()) {
             // do nothing
         } else {
             throw new XPathException("Duplicate definition of global variable "
@@ -876,11 +868,11 @@ public class QueryModule implements StaticContext {
     /**
      * Get global variables declared in this module
      *
-     * @return an Iterator whose items are GlobalVariable objects
+     * @return an Iterable whose items are GlobalVariable objects
      */
 
-    public Iterator<GlobalVariable> getModuleVariables() {
-        return variables.values().iterator();
+    public Iterable<GlobalVariable> getModuleVariables() {
+        return variables.values();
     }
 
     /**
@@ -893,6 +885,7 @@ public class QueryModule implements StaticContext {
      *          if a circularity is found
      */
 
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public void checkForCircularities(/*@NotNull*/ List<GlobalVariable> compiledVars, /*@NotNull*/ XQueryFunctionLibrary globalFunctionLibrary) throws XPathException {
         Iterator<GlobalVariable> iter = compiledVars.iterator();
         IndexedStack<Object> stack = null;
@@ -925,7 +918,8 @@ public class QueryModule implements StaticContext {
         if (isMainModule()) {
             GlobalContextRequirement gcr = executable.getGlobalContextRequirement();
             if (gcr != null && gcr.getDefaultValue() != null) {
-                ContextItemStaticInfo info = getConfiguration().makeContextItemStaticInfo(AnyItemType.getInstance(), true);
+                ContextItemStaticInfo info = getConfiguration().makeContextItemStaticInfo(
+                        AnyItemType.INSTANCE, Optionality.OPTIONAL);
                 gcr.setDefaultValue(gcr.getDefaultValue().typeCheck(visitor, info));
             }
         }
@@ -938,7 +932,7 @@ public class QueryModule implements StaticContext {
      * declareVariable method of this class.</p>
      *
      * @param qName the name of the variable to be bound
-     * @return a VariableReference object representing a reference to a variable on the abstract syntac rtee of
+     * @return a VariableReference object representing a reference to a variable on the abstract syntax tree of
      *         the query.
      */
 
@@ -1038,10 +1032,10 @@ public class QueryModule implements StaticContext {
      */
 
     public void declareFunction(/*@NotNull*/ XQueryFunction function) throws XPathException {
-        Configuration config = getConfiguration();
         if (function.getMinimumArity() <= 1 && function.getNumberOfParameters() >= 1) {
+            Schema schema = getPackageData().getImportedSchema("");
             StructuredQName name = function.getFunctionName();
-            SchemaType t = config.getSchemaType(name);
+            SchemaType t = schema.getSchemaType(name);
             if (t != null && t.isAtomicType()) {
                 String message = "Function name " + function.getDisplayName() +
                         " clashes with the name of the constructor function for an atomic type";
@@ -1051,14 +1045,16 @@ public class QueryModule implements StaticContext {
         }
         XQueryFunctionLibrary local = getLocalFunctionLibrary();
         local.declareFunction(function);
-        //if (!function.isPrivate()) {
         QueryModule main = getTopLevelModule();
         main.globalFunctionLibrary.declareFunction(function);
-        //}
     }
 
     private static void staticError(String message, String errorCode) throws XPathException {
         throw new XPathException(message, errorCode).asStaticError();
+    }
+
+    private static void staticError(String message, String errorCode, Location loc) throws XPathException {
+        throw new XPathException(message, errorCode, loc).asStaticError();
     }
 
     /**
@@ -1073,8 +1069,8 @@ public class QueryModule implements StaticContext {
      */
 
     public void bindUnboundFunctionCalls() throws XPathException {
-        UnboundFunctionLibrary lib = (UnboundFunctionLibrary) functionLibraryList.get(unboundFunctionLibraryNr);
-        lib.bindUnboundFunctionReferences(functionLibraryList, getConfiguration());
+//        UnboundFunctionLibrary lib = (UnboundFunctionLibrary) functionLibraryList.get(unboundFunctionLibraryNr);
+//        lib.bindUnboundFunctionReferences(functionLibraryList, getConfiguration());
     }
 
     /**
@@ -1145,6 +1141,7 @@ public class QueryModule implements StaticContext {
      *          variable reference cannot be resolved or if the variable is private
      */
 
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public void bindUnboundVariables() throws XPathException {
         for (UndeclaredVariable uv : undeclaredVariables.values()) {
             StructuredQName qName = uv.getVariableQName();
@@ -1156,84 +1153,28 @@ public class QueryModule implements StaticContext {
                     var = main.libraryVariables.get(qName);
                 }
             }
+            Iterator<BindingReference> iter = uv.iterateReferences();
+            BindingReference first = iter.hasNext() ? iter.next() : null;
+            Location firstLoc = first == null ? Loc.NONE : ((VariableReference)first).getLocation();
             if (var == null) {
                 staticError("Unresolved reference to variable $" +
-                        uv.getVariableQName().getDisplayName(), "XPST0008");
+                        uv.getVariableQName().getDisplayName(), "XPST0008", firstLoc);
             } else if (var.isPrivate() && !var.getSystemId().equals(getSystemId())) {
-                staticError("Cannot reference a private variable in a different module", "XPST0008");
+                staticError("Cannot reference a private variable $" +
+                                    uv.getVariableQName().getDisplayName() +
+                                    " in a different module", "XPST0008", firstLoc);
             } else {
                 uv.transferReferences(var);
             }
         }
     }
 
-    /**
-     * Add an imported schema to this static context. A query module can reference
-     * types in a schema provided two conditions are satisfied: the schema containing those
-     * types has been loaded into the Configuration, and the target namespace has been imported
-     * by this query module. This method achieves the second of these conditions. It does not
-     * cause the schema to be loaded.
-     *
-     * @param targetNamespace The target namespace of the schema to be added
-     * @param baseURI         The base URI against which the locationURIs are to be absolutized
-     * @param locationURIs    a list of strings containing the absolutized URIs of the "location hints" supplied
-     *                        for this schema
-     * @since 8.4
-     */
-
-    public void addImportedSchema(NamespaceUri targetNamespace, String baseURI, /*@NotNull*/ List<String> locationURIs) {
-        if (importedSchemata == null) {
-            importedSchemata = new HashSet<>(5);
-        }
-        importedSchemata.add(targetNamespace);
-        HashMap<NamespaceUri, HashSet<String>> loadedSchemata = getTopLevelModule().loadedSchemata;
-        if (loadedSchemata == null) {
-            loadedSchemata = new HashMap<>(5);
-            getTopLevelModule().loadedSchemata = loadedSchemata;
-        }
-        HashSet<String> entries = loadedSchemata.get(targetNamespace);
-        if (entries == null) {
-            entries = new HashSet<>(locationURIs.size());
-            loadedSchemata.put(targetNamespace, entries);
-        }
-        for (String relative : locationURIs) {
-            try {
-                URI abs = ResolveURI.makeAbsolute(relative, baseURI);
-                entries.add(abs.toString());
-            } catch (URISyntaxException e) {
-                // ignore the URI if it's not valid
-            }
-        }
+    public void addImportedModule(QueryModule module) {
+        importedModules.add(module);
     }
 
-    /**
-     * Ask whether a given schema target namespace has been imported
-     *
-     * @param namespace The namespace of the required schema. Supply "" for
-     *                  a no-namespace schema.
-     * @return The schema if found, or null if not found.
-     * @since 8.4
-     */
-
-    @Override
-    public boolean isImportedSchema(NamespaceUri namespace) {
-        return importedSchemata != null && importedSchemata.contains(namespace);
-    }
-
-    /**
-     * Get the set of imported schemas
-     *
-     * @return a Set, the set of URIs representing the names of imported schemas
-     */
-
-    /*@Nullable*/
-    @Override
-    public Set<NamespaceUri> getImportedSchemaNamespaces() {
-        if (importedSchemata == null) {
-            return Collections.emptySet();
-        } else {
-            return importedSchemata;
-        }
+    public Set<QueryModule> getImportedModules() {
+        return importedModules;
     }
 
     /**
@@ -1261,7 +1202,7 @@ public class QueryModule implements StaticContext {
             throw new XmlProcessingAbort(err.getTerminationMessage());
         }
     }
-
+    
     /**
      * Construct a dynamic context for early evaluation of constant subexpressions
      *
@@ -1321,18 +1262,20 @@ public class QueryModule implements StaticContext {
         if (prefix.equals("xml") != uri.equals(NamespaceUri.XML)) {
             staticError("Invalid declaration of the XML namespace", "XQST0070");
         }
-        if (explicitPrologNamespaces.get(prefix) != null) {
+        if (prologNamespaces.get(prefix) != null) {
             staticError("Duplicate declaration of namespace prefix \"" + prefix + '"', "XQST0033");
         } else {
-            explicitPrologNamespaces.put(prefix, uri);
+            prologNamespaces.put(prefix, uri);
         }
     }
 
     /**
-     * Declare an active namespace, that is, a namespace which as well as affecting the static
+     * Declare a constructed namespace, that is, a namespace written as a namespace declaration on
+     * a direct element constructor. Such a namespace as well as affecting the static
      * context of the query, will also be copied to the result tree when element constructors
-     * are evaluated. When searching for a prefix-URI binding, active namespaces are searched
-     * first, then passive namespaces. Active namespaces are later undeclared (in reverse sequence)
+     * are evaluated. When searching for a prefix-URI binding, constructed namespaces are searched
+     * first, then prolog-declared namespaces, then externally predeclared namespaces.
+     * Constructed namespaces are later undeclared (in reverse sequence)
      * using {@link #undeclareNamespace()}.
      * <p>This method is intended for internal use only.</p>
      *
@@ -1340,16 +1283,17 @@ public class QueryModule implements StaticContext {
      * @param uri    the namespace URI
      */
 
-    public void declareActiveNamespace(/*@Nullable*/ String prefix, /*@Nullable*/ NamespaceUri uri) {
+    public void declareConstructedNamespace(String prefix, NamespaceUri uri) {
         if (prefix == null) {
-            throw new NullPointerException("Null prefix supplied to declareActiveNamespace()");
+            throw new NullPointerException("Null prefix supplied to declareConstructedNamespace()");
         }
         if (uri == null) {
-            throw new NullPointerException("Null namespace URI supplied to declareActiveNamespace()");
+            throw new NullPointerException("Null namespace URI supplied to declareConstructedNamespace()");
         }
 
-        NamespaceBinding entry = new NamespaceBinding(prefix, uri);
-        activeNamespaces.push(entry);
+        NamespaceMap nsMap = constructedNamespaces.isEmpty() ? NamespaceMap.emptyMap() : constructedNamespaces.peek();
+        nsMap = nsMap.put(prefix, uri);
+        constructedNamespaces.push(nsMap);
 
     }
 
@@ -1359,11 +1303,11 @@ public class QueryModule implements StaticContext {
      * It is NOT called when an XML 1.1-style namespace undeclaration is encountered.
      * <p>This method is intended for internal use only.</p>
      *
-     * @see #declareActiveNamespace(String, NamespaceUri)
+     * @see #declareConstructedNamespace(String, NamespaceUri)
      */
 
     public void undeclareNamespace() {
-        activeNamespaces.pop();
+        constructedNamespaces.pop();
     }
 
     /**
@@ -1408,7 +1352,7 @@ public class QueryModule implements StaticContext {
     }
 
     /**
-     * Get the matching policy for unprefixed element names in axis steps. This is a Saxon extension.
+     * Get the matching policy for unprefixed element names in axis steps.
      * The value can be any of {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE} (the default),
      * which uses the value of {@link #getDefaultElementNamespace()}, or {@link UnprefixedElementMatchingPolicy#DEFAULT_NAMESPACE_OR_NONE},
      * which matches both the namespace given in {@link #getDefaultElementNamespace()} and the null namespace,
@@ -1445,31 +1389,30 @@ public class QueryModule implements StaticContext {
      */
 
     /*@Nullable*/
-    public NamespaceUri checkURIForPrefix(/*@NotNull*/ String prefix) {
-        // Search the active namespaces first, then the passive ones.
-        if (activeNamespaces != null) {
-            for (int i = activeNamespaces.size() - 1; i >= 0; i--) {
-                if (activeNamespaces.get(i).getPrefix().equals(prefix)) {
-                    NamespaceUri ns = activeNamespaces.get(i).getNamespaceUri();
-                    if (ns.isEmpty() && !prefix.equals("")) {
-                        // the namespace is undeclared
-                        return null;
-                    }
-                    return ns;
+    public NamespaceUri checkURIForPrefix(String prefix) {
+        // Search the local namespaces first, then the prolog namespaces, then the predeclared namespaces.
+        if (!constructedNamespaces.isEmpty()) {
+            NamespaceMap nsMap = constructedNamespaces.peek();
+            NamespaceUri ns = nsMap.getNamespaceUri(prefix);
+            if (ns != null) {
+                if (ns.isEmpty() && !prefix.isEmpty()) {
+                    // the namespace is undeclared
+                    return null;
                 }
+                return ns;
             }
         }
         if (prefix.isEmpty()) {
             return defaultElementNamespace;
         }
-        NamespaceUri uri = explicitPrologNamespaces.get(prefix);
+        NamespaceUri uri = prologNamespaces.get(prefix);
         if (uri != null) {
             // A zero-length URI means the prefix was undeclared in the prolog, and we mustn't look elsewhere
             return uri.isEmpty() ? null : uri;
         }
 
         if (userQueryContext != null) {
-            uri = userQueryContext.getNamespaceForPrefix(prefix);
+            uri = userQueryContext.getPredeclaredNamespaces().getNamespaceUri(prefix);
             if (uri != null) {
                 return uri;
             }
@@ -1489,6 +1432,9 @@ public class QueryModule implements StaticContext {
     /*@Nullable*/
     @Override
     public NamespaceUri getDefaultElementNamespace() {
+        if (fixedDefaultElementNamespace) {
+            return defaultElementNamespace;
+        }
         return checkURIForPrefix("");
     }
 
@@ -1564,21 +1510,10 @@ public class QueryModule implements StaticContext {
 
     /*@NotNull*/
     NamespaceMap getActiveNamespaceBindings() {
-        if (activeNamespaces == null) {
+        if (constructedNamespaces.isEmpty()) {
             return NamespaceMap.emptyMap();
         }
-        NamespaceMap result = NamespaceMap.emptyMap();
-        HashSet<String> prefixes = new HashSet<>(10);
-        for (int n = activeNamespaces.size() - 1; n >= 0; n--) {
-            NamespaceBinding an = activeNamespaces.get(n);
-            if (!prefixes.contains(an.getPrefix())) {
-                prefixes.add(an.getPrefix());
-                if (!an.getNamespaceUri().isEmpty()) {
-                    result = result.put(an.getPrefix(), an.getNamespaceUri());
-                }
-            }
-        }
-        return result;
+        return constructedNamespaces.peek().withoutUndeclarations();
     }
 
     /**
@@ -1595,31 +1530,23 @@ public class QueryModule implements StaticContext {
     public NamespaceResolver getNamespaceResolver() {
         NamespaceMap result = NamespaceMap.emptyMap();
 
-        HashMap<String, NamespaceUri> userDeclaredNamespaces = userQueryContext.getUserDeclaredNamespaces();
+        NamespaceMap predeclaredNamespaces = userQueryContext.getPredeclaredNamespaces();
 
-        for (Map.Entry<String, NamespaceUri> e : userDeclaredNamespaces.entrySet()) {
-            result = result.put(e.getKey(), e.getValue());
+        for (NamespaceBinding e : predeclaredNamespaces.getNamespaceBindings()) {
+            result = result.put(e.getPrefix(), e.getNamespaceUri());
         }
-        for (Map.Entry<String, NamespaceUri> e : explicitPrologNamespaces.entrySet()) {
+        for (Map.Entry<String, NamespaceUri> e : prologNamespaces.entrySet()) {
             result = result.put(e.getKey(), e.getValue());
         }
         if (!defaultElementNamespace.isEmpty()) {
             result = result.put("", defaultElementNamespace);
         }
-        if (activeNamespaces == null) {
+        if (constructedNamespaces.isEmpty()) {
             return result;
         }
-        HashSet<String> prefixes = new HashSet<>(10);
-        for (int n = activeNamespaces.size() - 1; n >= 0; n--) {
-            NamespaceBinding an = activeNamespaces.get(n);
-            if (!prefixes.contains(an.getPrefix())) {
-                prefixes.add(an.getPrefix());
-                if (an.getNamespaceUri().isEmpty()) {
-                    result = result.remove(an.getPrefix());
-                } else {
-                    result = result.put(an.getPrefix(), an.getNamespaceUri());
-                }
-            }
+        NamespaceMap activeNS = constructedNamespaces.peek();
+        for (NamespaceBinding binding : activeNS.getNamespaceBindings()) {
+            result = result.put(binding.getPrefix(), binding.getNamespaceUri());
         }
         return result;
     }
@@ -1634,7 +1561,12 @@ public class QueryModule implements StaticContext {
 
     @Override
     public ItemType getRequiredContextItemType() {
-        return requiredContextItemType;
+        return requiredContextValueType.getPrimaryType();
+    }
+
+    @Override
+    public SequenceType getRequiredContextValueType() {
+        return requiredContextValueType;
     }
 
     /**
@@ -1751,12 +1683,18 @@ public class QueryModule implements StaticContext {
     }
 
     /**
-     * Inner class containing information about an active namespace entry
+     * Get the number of references to a not-yet-declared global variable
      */
 
-    private static class ActiveNamespace {
-        /*@Nullable*/ public String prefix;
-        /*@Nullable*/ public String uri;
+    public int getForwardReferenceCount(StructuredQName variableName) {
+        UndeclaredVariable var = undeclaredVariables.get(variableName);
+        if (var == null) {
+            return 0;
+        } else {
+            return var.countReferences();
+        }
     }
+
+
 }
 

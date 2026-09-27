@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,6 +15,7 @@ import java.util.StringTokenizer;
 /**
  * This class represents a dot-separated sequence of numbers such as 1.12.5, typically
  * used as a software version number.
+ * <p>Also used for import precedences during the "use-when" filter pass on stylesheets.</p>
  * <p>The class provides "smart" ordering, for example 1 &lt; 1.2 &lt; 1.12 &lt; 1.12.6</p>
  */
 
@@ -102,6 +103,14 @@ public class NestedIntegerValue implements Comparable<NestedIntegerValue> {
             }
         }
         return Integer.signum(value.length - v2.value.length);
+    }
+
+    public String toString() {
+        StringBuilder builder = new StringBuilder().append(value[0]);
+        for (int i = 1; i < value.length; i++) {
+            builder.append('.').append(value[i]);
+        }
+        return builder.toString();
     }
 
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -64,7 +64,7 @@ public abstract class Operation {
      * if the expression is statically known to match a zero-length string at the
      * start of the supplied input;</li>
      * <li>returns
-     * {@link #MATCHES_ZLS_AT_END} if it is statically known to return a zero-length
+     * {@link #MATCHES_ZLS_AT_END} if it is statically known to match a zero-length
      * string at the end of the supplied input;</li>
      * <li>returns {@link #MATCHES_ZLS_ANYWHERE}
      * if it is statically known to match a zero-length string anywhere in the input.
@@ -87,6 +87,22 @@ public abstract class Operation {
      */
 
     public boolean containsCapturingExpressions() {
+        return false;
+    }
+
+    /**
+     * Ask whether the expression is a zero-width assertion
+     */
+
+    public boolean isAssertion() {
+        return false;
+    }
+
+    /**
+     * Ask whether the expression is allowed within a lookbehind
+     */
+
+    public boolean isAllowedWithinLookbehind() {
         return false;
     }
 
@@ -122,6 +138,15 @@ public abstract class Operation {
 
     public abstract String display();
 
+    /**
+     * Get the maximum depth of looping within this operation
+     * @return the maximum number of nested iterations
+     */
+
+    public int getMaxLoopingDepth() {
+        return 0;
+    }
+
 
     /**
      * The ForceProgressIterator is used to protect against non-termination; specifically,
@@ -135,14 +160,17 @@ public abstract class Operation {
         private final IntIterator base;
         int countZeroLength = 0;
         int currentPos = -1;
+        int loopingDepth = 1;
+        int maxTries = 10;
 
-        ForceProgressIterator(IntIterator base) {
+        ForceProgressIterator(IntIterator base, int loopingDepth) {
             this.base = base;
+            this.loopingDepth = Math.max(loopingDepth, 1);
         }
 
         @Override
         public boolean hasNext() {
-            return countZeroLength <= 3 && base.hasNext();
+            return countZeroLength <= maxTries && base.hasNext();
         }
 
         @Override
@@ -153,6 +181,11 @@ public abstract class Operation {
             } else {
                 countZeroLength = 0;
                 currentPos = p;
+                // See bug #6426. We're computing an upper bound on the number of different ways
+                // that a position p in the input can be reached, essentially ((p+2) ^ n)/2 where n is
+                // the maximum depth of looping.
+                double limit = Math.min(Integer.MAX_VALUE, Math.pow(currentPos+2, loopingDepth)/2);
+                maxTries = (int)limit;
             }
             return p;
         }

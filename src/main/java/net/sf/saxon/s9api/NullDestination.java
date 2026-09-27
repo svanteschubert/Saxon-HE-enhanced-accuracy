@@ -14,7 +14,7 @@ import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
- * A NullDestination is a Destination that discards all output sent to it.
+ * A {@code NullDestination} is a {@link Destination} that discards all output sent to it.
  * @since 9.9
  */
 @CSharpModifiers(code = {"internal"})

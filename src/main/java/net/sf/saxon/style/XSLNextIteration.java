@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,13 +13,13 @@ import net.sf.saxon.expr.VariableReference;
 import net.sf.saxon.expr.instruct.LocalParam;
 import net.sf.saxon.expr.instruct.NextIteration;
 import net.sf.saxon.expr.instruct.WithParam;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.NodeSelector;
+import net.sf.saxon.pattern.NodePredicateLambda;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
@@ -64,10 +64,10 @@ public class XSLNextIteration extends XSLBreakOrContinue {
 
         for (NodeInfo w : children(XSLWithParam.class::isInstance)) {
             XSLWithParam withParam = (XSLWithParam) w;
-            AxisIterator formalParams = xslIterate.iterateAxis(AxisInfo.CHILD);
+            SequenceIterator formalParams = xslIterate.iterateChildAxis(AnyGNode.TEST);
             boolean ok = false;
             NodeInfo param;
-            while ((param = formalParams.next()) != null) {
+            while ((param = (NodeInfo)formalParams.next()) != null) {
                 if (param instanceof XSLLocalParam &&
                         ((XSLLocalParam) param).getVariableQName().equals(withParam.getVariableQName())) {
                     ok = true;
@@ -85,7 +85,7 @@ public class XSLNextIteration extends XSLBreakOrContinue {
     }
 
     public SequenceType getDeclaredParamType(StructuredQName name) {
-        for (NodeInfo param : xslIterate.children(NodeSelector.of(XSLLocalParam.class::isInstance))) {
+        for (NodeInfo param : xslIterate.children(NodePredicateLambda.of(XSLLocalParam.class::isInstance))) {
             if (((XSLLocalParam)param).getVariableQName().equals(name)) {
                 return ((XSLLocalParam) param).getRequiredType();
             }
@@ -106,9 +106,9 @@ public class XSLNextIteration extends XSLBreakOrContinue {
         // actual parameters of the xsl:next-iteration, add an implicit <xsl:with-param name="p" select="$p"/>
 
         if (xslIterate != null) {
-            AxisIterator declaredParams = xslIterate.iterateAxis(AxisInfo.CHILD);
+            SequenceIterator declaredParams = xslIterate.iterateChildAxis(AnyGNode.TEST);
             NodeInfo param;
-            while ((param = declaredParams.next()) != null) {
+            while ((param = (NodeInfo)declaredParams.next()) != null) {
                 if (param instanceof XSLLocalParam) {
                     XSLLocalParam pdecl = (XSLLocalParam) param;
                     StructuredQName paramName = pdecl.getVariableQName();

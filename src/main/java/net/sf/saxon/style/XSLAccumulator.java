@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,10 @@
 
 package net.sf.saxon.style;
 
+//import com.saxonica.ee.stream.PostureAndSweep;
+//import com.saxonica.ee.stream.Streamability;
+//import com.saxonica.ee.stream.Sweep;
+//import com.saxonica.ee.trans.ContextItemStaticInfoEE;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.Expression;
@@ -23,7 +27,7 @@ import net.sf.saxon.functions.AccumulatorFn;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trans.SimpleMode;
 import net.sf.saxon.trans.SymbolicName;
@@ -148,7 +152,6 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
             } else {
                 checkUnknownAttribute(attName);
             }
-            // TODO: add saxon:as
         }
 
         if (accumulator.getType() == null) {
@@ -197,16 +200,19 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
             Pattern pattern = rule.getMatch();
             Expression newValueExp = rule.getNewValueExpression(compilation, decl);
             ExpressionVisitor visitor = ExpressionVisitor.make(getStaticContext());
-            newValueExp = newValueExp.typeCheck(visitor, config.makeContextItemStaticInfo(pattern.getItemType(), false));
+            newValueExp = newValueExp.typeCheck(visitor, config.makeContextItemStaticInfo(pattern.getItemType()));
             Supplier<RoleDiagnostic> role =
                     () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:accumulator-rule/select", 0);
             newValueExp = config.getTypeChecker(false).staticTypeCheck(newValueExp, accumulator.getType(), role, visitor);
-            newValueExp = newValueExp.optimize(visitor, getConfiguration().makeContextItemStaticInfo(pattern.getItemType(), false));
-            slotManager.allocateSlotNumber(NamespaceUri.NULL.qName("value"), null);
-            ExpressionTool.allocateSlots(newValueExp, 1, slotManager);
+            newValueExp = newValueExp.optimize(visitor, getConfiguration().makeContextItemStaticInfo(pattern.getItemType()));
+            // Note, rather unnecessarily, all rules for an accumulator allocate slots on the same stackframe
+            int valueSlot = slotManager.allocateSlotNumber(NamespaceUri.NULL.qName("value"), null);
+            ExpressionTool.allocateSlots(newValueExp, valueSlot+1, slotManager);
             boolean isPreDescent = !rule.isPostDescent();
             SimpleMode mode = isPreDescent ? accumulator.getPreDescentRules() : accumulator.getPostDescentRules();
             AccumulatorRule action = new AccumulatorRule(newValueExp, slotManager, rule.isPostDescent());
+            action.setLocation(rule.saveLocation());
+            action.setAccumulatorName(((XSLAccumulator) rule.getParent()).getObjectName());
             mode.addRule(pattern, action, decl.getModule(), decl.getModule().getPrecedence(), 1, position++, 0);
 
             checkRuleStreamability(rule, pattern, newValueExp);
@@ -226,6 +232,10 @@ public class XSLAccumulator extends StyleElement implements StylesheetComponent 
 
             accumulator.addChildExpression(newValueExp);
             accumulator.addChildExpression(pattern);
+
+            if (getCompilation().getCompilerInfo().getCodeInjector() != null) {
+                getCompilation().getCompilerInfo().getCodeInjector().process(action);
+            }
         }
 
         accumulator.getPreDescentRules().allocateAllPatternSlots();

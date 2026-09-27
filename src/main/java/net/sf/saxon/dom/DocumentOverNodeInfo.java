@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,12 @@
 
 package net.sf.saxon.dom;
 
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.TreeInfo;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NodeKindType;
 import org.w3c.dom.*;
 
 import java.util.ArrayList;
@@ -197,16 +197,16 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
         if (root == null) {
             return null;
         }
-        AxisIterator children =
-                root.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
-        return (Element) wrap(children.next());
+        SequenceIterator children =
+                root.iterateChildAxis(NodeKindType.ELEMENT);
+        return (Element) wrap((NodeInfo)children.next());
     }
 
     protected static NodeList getElementsByTagName(NodeInfo node, String tagname) {
-        AxisIterator allElements = node.iterateAxis(AxisInfo.DESCENDANT);
+        SequenceIterator allElements = node.iterateDescendantAxis(AnyGNode.TEST);
         List<Node> nodes = new ArrayList<>(100);
         while (true) {
-            NodeInfo next = allElements.next();
+            NodeInfo next = (NodeInfo)allElements.next();
             if (next == null) {
                 break;
             }
@@ -293,10 +293,10 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
 
     public static NodeList getElementsByTagNameNS(NodeInfo node, String namespaceURI, String localName) {
         String ns = namespaceURI == null ? "" : namespaceURI;
-        AxisIterator allElements = node.iterateAxis(AxisInfo.DESCENDANT);
+        SequenceIterator allElements = node.iterateDescendantAxis(AnyGNode.TEST);
         List<Node> nodes = new ArrayList<>(100);
         while (true) {
-            NodeInfo next = allElements.next();
+            NodeInfo next = (NodeInfo)allElements.next();
             if (next == null) {
                 break;
             }
@@ -366,11 +366,11 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
      * <a href='http://www.w3.org/TR/2004/REC-xml-20040204#NT-XMLDecl'>XML declaration</a>,
      * whether this document is standalone. This is <code>false</code> when
      * unspecified.
-     * <p ><b>Note:</b>  No verification is done on the value when setting
+     * <p><b>Note:</b>  No verification is done on the value when setting
      * this attribute. Applications should use
      * <code>Document.normalizeDocument()</code> with the "validate"
      * parameter to verify if the value matches the <a href='http://www.w3.org/TR/2004/REC-xml-20040204#sec-rmd'>validity
-     * constraint for standalone document declaration</a> as defined in [<a href='http://www.w3.org/TR/2004/REC-xml-20040204'>XML 1.0</a>].
+     * constraint for standalone document declaration</a> as defined in [<a href='http://www.w3.org/TR/2004/REC-xml-20040204'>XML 1.0</a>].</p>
      *
      * @since DOM Level 3
      */
@@ -382,11 +382,11 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
     /**
      * An attribute specifying, as part of the <a href='http://www.w3.org/TR/2004/REC-xml-20040204#NT-XMLDecl'>XML declaration</a>, whether this document is standalone. This is <code>false</code> when
      * unspecified.
-     * <p ><b>Note:</b>  No verification is done on the value when setting
+     * <p><b>Note:</b>  No verification is done on the value when setting
      * this attribute. Applications should use
      * <code>Document.normalizeDocument()</code> with the "validate"
      * parameter to verify if the value matches the <a href='http://www.w3.org/TR/2004/REC-xml-20040204#sec-rmd'>validity
-     * constraint for standalone document declaration</a> as defined in [<a href='http://www.w3.org/TR/2004/REC-xml-20040204'>XML 1.0</a>].
+     * constraint for standalone document declaration</a> as defined in [<a href='http://www.w3.org/TR/2004/REC-xml-20040204'>XML 1.0</a>].</p>
      *
      * @throws org.w3c.dom.DOMException NOT_SUPPORTED_ERR: Raised if this document does not support the
      *                                  "XML" feature.
@@ -624,15 +624,15 @@ public class DocumentOverNodeInfo extends NodeOverNodeInfo implements Document {
      * this method updates the replacement tree of
      * <code>EntityReference</code> nodes and normalizes <code>Text</code>
      * nodes, as defined in the method <code>Node.normalize()</code>.
-     * <br> Otherwise, the actual result depends on the features being set on
+     * <p> Otherwise, the actual result depends on the features being set on
      * the <code>Document.domConfig</code> object and governing what
      * operations actually take place. Noticeably this method could also
      * make the document namespace well-formed according to the algorithm
      * described in , check the character normalization, remove the
      * <code>CDATASection</code> nodes, etc. See
-     * <code>DOMConfiguration</code> for details.
-     * <pre>// Keep in the document
-     * the information defined // in the XML Information Set (Java example)
+     * <code>DOMConfiguration</code> for details.</p>
+     * <pre>// Keep in the document the information defined
+     * // in the XML Information Set (Java example)
      * DOMConfiguration docConfig = myDocument.getDomConfig();
      * docConfig.setParameter("infoset", Boolean.TRUE);
      * myDocument.normalizeDocument();</pre>

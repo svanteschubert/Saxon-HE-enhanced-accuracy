@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.SlotManager;
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.lib.TraceListener;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.UncheckedXPathException;
@@ -73,7 +74,11 @@ public class AccumulatorData implements IAccumulatorData {
             c2.setCurrentIterator(new ManualIterator(doc));
             Sequence val = SequenceTool.toGroundedValue(initialValue.iterate(c2));
             values.add(new DataPoint(new Visit(doc, false), val));
-            val = visit(doc, val, c2);
+            TraceListener listener = null;
+            if (context.getController().isTracing()) {
+                listener = context.getController().getTraceListener();
+            }
+            val = visit(doc, val, c2, listener);
             values.add(new DataPoint(new Visit(doc, true), val));
             ((ArrayList<DataPoint>) values).trimToSize();
             building = false;
@@ -105,22 +110,29 @@ public class AccumulatorData implements IAccumulatorData {
      */
 
     @SuppressWarnings({"InfiniteRecursion"}) //Spurious warning from IntelliJ
-    private Sequence visit(NodeInfo node, Sequence value, XPathContext context) throws XPathException {
+    private Sequence visit(NodeInfo node, Sequence value, XPathContext context, TraceListener listener) throws XPathException {
         try {
+            if (listener != null) {
+                listener.startCurrentItem(node);
+            }
             ((ManualIterator)context.getCurrentIterator()).setContextItem(node);
             Rule rule = accumulator.getPreDescentRules().getRule(node, context);
             if (rule != null) {
                 value = processRule(rule, node, false, value, context);
                 logChange(node, value, context, " BEFORE ");
             }
-            for (NodeInfo kid : node.children()) {
-                value = visit(kid, value, context);
+            SequenceIterator children = node.iterateChildAxis(null);
+            for (NodeInfo kid; (kid = (NodeInfo) children.next()) != null; ) {
+                value = visit(kid, value, context, listener);
             }
             ((ManualIterator) context.getCurrentIterator()).setContextItem(node);
             rule = accumulator.getPostDescentRules().getRule(node, context);
             if (rule != null) {
                 value = processRule(rule, node, true, value, context);
                 logChange(node, value, context, " AFTER ");
+            }
+            if (listener != null) {
+                listener.endCurrentItem(node);
             }
             return value;
         } catch (StackOverflowError e) {
@@ -221,27 +233,13 @@ public class AccumulatorData implements IAccumulatorData {
             return search(mid + 1, end, sought);
         }
 
-        // 9.6:
-//        int mid = (start + end) / 2;
-//        if (sought.compareTo(values.get(mid).visit) <= 0) {
-//            return search(start, mid, sought);
-//        } else {
-//            return search(mid + 1, end, sought);
-//        }
     }
 
     /**
      * Class representing one of the two visits to a node during a tree-walk
      */
 
-    private static class Visit implements Comparable<Visit> {
-        public NodeInfo node;
-        public boolean isPostDescent;
-
-        public Visit(NodeInfo node, boolean isPostDescent) {
-            this.node = node;
-            this.isPostDescent = isPostDescent;
-        }
+    private record Visit (NodeInfo node, boolean isPostDescent) implements Comparable<Visit> {
 
         /**
          * Compare the order of two node visits.
@@ -253,24 +251,14 @@ public class AccumulatorData implements IAccumulatorData {
         @Override
         public int compareTo(Visit other) {
             int relation = Navigator.comparePosition(node, other.node);
-            switch (relation) {
-                case AxisInfo.SELF:
-                    if (isPostDescent == other.isPostDescent) {
-                        return 0;
-                    } else {
-                        return isPostDescent ? +1 : -1;
-                    }
-                case AxisInfo.PRECEDING:
-                    return -1;
-                case AxisInfo.FOLLOWING:
-                    return +1;
-                case AxisInfo.ANCESTOR:
-                    return isPostDescent ? +1 : -1;
-                case AxisInfo.DESCENDANT:
-                    return other.isPostDescent ? -1 : +1;
-                default:
-                    throw new IllegalStateException();
-            }
+            return switch (relation) {
+                case AxisInfo.SELF -> (isPostDescent == other.isPostDescent) ? 0 : (isPostDescent ? +1 : -1);
+                case AxisInfo.PRECEDING -> -1;
+                case AxisInfo.FOLLOWING -> +1;
+                case AxisInfo.ANCESTOR -> isPostDescent ? +1 : -1;
+                case AxisInfo.DESCENDANT -> other.isPostDescent ? -1 : +1;
+                default -> throw new IllegalStateException();
+            };
         }
     }
 
@@ -278,14 +266,7 @@ public class AccumulatorData implements IAccumulatorData {
      * Class representing a value of the accumulator immediately after a particular visit to a node.
      */
 
-    private static class DataPoint {
-        public Visit visit;
-        public Sequence value;
-
-        public DataPoint(Visit visit, Sequence value) {
-            this.visit = visit;
-            this.value = value;
-        }
+    private record DataPoint(Visit visit, Sequence value) {
     }
 
 }

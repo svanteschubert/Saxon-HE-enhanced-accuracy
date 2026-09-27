@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.om.SequenceIterator;
 
 /**
  * A WrappingIterator delivers wrappers for the nodes delivered
@@ -18,9 +18,9 @@ import net.sf.saxon.tree.iter.AxisIterator;
  * rather than switching to the real nodes.
  */
 
-public class WrappingIterator implements AxisIterator {
+public class WrappingIterator implements SequenceIterator {
 
-    AxisIterator base;
+    SequenceIterator base;
     VirtualNode parent;
     /*@Nullable*/ NodeInfo _current;
     boolean atomizing = false;
@@ -35,7 +35,7 @@ public class WrappingIterator implements AxisIterator {
      *                 it can be specified here. Otherwise specify null.
      */
 
-    public WrappingIterator(AxisIterator base, WrappingFunction function, VirtualNode parent) {
+    public WrappingIterator(SequenceIterator base, WrappingFunction function, VirtualNode parent) {
         this.base = base;
         this.wrappingFunction = function;
         this.parent = parent;
@@ -45,7 +45,7 @@ public class WrappingIterator implements AxisIterator {
     /*@Nullable*/
     @Override
     public NodeInfo next() {
-        NodeInfo n = base.next();
+        NodeInfo n = (NodeInfo)base.next();
         if (n == null) {
             return _current = null;
         }

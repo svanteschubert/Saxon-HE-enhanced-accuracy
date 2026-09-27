@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,20 +10,15 @@ package net.sf.saxon.pattern;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.Choose;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.functions.Doc;
-import net.sf.saxon.functions.KeyFn;
-import net.sf.saxon.functions.Root_1;
-import net.sf.saxon.functions.SuperId;
+import net.sf.saxon.functions.*;
+import net.sf.saxon.functions.hof.FunctionLiteral;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.om.AxisInfo;
-import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.QNameParser;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
-import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.Int64Value;
-import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.value.*;
 
 /**
  * Parser for XSLT patterns. This is created by overriding selected parts of the standard ExpressionParser.
@@ -31,7 +26,8 @@ import net.sf.saxon.value.SequenceType;
 
 public class PatternParser extends XPathParser {
 
-    int inPredicate = 0;
+    private int inPredicate = 0;
+    private int inXNodePattern = 0;
 
     public PatternParser(StaticContext env) {
         super(env);
@@ -39,7 +35,6 @@ public class PatternParser extends XPathParser {
 
     /**
      * Parse a string representing an XSLT pattern
-     *
      *
      * @param pattern the pattern expressed as a String
      * @param env     the static context for the pattern
@@ -53,161 +48,199 @@ public class PatternParser extends XPathParser {
         this.env = env;
         charChecker = env.getConfiguration().getValidCharacterChecker();
         setLanguage(ParsedLanguage.XSLT_PATTERN, env.getXPathVersion());
-        String trimmed = pattern.trim();
-        if (trimmed.startsWith("(:")) {
-            // Strip off any leading comments so that we can safely detect a SelectionPattern
-            t = new Tokenizer();
-            t.languageLevel = env.getXPathVersion();
-            t.tokenize(trimmed, 0, -1);
 
-            int start = t.currentTokenStartOffset;
-            trimmed = trimmed.substring(start);
+        if (qNameParser == null) {
+            qNameParser = new QNameParser(env.getNamespaceResolver());
+            if (languageVersion >= 30) {
+                qNameParser = qNameParser.withAcceptEQName(true, languageVersion);
+            }
         }
-        allowXPath40Syntax = env.getConfiguration().getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS) || env.getXPathVersion() == 40;
-        if (isSelectionPattern(trimmed)) {
-            Expression e = parse(pattern, 0, Token.EOF, env);
-            if (e instanceof Pattern) {
-                return (Pattern) e;
-            } else if (e instanceof ContextItemExpression) {
-                return new UniversalPattern();
-            } else if (e instanceof FilterExpression) {
-                Expression predicate = null;
-                while (e instanceof FilterExpression) {
-                    Expression filter = ((FilterExpression) e).getActionExpression();
-                    e = ((FilterExpression) e).getSelectExpression();
-                    // Need to consider the possibility of a numeric predicate
-                    ItemType filterType = filter.getItemType();
-                    TypeHierarchy th = env.getConfiguration().getTypeHierarchy();
-                    Affinity rel = th.relationship(filterType, NumericType.getInstance());
-                    if (rel != Affinity.DISJOINT) {
-                        // the predicate may be numeric
-                        if (rel == Affinity.SAME_TYPE || rel == Affinity.SUBSUMED_BY) {
-                            // the predicate IS numeric: rewrite as N eq 1, since other values don't match
-                            filter = new ValueComparison(filter, Token.FEQ, Literal.makeLiteral(Int64Value.PLUS_ONE));
-                        } else {
-                            // the predicate MIGHT BE numeric: rewrite as
-                            // let $P := predicate return if ($P instance of xs:numeric) then ($P eq 1) else $P
-                            LetExpression let = new LetExpression();
-                            StructuredQName varName =
-                                    new StructuredQName("vv", NamespaceUri.SAXON_GENERATED_VARIABLE, "v" + filter.hashCode());
-                            let.setVariableQName(varName);
-                            InstanceOfExpression condition =
-                                    new InstanceOfExpression(new LocalVariableReference(let), SequenceType.SINGLE_NUMERIC);
-                            LocalVariableReference ref = new LocalVariableReference(let);
-                            ref.setStaticType(SequenceType.ANY_SEQUENCE, null, 0);
-                            ValueComparison comparison =
-                                    new ValueComparison(ref, Token.FEQ, Literal.makeLiteral(Int64Value.PLUS_ONE));
-                            Choose choice = new Choose(new Expression[]{condition, Literal.makeLiteral(BooleanValue.TRUE)},
-                                                       new Expression[]{comparison, new LocalVariableReference(let)});
-                            let.setSequence(filter);
-                            let.setAction(choice);
-                            let.setRequiredType(SequenceType.ANY_SEQUENCE);
-                            let.setRetainedStaticContext(env.makeRetainedStaticContext());
-                            filter = let;
-                        }
-                    }
-                    if (predicate == null) {
-                        predicate = filter;
-                    } else {
-                        predicate = new AndExpression(filter, predicate);
-                    }
-                }
-                if (e instanceof ContextItemExpression) {
-                    return new BooleanExpressionPattern(predicate);
-                }
+        int version = env.getXPathVersion();
+        t = new Tokenizer();
+        t.languageLevel = version;
+        t.allowSaxonExtensions =
+                env.getConfiguration().getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS) || version >= 40;
+        try {
+            t.tokenize(pattern, 0, -1);
+        } catch (XPathException err) {
+            grumble(err.getMessage());
+        }
+
+        Pattern result;
+        if (t.currentToken == Token.DOT) {
+            result = parsePredicatePattern();
+        } else if (t.currentToken == Token.TILDE) {
+            result = parseTypePattern();
+        } else {
+            result = parsePathExprP();
+        }
+        expect(Token.EOF);
+        result.setRetainedStaticContextThoroughly(env.makeRetainedStaticContext());
+        return result;
+    }
+
+    public Pattern parseUnionPattern(boolean topLevel, StaticContext env) throws XPathException {
+        Pattern operand = parseIntersectExceptPattern(topLevel, env);
+        while (t.currentToken == Token.VBAR || isKeyword("union")) {
+            nextToken();
+            Pattern next = parseIntersectExceptPattern(topLevel, env);
+            operand = new UnionPattern(operand, next);
+            // default in <= 3.0 is to take the priority from the component patterns.
+            // In 4.0 it is the max of the component priorities
+            if (env.getXPathVersion() >= 40) {
+                UnionPattern up = (UnionPattern) operand;
+                operand.setPriority(Math.max(up.p1.getDefaultPriority(), up.p2.getDefaultPriority()));
+            } else {
+                operand.setPriority(Double.NaN);
             }
-            grumble("Pattern starting with '.' must be followed by a sequence of predicates");
-            return null;
-        } else if (isTypePattern(pattern)) {
-            this.env = env;
-            if (qNameParser == null) {
-                qNameParser = new QNameParser(env.getNamespaceResolver());
-                if (languageVersion >= 30) {
-                    qNameParser = qNameParser.withAcceptEQName(true);
-                }
+        }
+        return operand;
+    }
+
+    public Pattern parseIntersectExceptPattern(boolean topLevel, StaticContext env) throws XPathException {
+        Pattern operand = parsePathExprP();
+        while (isKeyword("intersect") || isKeyword("except")) {
+            Pattern first = operand;
+            String keyword = t.currentName();
+            nextToken();
+            Pattern next = parsePathExprP();
+            if (keyword.equals("intersect")) {
+                operand = new IntersectPattern(operand, next);
+            } else {
+                operand = new ExceptPattern(operand, next);
             }
-            language = ParsedLanguage.XSLT_PATTERN;
-            t = new Tokenizer();
-            t.languageLevel = env.getXPathVersion();
-            allowXPath40Syntax =
-                    t.allowSaxonExtensions =
-                            env.getConfiguration().getBooleanProperty(Feature.ALLOW_SYNTAX_EXTENSIONS) || t.languageLevel == 40;
-            try {
-                t.tokenize(pattern, 0, -1);
-            } catch (XPathException err) {
-                grumble(err.getMessage());
-            }
-            ItemType req = parseItemType();
-            Pattern result = new ItemTypePattern(req);
+            operand.setPriority(first.getDefaultPriority());
+        }
+        return operand;
+    }
+
+    protected void notAllowedInPattern() throws XPathException {
+        if (inPredicate == 0) {
+            grumble("Pattern uses syntax that is allowed in expressions, but not in patterns");
+        }
+    }
+
+
+    public Pattern parsePredicatePattern() throws XPathException {
+        readToken(Token.DOT);
+        if (t.currentToken == Token.LSQB) {
+            TypeHierarchy th = env.getConfiguration().getTypeHierarchy();
+            Expression combinedCondition = null;
             while (t.currentToken == Token.LSQB) {
                 nextToken();
                 Expression predicate = parsePredicate();
-                expect(Token.RSQB);
-                nextToken();
-                result = new BasePatternWithPredicate(result, predicate);
-            }
-            expect(Token.EOF);
-            return result;
-        } else {
-            Expression exp = parse(pattern, 0, Token.EOF, env);
-            exp.setRetainedStaticContext(env.makeRetainedStaticContext());
+                readToken(Token.RSQB);
 
-            // If we have a union pattern, check that neither operand is a PredicatePattern
-            if (exp instanceof VennExpression) {
-                checkNoPredicatePattern(((VennExpression) exp).getLhsExpression());
-                checkNoPredicatePattern(((VennExpression) exp).getRhsExpression());
-            }
-            ExpressionVisitor visitor = ExpressionVisitor.make(env);
-            visitor.setOptimizeForPatternMatching(true);
-            ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(AnyNodeTest.getInstance(), true);
-            Pattern pat;
-            try {
-                pat = PatternMaker.fromExpression(exp.simplify().typeCheck(visitor, cit), env.getConfiguration(), true);
-            } catch (XPathException e) {
-                pat = PatternMaker.fromExpression(exp.simplify(), env.getConfiguration(), true);
-            }
-
-            pat.setOriginalText(pattern);
-            if (pat instanceof UnionPattern) {
-                String[] parts = pattern.split("\\|");
-                if (parts.length == 2) {
-                    ((UnionPattern) pat).p1.setOriginalText(parts[0]);
-                    ((UnionPattern) pat).p2.setOriginalText(parts[1]);
+                // Need to consider the possibility of a numeric predicate
+                ItemType filterType = predicate.getItemType();
+                Affinity rel = th.relationship(filterType, NumericType.getInstance());
+                if (rel != Affinity.DISJOINT) {
+                    // the predicate may be numeric
+                    if (rel == Affinity.SAME_TYPE || rel == Affinity.SUBSUMED_BY) {
+                        // the predicate IS numeric: rewrite as N eq 1, since other values don't match
+                        predicate = new ValueComparison(predicate, OperatorSymbol.FEQ, Literal.makeLiteral(Int64Value.PLUS_ONE));
+                    } else {
+                        // the predicate MIGHT BE numeric: rewrite as
+                        // let $P := predicate return if ($P instance of xs:numeric) then ($P eq 1) else $P
+                        LetExpression let = new LetExpression();
+                        StructuredQName varName =
+                                new StructuredQName("vv", NamespaceUri.SAXON_GENERATED_VARIABLE, "v" + predicate.hashCode());
+                        let.setVariableQName(varName);
+                        InstanceOfExpression condition =
+                                new InstanceOfExpression(new LocalVariableReference(let), SequenceType.SINGLE_NUMERIC);
+                        LocalVariableReference ref = new LocalVariableReference(let);
+                        ref.setStaticType(SequenceType.ANY_SEQUENCE, null, 0);
+                        ValueComparison comparison =
+                                new ValueComparison(ref, OperatorSymbol.FEQ, Literal.makeLiteral(Int64Value.PLUS_ONE));
+                        Choose choice = new Choose(new Expression[]{condition, Literal.makeLiteral(BooleanValue.TRUE)},
+                                                   new Expression[]{comparison, new LocalVariableReference(let)});
+                        let.setSequence(predicate);
+                        let.setAction(choice);
+                        let.setRequiredType(SequenceType.ANY_SEQUENCE);
+                        let.setRetainedStaticContext(env.makeRetainedStaticContext());
+                        predicate = let;
+                    }
                 }
-            }
-
-            if (exp instanceof FilterExpression && ((FilterExpression)exp).getBase() instanceof ContextItemExpression) {
-                if (allowXPath40Syntax && (pattern.startsWith("record") || pattern.startsWith("tuple") || pattern.startsWith("map") || pattern.startsWith("array") || pattern.startsWith("union"))) {
-                    // no action, this is OK
+                if (combinedCondition == null) {
+                    combinedCondition = predicate;
                 } else {
-                    grumble("A predicatePattern can appear only at the outermost level (parentheses not allowed)");
+                    combinedCondition = new AndExpression(combinedCondition, predicate);
                 }
             }
-            if (exp instanceof FilterExpression && pat instanceof NodeTestPattern) {
-                // the pattern has been simplified but needs to retain a default priority based on its syntactic form (test match-058)
-                pat.setPriority(0.5);
-            }
-            return pat;
+            return new BooleanExpressionPattern(combinedCondition);
+        } else {
+            return new UniversalPattern();
         }
     }
 
-    private boolean isSelectionPattern(String pattern)  {
-        return pattern.startsWith(".");
-    }
-
-
-    private boolean isTypePattern(String pattern) throws XPathException {
-        if (pattern.matches("^(type|record|map|array|union|atomic)\\s*\\(.+")) {
-            checkLanguageVersion40();
-            return true;
+    private Pattern parseTypePattern() throws XPathException {
+        Pattern result;
+        readToken(Token.TILDE);
+        ItemType type = parseItemType();
+        result = new ItemTypePattern(type);
+        while (t.currentToken == Token.LSQB) {
+            nextToken();
+            Expression predicate = parsePredicate();
+            readToken(Token.RSQB);
+            result = new BasePatternWithPredicate(result, predicate);
         }
-        return false;
+        return result;
     }
 
+    private Pattern parsePathExprP() throws XPathException {
+
+        // The grammar for an parsePathExprP is a subset of XPath expression syntax. We therefore parse the
+        // construct as an expression, and then convert the resulting expression to a pattern. Where there
+        // are differences between expression syntax and pattern syntax, we either override the relevant
+        // parsing logic, or in some cases there is conditional code in the XPath parser that is sensitive
+        // to the language being parsed.
+
+        inXNodePattern++;
+        Expression exp = parseExpression();
+        ExpressionTool.setDeepRetainedStaticContext(exp, env.makeRetainedStaticContext());
+
+        // If we have a union pattern, check that neither operand is a PredicatePattern
+        if (exp instanceof VennExpression) {
+            checkNoPredicatePattern(((VennExpression) exp).getLhsExpression());
+            checkNoPredicatePattern(((VennExpression) exp).getRhsExpression());
+        }
+
+        ExpressionVisitor visitor = ExpressionVisitor.make(env);
+        visitor.setOptimizeForPatternMatching(true);
+        ItemType contextItemType = isAllowXPath40Syntax() ? AnyGNodeType.getInstance() : AnyXNodeType.getInstance();
+        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(
+                contextItemType, Optionality.OPTIONAL);
+        Pattern pat;
+        try {
+            pat = PatternMaker.fromExpression(exp.simplify().typeCheck(visitor, cit), env.getConfiguration(), true);
+        } catch (XPathException e) {
+            pat = PatternMaker.fromExpression(exp.simplify(), env.getConfiguration(), true);
+        }
+
+        if (exp instanceof FilterExpression) {
+            // the pattern has been simplified but needs to retain a default priority based on its syntactic form (test match-058)
+            pat.setPriority(0.5);
+        }
+        inXNodePattern--;
+        return pat;
+    }
+
+    @Override
+    public Expression parseParenthesizedExpression() throws XPathException {
+        Expression exp = super.parseParenthesizedExpression();
+        if (inPredicate > 0) {
+            return exp;
+        }
+        // Unless within a predicate or within an XNodePattern, allow a parenthesized pattern here
+        checkNoPredicatePattern(exp);
+        return exp;
+    }
+
+ 
 
     private void checkNoPredicatePattern(Expression exp) throws XPathException {
         if (exp instanceof ContextItemExpression) {
-            grumble("A predicatePattern can appear only at the outermost level (union operator not allowed)");
+            grumble("A PredicatePattern can appear only at the outermost level (parentheses and union operator are not allowed)");
         }
         if (exp instanceof FilterExpression) {
             checkNoPredicatePattern(((FilterExpression) exp).getBase());
@@ -241,45 +274,42 @@ public class PatternParser extends XPathParser {
         Tokenizer t = getTokenizer();
         if (inPredicate > 0) {
             return super.parseExpression();
-        } else if (allowXPath40Syntax && t.currentToken == Token.KEYWORD_LBRA &&
-                (t.currentTokenValue.equals("record")  || t.currentTokenValue.equals("type") || t.currentTokenValue.equals("map") || t.currentTokenValue.equals("array"))) {
-            //ItemType type = parserExtension.parseExtendedItemType(this);
-            ItemType type = parseItemType();
-            Expression expr = new ItemTypePattern(type);
-            expr.setRetainedStaticContext(env.makeRetainedStaticContext());
-//            Expression expr = new InstanceOfExpression(
-//                    new ContextItemExpression(), SequenceType.makeSequenceType(type, StaticProperty.EXACTLY_ONE));
-//            expr = new FilterExpression(new ContextItemExpression(), expr);
-            setLocation(expr);
-            while (t.currentToken == Token.LSQB) {
-                expr = parsePredicate(expr).toPattern(env.getConfiguration());
-            }
-            return expr;
-        } else if (allowXPath40Syntax && t.currentToken == Token.KEYWORD_LBRA &&
-                (t.currentTokenValue.equals("atomic"))) {
-            nextToken();
-            expect(Token.NAME);
-            StructuredQName typeName =
-                    makeStructuredQName(t.currentTokenValue,env.getDefaultElementNamespace());
-            nextToken();
-            expect(Token.RPAR);
-            nextToken();
-            SchemaType type = env.getConfiguration().getSchemaType(typeName);
-            if (type == null || !type.isAtomicType()) {
-                grumble("Unknown atomic type " + typeName);
-            }
-            AtomicType at = (AtomicType)type;
-            Expression expr = new ItemTypePattern(at);
-//            Expression expr = new InstanceOfExpression(
-//                    new ContextItemExpression(), SequenceType.makeSequenceType(at, StaticProperty.EXACTLY_ONE));
-//            expr = new FilterExpression(new ContextItemExpression(), expr);
-            setLocation(expr);
-            while (t.currentToken == Token.LSQB) {
-                expr = parsePredicate(expr);
-            }
-            return expr;
+//        } else if (languageVersion >= 40 && t.currentToken instanceof Token.NameToken && t.peekAhead() == Token.LPAREN &&
+//                (isKeyword("record")  || isKeyword("type") || isKeyword("map") || isKeyword("array"))) {
+//            ItemType type = parseItemType();
+//            Expression expr = new ItemTypePattern(type);
+//            expr.setRetainedStaticContext(env.makeRetainedStaticContext());
+//            setLocation(expr);
+//            while (t.currentToken == Token.LSQB) {
+//                expr = parsePredicate(expr).toPattern(env.getConfiguration(), false);
+//            }
+//            return expr;
+//        } else if (languageVersion >= 40 && t.currentToken instanceof Token.NameToken && t.peekAhead() == Token.LPAREN &&
+//                isKeyword("atomic")) {
+//            nextToken();
+//
+//            String name = readName();
+//            StructuredQName typeName = makeStructuredQName(name, env.getDefaultElementNamespace());
+//            readToken(Token.RPAREN);
+//            Schema schema = env.getImportedSchema();
+//            SchemaType type = schema.getSchemaType(typeName);
+//
+//            if (type == null || !type.isAtomicType()) {
+//                grumble("Unknown atomic type " + typeName);
+//            }
+//            AtomicType at = (AtomicType)type;
+//            Expression expr = new ItemTypePattern(at);
+////            Expression expr = new InstanceOfExpression(
+////                    new ContextItemExpression(), SequenceType.makeSequenceType(at, StaticProperty.EXACTLY_ONE));
+////            expr = new FilterExpression(new ContextItemExpression(), expr);
+//            setLocation(expr);
+//            while (t.currentToken == Token.LSQB) {
+//                expr = parsePredicate(expr);
+//            }
+//            return expr;
         } else {
             return parseBinaryExpression(parsePathExpression(), 10);
+            //return parsePathExpression();
         }
     }
 
@@ -299,50 +329,48 @@ public class PatternParser extends XPathParser {
         if (inPredicate > 0) {
             return super.parseBasicStep(firstInPattern);
         } else {
-            switch (t.currentToken) {
-                case Token.DOLLAR:
-                    if (!firstInPattern) {
-                        grumble("In an XSLT 3.0 pattern, a variable reference is allowed only as the first step in a path");
-                        return null;
-                    } else {
-                        return super.parseBasicStep(firstInPattern);
-                    }
-
-                case Token.STRING_LITERAL:
-                case Token.NUMBER:
-                case Token.HEX_INTEGER:
-                case Token.BINARY_INTEGER:
-                case Token.KEYWORD_CURLY:
-                case Token.ELEMENT_QNAME:
-                case Token.ATTRIBUTE_QNAME:
-                case Token.NAMESPACE_QNAME:
-                case Token.PI_QNAME:
-                case Token.TAG:
-                case Token.NAMED_FUNCTION_REF:
-                case Token.DOTDOT:
-                    grumble("Token " + currentTokenDisplay() + " not allowed here in an XSLT pattern");
+            Token tok = t.currentToken;
+            if (tok == Token.DOLLAR) {
+                if (!firstInPattern) {
+                    grumble("In an XSLT pattern, a variable reference is allowed only as the first step in a path");
                     return null;
-                case Token.FUNCTION:
-                    if (!firstInPattern) {
-                        grumble("In an XSLT pattern, a function call is allowed only as the first step in a path");
-                    }
+                } else {
                     return super.parseBasicStep(firstInPattern);
-                case Token.KEYWORD_LBRA:
-                    switch (t.currentTokenValue) {
-                        case "type":
-                        case "tuple":
-                        case "union":
-                        case "map":
-                        case "array":
-                        case "atomic":
-                            return parserExtension.parseTypePattern(this);
-                        default:
-                            return super.parseBasicStep(firstInPattern);
-                    }
-                default:
-                    return super.parseBasicStep(firstInPattern);
-
+                }
             }
+            if (tok instanceof Token.NameToken) {
+                if (t.peekAhead() == Token.LCURLY || t.peekAhead() == Token.HASH) {
+                    grumble("Token " + t.peekAhead() + " not allowed here in an XSLT pattern");
+                    return null;
+                } else {
+                    return super.parseBasicStep(firstInPattern);
+                }
+            } else if (t.currentToken instanceof Token.StringLiteral
+                    || t.currentToken instanceof Token.NumericLiteral
+                    || t.currentToken instanceof Token.StringTemplate
+                    || t.currentToken instanceof Token.StringConstructor) {
+                grumble("Token " + currentTokenDisplay() + " not allowed here in an XSLT pattern");
+                return null;
+            } else {
+                return super.parseBasicStep(firstInPattern);
+            }
+
+        }
+    }
+
+    @Override
+    protected boolean isAllowArgumentKeywords() {
+        return super.isAllowArgumentKeywords() && inPredicate > 0;
+    }
+
+    protected void checkAllowedFunctionArgument(Expression arg) throws XPathException {
+        if (inPredicate > 0) {
+            return;
+        }
+        if (!(arg instanceof VariableReference || arg instanceof Literal)
+                || arg instanceof FunctionLiteral
+                || Literal.isEmptySequence(arg)) {
+            grumble("Expression " + arg + " is not allowed as a function argument in an XSLT pattern");
         }
     }
 
@@ -351,7 +379,7 @@ public class PatternParser extends XPathParser {
         super.testPermittedAxis(axis, errorCode);
         if (inPredicate == 0) {
             if (!AxisInfo.isSubtreeAxis[axis]) {
-                grumble("The " + AxisInfo.axisName[axis] + " is not allowed in a pattern");
+                grumble("The " + AxisInfo.axisName[axis] + " axis is not allowed in a pattern");
             }
         }
     }
@@ -368,12 +396,9 @@ public class PatternParser extends XPathParser {
     /*@NotNull*/
     @Override
     protected Expression parsePredicate() throws XPathException {
-        boolean disallow = t.disallowUnionKeyword;
-        t.disallowUnionKeyword = false;
         ++inPredicate;
         Expression exp = parseExpression();
         --inPredicate;
-        t.disallowUnionKeyword = disallow;
         return exp;
     }
 
@@ -390,35 +415,49 @@ public class PatternParser extends XPathParser {
 
     /*@NotNull*/
     @Override
-    public Expression parseFunctionCall(Expression prefixArgument) throws XPathException {
-        Expression fn = super.parseFunctionCall(prefixArgument);
+    public Expression parseFunctionCall(String fname, Expression prefixArgument) throws XPathException {
+        // The XSLT rules allow root() but not root(.). Unfortunately the XPath parser expands root() to root(.)
+        // So (in desperation) we count the arguments that are actually parsed
+        argumentsParsed = 0;
+        int offset = t.currentTokenStartOffset;
+        Expression fn = super.parseFunctionCall(fname, prefixArgument);
         if (inPredicate <= 0 && !fn.isCallOn(SuperId.class) && !fn.isCallOn(KeyFn.class) &&
-                !fn.isCallOn(Doc.class) && !fn.isCallOn(Root_1.class)) {
-            grumble("The " + fn + " function is not allowed at the head of a pattern");
+                !fn.isCallOn(Doc.class) && !(fn.isCallOn(Root_1.class) && argumentsParsed == 0)) {
+            grumble("The " + fn + " function is not allowed in a pattern (unless in a predicate)", "XTSE0340", offset);
+        }
+        if (fn instanceof CurrentGroupCall) {
+            grumble("The current-group() function cannot be used in a pattern",
+                    "XTSE1060", offset);
+            return new ErrorExpression();
+        }
+        if (fn instanceof CurrentGroupingKeyCall) {
+            grumble("The current-grouping-key() function cannot be used in a pattern",
+                    "XTSE1070", offset);
+            return new ErrorExpression();
         }
         return fn;
     }
 
+    private int argumentsParsed = 0;
+
     @Override
     public Expression parseFunctionArgument() throws XPathException {
+        argumentsParsed++;
         if (inPredicate > 0) {
             return super.parseFunctionArgument();
         } else {
-            switch (t.currentToken) {
-                case Token.DOLLAR:
-                    int offset = t.currentTokenStartOffset;
-                    StructuredQName variableName = parseVariableName();
-                    return resolveVariableReference(offset, variableName);
-
-                case Token.STRING_LITERAL:
-                    return parseStringLiteral(true);
-
-                case Token.NUMBER:
-                    return parseNumericLiteral(true);
-
-                default:
-                    grumble("A function argument in an XSLT pattern must be a variable reference or literal");
-                    return null;
+            Token tok = t.currentToken;
+            if (tok == Token.DOLLAR) {
+                int offset = t.currentTokenStartOffset;
+                StructuredQName variableName = parseEQName();
+                return resolveVariableReference(offset, variableName);
+            } else if (tok instanceof Token.StringLiteral) {
+                return parseStringLiteral(true);
+            } else if (tok instanceof Token.NumericLiteral) {
+                return parseNumericLiteral(true);
+            } else {
+                grumble("A function argument in an XSLT pattern must be a variable reference or literal");
+                return null;
             }
         }
     }

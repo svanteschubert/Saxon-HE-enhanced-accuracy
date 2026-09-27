@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -31,9 +31,7 @@
 package net.sf.saxon.regex;
 
 import net.sf.saxon.regex.charclass.*;
-import net.sf.saxon.str.StringConstants;
-import net.sf.saxon.str.UnicodeBuilder;
-import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.str.*;
 import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.value.Whitespace;
 import net.sf.saxon.z.*;
@@ -43,15 +41,14 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * A regular expression compiler class.  This class compiles a pattern string into a
- * regular expression program interpretable by the RE evaluator class.  The 'recompile'
- * command line tool uses this compiler to pre-compile regular expressions for use
- * with RE.  For a description of the syntax accepted by RECompiler and what you can
- * do with regular expressions, see the documentation for the RE matcher class.
+ * A regular expression compiler.  This class compiles a pattern string into a
+ * regular expression program interpretable by the {@link REMatcher}.  The compiler
+ * implements the regular expression syntax defined by XSD versions 1.0 and 1.1,
+ * and XPath versions up to 4.0.
  *
- * @author <a href="mailto:jonl@muppetlabs.com">Jonathan Locke</a>
- * @author <a href="mailto:gholam@xtra.co.nz">Michael McCallum</a>
- * @version $Id: RECompiler.java 518156 2007-03-14 14:31:26Z vgritsenko $
+ * <p>The code was originally based on the Apache Jakarta regex engine. The runtime has
+ * been completely rewritten, but the syntax analysis code remains.</p>
+ *
  * @see net.sf.saxon.regex.REMatcher
  */
 
@@ -96,6 +93,7 @@ public class RECompiler {
     int len;                                            // Length of the pattern string
     int idx;                                            // Current input index into ac
     int capturingOpenParenCount;                                         // Total number of paren pairs
+    int lookaheadDepth = 0;
 
     // Node flags
     static final int NODE_NORMAL = 0;                   // No flags (nothing special)
@@ -107,6 +105,7 @@ public class RECompiler {
 
     boolean isXPath = true;
     boolean isXPath30 = true;
+    boolean isXPath40 = false;
     boolean isXSD11 = false;
     IntHashSet captures = new IntHashSet();
     boolean hasBackReferences = false;
@@ -134,6 +133,7 @@ public class RECompiler {
         this.reFlags = flags;
         isXPath = flags.isAllowsXPath20Extensions();
         isXPath30 = flags.isAllowsXPath30Extensions();
+        isXPath40 = flags.isAllowsXPath40Extensions();
         isXSD11 = flags.isAllowsXSD11Syntax();
     }
 
@@ -347,7 +347,14 @@ public class RECompiler {
                     syntaxError("In XSD, '$' must not be escaped");
                 }
                 break;
-
+            case '#':
+                if (isXPath40) {
+                    return new SingletonCharacterClass(escapeChar);
+                } else {
+                    syntaxError("'#' must not be escaped unless XPath 4.0 is enabled");
+                }
+                break;
+                
             case 's':
                 return Categories.ESCAPE_s;
 
@@ -378,6 +385,15 @@ public class RECompiler {
             case 'W':
                 return Categories.ESCAPE_W;
 
+            case 'b':
+            case 'B':
+                if (inSquareBrackets) {
+                    syntaxError("\\b and \\B are not allowed within square brackets");
+                }
+                if (!isXPath40) {
+                    syntaxError("\\b and \\B require XPath 4.0 extensions to be enabled");
+                }
+                return new BoundaryAssertion(escapeChar);
 
             case 'p':
             case 'P':
@@ -487,9 +503,20 @@ public class RECompiler {
      * For convenience a back-reference is treated as an CharacterClass, although this a fiction
      */
 
-    class BackReference extends SingletonCharacterClass {
+    private static class BackReference extends SingletonCharacterClass {
         public BackReference(int number) {
             super(number);
+        }
+    }
+
+    /**
+     * For convenience a boundary assertion (\b or \B) is treated as an CharacterClass,
+     * although this a fiction
+     */
+
+    private static class BoundaryAssertion extends SingletonCharacterClass {
+        public BoundaryAssertion(int codepoint) {
+            super(codepoint);
         }
     }
 
@@ -695,6 +722,18 @@ public class RECompiler {
     }
 
     /**
+     * Test whether the string starting at the current position is equal to some specified
+     * sequence of characters
+     *
+     * @param chars the string being tested, which must consist of ASCII characters only
+     * @return true if the specified string is present
+     */
+
+    private boolean thereFollows(String chars) {
+        return thereFollows(StringTool.expand(new Twine8(chars)));
+    }
+
+    /**
      * Make the union of two IntPredicates (matches if p1 matches or p2 matches)
      *
      * @param p1 the first
@@ -760,7 +799,7 @@ public class RECompiler {
     /**
      * Absorb an atomic character string.  This method is a little tricky because
      * it can un-include the last character of string if a quantifier operator follows.
-     * This is correct because *+? have higher precedence than concatentation (thus
+     * This is correct because *+? have higher precedence than concatenation (thus
      * ABC* means AB(C*) and NOT (ABC)*).
      *
      * @return Index of new atom node
@@ -972,8 +1011,11 @@ public class RECompiler {
                     }
                     return trace(new OpBackReference(backreference));
 
+                } else if (esc instanceof BoundaryAssertion) {
+                    return trace(new OpBoundaryAssertion(((BoundaryAssertion) esc).getCodepoint() == 'b'));
+
                 } else if (esc instanceof IntSingletonSet) {
-                    // We had a simple escape and we want to have it end up in
+                    // We had a simple escape, and we want to have it end up in
                     // an atom, so we back up and fall though to the default handling
                     idx = idxBeforeEscape;
 
@@ -1006,6 +1048,12 @@ public class RECompiler {
         // Get terminal symbol
         Operation ret = parseTerminal(terminalFlags);
 
+        // In 4.0, quantifiers are not allowed after assertions
+        boolean disallowQuantifier = false;
+        if (isXPath40) {
+            disallowQuantifier = ret.isAssertion();
+        }
+
         // Or in flags from terminal symbol
         flags[0] |= terminalFlags[0];
 
@@ -1026,7 +1074,7 @@ public class RECompiler {
 
                 // Drop through
                 CSharp.emitCode("goto case '{';");
-
+                
             case '{':
 
                 if (quantifierType == '{') {
@@ -1034,7 +1082,11 @@ public class RECompiler {
                 }
 
 
-                if (ret instanceof OpBOL || ret instanceof OpEOL) {
+                if (ret.isAssertion()) {
+                    if (disallowQuantifier) {
+                        // XPath 4.0 path
+                        throw new RESyntaxException("No quantifier allowed after an assertion", idx);
+                    }
                     // Pretty meaningless, but legal. If the quantifier allows zero occurrences, ignore the instruction.
                     // Otherwise, ignore the quantifier
                     if (quantifierType == '?' || quantifierType == '*' ||
@@ -1158,15 +1210,66 @@ public class RECompiler {
         List<Operation> branches = new ArrayList<>();
         int closeParens = capturingOpenParenCount;
         boolean capturing = true;
+        boolean lookbehind = false;
+        int marker = 0;
         if ((compilerFlags[0] & NODE_TOPLEVEL) == 0 && pattern.codePointAt(idx) == '(') {
             // if its a cluster ( rather than a proper subexpression ie with backrefs )
-            if (idx + 2 < len && pattern.codePointAt(idx + 1) == '?' && pattern.codePointAt(idx + 2) == ':') {
-                if (!isXPath30) {
-                    syntaxError("Non-capturing groups allowed only in XPath3.0");
+            if (idx + 2 < len && pattern.codePointAt(idx + 1) == '?') {
+                marker = pattern.codePointAt(idx + 2);
+                if (marker == ':') {
+                    if (!isXPath30) {
+                        syntaxError("Non-capturing groups allowed only in XPath3.0");
+                    }
+                } else if (marker == '=' || marker == '!') {
+                    if (!isXPath40) {
+                        syntaxError("Lookahead assertions allowed only in XPath4.0");
+                    }
+                    lookaheadDepth++;
+                } else if (marker == '<') {
+                    if (!isXPath40) {
+                        syntaxError("Lookbehind assertions allowed only in XPath4.0");
+                    }
+                    lookbehind = true;
+                    if (idx + 3 < len) {
+                        marker = pattern.codePointAt(idx + 3);
+                        if (!(marker == '=' || marker == '!')) {
+                            syntaxError("Expected '=' or '!' after '(?<'");
+                        }
+                        idx++;
+                    } else {
+                        syntaxError("Expected '=' or '!' after '(?<'");
+                    }
+                } else {
+                    syntaxError("Invalid character after '(?'");
                 }
                 paren = 2;
                 idx += 3;
                 capturing = false;
+            } else if (idx + 2 < len && pattern.codePointAt(idx + 1) == '*') {
+                capturing = false;
+                if (thereFollows("(*positive_lookahead:")) {
+                    idx += "(*positive_lookahead:".length();
+                    paren = 2;
+                    marker = '=';
+                    lookaheadDepth++;
+                } else if (thereFollows("(*negative_lookahead:")) {
+                    idx += "(*negative_lookahead:".length();
+                    paren = 2;
+                    marker = '!';
+                    lookaheadDepth++;
+                } else if (thereFollows("(*positive_lookbehind:")) {
+                    idx += "(*positive_lookbehind:".length();
+                    paren = 2;
+                    marker = '=';
+                    lookbehind = true;
+                } else if (thereFollows("(*negative_lookbehind:")) {
+                    idx += "(*negative_lookbehind:".length();
+                    paren = 2;
+                    marker = '!';
+                    lookbehind = true;
+                } else {
+                    syntaxError("Unexpected characters after '(*'");
+                }
             } else {
                 paren = 1;
                 idx++;
@@ -1196,11 +1299,18 @@ public class RECompiler {
             if (idx < len && pattern.codePointAt(idx) == ')') {
                 idx++;
             } else {
-                syntaxError("Missing close paren");
+                syntaxError("Missing close parenthesis");
             }
             if (capturing) {
-                op = new OpCapture(op, group);
+                op = new OpCapture(op, group, lookaheadDepth > 0);
                 captures.add(closeParens);
+            } else if (marker == '=' || marker == '!') {
+                if (lookbehind) {
+                    op = new OpLookbehind(op, marker=='=');
+                } else {
+                    op = new OpLookahead(op, marker == '=');
+                    lookaheadDepth--;
+                }
             }
         } else {
             op = makeSequence(op, new OpEndProgram());
@@ -1264,6 +1374,40 @@ public class RECompiler {
 
         } else {
 
+            if (reFlags.isAllowComments()) {
+                // 'c' flag is set (XPath 4.0). Preprocess the expression to strip comments
+                UnicodeBuilder sb = new UnicodeBuilder();
+                int nesting = 0;
+                boolean escaped = false;
+                IntIterator iter = pattern.codePoints();
+                while (iter.hasNext()) {
+                    int ch = iter.next();
+                    if (ch == '\\' && !escaped) {
+                        escaped = true;
+                        sb.append(ch);
+                    } else if (ch == '[' && !escaped) {
+                        nesting++;
+                        sb.append(ch);
+                    } else if (ch == ']' && !escaped) {
+                        nesting--;
+                        sb.append(ch);
+                    } else if (ch == '#' && nesting == 0 && !escaped) {
+                        while (iter.hasNext()) {
+                            ch = iter.next();
+                            if (ch == '#') {
+                                break;
+                            }
+                        }
+                    } else {
+                        escaped = false;
+                        sb.append(ch);
+                    }
+                }
+                this.pattern = pattern = sb.toUnicodeString();
+                this.len = this.pattern.length32();
+            }
+
+
             if (reFlags.isAllowWhitespace()) {
                 // 'x' flag is set. Preprocess the expression to strip whitespace, other than between
                 // square brackets
@@ -1278,11 +1422,9 @@ public class RECompiler {
                         sb.append(ch);
                     } else if (ch == '[' && !escaped) {
                         nesting++;
-                        escaped = false;
                         sb.append(ch);
                     } else if (ch == ']' && !escaped) {
                         nesting--;
-                        escaped = false;
                         sb.append(ch);
                     } else if (nesting == 0 && Whitespace.isWhite(ch)) {
                         // no action
@@ -1291,9 +1433,10 @@ public class RECompiler {
                         sb.append(ch);
                     }
                 }
-                this.pattern = sb.toUnicodeString();
+                this.pattern = pattern = sb.toUnicodeString();
                 this.len = this.pattern.length32();
             }
+
 
             // Initialize pass by reference flags value
             int[] compilerFlags = {NODE_TOPLEVEL};

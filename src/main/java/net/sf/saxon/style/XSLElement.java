@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.Whitespace;
 
@@ -156,6 +157,8 @@ public class XSLElement extends StyleElement {
     @Override
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
 
+        Schema schema = getImportedSchema();
+
         // deal specially with the case where the element name is known statically
 
         if (elementName instanceof StringLiteral) {
@@ -186,21 +189,21 @@ public class XSLElement extends StyleElement {
                 FingerprintedQName qn = new FingerprintedQName(parts[0], nsuri, parts[1]);
                 qn.obtainFingerprint(getNamePool());
                 FixedElement FixedElementInst = new FixedElement(qn,
-                        NamespaceMap.emptyMap(),
-                        inheritNamespaces,
-                        true, schemaType,
-                        validation);
+                                                                 NamespaceMap.emptyMap(),
+                                                                 inheritNamespaces,
+                                                                 true, schema, schemaType,
+                                                                 validation);
                 FixedElementInst.setLocation(allocateLocation());
                 return compileContentExpression(exec, decl, FixedElementInst);
             }
         }
-
         ComputedElement inst = new ComputedElement(elementName,
-                namespace,
-                schemaType,
-                validation,
-                inheritNamespaces,
-                false);
+                                                   namespace,
+                                                   schema,
+                                                   schemaType,
+                                                   validation,
+                                                   inheritNamespaces,
+                                                   false);
 
         inst.setLocation(allocateLocation());
         return compileContentExpression(exec, decl, inst);

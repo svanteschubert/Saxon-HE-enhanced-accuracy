@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -41,7 +41,7 @@ public class UnionCastableFunction extends UnionConstructorFunction {
     public FunctionItemType getFunctionItemType() {
         // The function accepts any sequence as input, so it can do its own atomization
         return new SpecificFunctionType(
-            new SequenceType[]{SequenceType.ANY_SEQUENCE}, SequenceType.SINGLE_BOOLEAN);
+            SequenceType.ANY_SEQUENCE, SequenceType.SINGLE_BOOLEAN);
     }
 
     /**
@@ -130,6 +130,6 @@ public class UnionCastableFunction extends UnionConstructorFunction {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 
 

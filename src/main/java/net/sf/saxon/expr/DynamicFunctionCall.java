@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.oper.OperandArray;
 import net.sf.saxon.expr.parser.*;
@@ -20,7 +21,10 @@ import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.PrependIterator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
@@ -70,7 +74,7 @@ public class DynamicFunctionCall extends Expression {
             return ((MapType)fnType).getValueType().getPrimaryType();
         } else if (fnType instanceof ArrayItemType) {
             return ((ArrayItemType) fnType).getMemberType().getPrimaryType();
-        } else if (fnType instanceof FunctionItemType) {
+        } else if (fnType instanceof SpecificFunctionType) {
             return ((FunctionItemType) fnType).getResultType().getPrimaryType();
         } else if (fnType instanceof AnyFunctionType) {
             return AnyItemType.getInstance();
@@ -157,18 +161,23 @@ public class DynamicFunctionCall extends Expression {
         Supplier<RoleDiagnostic> roleSupplier0 = () ->
             new RoleDiagnostic(RoleDiagnostic.DYNAMIC_FUNCTION, targetFunction.getChildExpression().toShortString(), 0);
 
+        SequenceType required =
+                visitor.getStaticContext().getXPathVersion() >= 40
+                    ? SequenceType.FUNCTION_ITEM_SEQUENCE : SequenceType.SINGLE_FUNCTION;
         targetFunction.setChildExpression(tc.staticTypeCheck(
-                targetFunction.getChildExpression(), SequenceType.SINGLE_FUNCTION, roleSupplier0, visitor));
+                targetFunction.getChildExpression(), required, roleSupplier0, visitor));
 
         if (getArity() == 1) {
             Expression target = targetFunction.getChildExpression();
-            if (target.getItemType() instanceof MapType) {
-                // Convert $map($key) to map:get($map, $key)
-                // This improves streamability analysis - see accumulator-053
-                return makeGetCall(visitor, MapFunctionSet.getInstance(31), contextInfo);
-            } else if (target.getItemType() instanceof ArrayItemType) {
-                // Convert $array($key) to array:get($array, $key)
-                return makeGetCall(visitor, ArrayFunctionSet.getInstance(31), contextInfo);
+            if (target.getCardinality() == StaticProperty.ALLOWS_ONE) {
+                if (target.getItemType() instanceof MapType) {
+                    // Convert $map($key) to map:get($map, $key)
+                    // This improves streamability analysis - see accumulator-053
+                    return makeGetCall(visitor, MapFunctionSet.getInstance(31), contextInfo);
+                } else if (target.getItemType() instanceof ArrayItemType) {
+                    // Convert $array($key) to array:get($array, $key)
+                    return makeGetCall(visitor, ArrayFunctionSet.getInstance(31), contextInfo);
+                }
             }
         }
 
@@ -188,7 +197,7 @@ public class DynamicFunctionCall extends Expression {
         Expression target = targetFunction.getChildExpression();
         Expression key = suppliedArguments.getOperandExpression(0);
         Expression getter = fnSet.makeFunction("get", 2).makeFunctionCall(target, key);
-        getter.setRetainedStaticContext(target.getRetainedStaticContext());
+        getter.setRetainedStaticContext(visitor.getStaticContext().makeRetainedStaticContext());
         // Use custom diagnostics for type errors on the argument of the call (bug 4772)
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(visitor.getStaticContext().isInBackwardsCompatibleMode());
         if (fnSet == MapFunctionSet.getInstance(31)) {
@@ -307,66 +316,118 @@ public class DynamicFunctionCall extends Expression {
         @Override
         public PullEvaluator elaborateForPull() {
             DynamicFunctionCall expr = (DynamicFunctionCall)getExpression();
-            TypeHierarchy th = getConfiguration().getTypeHierarchy();
+            Configuration config = getConfiguration();
             SequenceEvaluator[] argEvaluators = new SequenceEvaluator[expr.getArity()];
+            SequenceType[] suppliedTypes = new SequenceType[expr.getArity()];
             for (int i=0; i<argEvaluators.length; i++) {
                 Expression arg = expr.suppliedArguments.getOperand(i).getChildExpression();
-                argEvaluators[i] = new LearningEvaluator(arg, arg.makeElaborator().lazily(true, false));
+                argEvaluators[i] = LearningEvaluator.makeLearningEvaluator(arg, arg.makeElaborator().lazily(true, false));
+                suppliedTypes[i] = SequenceType.makeSequenceType(arg.getItemType(), arg.getCardinality());
             }
-            Expression body = expr.targetFunction.getChildExpression();
-            ItemEvaluator functionEvaluator = body.makeElaborator().elaborateForItem();
-            return context -> {
-                FunctionItem fn = (FunctionItem) functionEvaluator.eval(context);
-                FunctionItemType fit = fn.getFunctionItemType();
-                if (fn.getArity() != argEvaluators.length) {
-                    String errorCode = "XPTY0004";
-                    throw new XPathException(
-                            "Number of arguments required for dynamic call to " + fn.getDescription() + " is " + fn.getArity() +
-                                    "; number supplied = " + argEvaluators.length, errorCode)
-                            .asTypeError()
-                            .withXPathContext(context)
-                            .withLocation(expr.getLocation());
-                }
-
-                Sequence[] argValues = new Sequence[argEvaluators.length];
-
-                if (fit == AnyFunctionType.ANY_FUNCTION) {
-                    for (int i = 0; i < argEvaluators.length; i++) {
-                        argValues[i] = argEvaluators[i].evaluate(context);
+            Expression target = expr.targetFunction.getChildExpression();
+            final int version = expr.getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+            final boolean is40 = version >= 40;
+            final boolean singleFunction = (!is40) || target.getCardinality() == StaticProperty.ALLOWS_ONE;
+            final CoercionRules coercionRules = CoercionRules.forVersion(config, version);
+            if (singleFunction) {
+                ItemEvaluator functionEvaluator = target.makeElaborator().elaborateForItem();
+                return context -> {
+                    FunctionItem fn = (FunctionItem) functionEvaluator.eval(context);
+                    FunctionItemType fit = fn.getFunctionItemType();
+                    if (fn.getArity() != argEvaluators.length) {
+                        String errorCode = "XPTY0004";
+                        throw new XPathException(
+                                "Number of arguments required for dynamic call to " + fn.getDescription() + " is " + fn.getArity() +
+                                        "; number supplied = " + argEvaluators.length, errorCode)
+                                .asTypeError()
+                                .withXPathContext(context)
+                                .withLocation(expr.getLocation());
                     }
-                } else {
-                    for (int i = 0; i < argEvaluators.length; i++) {
-                        SequenceType expected = fit.getArgumentTypes()[i];
-                        Sequence actual = argEvaluators[i].evaluate(context);
-                        if (!expected.equals(SequenceType.ANY_SEQUENCE)) {
-                            Supplier<RoleDiagnostic> role;
-                            role = () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, fn.getDescription(), 0);
-                            actual = th.applyFunctionConversionRules(
-                                    actual, expected, role, Loc.NONE);
+
+                    Sequence[] argValues = new Sequence[argEvaluators.length];
+
+                    if (fit == AnyFunctionType.INSTANCE) {
+                        for (int i = 0; i < argEvaluators.length; i++) {
+                            argValues[i] = argEvaluators[i].evaluate(context);
                         }
-                        argValues[i] = actual;
+                    } else {
+                        for (int i = 0; i < argEvaluators.length; i++) {
+                            SequenceType expected = fit.getArgumentTypes()[i];
+                            Sequence actual = argEvaluators[i].evaluate(context);
+                            if (!expected.equals(SequenceType.ANY_SEQUENCE)) {
+                                Supplier<RoleDiagnostic> role;
+                                role = () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, fn.getDescription(), 0);
+                                actual = coercionRules.coerce(
+                                        actual, expected, suppliedTypes[i], config, role, Loc.NONE);
+                            }
+                            argValues[i] = actual.makeRepeatable();
+                        }
                     }
-                }
 
-                XPathContext c2 = fn.makeNewContext(context, null);
-                c2.setCurrentOutputUri(null);
-                if (c2 instanceof XPathContextMajor) {
-                    ((XPathContextMajor) c2).setCurrentRegexIterator(null);
-                }
-                Sequence rawResult = fn.call(c2, argValues);
-                if (fn.isTrustedResultType()) {
-                    // trust system functions to return a result of the correct type
+                    XPathContext c2 = fn.makeNewContext(context, null);
+                    if (!is40) {
+                        c2.setCurrentOutputUri(null);
+                        if (c2 instanceof XPathContextMajor) {
+                            ((XPathContextMajor) c2).setCurrentRegexIterator(null);
+                        }
+                    }
+                    Sequence rawResult = fn.call(c2, argValues);
+                    // The function is responsible for coercing its result to the required type;
+                    // this is not the caller's job
                     return rawResult.iterate();
-                } else {
-                    // Check the result of the function
-                    Supplier<RoleDiagnostic> resultRole =
-                            () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, "fn:apply", -1);
-                    return th.applyFunctionConversionRules(
-                            rawResult, fit.getResultType(), resultRole, Loc.NONE).iterate();
-                }
-            };
-        }
+                };
+            } else {
+                // zero or more functions allowed in 4.0
+                PullEvaluator functionEvaluator = target.makeElaborator().elaborateForPull();
+                return context -> {
+                    SequenceIterator fnIter = functionEvaluator.iterate(context);
+                    FunctionItem first = (FunctionItem) fnIter.next();
+                    if (first == null) {
+                        return EmptyIterator.INSTANCE;
+                    }
 
+                    Sequence[] argValues = new Sequence[argEvaluators.length];
+
+                    for (int i = 0; i < argEvaluators.length; i++) {
+                        argValues[i] = argEvaluators[i].evaluate(context).makeRepeatable();
+                    }
+                    // TODO: optimize for the case where all the called functions require the same coercions
+
+                    return new MappingIterator(new PrependIterator(first, fnIter), item -> {
+                        FunctionItem fn = (FunctionItem) item;
+                        FunctionItemType fit = fn.getFunctionItemType();
+                        int arity = fn.getArity();
+                        if (arity != argEvaluators.length) {
+                            String errorCode = "XPTY0004";
+                            throw new XPathException(
+                                    "Number of arguments required for dynamic call to " + fn.getDescription() + " is " + arity +
+                                            "; number supplied = " + argEvaluators.length, errorCode)
+                                    .asTypeError()
+                                    .withXPathContext(context)
+                                    .withLocation(expr.getLocation());
+                        }
+                        Sequence[] coercedArgs = new Sequence[arity];
+                        for (int i = 0; i < arity; i++) {
+                            SequenceType expected = fit.getArgumentTypes()[i];
+                            Sequence actual = argValues[i];
+                            if (!expected.equals(SequenceType.ANY_SEQUENCE)) {
+                                Supplier<RoleDiagnostic> role;
+                                role = () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, fn.getDescription(), 0);
+                                actual = coercionRules.coerce(
+                                        actual, expected, suppliedTypes[i], config, role, Loc.NONE);
+                            }
+                            coercedArgs[i] = actual.makeRepeatable();
+                        }
+                        XPathContext c2 = fn.makeNewContext(context, null);
+                        Sequence rawResult = fn.call(c2, coercedArgs);
+                        return rawResult.iterate();
+                    });
+
+                };
+
+            }
+        }
+        
     }
 
     /**

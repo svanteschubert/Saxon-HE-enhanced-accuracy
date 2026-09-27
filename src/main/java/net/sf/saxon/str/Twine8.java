@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,20 +8,18 @@
 package net.sf.saxon.str;
 
 import net.sf.saxon.Configuration;
-import net.sf.saxon.serialize.UTF8Writer;
 import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.PositiveIntIterator;
 
-import java.io.IOException;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.function.IntPredicate;
 
 
 /**
- * {@code Twine8} is Unicode string whose codepoints are all in the range 0-255 (that is, Latin-1).
+ * A {@code Twine8} is a Unicode string whose codepoints are all in the range 0-255 (that is, Latin-1).
  * These are held in an array of bytes, one byte per character. The length of the string is limited
  * to 2^31-1 codepoints.
  */
@@ -41,6 +39,17 @@ public class Twine8 extends UnicodeString {
 
     public Twine8(byte[] bytes) {
         this.bytes = bytes;
+    }
+
+    /**
+     * Constructor
+     *
+     * @param bytes the byte array containing the characters in the range 0-255.
+     * @param start the position of the first byte to use
+     * @param end the position of the first byte to not be used
+     */
+    public Twine8(byte[] bytes, int start, int end) {
+        this(Arrays.copyOfRange(bytes, start, end));
     }
 
     /**
@@ -67,7 +76,7 @@ public class Twine8 extends UnicodeString {
      *
      * @param str the value, all characters in range must be LE 255
      */
-
+    
     public Twine8(String str) {
         bytes = fromString(str);
     }
@@ -264,9 +273,21 @@ public class Twine8 extends UnicodeString {
             }
 
             @Override
-            //@CSharpModifiers(code = {"public", "override"})
             public int next() {
                 return bytes[i++] & 0xff;
+            }
+        };
+    }
+
+    @Override
+    @CSharpInnerClass(outer = false, extra = {"byte[] bytes"})
+    public PositiveIntIterator iterate() {
+        return new PositiveIntIterator() {
+            int i = 0;
+
+            @Override
+            public int next() {
+                return i < bytes.length ? bytes[i++] & 0xff : -1;
             }
         };
     }
@@ -296,12 +317,11 @@ public class Twine8 extends UnicodeString {
      */
 
     public boolean equals(Object o) {
-        if (o instanceof Twine8) {
-            Twine8 other = (Twine8) o;
+        if (o instanceof Twine8 other) {
             if (this.length32() != other.length32()) {
                 return false;
             }
-            if (this.hashCode() != other.hashCode()) {
+            if (this.cachedHash != 0 && other.cachedHash != 0 & this.cachedHash != other.cachedHash) {
                 return false;
             }
             return Arrays.equals(bytes, other.bytes);
@@ -337,14 +357,6 @@ public class Twine8 extends UnicodeString {
     @CSharpReplaceBody(code="return Saxon.Impl.Helpers.StringUtils.LATIN_1.GetString(bytes);")
     public String toString() {
         return new String(bytes, StandardCharsets.ISO_8859_1);
-    }
-
-    private void write(Writer writer, long start, long len) throws IOException {
-        if (writer instanceof UTF8Writer) {
-            ((UTF8Writer) writer).writeLatin1(bytes, requireInt(start), requireInt(len));
-        } else {
-            writer.write(toString().substring(requireInt(start), requireInt(start+len)));
-        }
     }
 
     /**

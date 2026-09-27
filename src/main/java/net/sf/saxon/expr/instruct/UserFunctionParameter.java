@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,8 +14,9 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.FunctionStreamability;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 /**
  * Run-time object representing a formal argument to a user-defined function
@@ -31,7 +32,7 @@ public class UserFunctionParameter implements LocalBinding {
     private boolean isIndexed = false;
     private boolean isRequiredParam = true;
     private FunctionStreamability functionStreamability = FunctionStreamability.UNCLASSIFIED;
-    private Expression defaultValue;   // In 4.0, function parameters can have a default value
+    private Supplier<Expression> defaultValue;   // In 4.0, function parameters can have a default value
 
     /**
      * Create a UserFunctionParameter
@@ -127,16 +128,6 @@ public class UserFunctionParameter implements LocalBinding {
     }
 
     /**
-     * If the variable is bound to an integer, get the minimum and maximum possible values.
-     * Return null if unknown or not applicable
-     */
-    /*@Nullable*/
-    @Override
-    public IntegerValue[] getIntegerBoundsForVariable() {
-        return null;
-    }
-
-    /**
      * Set the name of this parameter
      *
      * @param name the name of the parameter
@@ -167,7 +158,7 @@ public class UserFunctionParameter implements LocalBinding {
      * @param select the default value expression
      */
 
-    public void setDefaultValueExpression(Expression select) {
+    public void setDefaultValueExpression(Supplier<Expression> select) {
         this.defaultValue = select;
     }
 
@@ -176,21 +167,10 @@ public class UserFunctionParameter implements LocalBinding {
      * @return the default value expression, if there is one, otherwise null
      */
 
-    public Expression getDefaultValueExpression() {
+    public Supplier<Expression> getDefaultValueExpression() {
         return defaultValue;
     }
 
-
-//    /**
-//     * Set the (nominal) number of references within the function body to this parameter, where a reference
-//     * inside a loop is counted as multiple references
-//     *
-//     * @param count the nominal number of references
-//     */
-//
-//    public void setReferenceCount(int count) {
-//        referenceCount = count;
-//    }
 
     /**
      * Get the (nominal) number of references within the function body to this parameter, where a reference

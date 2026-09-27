@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,8 @@ import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.SaxonErrorCode;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
 
@@ -45,8 +47,8 @@ public class IntegerRange implements AtomicSequence {
         if (end != start && (end > start != step > 0)) {
             throw new IllegalArgumentException("end before start in IntegerRange");
         }
-        if (Math.abs((end - start)/step) > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("Maximum length of sequence in Saxon is " + Integer.MAX_VALUE);
+        if (Math.abs((end - start)/step) >= Integer.MAX_VALUE) {
+            throw new UncheckedXPathException("Maximum length of sequence in Saxon is " + Integer.MAX_VALUE, SaxonErrorCode.SXLM0002);
         }
         this.start = start;
         this.step = step;
@@ -139,7 +141,7 @@ public class IntegerRange implements AtomicSequence {
     @Override
     public GroundedValue subsequence(int start, int length) {
         if (length <= 0) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         long newStart = this.start + Math.max(start, 0);
         long newEnd = newStart + ((long)length * step) - 1L;
@@ -149,7 +151,7 @@ public class IntegerRange implements AtomicSequence {
         if (newEnd >= newStart) {
             return new IntegerRange(newStart, step, newEnd);
         } else {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
     }
 

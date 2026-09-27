@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,24 +10,25 @@ package net.sf.saxon.type;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.type.coercion.CoercionPlan;
+import net.sf.saxon.type.coercion.ItemCheckingPlan;
 import net.sf.saxon.value.SequenceType;
+
+import java.util.Optional;
 
 
 /**
  * An implementation of ItemType that matches any item (node or atomic value)
  */
 
-public class AnyItemType implements ItemTypeWithSequenceTypeCache {
+public enum AnyItemType implements ItemTypeWithSequenceTypeCache {
+
+    INSTANCE;
 
     private SequenceType _one;
     private SequenceType _oneOrMore;
     private SequenceType _zeroOrOne;
     private SequenceType _zeroOrMore;
-
-    private AnyItemType() {
-    }
-
-    /*@NotNull*/ private static final AnyItemType theInstance = new AnyItemType();
 
     /**
      * Factory method to get the singleton instance
@@ -36,7 +37,7 @@ public class AnyItemType implements ItemTypeWithSequenceTypeCache {
 
     /*@NotNull*/
     public static AnyItemType getInstance() {
-        return theInstance;
+        return INSTANCE;
     }
 
     /**
@@ -60,6 +61,13 @@ public class AnyItemType implements ItemTypeWithSequenceTypeCache {
         return UType.ANY;
     }
 
+
+    public ChoiceItemType asChoiceItemType() {
+        return ChoiceItemType.CHOICE_OF_ANY;
+    }
+
+
+
     /**
      * Determine whether this item type is an atomic type
      *
@@ -82,6 +90,26 @@ public class AnyItemType implements ItemTypeWithSequenceTypeCache {
         return "";
     }
 
+
+    @Override
+    public String toExportString() {
+        return toString();
+    }
+
+    /**
+     * Normalize this item type, returning a potentially different item type that matches the same
+     * items. For example, {@code record(*)} and {@code map(*)} match the same items. The default
+     * implementation returns the item type unchanged. This method does NOT expand item types
+     * to an equivalent choice item type.
+     * <p>Item types should be normalized before comparison using equals().</p>
+     *
+     * @return the normalized item type.
+     */
+    @Override
+    public ItemType normalizeItemType() {
+        return this;
+    }
+
     /**
      * Determine whether this item type is atomic (that is, whether it can ONLY match
      * atomic values)
@@ -97,14 +125,11 @@ public class AnyItemType implements ItemTypeWithSequenceTypeCache {
     /**
      * Test whether a given item conforms to this type
      *
-     *
-     *
-     * @param item    The item to be tested
-     * @param th  The type hierarchy cache
+     * @param item The item to be tested
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) {
+    public boolean matches(Item item) {
         return true;
     }
 
@@ -130,7 +155,7 @@ public class AnyItemType implements ItemTypeWithSequenceTypeCache {
 
     /*@NotNull*/
     @Override
-    public AtomicType getAtomizedItemType() {
+    public PlainType getAtomizedItemType() {
         return BuiltInAtomicType.ANY_ATOMIC;
     }
 
@@ -149,20 +174,17 @@ public class AnyItemType implements ItemTypeWithSequenceTypeCache {
 
     @Override
     public double getDefaultPriority() {
-        return -2;
+        return -1;
     }
 
-    /*@NotNull*/
+    @Override
+    public double getNormalizedDefaultPriority() {
+        return 0;
+    }
+    
+    @Override
     public String toString() {
         return "item()";
-    }
-
-    /**
-     * Returns a hash code value for the object.
-     */
-
-    public int hashCode() {
-        return "AnyItemType".hashCode();
     }
 
     /**
@@ -224,6 +246,26 @@ public class AnyItemType implements ItemTypeWithSequenceTypeCache {
         }
         return _zeroOrMore;
     }
+
+    /**
+     * Get the coercion plan for use when this type is the required type for (say) coercion
+     * of arguments in a function call
+     *
+     * @param version the XPath language version (40 or 31)
+     */
+    @Override
+    public CoercionPlan getCoercionPlan(int version) {
+        return ItemCheckingPlan.INSTANCE;
+    }
+
+    @Override
+    public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
+        return Optional.empty();
+    }
+
+
+
+
 
 }
 

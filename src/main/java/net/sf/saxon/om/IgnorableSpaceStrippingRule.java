@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,12 +22,12 @@ import net.sf.saxon.type.Untyped;
  * model, regardless of the value of the xml:space attribute
  */
 
-public class IgnorableSpaceStrippingRule implements SpaceStrippingRule {
+public enum IgnorableSpaceStrippingRule implements SpaceStrippingRule {
 
-    private final static IgnorableSpaceStrippingRule THE_INSTANCE = new IgnorableSpaceStrippingRule();
+    INSTANCE;
 
     public static IgnorableSpaceStrippingRule getInstance() {
-        return THE_INSTANCE;
+        return INSTANCE;
     }
 
     /**
@@ -40,7 +40,7 @@ public class IgnorableSpaceStrippingRule implements SpaceStrippingRule {
 
     @Override
     public int isSpacePreserving(NodeName name, SchemaType schemaType) {
-        if (schemaType != Untyped.getInstance() && schemaType.isComplexType() &&
+        if (schemaType != Untyped.INSTANCE && schemaType.isComplexType() &&
                     !((ComplexType) schemaType).isSimpleContent() &&
                     !((ComplexType) schemaType).isMixedContent()) {
             return Stripper.ALWAYS_STRIP;

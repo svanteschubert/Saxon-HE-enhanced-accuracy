@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,9 +11,12 @@ import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.SimpleNodeConstructor;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.AttributeInfo;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
@@ -92,8 +95,8 @@ public abstract class XSLLeafNodeConstructor extends StyleElement {
             String errorCode = getErrorCodeForSelectPlusContent();
             compileError("An " + getDisplayName() + " element with a select attribute must be empty", errorCode);
         }
-        AxisIterator kids = iterateAxis(AxisInfo.CHILD);
-        NodeInfo first = kids.next();
+        SequenceIterator kids = iterateChildAxis(AnyGNode.TEST);
+        NodeInfo first = (NodeInfo)kids.next();
         if (select == null) {
             if (first == null) {
                 // there are no child nodes and no select attribute

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -200,7 +200,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                 if (!pendingTag.elementName.uri.isEmpty()) {
                     nsMap = nsMap.put(pendingTag.elementName.prefix, pendingTag.elementName.uri);
                 }
-
+                
                 for (Triple t : pendingTag.namespaces) {
                     if (t.prefix == null) {
                         t.prefix = "";
@@ -213,7 +213,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                     }
                 }
 
-                AttributeMap attributes = EmptyAttributeMap.getInstance();
+                AttributeMap attributes = EmptyAttributeMap.INSTANCE;
                 for (Triple t : pendingTag.attributes) {
                     NodeName attName;
                     if (t.uri.isEmpty()) {
@@ -226,7 +226,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
                                             Loc.NONE, ReceiverOption.NONE));
                 }
 
-                receiver.startElement(elemName, Untyped.getInstance(), attributes, nsMap, Loc.NONE, ReceiverOption.NONE);
+                receiver.startElement(elemName, Untyped.INSTANCE, attributes, nsMap, Loc.NONE, ReceiverOption.NONE);
 
 
                 pendingTag = null;
@@ -277,7 +277,7 @@ public class StreamWriterToReceiver implements XMLStreamWriter {
         }
     }
 
-
+    
 
     private String getPrefixForUri(NamespaceUri uri) {
         for (Triple t : pendingTag.namespaces) {

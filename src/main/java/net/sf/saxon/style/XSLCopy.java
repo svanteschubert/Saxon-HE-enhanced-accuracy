@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,8 +14,9 @@ import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
@@ -163,7 +164,7 @@ public class XSLCopy extends StyleElement {
             // wrap the UseAttributeSet instructions in a conditional to perform a run-time test
             Expression condition = new InstanceOfExpression(
                     new ContextItemExpression(),
-                    SequenceType.makeSequenceType(NodeKindTest.ELEMENT, StaticProperty.EXACTLY_ONE));
+                    SequenceType.one(NodeKindType.ELEMENT));
             Expression choice = Choose.makeConditional(condition, use);
             if (content == null) {
                 content = choice;
@@ -178,12 +179,13 @@ public class XSLCopy extends StyleElement {
             content = Literal.makeEmptySequence();
         }
 
+        Schema schema = getImportedSchema();
         Copy inst = new Copy(//select,
-                //selectSpecified,
-                copyNamespaces,
-                inheritNamespaces,
-                schemaType,
-                validationAction);
+                             //selectSpecified,
+                             copyNamespaces,
+                             inheritNamespaces,
+                             schema, schemaType,
+                             validationAction);
 
         inst.setLocation(saveLocation());
         inst.setContentExpression(content);

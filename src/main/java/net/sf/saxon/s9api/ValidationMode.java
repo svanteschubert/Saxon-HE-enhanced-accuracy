@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.s9api;
 
 import net.sf.saxon.lib.Validation;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 
 /**
@@ -35,31 +36,29 @@ public enum ValidationMode {
      */
     DEFAULT(Validation.DEFAULT);
 
+
     private final int number;
 
     ValidationMode(int number) {
         this.number = number;
     }
 
-    protected int getNumber() {
+    @CSharpReplaceBody(code="return (int)number;")
+    public int getNumber() {
         return number;
+        //return Validation.fromValidationMode(this);
     }
 
     /*@NotNull*/
-    protected static ValidationMode get(int number) {
-        switch (number) {
-            case Validation.STRICT:
-                return STRICT;
-            case Validation.LAX:
-                return LAX;
-            case Validation.STRIP:
-                return STRIP;
-            case Validation.PRESERVE:
-                return PRESERVE;
-            case Validation.DEFAULT:
-            default:
-                return DEFAULT;
-        }
+    public static ValidationMode get(int number) {
+        return switch (number) {
+            case Validation.STRICT -> STRICT;
+            case Validation.LAX -> LAX;
+            case Validation.STRIP -> STRIP;
+            case Validation.PRESERVE -> PRESERVE;
+            case Validation.DEFAULT -> DEFAULT;
+            default -> DEFAULT;
+        };
     }
 }
 

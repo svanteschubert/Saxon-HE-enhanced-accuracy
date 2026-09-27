@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,12 +16,14 @@ import net.sf.saxon.z.IntIterator;
 
 public class OpCapture extends Operation {
 
-    int groupNr;
-    Operation childOp;
+    private final int groupNr;
+    public Operation childOp;
+    private final boolean inLookahead;
 
-    OpCapture(Operation childOp, int group) {
+    OpCapture(Operation childOp, int group, boolean inLookahead) {
         this.childOp = childOp;
         this.groupNr = group;
+        this.inLookahead = inLookahead;
     }
 
     @Override
@@ -43,6 +45,16 @@ public class OpCapture extends Operation {
     public Operation optimize(REProgram program, REFlags flags) {
         childOp = childOp.optimize(program, flags);
         return this;
+    }
+
+    /**
+     * Get the maximum depth of looping within this operation
+     *
+     * @return the maximum number of nested iterations
+     */
+    @Override
+    public int getMaxLoopingDepth() {
+        return childOp.getMaxLoopingDepth();
     }
 
     @Override
@@ -70,11 +82,8 @@ public class OpCapture extends Operation {
                     matcher._captureState.parenCount = groupNr + 1;
                 }
 
-                // Don't set paren if already set later on
-                //if (matcher.getParenStart(groupNr) == -1) {
-                matcher.setParenStart(groupNr, position);
-                matcher.setParenEnd(groupNr, next);
-                //}
+                matcher.capture(groupNr, position, next, inLookahead);
+
                 if ((matcher.program.optimizationFlags & REProgram.OPT_HASBACKREFS) != 0) {
                     matcher.startBackref[groupNr] = position;
                     matcher.endBackref[groupNr] = next;

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,14 +9,15 @@ package net.sf.saxon.event;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
+import net.sf.saxon.lib.ActiveSource;
 import net.sf.saxon.lib.AugmentedSource;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.lib.ActiveSource;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharp;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.Type;
 
 import javax.xml.transform.Source;
@@ -93,7 +94,7 @@ public abstract class Sender {
         }
 
         if (!(source instanceof ActiveSource)) {
-            source = config.resolveSource(source, config);
+            source = config.resolveSource(source, options, config);
         }
 
         if (source == null) {
@@ -106,40 +107,6 @@ public abstract class Sender {
         if (originalAugmentedSource != null && originalAugmentedSource.isPleaseCloseAfterUse()) {
             originalAugmentedSource.close();
         }
-
-
-//
-//
-//        if (source instanceof NodeInfo) {
-//            NodeInfo ns = (NodeInfo) source;
-//            String baseURI = ns.getBaseURI();
-//            if (schemaValidation != Validation.PRESERVE) {
-//                next = config.getDocumentValidator(next, baseURI, options, null);
-//            }
-//
-//            int kind = ns.getNodeKind();
-//            if (kind != Type.DOCUMENT && kind != Type.ELEMENT) {
-//                throw new IllegalArgumentException("Sender can only handle document or element nodes");
-//            }
-//            next.setSystemId(baseURI);
-//            Loc loc = new Loc(systemId, -1, -1);
-//            sendDocumentInfo(ns, next, loc);
-//            return;
-//
-//
-//            next = makeValidator(next, source.getSystemId(), options);
-//
-//            // See if there is a registered SourceResolver that can handle it
-//            Source newSource = config.getSourceResolver().resolveSource(source, config);
-//            if (newSource instanceof StreamSource ||
-//                    newSource instanceof SAXSource ||
-//                    newSource instanceof NodeInfo ||
-//                    newSource instanceof PullSource ||
-//                    newSource instanceof AugmentedSource ||
-//                    newSource instanceof EventSource) {
-//                send(newSource, next, options);
-//                return;
-//            }
 
     }
 
@@ -196,11 +163,17 @@ public abstract class Sender {
         PipelineConfiguration pipe = receiver.getPipelineConfiguration();
         Configuration config = pipe.getConfiguration();
         int sv = options.getSchemaValidationMode();
-        if (sv != Validation.PRESERVE && sv != Validation.DEFAULT) {
+        if (sv != Validation.PRESERVE && sv != Validation.DEFAULT && config.getEditionCode().equals("EE")) {
             Controller controller = pipe.getController();
             if (controller != null && !controller.getExecutable().isSchemaAware() && sv != Validation.STRIP) {
                 throw new XPathException("Cannot use schema-validated input documents when the query/stylesheet is not schema-aware");
             }
+            // Add a document validator to the pipeline if required
+            Schema schema = options.getSchema();
+            if (schema == null && sv == Validation.STRICT && !options.isUseXsiSchemaLocation()) {
+                throw new XPathException("Cannot perform strict schema validation; no schema supplied");
+            }
+            receiver = config.addValidatorToPipeline(options, systemId, receiver);
         }
         return receiver;
     }

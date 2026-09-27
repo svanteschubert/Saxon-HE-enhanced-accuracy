@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,13 +11,13 @@ import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
+import net.sf.saxon.transpile.CSharpInjectMembers;
 
 import java.util.Stack;
 
@@ -25,11 +25,11 @@ import java.util.Stack;
  * The compiled form of an xsl:attribute-set element in the stylesheet.
  */
 
+@CSharpInjectMembers(code = {"private readonly object _lock = new();"})
 public class AttributeSet extends Actor {
 
     StructuredQName attributeSetName;
     private boolean declaredStreamable;
-    private PushEvaluator bodyEvaluator;
 
     /**
      * Create an empty attribute set
@@ -108,18 +108,14 @@ public class AttributeSet extends Actor {
      */
 
     public void expand(Outputter output, XPathContext context) throws XPathException {
-        synchronized(this) {
-            if (bodyEvaluator == null) {
-                bodyEvaluator = getBody().makeElaborator().elaborateForPush();
-            }
-        }
+        makeBodyEvaluator();
 
         Stack<AttributeSet> stack = ((XsltController)context.getController()).getAttributeSetEvaluationStack();
         if (stack.contains(this)) {
             throw new XPathException("Attribute set " + getObjectName().getEQName() + " invokes itself recursively", "XTDE0640");
         }
         stack.push(this);
-        Expression.dispatchTailCall(bodyEvaluator.processLeavingTail(output, context));
+        Expression.dispatchTailCall(pushEvaluator.processLeavingTail(output, context));
         stack.pop();
         if (stack.isEmpty()) {
             ((XsltController)context.getController()).releaseAttributeSetEvaluationStack();

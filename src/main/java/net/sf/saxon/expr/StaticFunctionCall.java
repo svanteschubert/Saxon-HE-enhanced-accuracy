@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -216,7 +216,7 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
             }
             out.endElement();
         } else {
-
+            String flags = "";
             if (target instanceof UnionCastableFunction) {
                 // Bug 2611. Bug 3822.
                 final UnionType targetType = ((UnionConstructorFunction) target).getTargetType();
@@ -245,9 +245,9 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
                 final UnionType targetType = ((UnionConstructorFunction) target).getTargetType();
                 out.startElement("cast", this);
                 if (targetType instanceof LocalUnionType) {
-                    out.emitAttribute("to", AlphaCode.fromItemType(targetType));
+                    out.emitAttribute("as", AlphaCode.fromItemType(targetType));
                 } else{
-                    out.emitAttribute("as", targetType.toExportString());
+                    out.emitAttribute("to", targetType.getStructuredQName().getEQName());
                 }
                 out.emitAttribute("flags", "u" + (((UnionConstructorFunction) target).isAllowEmpty() ? "e" : ""));
                 for (Operand o : operands()) {
@@ -257,7 +257,7 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
             } else if (target instanceof ListConstructorFunction) {
                 // Bug 2611.
                 out.startElement("cast", this);
-                out.emitAttribute("as", ((ListConstructorFunction) target).getTargetType().getStructuredQName());
+                out.emitAttribute("to", ((ListConstructorFunction) target).getTargetType().getStructuredQName());
                 out.emitAttribute("flags", "l" + (((ListConstructorFunction) target).isAllowEmpty() ? "e" : ""));
                 for (Operand o : operands()) {
                     o.getChildExpression().export(out);
@@ -273,7 +273,7 @@ public class StaticFunctionCall extends FunctionCall implements Callable {
     public Elaborator getElaborator() {
         return new StaticFunctionCallElaborator();
     }
-
+    
     private static class StaticFunctionCallElaborator extends FunctionCallElaborator {
 
         @Override

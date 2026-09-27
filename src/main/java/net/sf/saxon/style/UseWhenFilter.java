@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,7 +32,9 @@ import net.sf.saxon.tree.AttributeLocation;
 import net.sf.saxon.tree.jiter.TopDownStackIterable;
 import net.sf.saxon.tree.linked.DocumentImpl;
 import net.sf.saxon.tree.linked.LinkedTreeBuilder;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.value.*;
 
 import javax.xml.transform.Source;
@@ -45,6 +47,7 @@ import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
+import java.util.StringTokenizer;
 import java.util.function.Supplier;
 
 /**
@@ -71,6 +74,7 @@ public class UseWhenFilter extends ProxyReceiver {
     private int importCount = 0;
     private boolean dropUnderscoredAttributes;
     private final LinkedTreeBuilder treeBuilder;
+    private NamespaceMap fixedNamespaces;
 
 
     /**
@@ -127,7 +131,8 @@ public class UseWhenFilter extends ProxyReceiver {
                              Location location, int properties) throws XPathException {
         int fp = elemName.obtainFingerprint(getNamePool());
         boolean inXsltNamespace = elemName.hasURI(NamespaceUri.XSLT);
-        NamespaceUri stdAttUri = inXsltNamespace ? NamespaceUri.NULL : NamespaceUri.XSLT;
+        NamespaceUri stdAttUri = (inXsltNamespace && fp != StandardNames.XSL_RECORD)
+                                          ? NamespaceUri.NULL : NamespaceUri.XSLT;
 
         DocumentImpl includedDoc = null;
 
@@ -209,6 +214,13 @@ public class UseWhenFilter extends ProxyReceiver {
         return false;
     }
 
+    /**
+     * Get the effective version, as defined by [xsl]:version attributes in the stylesheet
+     * @param pa the attributes of the current element
+     * @param fp the fingerprint of the name of the current element
+     * @return the effective version
+     * @throws XPathException if things go wrong (for example, bad version attribute)
+     */
     private int getVersion(ParsedAttributes pa, int fp) throws XPathException {
         int version = Integer.MIN_VALUE;
         if (pa.versionAtt != null && fp != StandardNames.XSL_OUTPUT) {
@@ -222,19 +234,37 @@ public class UseWhenFilter extends ProxyReceiver {
         return version;
     }
 
+    public NamespaceMap getFixedNamespaces() {
+        return fixedNamespaces;
+    }
+
     private DocumentImpl processIncludeImport(
-            NodeName elemName, Location location, URI baseUri, String href, boolean isImport) throws XPathException {
+            NodeName elemName, Location location, URI baseUri,
+            String href, boolean isImport, boolean is40) throws XPathException {
         if (href == null) {
             throw new XPathException("Missing href attribute on " + elemName.getDisplayName(), "XTSE0010");
+        }
+        //System.err.println((isImport ? "import" : "include") + " at precedence " + precedence);
+        NestedIntegerValue newPrecedence = precedence;
+        if (isImport) {
+            newPrecedence = precedence.getStem().append(precedence.getLeaf() - 1).append(2 * ++importCount);
         }
         Configuration config = getConfiguration();
         ResourceResolver resolver = compilation.getCompilerInfo().getResourceResolver();
         String baseUriStr = baseUri.toString();
-        DocumentKey key = DocumentFn.computeDocumentKey(href, baseUriStr, compilation.getPackageData(), false);
+        DocumentKey key = DocumentFn.computeStylesheetDocumentKey(href, baseUriStr, compilation.getPackageData());
         Map<DocumentKey, TreeInfo> map = compilation.getStylesheetModules();
         if (map.containsKey(key)) {
-            return (DocumentImpl) map.get(key);
+            // In 4.0, ignore an included stylesheet module if it has already been included at the
+            // same stylesheet level.
+            if (is40 && compilation.existsLoadedModule(key, newPrecedence)) {
+                return null;
+            } else {
+                compilation.addLoadedModule(key, newPrecedence);
+                return (DocumentImpl) map.get(key);
+            }
         } else {
+            compilation.addLoadedModule(key, newPrecedence);
             ResourceRequest request = new ResourceRequest();
             request.relativeUri = href;
             request.baseUri = baseUriStr;
@@ -254,13 +284,12 @@ public class UseWhenFilter extends ProxyReceiver {
                 source = new StreamSource(
                         new StringReader("<xsl:transform version='3.0' xmlns:xsl='http://www.w3.org/1999/XSL/Transform'/>"));
             }
-            NestedIntegerValue newPrecedence = precedence;
-            if (isImport) {
-                newPrecedence = precedence.getStem().append(precedence.getLeaf() - 1).append(2 * ++importCount);
-            }
+
             try {
                 DocumentImpl includedDoc = StylesheetModule.loadStylesheetModule(source, false, compilation, newPrecedence);
-                map.put(key, includedDoc);
+                if (includedDoc != null) {
+                    map.put(key, includedDoc);
+                }
                 return includedDoc;
             } catch (XPathException e) {
                 e.maybeSetErrorCode("XTSE0165");
@@ -271,10 +300,11 @@ public class UseWhenFilter extends ProxyReceiver {
                         e.setErrorCode("XTSE0210");
                     }
                 }
+                e.maybeSetLocation(location);
                 if (!e.hasBeenReported()) {
                     compilation.reportError(e);
                 }
-                throw e.maybeWithLocation(location);
+                throw e;
             }
         }
     }
@@ -291,15 +321,15 @@ public class UseWhenFilter extends ProxyReceiver {
     private ParsedAttributes startElementProcessAttributes(
             NodeName elemName, AttributeMap attributes, NamespaceMap namespaces, boolean inXsltNamespace, NamespaceUri stdAttUri) {
         boolean inSaxonNamespace = elemName.hasURI(NamespaceUri.SAXON);
-
+        boolean isXslRecord = elemName.getFingerprint() == StandardNames.XSL_RECORD;
         ParsedAttributes pa = new ParsedAttributes();
 
         for (AttributeInfo att : attributes) {
             NodeName attName = att.getNodeName();
             attName.obtainFingerprint(getNamePool());
             String local = attName.getLocalPart();
-            boolean underscored = local.startsWith("_");
-            if (local.equals("default-mode") && (attName.hasURI(NamespaceUri.XSLT) != inXsltNamespace)) {
+            boolean underscored = local.startsWith("_") && !isXslRecord;
+            if (local.equals("default-mode") && (attName.hasURI(NamespaceUri.XSLT) != inXsltNamespace) && !isXslRecord) {
                 registerModeName(att.getValue(), namespaces);
             }
             if (attName.hasURI(stdAttUri)) {
@@ -359,8 +389,23 @@ public class UseWhenFilter extends ProxyReceiver {
         if (fp == StandardNames.XSL_APPLY_TEMPLATES) {
             registerModeName(attributes.getValue("mode"), namespaces);
             return null;
-        } else if (defaultNamespaceStack.size() == 2) {
+        } else if (defaultNamespaceStack.size() == 1) {
             switch (fp) {
+                case StandardNames.XSL_STYLESHEET:
+                case StandardNames.XSL_TRANSFORM:
+                case StandardNames.XSL_PACKAGE:
+                    int processorVersion = compilation.getCompilerInfo().getXsltVersion();
+                    if (processorVersion >= 40) {
+                        String fixedNamespacesAtt = attributes.getValue("fixed-namespaces");
+                        if (fixedNamespacesAtt != null) {
+                            fixedNamespaces = parseFixedNamespacesAtt(fixedNamespacesAtt, namespaces, baseUri);
+                            getPipelineConfiguration().setComponent("FixedNamespaces", fixedNamespaces);
+                        }
+                    }
+                    break;
+            }
+        } else if (defaultNamespaceStack.size() == 2) {
+                switch (fp) {
                 case StandardNames.XSL_VARIABLE:
                 case StandardNames.XSL_PARAM:
                     if (pa.hasShadowAttributes) {
@@ -380,7 +425,10 @@ public class UseWhenFilter extends ProxyReceiver {
                     // We need to process the included/imported stylesheet now, because its static variables
                     // can be used later in this module
                     String href = attributes.getValue("href");
-                    includedDoc = processIncludeImport(elemName, location, baseUri, href, fp == StandardNames.XSL_IMPORT);
+                    int processorVersion = compilation.getCompilerInfo().getXsltVersion();
+                    boolean is40 = processorVersion >= 40;
+                    boolean isImport = fp == StandardNames.XSL_IMPORT;
+                    includedDoc = processIncludeImport(elemName, location, baseUri, href, isImport, is40);
                     break;
 
                 case StandardNames.XSL_IMPORT_SCHEMA:
@@ -420,7 +468,9 @@ public class UseWhenFilter extends ProxyReceiver {
     private void registerModeName(String modeAtt, NamespaceResolver nsResolver) {
         if (modeAtt != null && !modeAtt.startsWith("#")) {
             try {
-                StructuredQName qName = StructuredQName.fromLexicalQName((modeAtt), false, true, nsResolver);
+                int version = versionStack.isEmpty() ? 30 : versionStack.peek();
+                int qNameFormat =  version >= 40 ? StructuredQName.QUPL : StructuredQName.QUL;
+                StructuredQName qName = StructuredQName.fromLexicalQName((modeAtt), false, qNameFormat, nsResolver);
                 compilation.getAllKnownModeNames().add(qName);
             } catch (XPathException e) {
                 // No action, the error (if any) will be reported later
@@ -447,6 +497,9 @@ public class UseWhenFilter extends ProxyReceiver {
         String requiredStr = Whitespace.trim(attributes.getValue(NamespaceUri.NULL, "required"));
         boolean isRequired = StyleElement.isYes(requiredStr);
 
+        if (fixedNamespaces != null) {
+            nsResolver = fixedNamespaces;
+        }
 
         UseWhenStaticContext staticContext = new UseWhenStaticContext(compilation, nsResolver);
         staticContext.setBaseURI(baseUri.toString());
@@ -454,7 +507,9 @@ public class UseWhenFilter extends ProxyReceiver {
                 new AttributeLocation(elemName.getStructuredQName(), NamespaceUri.NULL.qName("as"), location));
         SequenceType requiredType = SequenceType.ANY_SEQUENCE;
 
-        int languageLevel = compilation.getConfiguration().getConfigurationProperty(Feature.XPATH_VERSION_FOR_XSLT);
+        Configuration config = compilation.getConfiguration();
+        int languageLevel = config.getConfigurationProperty(Feature.XPATH_VERSION_FOR_XSLT);
+        CoercionRules coercionRules = CoercionRules.forVersion(config, languageLevel);
         if (languageLevel == 30) {
             languageLevel = 305; // XPath 3.0 + XSLT extensions
         }
@@ -467,7 +522,8 @@ public class UseWhenFilter extends ProxyReceiver {
 
         StructuredQName varName;
         try {
-            varName = StructuredQName.fromLexicalQName((nameStr), false, true, nsResolver);
+            int qNameFormat = languageLevel >= 40 ? StructuredQName.QUPL : StructuredQName.QUL;
+            varName = StructuredQName.fromLexicalQName((nameStr), false, qNameFormat, nsResolver);
         } catch (XPathException err) {
             throw createXPathException(
                     "Invalid variable name:" + nameStr + ". " + err.getMessage(),
@@ -495,7 +551,7 @@ public class UseWhenFilter extends ProxyReceiver {
 
             if (isSupplied) {
                 Sequence suppliedValue = compilation.getParameters()
-                        .convertParameterValue(varName, requiredType, true, staticContext.makeEarlyEvaluationContext());
+                        .convertParameterValue(varName, requiredType, languageLevel, staticContext.makeEarlyEvaluationContext());
 
                 compilation.declareStaticVariable(varName, suppliedValue.materialize(), precedence, isParam);
             }
@@ -517,7 +573,7 @@ public class UseWhenFilter extends ProxyReceiver {
                     if (asStr == null) {
                         value = StringValue.EMPTY_STRING;
                     } else {
-                        value = EmptySequence.getInstance();
+                        value = EmptySequence.INSTANCE;
                     }
                     compilation.declareStaticVariable(varName, value, precedence, isParam);
                 }
@@ -532,11 +588,13 @@ public class UseWhenFilter extends ProxyReceiver {
                                                e.getErrorCodeQName(), attLoc);
                 }
             }
-            Supplier<RoleDiagnostic> role =
-                    () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, varName.getDisplayName(), 0, "XTDE0050");
-            TypeHierarchy th = getConfiguration().getTypeHierarchy();
-            Sequence seq = th.applyFunctionConversionRules(value, requiredType, role, attLoc);
-            value = seq.materialize();
+            if (requiredType != SequenceType.ANY_SEQUENCE) {
+                Supplier<RoleDiagnostic> role =
+                        () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, varName.getDisplayName(), 0, "XTDE0050");
+                value = coercionRules.coerce(
+                                value, requiredType, SequenceType.ANY_SEQUENCE, getConfiguration(), role, attLoc)
+                        .materialize();
+            }
             try {
                 compilation.declareStaticVariable(varName, value, precedence, isParam);
             } catch (XPathException e) {
@@ -575,7 +633,7 @@ public class UseWhenFilter extends ProxyReceiver {
                 attMap.remove(attName);
             }
         }
-        AttributeMap resultAtts = EmptyAttributeMap.getInstance();
+        AttributeMap resultAtts = EmptyAttributeMap.INSTANCE;
         for (AttributeInfo att : attMap.values()) {
             resultAtts = resultAtts.put(new AttributeInfo(
                     att.getNodeName(), att.getType(), att.getValue(), att.getLocation(), att.getProperties()));
@@ -634,6 +692,11 @@ public class UseWhenFilter extends ProxyReceiver {
      */
 
     private String processShadowAttribute(String expression, String baseUri, NamespaceResolver nsResolver, AttributeLocation loc) throws XPathException {
+
+        if (fixedNamespaces != null) {
+            nsResolver = fixedNamespaces;
+        }
+
         UseWhenStaticContext staticContext = new UseWhenStaticContext(compilation, nsResolver);
         staticContext.setBaseURI(baseUri);
         staticContext.setContainingLocation(loc);
@@ -713,12 +776,17 @@ public class UseWhenFilter extends ProxyReceiver {
      */
 
     private boolean evaluateUseWhen(String expression, AttributeLocation location, String baseUri, NamespaceResolver nsResolver) throws XPathException {
+
+        if (fixedNamespaces != null) {
+            nsResolver = fixedNamespaces;
+        }
+
         UseWhenStaticContext staticContext = new UseWhenStaticContext(compilation, nsResolver);
         staticContext.setBaseURI(baseUri);
         staticContext.setContainingLocation(location);
         setNamespaceBindings(staticContext);
         Expression expr = ExpressionTool.make(expression, staticContext,
-                                              0, Token.EOF, null);
+                                              0, Tokenizer.END_OF_INPUT, null);
         expr.setRetainedStaticContext(staticContext.makeRetainedStaticContext());
         expr = typeCheck(expr, staticContext);
         SlotManager stackFrameMap = allocateSlots(expression, expr);
@@ -726,6 +794,83 @@ public class UseWhenFilter extends ProxyReceiver {
         //dynamicContext.getController().getExecutable().setFunctionLibrary((FunctionLibraryList)staticContext.getFunctionLibrary());
         ((XPathContextMajor) dynamicContext).openStackFrame(stackFrameMap);
         return expr.effectiveBooleanValue(dynamicContext);
+    }
+
+    private NamespaceMap parseFixedNamespacesAtt(String att, NamespaceMap nsContext, URI baseUri) throws XPathException {
+        NamespaceMap nsMap = NamespaceMap.emptyMap();
+        StringTokenizer st = new StringTokenizer(att, " \t\n\r", false);
+
+        while (st.hasMoreTokens()) {
+            String s = st.nextToken();
+            if (s.equals("#standard")) {
+                nsMap = nsMap.put("xsl", NamespaceUri.XSLT);
+                nsMap = nsMap.put("xs", NamespaceUri.SCHEMA);
+                nsMap = nsMap.put("fn", NamespaceUri.FN);
+                nsMap = nsMap.put("map", NamespaceUri.MAP_FUNCTIONS);
+                nsMap = nsMap.put("array", NamespaceUri.ARRAY_FUNCTIONS);
+                nsMap = nsMap.put("math", NamespaceUri.MATH);
+                // etc
+            } else if (s.equals("xsl")) {
+                nsMap = nsMap.put("xsl", NamespaceUri.XSLT);
+            } else if (s.equals("xs")) {
+                nsMap = nsMap.put("xs", NamespaceUri.SCHEMA);
+            } else if (s.equals("fn")) {
+                nsMap = nsMap.put("fn", NamespaceUri.FN);
+            } else if (s.equals("map")) {
+                nsMap = nsMap.put("map", NamespaceUri.MAP_FUNCTIONS);
+            } else if (s.equals("array")) {
+                nsMap = nsMap.put("array", NamespaceUri.ARRAY_FUNCTIONS);
+            } else if (s.equals("math")) {
+                nsMap = nsMap.put("math", NamespaceUri.MATH);
+            } else if (NameChecker.isValidNCName(s)) {
+                NamespaceUri uri = nsContext.getNamespaceUri(s);
+                if (uri == null) {
+                    throw new XPathException("Namespace prefix " + s + " has not been declared");
+                } else {
+                    nsMap = nsMap.put(s, uri);
+                }
+            } else {
+                int eq = s.indexOf('=');
+                if (eq > 0 && eq + 1 < s.length() && NameChecker.isValidNCName(s.substring(0, eq))) {
+                    nsMap = nsMap.put(s.substring(0, eq), NamespaceUri.of(s.substring(eq + 1)));
+                } else {
+                    NodeInfo doc = null;
+
+                    Configuration config = getConfiguration();
+                    ResourceResolver resolver = compilation.getCompilerInfo().getResourceResolver();
+                    String baseUriStr = baseUri.toString();
+                    DocumentKey key = DocumentFn.computeStylesheetDocumentKey(s, baseUri.toString(), compilation.getPackageData());
+                    Map<DocumentKey, TreeInfo> map = compilation.getStylesheetModules();
+                    if (map.containsKey(key)) {
+                        doc = (DocumentImpl) map.get(key);
+                        NodeInfo outer = Navigator.getOutermostElement(doc.getTreeInfo());
+                        nsMap = nsMap.addAll(outer.getAllNamespaces());
+                    } else {
+                        ResourceRequest request = new ResourceRequest();
+                        request.relativeUri = s;
+                        request.baseUri = baseUriStr;
+                        request.uri = key.getAbsoluteURI();
+                        request.nature = ResourceRequest.XSLT_NATURE;
+                        request.purpose = ResourceRequest.ANY_PURPOSE;
+                        Source source = request.resolve(resolver,
+                                                        config.getResourceResolver(),
+                                                        new DirectResourceResolver(config));
+
+                        if (source == null) {
+                            throw new XPathException("Unable to resolve URI " + s
+                                                             + " in fixed-namespaces attribute ", "XTSE0165");
+                        }
+
+                        TreeInfo tree = config.buildDocumentTree(source);
+                        NodeInfo outer = Navigator.getOutermostElement(tree);
+                        nsMap = nsMap.addAll(outer.getAllNamespaces());
+
+                    }
+                }
+            }
+        }
+        return nsMap;
+
     }
 
     private SlotManager allocateSlots(String expression, Expression expr) {
@@ -749,7 +894,7 @@ public class UseWhenFilter extends ProxyReceiver {
 
     private Expression typeCheck(Expression expr, UseWhenStaticContext staticContext) throws XPathException {
         ItemType contextItemType = Type.ITEM_TYPE;
-        ContextItemStaticInfo cit = getConfiguration().makeContextItemStaticInfo(contextItemType, true);
+        ContextItemStaticInfo cit = getConfiguration().makeContextItemStaticInfo(contextItemType, Optionality.OPTIONAL);
         ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
         return expr.typeCheck(visitor, cit);
     }
@@ -784,7 +929,7 @@ public class UseWhenFilter extends ProxyReceiver {
         try {
             setNamespaceBindings(staticContext);
             Expression expr = ExpressionTool.make(expression, staticContext,
-                                                  0, Token.EOF, null);
+                                                  0, Tokenizer.END_OF_INPUT, null);
             expr = typeCheck(expr, staticContext);
             SlotManager stackFrameMap = getPipelineConfiguration().getConfiguration().makeSlotManager();
             ExpressionTool.allocateSlots(expr, stackFrameMap.getNumberOfVariables(), stackFrameMap);

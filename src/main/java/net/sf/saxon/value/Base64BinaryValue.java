@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,11 @@
 
 package net.sf.saxon.value;
 
-import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.XPathComparable;
-import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.AtomicType;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.BuiltInAtomicType;
 
 import java.util.Arrays;
@@ -23,10 +20,7 @@ import java.util.Arrays;
  * A value of type xs:base64Binary
  */
 
-public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XPathComparable, ContextFreeAtomicValue {
-
-    private final byte[] binaryValue;
-
+public class Base64BinaryValue extends BinaryValue {
 
     /**
      * Constructor: create a base64Binary value from a supplied string in base64 encoding
@@ -39,8 +33,7 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XP
      */
 
     public Base64BinaryValue(UnicodeString s) throws XPathException {
-        super(BuiltInAtomicType.BASE64_BINARY);
-        binaryValue = decode(s);
+        super(BuiltInAtomicType.BASE64_BINARY, decode(s));
     }
 
     /**
@@ -50,45 +43,35 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XP
      */
 
     public Base64BinaryValue(byte[] value) {
-        super(BuiltInAtomicType.BASE64_BINARY);
-        binaryValue = value;
+        super(BuiltInAtomicType.BASE64_BINARY, value);
     }
 
     /**
      * Constructor: create a base64Binary value from a given array of bytes
      *
      * @param value array of bytes holding the octet sequence
-     * @param typeLabel the specific type (must be a subtype of BASE64_BINARY)
+     * @param metadata the specific type (must be a subtype of BASE64_BINARY)
      */
 
-    public Base64BinaryValue(byte[] value, AtomicType typeLabel) {
-        super(typeLabel);
-        binaryValue = value;
+    public Base64BinaryValue(byte[] value, AtomicMetadata metadata) {
+        super(metadata, value);
     }
 
     /**
      * Create a copy of this atomic value (usually so that the type label can be changed).
      * The type label of the copy will be reset to the primitive type.
      *
-     * @param typeLabel the type label to be attached to the value, a subtype of xs:base64Binary
+     * @param metadata the type label to be attached to the value, a subtype of xs:base64Binary
      * @return the copied value
      */
 
     /*@NotNull*/
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        return new Base64BinaryValue(binaryValue, typeLabel);
+    public AtomicValue withMetadata(AtomicMetadata metadata) {
+        return new Base64BinaryValue(binaryValue, metadata);
     }
 
-    /**
-     * Get the binary value
-     *
-     * @return the octet sequence that is the typed value
-     */
 
-    public byte[] getBinaryValue() {
-        return binaryValue;
-    }
 
     /*@NotNull*/
     @Override
@@ -108,65 +91,6 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XP
         return encode(binaryValue);
     }
 
-    /**
-     * Get the number of octets in the value
-     *
-     * @return the number of octets
-     */
-
-    public int getLengthInOctets() {
-        return binaryValue.length;
-    }
-
-    @Override
-    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
-        return this;
-    }
-
-    @Override
-    public XPathComparable getXPathComparable() {
-        return this;
-    }
-
-    /**
-     * Get an object value that implements the XPath equality and ordering comparison semantics for this value.
-     * If the ordered parameter is set to true, the result will be a Comparable and will support a compareTo()
-     * method with the semantics of the XPath lt/gt operator, provided that the other operand is also obtained
-     * using the getXPathComparable() method. In all cases the result will support equals() and hashCode() methods
-     * that support the semantics of the XPath eq operator, again provided that the other operand is also obtained
-     * using the getXPathComparable() method. A context argument is supplied for use in cases where the comparison
-     * semantics are context-sensitive, for example where they depend on the implicit timezone or the default
-     * collation.
-     *  @param collator the collation (not used in this version of the method)
-     * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
-     */
-
-    /*@Nullable*/
-    @Override
-    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
-        return this;
-    }
-
-    /**
-     * Test if the two base64Binary values are equal.
-     */
-
-    public boolean equals(/*@NotNull*/ Object other) {
-        return other instanceof Base64BinaryValue
-                && Arrays.equals(binaryValue, ((Base64BinaryValue) other).binaryValue);
-    }
-
-    public int hashCode() {
-        return byteArrayHashCode(binaryValue);
-    }
-
-    protected static int byteArrayHashCode(/*@NotNull*/ byte[] value) {
-        long h = 0;
-        for (int i = 0; i < Math.min(value.length, 64); i++) {
-            h = (h << 1) ^ value[i];
-        }
-        return (int) ((h >> 32) ^ h);
-    }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Code for converting to/from base64 representation
@@ -194,16 +118,16 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XP
      */
 
     public static UnicodeString encode(byte[] value) {
-        UnicodeBuilder buff = new UnicodeBuilder(value.length*2);
+        TwineBuilder tb = TwineBuilder.make(value.length*2);
         int whole = value.length - value.length % 3;
         // process bytes 3 at a time: 3 bytes => 4 characters
         for (int i = 0; i < whole; i += 3) {
             // 3 bytes = 24 bits = 4 characters
             int val = ((((int) value[i]) & 0xff) << 16) + ((((int) value[i + 1]) & 0xff) << 8) + ((((int) value[i + 2]) & 0xff));
-            buff.append((char) encoding[(val >> 18) & 0x3f]);
-            buff.append((char) encoding[(val >> 12) & 0x3f]);
-            buff.append((char) encoding[(val >> 6) & 0x3f]);
-            buff.append((char) encoding[val & 0x3f]);
+            tb = tb.append((char) encoding[(val >> 18) & 0x3f]);
+            tb = tb.append((char) encoding[(val >> 12) & 0x3f]);
+            tb = tb.append((char) encoding[(val >> 6) & 0x3f]);
+            tb = tb.append((char) encoding[val & 0x3f]);
         }
         int remainder = (value.length % 3);
         switch (remainder) {
@@ -214,22 +138,22 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XP
             case 1: {
                 // pad the final 8 bits to 12 (2 groups of 6)
                 int val = ((((int) value[whole]) & 0xff) << 4);
-                buff.append((char) encoding[(val >> 6) & 0x3f]);
-                buff.append((char) encoding[val & 0x3f]);
-                buff.appendLatin("==");
+                tb = tb.append((char) encoding[(val >> 6) & 0x3f]);
+                tb = tb.append((char) encoding[val & 0x3f]);
+                tb = tb.append('=').append('=');
                 break;
             }
             case 2: {
                 // pad the final 16 bits to 18 (3 groups of 6)
                 int val = ((((int) value[whole]) & 0xff) << 10) + ((((int) value[whole + 1]) & 0xff) << 2);
-                buff.append((char) encoding[(val >> 12) & 0x3f]);
-                buff.append((char) encoding[(val >> 6) & 0x3f]);
-                buff.append((char) encoding[val & 0x3f]);
-                buff.append("=");
+                tb = tb.append((char) encoding[(val >> 12) & 0x3f]);
+                tb = tb.append((char) encoding[(val >> 6) & 0x3f]);
+                tb = tb.append((char) encoding[val & 0x3f]);
+                tb = tb.append("=");
                 break;
             }
         }
-        return buff.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     /**
@@ -335,25 +259,26 @@ public class Base64BinaryValue extends AtomicValue implements AtomicMatchKey, XP
 
     @Override
     public int compareTo(XPathComparable o) {
-        if (o instanceof HexBinaryValue) {
-            o = new Base64BinaryValue(((HexBinaryValue)o).getBinaryValue());
-        }
+        byte[] other;
         if (o instanceof Base64BinaryValue) {
-            byte[] other = ((Base64BinaryValue) o).binaryValue;
-            int len0 = binaryValue.length;
-            int len1 = other.length;
-            int shorter = java.lang.Math.min(len0, len1);
-            for (int i = 0; i < shorter; i++) {
-                int a = (int) binaryValue[i] & 0xff;
-                int b = (int) other[i] & 0xff;
-                if (a != b) {
-                    return a < b ? -1 : +1;
-                }
-            }
-            return Integer.signum(len0 - len1);
+            other = ((Base64BinaryValue) o).binaryValue;
+        } else if (o instanceof HexBinaryValue) {
+            // allowed in 4.0
+            other = ((HexBinaryValue) o).getBinaryValue();
         } else {
-            throw new ClassCastException("Cannot compare xs:base64Binary to " + o.getClass());
+            throw new ClassCastException("Cannot compare xs:base64Binary to " + o.toString());
         }
+        int len0 = binaryValue.length;
+        int len1 = other.length;
+        int shorter = java.lang.Math.min(len0, len1);
+        for (int i = 0; i < shorter; i++) {
+            int a = (int) binaryValue[i] & 0xff;
+            int b = (int) other[i] & 0xff;
+            if (a != b) {
+                return a < b ? -1 : +1;
+            }
+        }
+        return Integer.signum(len0 - len1);
     }
 }
 

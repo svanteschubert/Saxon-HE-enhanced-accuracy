@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,8 +14,8 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.om.GenericTreeInfo;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import org.apache.axiom.om.OMAttribute;
 import org.apache.axiom.om.OMDocument;
 import org.apache.axiom.om.OMElement;
@@ -72,7 +72,9 @@ public class AxiomDocument extends GenericTreeInfo implements ActiveSource {
 
     /**
      * Factory method to wrap an Axiom node with a wrapper that implements the
-     * Saxon NodeInfo interface.
+     * Saxon NodeInfo interface. Note that the Axiom interface makes no attempt to
+     * merge adjacent text nodes, which is required for strict XDM conformance. Adjacent
+     * text nodes can arise because of CDATA sections, depending on the Axiom and parser version.
      *
      * @param node       The Axiom node (an element, text, processing-instruction, or comment node)
      * @param docWrapper The wrapper for the Document containing this node
@@ -135,7 +137,7 @@ public class AxiomDocument extends GenericTreeInfo implements ActiveSource {
     }
 
 
-    protected static class FollowingSiblingIterator implements AxisIterator {
+    protected static class FollowingSiblingIterator implements SequenceIterator {
 
         private final OMNode start;
         private OMNode currentOMNode;
@@ -164,7 +166,7 @@ public class AxiomDocument extends GenericTreeInfo implements ActiveSource {
 
     }
 
-    protected static class PrecedingSiblingIterator implements AxisIterator {
+    protected static class PrecedingSiblingIterator implements SequenceIterator {
 
         private final OMNode start;
         private OMNode currentOMNode;

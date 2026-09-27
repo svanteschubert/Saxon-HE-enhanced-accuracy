@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,20 +10,25 @@ package net.sf.saxon.serialize;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.lib.SaxonOutputKeys;
+import net.sf.saxon.lib.SerializerFactory;
 import net.sf.saxon.ma.json.JsonReceiver;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.serialize.charcode.CharacterSet;
 import net.sf.saxon.serialize.charcode.UTF8CharacterSet;
-import net.sf.saxon.str.StringView;
-import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.str.UnicodeWriter;
+import net.sf.saxon.serialize.jcs.NumberToJSON;
+import net.sf.saxon.str.*;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.value.*;
+import net.sf.saxon.z.IntPredicateLambda;
 
 import javax.xml.transform.OutputKeys;
 import java.io.IOException;
 import java.text.Normalizer;
 import java.util.Properties;
 import java.util.Stack;
+import java.util.function.Function;
 
 /**
  * This class implements the back-end text generation of the JSON serialization method. It takes
@@ -36,14 +41,15 @@ public class JSONEmitter {
 
     //private final ExpandedStreamResult result;
 
-    private Configuration config;
-    private UnicodeWriter writer;
+    private final Configuration config;
+    private final UnicodeWriter writer;
     private boolean normalize;
     private Normalizer.Form normalizationForm;
     private CharacterMap characterMap;
     private Properties outputProperties;
     private CharacterSet characterSet;
     private boolean isIndenting;
+    private boolean isJsonLines;
     private int indentSpaces = 2;
     private int maxLineLength;
     private boolean first = true;
@@ -52,13 +58,20 @@ public class JSONEmitter {
     private final Stack<Boolean> oneLinerStack = new Stack<>();
     private boolean mustClose = true;
     private boolean escapeSolidus = true;
-
+    private boolean canonical = false;
     private boolean unfailing = false;
+    private boolean is40 = false;
+    private JsonReceiver.EscapeOptions escapeOptions;
+    private JsonReceiver.EscapeOptions canonicalEscapeOptions;
 
     public JSONEmitter(PipelineConfiguration pipe, UnicodeWriter writer, Properties outputProperties)  {
         config = pipe.getConfiguration();
         setOutputProperties(outputProperties);
         this.writer = writer;
+        String specVn = outputProperties.getProperty(SaxonOutputKeys.SPEC_VERSION);
+        if ("40".equals(specVn) || "4.0".equals(specVn)) {
+            is40 = true;
+        }
     }
 
     /**
@@ -72,12 +85,24 @@ public class JSONEmitter {
         if ("yes".equals(details.getProperty(OutputKeys.INDENT))) {
             isIndenting = true;
         }
-        if ("yes".equals(details.getProperty(SaxonOutputKeys.UNFAILING))) {
+        if ("yes".equals(details.getProperty(SaxonOutputKeys.JSON_LINES))) {
+            isJsonLines = true;
+        }
+        if ("yes".equals(details.getProperty(SaxonOutputKeys.CANONICAL))) {
+            canonical = true;
+        }
+        if ("yes".equals(details.getProperty(SaxonOutputKeys.UNFAILING)) && !canonical) {
             unfailing = true;
         }
-        if ("no".equals(details.getProperty(SaxonOutputKeys.ESCAPE_SOLIDUS))) {
+        if ("no".equals(details.getProperty(SaxonOutputKeys.ESCAPE_SOLIDUS)) || canonical) {
             escapeSolidus = false;
         }
+        escapeOptions = new JsonReceiver.EscapeOptions(
+                false, !escapeSolidus, false, IntPredicateLambda.of(
+                                                  c -> c < 31 || (c >= 127 && c <= 159) || !characterSet.inCharset(c)));
+        canonicalEscapeOptions = new JsonReceiver.EscapeOptions(
+                false, true, false, IntPredicateLambda.of(c -> c < 31));
+
         String max = details.getProperty(SaxonOutputKeys.LINE_LENGTH);
         if (max != null) {
             try {
@@ -150,7 +175,7 @@ public class JSONEmitter {
      * @throws XPathException if any error occurs
      */
 
-    public void writeKey(String key) throws XPathException {
+    public void writeKey(UnicodeString key) throws XPathException {
         boolean oneLiner = oneLinerStack.peek();
         conditionalComma(false);
         emit('"');
@@ -173,47 +198,62 @@ public class JSONEmitter {
         conditionalComma(false);
         if (item == null) {
             emit("null");
-        } else if (item instanceof NumericValue) {
-            NumericValue num = (NumericValue)item;
-            if (item instanceof DecimalValue) {
+        } else if (item instanceof NumericValue num) {
+            if (item instanceof DecimalValue && !canonical) {
                 // Avoid exponential notation
                 emit(num.getUnicodeStringValue());
             } else if (num.isNaN()) {
-                if (unfailing) {
+                if (unfailing && !canonical) {
                     emit("NaN");
+                } else if (is40 && !canonical) {
+                    emit("null");
                 } else {
                     throw new XPathException("JSON has no way of representing NaN", "SERE0020");
                 }
             } else if (Double.isInfinite(num.getDoubleValue())) {
-                if (unfailing) {
-                    emit(num.getDoubleValue() < 0 ? "-INF" : "INF");
+                if ((unfailing || is40) & !canonical) {
+                    emit(num.getDoubleValue() < 0 ? "-1e9999" : "1e9999");
                 } else {
                     throw new XPathException("JSON has no way of representing Infinity", "SERE0020");
                 }
             } else if (num.isNegativeZero()) {
-                emit("-0");
+                emit(canonical ? "0" : "-0");
             } else {
+
                 double val = num.getDoubleValue();
                 double abs = Math.abs(val);
                 // Avoid exponential notation except in extremis
-                emit(FloatingPointConverter.convertDouble(val, abs >= 1e18 || abs < 1e-18));
-//                if (num.isWholeNumber() && abs < 1e18) {
-//                    emit(num.longValue() + "");
-//                } else if (abs < 1e18 && abs > 1e-18) {
-//                    // Avoid exponential notation except in extremis
-//                    emit(Converter.DoubleToDecimal.INSTANCE.convert(num).asAtomic().getUnicodeStringValue());
+                if (abs == 0.0) {
+                    emit("0");
+                } else if (!SerializerFactory.canonicalJsonIsSupported()) {
+                    // This path currently used on SaxonCS
+                    String s = FloatingPointConverter.convertDouble(val, val != 0 && (val >= 1000000 || val < 0.000001)).toString();
+                    s = s.replaceFirst("E", "e").replaceFirst("e(?!-)", "e+");
+                    emit(s);
+                } else {
+                    try {
+                        String s = NumberToJSON.serializeNumber(val);
+                        emit(s);
+                    } catch (IOException e) {
+                        throw new XPathException(e.getMessage());
+                    }
 //                } else {
-//                    emit(num.getUnicodeStringValue());
-//                }
+//                    emit(new BigDecimalValue(val).toString());
+//                    //emit(FloatingPointConverter.convertDouble(val, false));
+                }
             }
         } else if (item instanceof BooleanValue) {
-            emit(item.getStringValue());
+            emit(item.getUnicodeStringValue());
+        } else if (item instanceof QNameValue && item.equals(JSON_NULL)) {
+            emit(StringConstants.NULL);
         } else {
             emit('"');
-            emit(escape(item.getStringValue()));
+            emit(escape(item.getUnicodeStringValue()));
             emit('"');
         }
     }
+
+    public final static QNameValue JSON_NULL = new QNameValue(new StructuredQName("", NamespaceUri.FN, "null"), BuiltInAtomicType.QNAME);
 
     /**
      * Append a singleton string value to the output
@@ -222,7 +262,7 @@ public class JSONEmitter {
      * @throws XPathException if the operation fails
      */
 
-    public void writeStringValue(String str) throws XPathException {
+    public void writeStringValue(UnicodeString str) throws XPathException {
         conditionalComma(false);
         emit('"');
         emit(escape(str));
@@ -255,7 +295,7 @@ public class JSONEmitter {
 
     /**
      * Output the start of an map. This call must be followed by the entries in the
-     * map (each starting with a call on {@link #writeKey(String)}, followed by a call on
+     * map (each starting with a call on {@link #writeKey(UnicodeString)}, followed by a call on
      * {@link #endMap()}.
      *
      * @param oneLiner True if the caller thinks the value should be output without extra newlines
@@ -286,7 +326,7 @@ public class JSONEmitter {
     private void emitClose(char bracket, int level) throws XPathException {
         boolean oneLiner = oneLinerStack.pop();
         if (isIndenting) {
-            if (oneLiner) {
+            if (oneLiner || isJsonLines) {
                 emit(' ');
             } else {
                 indent(level - 1);
@@ -303,6 +343,8 @@ public class JSONEmitter {
         boolean actuallyIndenting = isIndenting && level != 0 && !oneLiner;
         if (first) {
             first = false;
+        } else if (level == 0 && isJsonLines) {
+            return;
         } else if (!afterKey) {
             emit(',');
             if (oneLiner && isIndenting) {
@@ -327,34 +369,46 @@ public class JSONEmitter {
         }
     }
 
-    private String escape(String cs) throws XPathException {
+    public void newLine() throws XPathException {
+        emit('\n');
+    }
+
+    private UnicodeString escape(UnicodeString cs) throws XPathException {
+        Function<UnicodeString, UnicodeString> escaper =
+                canonical ? this::canonicalEscape : this::simpleEscape;
         if (characterMap != null) {
-            StringBuilder out = new StringBuilder(cs.length());
-            String s = characterMap.map(StringView.of(cs).tidy(), true).toString();
-            int prev = 0;
+            UnicodeBuilder out = new UnicodeBuilder();
+            UnicodeString s = characterMap.map(cs, true);
+            long prev = 0;
             while (true) {
-                int start = s.indexOf((char)0, prev);
+                long start = s.indexOf((char)0, prev);
                 if (start >= 0) {
-                    out.append(simpleEscape(s.substring(prev, start)));
-                    int end = s.indexOf((char)0, start + 1);
-                    out.append(s, start + 1, end);
+                    out.append(escaper.apply(s.substring(prev, start)));
+                    long end = s.indexOf((char)0, start + 1);
+                    out.append(s.substring(start + 1, end));
                     prev = end + 1;
                 } else {
-                    out.append(simpleEscape(s.substring(prev)));
-                    return out.toString();
+                    out.append(escaper.apply(s.substring(prev)));
+                    return out.toUnicodeString();
                 }
             }
         } else {
-            return simpleEscape(cs);
+            return escaper.apply(cs);
         }
     }
 
-    private String simpleEscape(String cs) throws XPathException {
+    private UnicodeString simpleEscape(UnicodeString cs) {
         if (normalize) {
-            cs = Normalizer.normalize(cs, normalizationForm);
+            cs = StringView.of(Normalizer.normalize(cs.toString(), normalizationForm));
         }
-        return JsonReceiver.escape(cs, false, !escapeSolidus,
-                                   c -> c < 31 || (c >= 127 && c <= 159) || !characterSet.inCharset(c));
+        return JsonReceiver.escape(cs, escapeOptions);
+    }
+
+    private UnicodeString canonicalEscape(UnicodeString cs)  {
+        if (normalize) {
+            cs = StringView.of(Normalizer.normalize(cs.toString(), normalizationForm));
+        }
+        return JsonReceiver.escape(cs, canonicalEscapeOptions);
     }
 
     private void emit(String s) throws XPathException {
@@ -392,7 +446,7 @@ public class JSONEmitter {
      */
 
     public void close() throws XPathException {
-        if (first) {
+        if (first && !isJsonLines) {
             emit("null");
         }
         if (writer != null) {

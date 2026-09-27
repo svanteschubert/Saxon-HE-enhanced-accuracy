@@ -54,6 +54,17 @@ public class UnicodeWriterToWriter implements UnicodeWriter {
     }
 
     /**
+     * Process a single ASCII character.
+     *
+     * @param codepoint the Unicode character to be processed. Must be in the range 0-127; this is not necessarily checked
+     * @throws IOException if processing fails for any reason
+     */
+    @Override
+    public void writeAscii(int codepoint) throws IOException {
+        writer.write((char) codepoint);
+    }
+
+    /**
      * Process a supplied string
      *
      * @param chars the characters to be processed

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -34,6 +34,7 @@ public abstract class TextLinesIterator implements SequenceIterator {
     protected IntPredicateProxy checker;
     StringValue current = null;
     int position = 0;
+    protected boolean fallback = false;
     protected Location location;
     protected URI uri;
     private CleanerProxy.CleanableProxy cleanable;
@@ -60,7 +61,7 @@ public abstract class TextLinesIterator implements SequenceIterator {
                 // remove any BOM found at start of file
                 s = s.substring(1);
             }
-            checkLine(checker, s);
+            s = checkLine(checker, s);
             current = new StringValue(s);
             position++;
             return current;
@@ -93,7 +94,8 @@ public abstract class TextLinesIterator implements SequenceIterator {
     }
 
 
-    private void checkLine(IntPredicateProxy checker, /*@NotNull*/ String buffer) throws XPathException {
+    private String checkLine(IntPredicateProxy checker, /*@NotNull*/ String buffer) throws XPathException {
+        boolean fixup = false;
         for (int c = 0; c < buffer.length(); ) {
             int ch32 = buffer.charAt(c++);
             if (UTF16CharacterSet.isHighSurrogate(ch32)) {
@@ -101,12 +103,33 @@ public abstract class TextLinesIterator implements SequenceIterator {
                 ch32 = UTF16CharacterSet.combinePair((char) ch32, low);
             }
             if (!checker.test(ch32)) {
+                if (fallback) {
+                    fixup = true;
+                    break;
+                }
                 throw new XPathException("The unparsed-text file contains a character that is illegal in XML (line=" +
                         position + " column=" + (c + 1) + " value=hex " + Integer.toHexString(ch32) + ')')
                         .withErrorCode("FOUT1190")
                         .withLocation(location);
             }
         }
+
+        if (fixup) {
+            char[] chars = buffer.toCharArray();
+            for (int c = 0; c < chars.length; ) {
+                int ch32 = buffer.charAt(c++);
+                if (UTF16CharacterSet.isHighSurrogate(ch32)) {
+                    char low = buffer.charAt(c++);
+                    ch32 = UTF16CharacterSet.combinePair((char) ch32, low);
+                }
+                if (!checker.test(ch32)) {
+                    chars[c - 1] = '\uFFFD';
+                }
+            }
+            return new String(chars);
+        }
+
+        return buffer;
     }
 
     protected void arrangeCleanup(Reader reader, XPathContext context) {

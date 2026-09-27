@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,11 +12,10 @@ import net.sf.saxon.Version;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.z.IntBlockSet;
 import net.sf.saxon.z.IntSet;
 
@@ -90,7 +89,7 @@ public class UnicodeBlocks {
         ParseOptions options = new ParseOptions()
                 .withSchemaValidationMode(Validation.SKIP)
                 .withDTDValidationMode(Validation.SKIP)
-                .withSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance())
+                .withSpaceStrippingRule(AllElementsSpaceStrippingRule.INSTANCE)
                 .withPleaseCloseAfterUse(true);
         TreeInfo doc;
         try {
@@ -99,16 +98,17 @@ public class UnicodeBlocks {
             throw new RESyntaxException("Failed to process unicodeBlocks.xml: " + e.getMessage());
         }
 
-        AxisIterator iter = doc.getRootNode().iterateAxis(AxisInfo.DESCENDANT,
-                                                          new NameTest(Type.ELEMENT, NamespaceUri.NULL, "block", config.getNamePool()));
+        SequenceIterator iter = doc.getRootNode().iterateDescendantAxis(
+                NamedXNodeType.make(Type.ELEMENT, NamespaceUri.NULL, "block", config));
         while (true) {
-            NodeInfo item = iter.next();
+            NodeInfo item = (NodeInfo)iter.next();
             if (item == null) {
                 break;
             }
             String blockName = normalizeBlockName(item.getAttributeValue(NamespaceUri.NULL, "name"));
+            System.err.println("Loading " + blockName);
             IntSet range = null;
-            for (NodeInfo rangeElement : item.children(NodeKindTest.ELEMENT)) {
+            for (NodeInfo rangeElement : item.children(NodeKindType.ELEMENT)) {
                 int from = Integer.parseInt(rangeElement.getAttributeValue(NamespaceUri.NULL, "from").substring(2), 16);
                 int to = Integer.parseInt(rangeElement.getAttributeValue(NamespaceUri.NULL, "to").substring(2), 16);
                 IntSet cr = new IntBlockSet(from, to);

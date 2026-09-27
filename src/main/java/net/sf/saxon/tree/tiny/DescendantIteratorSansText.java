@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,11 @@
 package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.z.IntPredicateProxy;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.tree.util.Navigator;
+
+import java.util.function.IntPredicate;
 
 /**
  * This class supports both the descendant:: and descendant-or-self:: axes, which are
@@ -20,26 +22,28 @@ import net.sf.saxon.z.IntPredicateProxy;
  * The calling code must ensure that the start node is not an attribute or namespace node.
  */
 
-final class DescendantIteratorSansText implements AxisIterator {
+final class DescendantIteratorSansText implements SequenceIterator {
 
     private final TinyTree tree;
-    private int nextNodeNr;
     private final int startDepth;
-    private final IntPredicateProxy matcher;
+    private final IntPredicate matcher;
+
+    private int nextNodeNr;
 
     /**
      * Create an iterator over the descendant axis
      *
-     * @param doc         the containing TinyTree
+     * @param tree        the containing TinyTree
      * @param node        the node whose descendants are required
-     * @param nodeTest    test to be satisfied by each returned node
+     * @param predicate   test to be satisfied by each returned node; this must be a predicate
+     *                    that will never select text nodes
      */
 
-    DescendantIteratorSansText(/*@NotNull*/ TinyTree doc, /*@NotNull*/ TinyNodeImpl node, NodeTest nodeTest) {
-        tree = doc;
+    DescendantIteratorSansText(TinyTree tree, TinyNodeImpl node, NodePredicate predicate) {
+        this.tree = tree;
         nextNodeNr = node.nodeNr;
-        startDepth = doc.depth[nextNodeNr];
-        matcher = nodeTest.getMatcher(doc);
+        startDepth = tree.depth[nextNodeNr];
+        matcher = Navigator.getNumberedNodeMatcher(predicate, tree);
     }
 
     /*@Nullable*/

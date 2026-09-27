@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,19 +13,22 @@ import net.sf.saxon.expr.LocalVariableReference;
 import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.om.*;
-import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibraryList;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.QNameValue;
+import net.sf.saxon.value.SequenceType;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
 
 /**
  * An IndependentContext provides a context for parsing an XPath expression appearing
@@ -39,13 +42,13 @@ import java.util.*;
  */
 
 public class IndependentContext extends AbstractStaticContext
-        implements XPathStaticContext, NamespaceResolver {
+        implements NamespaceResolver {
 
     protected HashMap<String, NamespaceUri> namespaces = new HashMap<>(10);
     protected HashMap<StructuredQName, XPathVariable> variables = new HashMap<>(20);
     protected NamespaceResolver externalResolver = null;
-    protected ItemType requiredContextItemType = AnyItemType.getInstance();
-    protected Set<NamespaceUri> importedSchemaNamespaces = new HashSet<>();
+    protected SequenceType requiredContextValueType = SequenceType.SINGLE_ITEM;
+    protected Schema importedSchema;
     protected boolean autoDeclare = false;
     protected Executable executable;
     protected RetainedStaticContext retainedStaticContext;
@@ -68,14 +71,26 @@ public class IndependentContext extends AbstractStaticContext
      */
 
     public IndependentContext(Configuration config) {
+        this(config, 31);
+    }
+
+    /**
+     * Create an IndependentContext using a specific Configuration
+     *
+     * @param config the Saxon configuration to be used
+     * @param version the XPath language version (31 = XPath 3.1, 40 = XPath 4.0)
+     */
+
+    public IndependentContext(Configuration config, int version) {
         setConfiguration(config);
         clearNamespaces();
-        setDefaultFunctionLibrary(31);
+        xpathLanguageLevel = version;
+        setDefaultFunctionLibrary(version);
         usingDefaultFunctionLibrary = true;
         setDefaultCollationName(config.getDefaultCollationName());
         setOptimizerOptions(config.getOptimizerOptions());
         PackageData pd = new PackageData(config);
-        pd.setHostLanguage(HostLanguage.XPATH, 31);
+        pd.setHostLanguage(HostLanguage.XPATH, version);
         pd.setSchemaAware(false);
         setPackageData(pd);
     }
@@ -87,25 +102,29 @@ public class IndependentContext extends AbstractStaticContext
      */
 
     public IndependentContext(IndependentContext ic) {
-        this(ic.getConfiguration());
+        this(ic.getConfiguration(), ic.getXPathVersion());
         setPackageData(ic.getPackageData());
         setBaseURI(ic.getStaticBaseURI());
         setContainingLocation(ic.getContainingLocation());
         setDefaultElementNamespace(ic.getDefaultElementNamespace());
         setDefaultFunctionNamespace(ic.getDefaultFunctionNamespace());
         setBackwardsCompatibilityMode(ic.isInBackwardsCompatibleMode());
+        setImportedSchema(ic.getImportedSchema());
         namespaces = new HashMap<>(ic.namespaces);
         variables = new HashMap<>(10);
         FunctionLibraryList libList = (FunctionLibraryList) ic.getFunctionLibrary();
         if (libList != null) {
             setFunctionLibrary((FunctionLibraryList) libList.copy());
         }
-        setImportedSchemaNamespaces(ic.importedSchemaNamespaces);
+        setDefaultCollationName(ic.getDefaultCollationName());
         externalResolver = ic.externalResolver;
         autoDeclare = ic.autoDeclare;
-        setXPathLanguageLevel(ic.getXPathVersion());
-        requiredContextItemType = ic.requiredContextItemType;
+        setUnprefixedElementMatchingPolicy(ic.getUnprefixedElementMatchingPolicy());
+        requiredContextValueType = ic.requiredContextValueType;
         setExecutable(ic.getExecutable());
+        setOptimizerOptions(ic.getOptimizerOptions());
+        retainedStaticContext = null;
+        parentlessContextItem = ic.parentlessContextItem;
     }
 
     /**
@@ -143,7 +162,7 @@ public class IndependentContext extends AbstractStaticContext
         if (uri == null) {
             throw new NullPointerException("Null namespace URI supplied to declareNamespace()");
         }
-        if ("".equals(prefix)) {
+        if (prefix.isEmpty()) {
             setDefaultElementNamespace(uri);
         } else {
             namespaces.put(prefix, uri);
@@ -193,7 +212,7 @@ public class IndependentContext extends AbstractStaticContext
     }
 
     /**
-     * Declares all the namespaces that are in-scope for a given node, removing all previous
+     * Declares all the namespaces that are in-scope for a supplied node, removing all previous
      * namespace declarations.
      * In addition, the standard namespaces (xml, xslt, saxon) are declared. This method also
      * sets the default element namespace to be the same as the default namespace for this node.
@@ -204,19 +223,20 @@ public class IndependentContext extends AbstractStaticContext
 
     public void setNamespaces(NodeInfo node) {
         namespaces.clear();
+        externalResolver = null;
         int kind = node.getNodeKind();
         if (kind == Type.ATTRIBUTE || kind == Type.TEXT ||
                 kind == Type.COMMENT || kind == Type.PROCESSING_INSTRUCTION ||
                 kind == Type.NAMESPACE) {
-            node = node.getParent();
+            node = (NodeInfo)node.getParent();
         }
         if (node == null) {
             return;
         }
 
-        AxisIterator iter = node.iterateAxis(AxisInfo.NAMESPACE);
+        SequenceIterator iter = node.iterateNamespaceAxis(AnyGNode.TEST);
         while (true) {
-            NodeInfo ns = iter.next();
+            NodeInfo ns = (NodeInfo)iter.next();
             if (ns == null) {
                 return;
             }
@@ -237,7 +257,6 @@ public class IndependentContext extends AbstractStaticContext
      * @param resolver the external NamespaceResolver
      */
 
-    @Override
     public void setNamespaceResolver(NamespaceResolver resolver) {
         externalResolver = resolver;
     }
@@ -279,7 +298,6 @@ public class IndependentContext extends AbstractStaticContext
      *         declared.
      */
 
-    @Override
     public XPathVariable declareVariable(QNameValue qname) {
         return declareVariable(qname.getStructuredQName());
     }
@@ -295,7 +313,6 @@ public class IndependentContext extends AbstractStaticContext
      *         declared.
      */
 
-    @Override
     public XPathVariable declareVariable(NamespaceUri namespaceURI, String localName) {
         StructuredQName qName = new StructuredQName("", namespaceURI==null ? NamespaceUri.NULL : namespaceURI, localName);
         return declareVariable(qName);
@@ -396,7 +413,14 @@ public class IndependentContext extends AbstractStaticContext
         if (prefix.isEmpty()) {
             return useDefault ? getDefaultElementNamespace() : NamespaceUri.NULL;
         } else {
-            return namespaces.get(prefix);
+            NamespaceUri uri = prologNamespaces.getNamespaceUri(prefix);
+            if (uri == NamespaceUri.NULL && xpathLanguageLevel >= 40) {
+                return null; // Prefix binding has been undeclared
+            }
+            if (uri == null) {
+                uri = namespaces.get(prefix);
+            }
+            return uri;
         }
     }
 
@@ -444,7 +468,6 @@ public class IndependentContext extends AbstractStaticContext
      * the static context itself.
      */
 
-    @Override
     public SlotManager getStackFrameMap() {
         SlotManager map = getConfiguration().makeSlotManager();
         XPathVariable[] va = new XPathVariable[variables.size()];
@@ -462,35 +485,21 @@ public class IndependentContext extends AbstractStaticContext
         return variables.values();
     }
 
+    /**
+     * Add an imported schema to the static context
+     */
 
-    @Override
-    public boolean isImportedSchema(NamespaceUri namespace) {
-        return importedSchemaNamespaces.contains(namespace);
+    public void setImportedSchema(Schema schema) {
+        this.importedSchema = schema;
     }
 
     /**
-     * Get the set of imported schemas
-     *
-     * @return a Set, the set of URIs representing the names of imported schemas
+     * Get the imported schema for this static context, if any
+     * @return the imported schema, or the MinimalSchema if no schema has been imported
      */
 
-    @Override
-    public Set<NamespaceUri> getImportedSchemaNamespaces() {
-        return importedSchemaNamespaces;
-    }
-
-    /**
-     * Register the set of imported schema namespaces
-     *
-     * @param namespaces the set of namespaces for which schema components are available in the
-     *                   static context
-     */
-
-    public void setImportedSchemaNamespaces(Set<NamespaceUri> namespaces) {
-        importedSchemaNamespaces = namespaces;
-        if (!namespaces.isEmpty()) {
-            setSchemaAware(true);
-        }
+    public Schema getImportedSchema() {
+         return importedSchema==null ? getConfiguration().emptySchema() : importedSchema;
     }
 
     /**
@@ -503,7 +512,20 @@ public class IndependentContext extends AbstractStaticContext
      */
 
     public void setRequiredContextItemType(ItemType type) {
-        requiredContextItemType = type;
+        requiredContextValueType = SequenceType.one(type);
+    }
+
+    /**
+     * Declare the static type of the context item. If this type is declared, and if a context value
+     * is supplied when the query is invoked, then the context value must conform to this type (no
+     * type conversion will take place to force it into this type).
+     *
+     * @param type the required type of the context item
+     * @since 13.0
+     */
+
+    public void setRequiredContextValueType(SequenceType type) {
+        requiredContextValueType = type;
     }
 
     /**
@@ -516,7 +538,20 @@ public class IndependentContext extends AbstractStaticContext
 
     @Override
     public ItemType getRequiredContextItemType() {
-        return requiredContextItemType;
+        return requiredContextValueType.getPrimaryType();
+    }
+
+    /**
+     * Get the required type of the context item. If no type has been explicitly declared for the context
+     * item, an instance of AnyItemType (representing the type item()) is returned.
+     *
+     * @return the required type of the context item
+     * @since 9.3
+     */
+
+    @Override
+    public SequenceType getRequiredContextValueType() {
+        return requiredContextValueType;
     }
 
     /**
@@ -568,10 +603,18 @@ public class IndependentContext extends AbstractStaticContext
      *
      * @return true if it is known that the context item for evaluating the expression will have no parent
      */
-    @Override
     public boolean isContextItemParentless() {
         return parentlessContextItem;
     }
+
+    /**
+     * Say whether the context item is known to be parentless. This is used for XSD Assertions;
+     * it allows a static warning if an XSD assertion attempts to look outside the element being
+     * validated.
+     *
+     * @param parentless true if it is known that the context item for evaluating the expression
+     *                  will have no parent
+     */
 
     public void setContextItemParentless(boolean parentless) {
         parentlessContextItem = parentless;

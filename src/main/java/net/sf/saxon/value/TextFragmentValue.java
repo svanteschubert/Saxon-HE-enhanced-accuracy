@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,14 +11,13 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodePredicate;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.ArrayIterator;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.SingleNodeIterator;
+import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.tree.linked.DocumentImpl;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.SchemaType;
@@ -30,7 +29,9 @@ import java.util.Collections;
 import java.util.Iterator;
 
 /**
- * This class represents a temporary tree whose root document node owns a single text node. <BR>
+ * This class represents a temporary tree whose root document node owns a single text node. The parent
+ * class represents the document node; the inner class {@link TextFragmentTextNode} represents the single
+ * text node.
  */
 
 public final class TextFragmentValue implements NodeInfo, SourceLocator {
@@ -218,7 +219,7 @@ public final class TextFragmentValue implements NodeInfo, SourceLocator {
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         if (this == other) {
             return 0;
         }
@@ -323,7 +324,7 @@ public final class TextFragmentValue implements NodeInfo, SourceLocator {
      */
     @Override
     public SchemaType getSchemaType() {
-        return Untyped.getInstance();
+        return Untyped.INSTANCE;
     }
 
     /**
@@ -393,99 +394,63 @@ public final class TextFragmentValue implements NodeInfo, SourceLocator {
     }
 
     /**
-     * Return an iteration over the nodes reached by the given axis from this node
+     * Get an iterator over the child axis, starting at this node; the nodes will
+     * be in document order.
      *
-     * @param axisNumber The axis to be iterated over
-     * @return a AxisIterator that scans the nodes reached by the axis in turn.
-     * @see net.sf.saxon.om.AxisInfo
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
      */
-
-    /*@NotNull*/
     @Override
-    public AxisIterator iterateAxis(int axisNumber) {
-        switch (axisNumber) {
-            case AxisInfo.ANCESTOR:
-            case AxisInfo.ATTRIBUTE:
-            case AxisInfo.FOLLOWING:
-            case AxisInfo.FOLLOWING_SIBLING:
-            case AxisInfo.NAMESPACE:
-            case AxisInfo.PARENT:
-            case AxisInfo.PRECEDING:
-            case AxisInfo.PRECEDING_SIBLING:
-            case AxisInfo.PRECEDING_OR_ANCESTOR:
-                return EmptyIterator.ofNodes();
-
-            case AxisInfo.SELF:
-            case AxisInfo.ANCESTOR_OR_SELF:
-                return SingleNodeIterator.makeIterator(this);
-
-            case AxisInfo.CHILD:
-            case AxisInfo.DESCENDANT:
-                return SingleNodeIterator.makeIterator(getTextNode());
-
-            case AxisInfo.DESCENDANT_OR_SELF:
-                NodeInfo[] nodes = {this, getTextNode()};
-                return new ArrayIterator.OfNodes<>(nodes);
-
-            default:
-                throw new IllegalArgumentException("Unknown axis number " + axisNumber);
-        }
+    public SequenceIterator iterateChildAxis(NodePredicate predicate) {
+        return Navigator.filteredSingleton(getTextNode(), predicate);
     }
 
     /**
-     * Return an enumeration over the nodes reached by the given axis from this node
+     * Get an iterator over the descendant axis, starting at this node; the nodes will
+     * be in document order.
      *
-     * @param axisNumber The axis to be iterated over
-     * @param nodeTest   A pattern to be matched by the returned nodes
-     * @return a AxisIterator that scans the nodes reached by the axis in turn.
-     * @see net.sf.saxon.om.AxisInfo
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
      */
-
-    /*@NotNull*/
     @Override
-    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
-        switch (axisNumber) {
-            case AxisInfo.ANCESTOR:
-            case AxisInfo.ATTRIBUTE:
-            case AxisInfo.FOLLOWING:
-            case AxisInfo.FOLLOWING_SIBLING:
-            case AxisInfo.NAMESPACE:
-            case AxisInfo.PARENT:
-            case AxisInfo.PRECEDING:
-            case AxisInfo.PRECEDING_SIBLING:
-            case AxisInfo.PRECEDING_OR_ANCESTOR:
-                return EmptyIterator.ofNodes();
+    public SequenceIterator iterateDescendantAxis(NodePredicate predicate) {
+        return Navigator.filteredSingleton(getTextNode(), predicate);
+    }
 
-            case AxisInfo.SELF:
-            case AxisInfo.ANCESTOR_OR_SELF:
-                return Navigator.filteredSingleton(this, nodeTest);
+    /**
+     * Get an iterator over the descendant-or-self axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantOrSelfAxis(NodePredicate predicate) {
+        return Navigator.orSelf(this, iterateDescendantAxis(predicate), predicate);
+    }
 
-            case AxisInfo.CHILD:
-            case AxisInfo.DESCENDANT:
-                return Navigator.filteredSingleton(getTextNode(), nodeTest);
+    /**
+     * Get an iterator over the following-sibling axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingSiblingAxis(NodePredicate predicate) {
+        return EmptyIterator.INSTANCE;
+    }
 
-            case AxisInfo.DESCENDANT_OR_SELF:
-                boolean b1 = nodeTest.test(this);
-                NodeInfo textNode2 = getTextNode();
-                boolean b2 = nodeTest.test(textNode2);
-                if (b1) {
-                    if (b2) {
-                        NodeInfo[] pair = {this, textNode2};
-                        return new ArrayIterator.OfNodes<>(pair);
-                    } else {
-                        return SingleNodeIterator.makeIterator(this);
-                    }
-                } else {
-                    if (b2) {
-                        return SingleNodeIterator.makeIterator(textNode2);
-                    } else {
-                        return EmptyIterator.ofNodes();
-                    }
-                }
-
-            default:
-                throw new IllegalArgumentException("Unknown axis number " + axisNumber);
-        }
+    /**
+     * Get an iterator over the preceding-sibling axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingSiblingAxis(NodePredicate predicate) {
+        return EmptyIterator.INSTANCE;
     }
 
     /**
@@ -692,7 +657,7 @@ public final class TextFragmentValue implements NodeInfo, SourceLocator {
          */
 
         @Override
-        public int compareOrder(NodeInfo other) {
+        public int compareOrder(GNode other) {
             if (this == other) {
                 return 0;
             }
@@ -867,95 +832,209 @@ public final class TextFragmentValue implements NodeInfo, SourceLocator {
             return StringValue.makeUntypedAtomic(fragment.text);
         }
 
+
         /**
-         * Return an enumeration over the nodes reached by the given axis from this node
+         * Get an iterator over the ancestor axis, starting at this node; the nodes will
+         * be in reverse document order.
          *
-         * @param axisNumber the axis to be iterated over
-         * @return a AxisIterator that scans the nodes reached by the axis in turn.
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
          */
-
-        /*@NotNull*/
         @Override
-        public AxisIterator iterateAxis(int axisNumber) {
-            switch (axisNumber) {
-                case AxisInfo.ANCESTOR:
-                case AxisInfo.PARENT:
-                case AxisInfo.PRECEDING_OR_ANCESTOR:
-                    return SingleNodeIterator.makeIterator(fragment);
+        public SequenceIterator iterateAncestorAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(fragment, predicate);
+        }
 
-                case AxisInfo.ANCESTOR_OR_SELF:
-                    NodeInfo[] nodes = {this, fragment};
-                    return new ArrayIterator.OfNodes<>(nodes);
-
-                case AxisInfo.ATTRIBUTE:
-                case AxisInfo.CHILD:
-                case AxisInfo.DESCENDANT:
-                case AxisInfo.FOLLOWING:
-                case AxisInfo.FOLLOWING_SIBLING:
-                case AxisInfo.NAMESPACE:
-                case AxisInfo.PRECEDING:
-                case AxisInfo.PRECEDING_SIBLING:
-                    return EmptyIterator.ofNodes();
-
-                case AxisInfo.SELF:
-                case AxisInfo.DESCENDANT_OR_SELF:
-                    return SingleNodeIterator.makeIterator(this);
-
-                default:
-                    throw new IllegalArgumentException("Unknown axis number " + axisNumber);
+        /**
+         * Get an iterator over the ancestor-or-self axis, starting at this node; the nodes will
+         * be in reverse document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateAncestorOrSelfAxis(NodePredicate predicate) {
+            boolean matchesDoc = predicate == null || predicate.test(fragment);
+            boolean matchesText = predicate == null || predicate.test(this);
+            if (matchesDoc && matchesText) {
+                NodeInfo[] nodes = {this, fragment};
+                return new ArrayIterator.OfNodes<>(nodes);
+            } else if (matchesDoc) {
+                return SingletonIterator.makeIterator(fragment);
+            } else if (matchesText) {
+                return SingletonIterator.makeIterator(this);
+            } else {
+                return EmptyIterator.INSTANCE;
             }
         }
 
+        /**
+         * Get an iterator over the attribute axis, starting at this node; the nodes will
+         * be in document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateAttributeAxis(NodePredicate predicate) {
+            return EmptyIterator.INSTANCE;
+        }
 
         /**
-         * Return an enumeration over the nodes reached by the given axis from this node
+         * Get an iterator over the child axis, starting at this node; the nodes will
+         * be in document order.
          *
-         * @param axisNumber the axis to be iterated over
-         * @param nodeTest   A condition to be matched by the returned nodes
-         * @return a AxisIterator that scans the nodes reached by the axis in turn.
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
          */
-
-        /*@NotNull*/
         @Override
-        public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
-            switch (axisNumber) {
-                case AxisInfo.ANCESTOR:
-                case AxisInfo.PARENT:
-                case AxisInfo.PRECEDING_OR_ANCESTOR:
-                    return Navigator.filteredSingleton(fragment, nodeTest);
-
-                case AxisInfo.ANCESTOR_OR_SELF:
-                    boolean matchesDoc = nodeTest.test(fragment);
-                    boolean matchesText = nodeTest.test(this);
-                    if (matchesDoc && matchesText) {
-                        NodeInfo[] nodes = {this, fragment};
-                        return new ArrayIterator.OfNodes<>(nodes);
-                    } else if (matchesDoc /* && !matchesText */) {
-                        return SingleNodeIterator.makeIterator(fragment);
-                    } else if (matchesText /* && !matchesDoc */) {
-                        return SingleNodeIterator.makeIterator(this);
-                    } else {
-                        return EmptyIterator.ofNodes();
-                    }
-
-                case AxisInfo.ATTRIBUTE:
-                case AxisInfo.CHILD:
-                case AxisInfo.DESCENDANT:
-                case AxisInfo.FOLLOWING:
-                case AxisInfo.FOLLOWING_SIBLING:
-                case AxisInfo.NAMESPACE:
-                case AxisInfo.PRECEDING:
-                case AxisInfo.PRECEDING_SIBLING:
-                    return EmptyIterator.ofNodes();
-
-                case AxisInfo.SELF:
-                case AxisInfo.DESCENDANT_OR_SELF:
-                    return Navigator.filteredSingleton(this, nodeTest);
-
-                default:
-                    throw new IllegalArgumentException("Unknown axis number " + axisNumber);
-            }
+        public SequenceIterator iterateChildAxis(NodePredicate predicate) {
+            return EmptyIterator.INSTANCE;
         }
+
+        /**
+         * Get an iterator over the descendant axis, starting at this node; the nodes will
+         * be in document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateDescendantAxis(NodePredicate predicate) {
+            return EmptyIterator.INSTANCE;
+        }
+
+        /**
+         * Get an iterator over the descendant-or-self axis, starting at this node; the nodes will
+         * be in document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateDescendantOrSelfAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(this, predicate);
+        }
+
+        /**
+         * Get an iterator over the following axis, starting at this node; the nodes will
+         * be in document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateFollowingAxis(NodePredicate predicate) {
+            return EmptyIterator.INSTANCE;
+        }
+
+        /**
+         * Get an iterator over the following-or-self axis, starting at this node; the nodes will
+         * be in document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateFollowingOrSelfAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(this, predicate);
+        }
+
+        /**
+         * Get an iterator over the following-sibling axis, starting at this node; the nodes will
+         * be in document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateFollowingSiblingAxis(NodePredicate predicate) {
+            return EmptyIterator.INSTANCE;
+        }
+
+        /**
+         * Get an iterator over the following-sibling-or-self axis, starting at this node; the nodes will
+         * be in document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateFollowingSiblingOrSelfAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(this, predicate);
+        }
+
+        /**
+         * Get an iterator over the parent axis, starting at this node; returns zero or one nodes
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateParentAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(fragment, predicate);
+        }
+
+        /**
+         * Get an iterator over the preceding axis, starting at this node; the nodes will
+         * be in reverse document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iteratePrecedingAxis(NodePredicate predicate) {
+            return EmptyIterator.INSTANCE;
+        }
+
+        /**
+         * Get an iterator over the preceding-or-self axis, starting at this node; the nodes will
+         * be in reverse document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iteratePrecedingOrSelfAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(this, predicate);
+        }
+
+        /**
+         * Get an iterator over the preceding-sibling axis, starting at this node; the nodes will
+         * be in reverse document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iteratePrecedingSiblingAxis(NodePredicate predicate) {
+            return EmptyIterator.INSTANCE;
+        }
+
+        /**
+         * Get an iterator over the preceding-sibling-or-self axis, starting at this node; the nodes will
+         * be in reverse document order.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iteratePrecedingSiblingOrSelfAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(this, predicate);
+        }
+
+        /**
+         * Get an iterator over the self axis, starting at this node; there will be zero
+         * or one nodes.
+         *
+         * @param predicate a condition that the nodes must satisfy, or null
+         * @return the required iterator
+         */
+        @Override
+        public SequenceIterator iterateSelfAxis(NodePredicate predicate) {
+            return Navigator.filteredSingleton(this, predicate);
+        }
+
 
         /**
          * Find the parent node of this node.

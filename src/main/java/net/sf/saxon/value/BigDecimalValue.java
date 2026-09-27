@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,16 @@
 
 package net.sf.saxon.value;
 
+import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.XPathComparable;
-import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.functions.Round;
+import net.sf.saxon.ma.map.BigDecimalMapKey;
 import net.sf.saxon.str.BMPString;
 import net.sf.saxon.str.StringConstants;
+import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.*;
@@ -38,14 +42,23 @@ public final class BigDecimalValue extends DecimalValue {
     // cached property holding the equivalent double. (Note: breaks immutability...)
     private double doubleValue = Double.NaN; // meaning unknown
 
-    public static final BigDecimal BIG_DECIMAL_ONE_MILLION = BigDecimal.valueOf(1_000_000);
-    public static final BigDecimal BIG_DECIMAL_ONE_BILLION = BigDecimal.valueOf(1_000_000_000);
+    public final static BigDecimal ONE_THOUSAND = BigDecimal.valueOf(1000);
+    public static final BigDecimal ONE_MILLION = BigDecimal.valueOf(1_000_000);
+    public static final BigDecimal ONE_BILLION = BigDecimal.valueOf(1_000_000_000);
 
-    public static final BigDecimalValue ZERO = new BigDecimalValue(BigDecimal.valueOf(0));
-    public static final BigDecimalValue ONE = new BigDecimalValue(BigDecimal.valueOf(1));
+    public static final BigDecimalValue ZERO = new BigDecimalValue(BigDecimal.ZERO);
+    public static final BigDecimalValue ONE = new BigDecimalValue(BigDecimal.ONE);
     public static final BigDecimalValue TWO = new BigDecimalValue(BigDecimal.valueOf(2));
-    public static final BigDecimalValue THREE = new BigDecimalValue(BigDecimal.valueOf(3));
+    public static final BigDecimal MIN_INT = BigDecimal.valueOf(Integer.MIN_VALUE);
     public static final BigDecimal MAX_INT = BigDecimal.valueOf(Integer.MAX_VALUE);
+
+
+    public final static BigDecimal SIXTY = BigDecimal.valueOf(60);
+
+    public final static BigDecimal HOURS_PER_DAY = BigDecimal.valueOf(24);
+    public final static BigDecimal SECONDS_PER_DAY = BigDecimal.valueOf(24 * 60 * 60);
+    public final static BigDecimal SECONDS_PER_HOUR = BigDecimal.valueOf(60 * 60);
+    public final static BigDecimal SECONDS_PER_MINUTE = SIXTY;
 
     /**
      * Constructor supplying a BigDecimal
@@ -65,9 +78,22 @@ public final class BigDecimalValue extends DecimalValue {
      * @param typeLabel the type label, which must be a subtype of DECIMAL
      */
 
-    public BigDecimalValue(BigDecimal value, AtomicType typeLabel) {
+    public BigDecimalValue(BigDecimal value, AtomicMetadata typeLabel) {
         super(typeLabel);
         this.value = value.stripTrailingZeros();
+    }
+
+    /**
+     * Internal constructor bypassing the `stripTrailingZeros` when it is known to be unnecessary
+     *
+     * @param value     the value of the DecimalValue
+     * @param typeLabel the type label, which must be a subtype of DECIMAL
+     * @param alreadyScaled should be set to true (but the value is ignored)
+     */
+
+    private BigDecimalValue(BigDecimal value, AtomicMetadata typeLabel, boolean alreadyScaled) {
+        super(typeLabel);
+        this.value = value;
     }
 
     private static final Pattern decimalPattern = Pattern.compile("(\\-|\\+)?((\\.[0-9]+)|([0-9]+(\\.[0-9]*)?))");
@@ -103,48 +129,37 @@ public final class BigDecimalValue extends DecimalValue {
      * @throws NumberFormatException if the value is invalid
      */
 
-    public static BigDecimalValue parse(CharSequence in) throws NumberFormatException {
+    public static NumericValue parse(CharSequence in) throws NumberFormatException {
         StringBuilder digits = new StringBuilder(in.length());
         int scale = 0;
         int state = 0;
         // 0 - in initial whitespace; 1 - after sign
         // 3 - after decimal point; 5 - in final whitespace
         boolean foundDigit = false;
+        boolean foundDot = false;
         int len = in.length();
         for (int i = 0; i < len; i++) {
             char c = in.charAt(i);
             switch (c) {
-                case ' ':
-                case '\t':
-                case '\r':
-                case '\n':
+                case ' ', '\t', '\r', '\n' -> {
                     if (state != 0) {
                         state = 5;
                     }
-                    break;
-                case '+':
+                }
+                case '+' -> {
                     if (state != 0) {
                         throw new NumberFormatException("unexpected sign");
                     }
                     state = 1;
-                    break;
-                case '-':
+                }
+                case '-' -> {
                     if (state != 0) {
                         throw new NumberFormatException("unexpected sign");
                     }
                     state = 1;
                     digits.append(c);
-                    break;
-                case '0':
-                case '1':
-                case '2':
-                case '3':
-                case '4':
-                case '5':
-                case '6':
-                case '7':
-                case '8':
-                case '9':
+                }
+                case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' -> {
                     if (state == 0) {
                         state = 1;
                     } else if (state >= 3) {
@@ -155,18 +170,18 @@ public final class BigDecimalValue extends DecimalValue {
                     }
                     digits.append(c);
                     foundDigit = true;
-                    break;
-                case '.':
+                }
+                case '.' -> {
                     if (state == 5) {
                         throw new NumberFormatException("contains embedded whitespace");
                     }
                     if (state >= 3) {
                         throw new NumberFormatException("more than one decimal point");
                     }
+                    foundDot = true;
                     state = 3;
-                    break;
-                default:
-                    throw new NumberFormatException("invalid character '" + c + "'");
+                }
+                default -> throw new NumberFormatException("invalid character '" + c + "'");
             }
 
         }
@@ -187,6 +202,10 @@ public final class BigDecimalValue extends DecimalValue {
         if (digits.length() == 0 || (digits.length() == 1 && digits.charAt(0) == '-')) {
             return BigDecimalValue.ZERO;
         }
+        if (!foundDot && digits.length() < 16) {
+            // For simple constructs like xs:decimal('2'), return an Int64Value. Altova MapForce generates this a lot.
+            return new Int64Value(Long.parseLong(digits.toString()));
+        }
         BigInteger bigInt = new BigInteger(digits.toString());
         BigDecimal bigDec = new BigDecimal(bigInt, scale);
         return new BigDecimalValue(bigDec);
@@ -200,7 +219,7 @@ public final class BigDecimalValue extends DecimalValue {
      */
 
     public static boolean castableAsDecimal(String in) {
-        String trimmed = Whitespace.trim(in).toString();
+        String trimmed = Whitespace.trim(in);
         return decimalPattern.matcher(trimmed).matches();
     }
 
@@ -214,9 +233,9 @@ public final class BigDecimalValue extends DecimalValue {
     public BigDecimalValue(double in) throws ValidationException {
         super(BuiltInAtomicType.DECIMAL);
         try {
-            BigDecimal d = new BigDecimal(in);
+            value = new BigDecimal(in);
             // Note, this gives a different result from BigDecimal.valueOf(in) - it retains more precision.
-            value = d.stripTrailingZeros();
+            //d.stripTrailingZeros();
         } catch (Exception err) {
             // Must be a special value such as NaN or infinity
             ValidationFailure e = new ValidationFailure(
@@ -240,16 +259,16 @@ public final class BigDecimalValue extends DecimalValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        if (typeLabel.getPrimitiveItemType() == BuiltInAtomicType.INTEGER) {
-            return IntegerValue.makeIntegerValue(value.toBigInteger()).copyAsSubType(typeLabel);
+    public AtomicValue withMetadata(AtomicMetadata metadata) {
+        if (metadata.getType().getPrimitiveItemType() == BuiltInAtomicType.INTEGER) {
+            return IntegerValue.makeIntegerValue(value.toBigInteger()).withMetadata(metadata);
         } else {
-            return new BigDecimalValue(value, typeLabel);
+            return new BigDecimalValue(value, metadata, true);
         }
     }
 
@@ -318,34 +337,26 @@ public final class BigDecimalValue extends DecimalValue {
      */
 
     public int hashCode() {
-        BigDecimal round = value.setScale(0, RoundingMode.DOWN);
-        long longVal;
-        try {
-            longVal = round.longValue();
-        } catch (Exception e) {
-            // This path is for C#, where converting BigDecimal to long gives an OverflowException if out of range
-            longVal = Long.MAX_VALUE;
+        BigDecimal round = value.stripTrailingZeros();
+        if (isWholeNumber()) {
+            long longVal;
+            try {
+                longVal = round.longValue();
+            } catch (Exception e) {
+                // This path is for C#, where converting BigDecimal to long gives an OverflowException if out of range
+                longVal = Long.MAX_VALUE;
+            }
+            if (longVal > Integer.MIN_VALUE && longVal < Integer.MAX_VALUE) {
+                return (int) longVal;
+            }
         }
-        if (longVal > Integer.MIN_VALUE && longVal < Integer.MAX_VALUE) {
-            return (int) longVal;
-        } else {
-            return Double.valueOf(getDoubleValue()).hashCode();
-        }
+        return Double.valueOf(getDoubleValue()).hashCode();
     }
 
     @Override
     public boolean effectiveBooleanValue() {
         return value.signum() != 0;
     }
-
-    /**
-     * Get the value of the item as a CharSequence. This is in some cases more efficient than
-     * the version of the method that returns a String.
-     */
-
-//    public CharSequence getStringValueCS() {
-//        return decimalToString(value, new StringBuilder(20));
-//    }
 
     /**
      * Get the canonical lexical representation as defined in XML Schema. This is not always the same
@@ -385,6 +396,51 @@ public final class BigDecimalValue extends DecimalValue {
 
     @CSharpReplaceBody(code="return fsb.append(value.ToString(\"G\", System.Globalization.CultureInfo.InvariantCulture));")
     public static StringBuilder decimalToString(BigDecimal value, StringBuilder fsb) {
+        // Can't use BigDecimal#toString() under JDK 1.5 because this produces values like "1E-5".
+        // Can't use BigDecimal#toPlainString() because it retains trailing zeroes to represent the scale
+        int scale = value.scale();
+        if (scale == 0) {
+            fsb.append(value);
+            return fsb;
+        } else if (scale < 0) {
+            String s = value.abs().unscaledValue().toString();
+            if (s.equals("0")) {
+                fsb.append('0');
+                return fsb;
+            }
+            //StringBuilder sb = new StringBuilder(s.length() + (-scale) + 2);
+            if (value.signum() < 0) {
+                fsb.append('-');
+            }
+            fsb.append(s);
+            fsb.append("0".repeat(Math.max(0, -scale)));
+            return fsb;
+        } else {
+            String s = value.abs().unscaledValue().toString();
+            if (s.equals("0")) {
+                fsb.append('0');
+                return fsb;
+            }
+            int len = s.length();
+            //StringBuilder sb = new StringBuilder(len+1);
+            if (value.signum() < 0) {
+                fsb.append('-');
+            }
+            if (scale >= len) {
+                fsb.append("0.");
+                fsb.append("0".repeat(scale - len));
+                fsb.append(s);
+            } else {
+                fsb.append(s, 0, len - scale);
+                fsb.append('.');
+                fsb.append(s.substring(len - scale));
+            }
+            return fsb;
+        }
+    }
+
+    @CSharpReplaceBody(code = "return fsb.append(value.ToString(\"G\", System.Globalization.CultureInfo.InvariantCulture));")
+    public static UnicodeBuilder decimalToUnicodeString(BigDecimal value, UnicodeBuilder fsb) {
         // Can't use BigDecimal#toString() under JDK 1.5 because this produces values like "1E-5".
         // Can't use BigDecimal#toPlainString() because it retains trailing zeroes to represent the scale
         int scale = value.scale();
@@ -480,31 +536,67 @@ public final class BigDecimalValue extends DecimalValue {
             return this;
         }
 
-        switch (value.signum()) {
-            case -1:
-                return new BigDecimalValue(value.setScale(scale, RoundingMode.HALF_DOWN));
-            case 0:
-                return this;
-            case +1:
-                return new BigDecimalValue(value.setScale(scale, RoundingMode.HALF_UP));
-            default:
+        return switch (value.signum()) {
+            case -1 -> new BigDecimalValue(value.setScale(scale, RoundingMode.HALF_DOWN));
+            case 0 -> this;
+            case +1 -> new BigDecimalValue(value.setScale(scale, RoundingMode.HALF_UP));
+            default ->
                 // can't happen
-                return this;
-        }
+                    this;
+        };
 
     }
 
     /**
-     * Implement the XPath round-half-to-even() function
+     * Implement the XPath round-half-to-even() and round#3 functions
      */
 
     @Override
-    @CSharpReplaceBody(code = "return new BigDecimalValue(Singulink.Numerics.BigDecimal.Round(value, scale, Singulink.Numerics.RoundingMode.MidpointToEven));")
-    public NumericValue roundHalfToEven(int scale) {
+    @CSharpReplaceBody(code = "return new BigDecimalValue(Saxon.Impl.Helpers.BigDecimalUtils.Round(value, scale, roundingRule));")
+    public NumericValue round(int scale, Round.RoundingRule roundingRule) {
         if (scale >= value.scale()) {
             return this;
         }
-        BigDecimal scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);
+
+        BigDecimal scaledValue;
+        switch (roundingRule) {
+            case FLOOR:
+                scaledValue = value.setScale(scale, java.math.RoundingMode.FLOOR);
+                break;
+            case CEILING:
+                scaledValue = value.setScale(scale, java.math.RoundingMode.CEILING);
+                break;
+            case AWAY_FROM_ZERO:
+                scaledValue = value.setScale(scale, java.math.RoundingMode.UP);
+                break;
+            case TOWARD_ZERO:
+                scaledValue = value.setScale(scale, java.math.RoundingMode.DOWN);
+                break;
+            case HALF_TO_FLOOR:
+                if (signum() >= 0) {
+                    scaledValue = value.setScale(scale, java.math.RoundingMode.HALF_DOWN);
+                } else {
+                    scaledValue = value.setScale(scale, java.math.RoundingMode.HALF_UP);
+                }
+                break;
+            case HALF_TO_CEILING:
+            default:
+                if (signum() >= 0) {
+                    scaledValue = value.setScale(scale, java.math.RoundingMode.HALF_UP);
+                } else {
+                    scaledValue = value.setScale(scale, java.math.RoundingMode.HALF_DOWN);
+                }
+                break;
+            case HALF_TOWARD_ZERO:
+                scaledValue = value.setScale(scale, java.math.RoundingMode.HALF_DOWN);
+                break;
+            case HALF_AWAY_FROM_ZERO:
+                scaledValue = value.setScale(scale, java.math.RoundingMode.HALF_UP);
+                break;
+            case HALF_TO_EVEN:
+                scaledValue = value.setScale(scale, RoundingMode.HALF_EVEN);
+                break;
+        }
         return new BigDecimalValue(scaledValue.stripTrailingZeros());
     }
 
@@ -566,10 +658,6 @@ public final class BigDecimalValue extends DecimalValue {
         }
     }
 
-    @Override
-    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) {
-        return this;
-    }
 
     /**
      * Compare the value to another numeric value
@@ -597,6 +685,24 @@ public final class BigDecimalValue extends DecimalValue {
         }
     }
 
+    @Override
+    public int transitiveCompareTo(NumericValue other) {
+        if (other instanceof DecimalValue) {
+            try {
+                return value.compareTo(other.getDecimalValue());
+            } catch (ValidationException e) {
+                throw new UncheckedXPathException(e);
+            }
+        } else {
+            double dbl = other.getDoubleValue();
+            if (Double.isInfinite(dbl)) {
+                return Double.compare(0.0e0, dbl);
+            }
+            BigDecimal exactDecimal = new BigDecimal(dbl);
+            return value.compareTo(exactDecimal);
+        }
+    }
+
     /**
      * Compare the value to a long
      *
@@ -611,6 +717,34 @@ public final class BigDecimalValue extends DecimalValue {
         }
         return value.compareTo(BigDecimal.valueOf(other));
     }
+
+    /**
+     * Get a value whose {@code equals()} and {@code hashcode()} methods follows the "same key"
+     * rules for comparing the keys of a map. For numeric values, this is done as follows:
+     * <ul>
+     *     <li>For NaN, return {@code AtomicSortComparer.COLLATION_KEY_NaN;}</li>
+     *     <li>For +INF and -INF, call {@code java.lang.Double.hashcode()}</li>
+     *     <li>For any value that is numerically equal to some 32-bit signed integer, return
+     *         a {@link net.sf.saxon.ma.map.Int32MapKey}</li>
+     *     <li>For any other value, return a {@link net.sf.saxon.ma.map.BigDecimalMapKey}</li>
+     * </ul>
+     *
+     * @return a value with the property that the {@code equals()} and {@code hashcode()} methods follow the rules for comparing
+     * keys in maps.
+     */
+
+    @Override
+    public AtomicMatchKey asMapKey(int specVersion) {
+        if (isWholeNumber() && value.compareTo(MIN_INT) >= 0 && value.compareTo(MAX_INT) <= 0) {
+            try {
+                return new net.sf.saxon.ma.map.Int32MapKey((int)longValue());
+            } catch (XPathException e) {
+                throw new AssertionError(e);
+            }
+        }
+        return new BigDecimalMapKey(value);
+    }
+
 
     /**
      * Determine whether two atomic values are identical, as determined by XML Schema rules. This is a stronger

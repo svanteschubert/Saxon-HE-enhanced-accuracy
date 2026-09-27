@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,6 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
@@ -23,10 +22,7 @@ import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Orphan;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.SchemaType;
-import net.sf.saxon.type.SimpleType;
-import net.sf.saxon.type.Type;
+import net.sf.saxon.type.*;
 
 import javax.xml.transform.Result;
 import java.util.*;
@@ -67,7 +63,7 @@ import static net.sf.saxon.event.RegularSequenceChecker.State.START_TAG;
  *
  */
 
-public final class ComplexContentOutputter extends Outputter implements Receiver, Result {
+public final class ComplexContentOutputter extends AbstractOutputter implements Receiver, Result {
 
     private Receiver nextReceiver;
     // the next receiver in the output pipeline
@@ -132,8 +128,10 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         // add a validator to the pipeline if required
 
         if (validate) {
-            Configuration config = receiver.getPipelineConfiguration().getConfiguration();
-            receiver = config.getDocumentValidator(receiver, systemId, options, null);
+            Schema schema = options.getSchema();
+            if (schema != null) {
+                receiver = schema.getDocumentValidator(receiver, systemId, options, null);
+            }
         }
 
         ComplexContentOutputter result = new ComplexContentOutputter(receiver);
@@ -156,7 +154,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
         super.setSystemId(systemId);
         nextReceiver.setSystemId(systemId);
     }
-
+    
     /**
      * Set the host language
      *
@@ -676,7 +674,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
     public UniStringConsumer getStringReceiver(boolean asTextNode, Location loc) {
         if (level >= 0) {
             return new UnicodeStringReceiver(this, previousAtomic, asTextNode, loc,
-                                             prev -> {previousAtomic = prev;});
+                                             prev -> previousAtomic = prev);
         } else {
             return super.getStringReceiver(asTextNode, loc);
         }
@@ -812,10 +810,9 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
      * @param array          the array to be flattened
      * @param locationId     the location of the instruction triggering this operation
      * @param copyNamespaces options for copying namespace nodes
-     * @throws XPathException if anything goes wrong
      */
 
-    private void flatten(ArrayItem array, Location locationId, int copyNamespaces) throws XPathException {
+    private void flatten(ArrayItem array, Location locationId, int copyNamespaces) {
         for (Sequence member : array.members()) {
             SequenceTool.supply(member.iterate(), (ItemConsumer<? super Item>) it -> append(it, locationId, copyNamespaces));
         }
@@ -858,7 +855,7 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
                         }
                         throw new XPathException(msg, errorCode, locationId);
                     }
-                case NODE:
+                case XNODE:
                 default:
                     decomposeNodeOrDefault(item, locationId, copyNamespaces);
                     break;
@@ -894,7 +891,8 @@ public final class ComplexContentOutputter extends Outputter implements Receiver
 
         case Type.DOCUMENT:
             startDocument(ReceiverOption.NONE); // needed to ensure that illegal namespaces or attributes in the content are caught
-            for (NodeInfo child : node.children()) {
+            SequenceIterator children = node.iterateChildAxis(null);
+            for (NodeInfo child; (child = (NodeInfo) children.next()) != null; ) {
                 append(child, locationId, copyNamespaces);
             }
             endDocument();

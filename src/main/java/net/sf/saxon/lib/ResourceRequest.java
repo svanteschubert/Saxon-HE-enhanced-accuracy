@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -36,6 +36,7 @@ public class ResourceRequest {
 
     public static final String SCHEMA_NATURE = "http://www.w3.org/2001/XMLSchema";
     public static final String VALIDATION_PURPOSE = "http://www.rddl.org/purposes#validation";
+    
     public static final String ANY_NATURE = null;
 
     /**
@@ -99,7 +100,7 @@ public class ResourceRequest {
 
     /**
      * If the encoding is specified out of band, it can be provided here. Requesting an encoding
-     * doesn't gaurantee that it'll be used. For example, HTTP headers might override it.
+     * doesn't guarantee that it'll be used. For example, HTTP headers might override it.
      */
     public String requestedEncoding;
 
@@ -166,6 +167,7 @@ public class ResourceRequest {
                         if (iae.getCause() instanceof URISyntaxException) {
                             throw new XPathException("Invalid URI " + uri, iae.getCause());
                         }
+                        throw e;
                     } else {
                         throw e;
                     }

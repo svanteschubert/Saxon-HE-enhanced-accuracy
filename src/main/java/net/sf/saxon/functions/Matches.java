@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -42,7 +42,14 @@ public class Matches extends RegexFunction {
         }
 
         try {
-            String lang = "XP30";
+            int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+            String lang = switch(version) {
+                case 20 -> "XP20";
+                case 30 -> "XP30";
+                case 31 -> "XP31";
+                case 40 -> "XP40";
+                default -> "XP31";
+            };
             if (context.getConfiguration().getXsdVersion() == Configuration.XSD11) {
                 lang += "/XSD11";
             }

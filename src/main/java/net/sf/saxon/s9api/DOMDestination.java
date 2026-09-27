@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,9 +14,9 @@ import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.transpile.CSharpModifiers;
 
 /**
- * This class represents a Destination (for example, the destination of the output of a transformation)
+ * This class represents a {@link Destination} (for example, the destination of the output of a transformation)
  * in which the results are written to a newly constructed DOM tree in memory. The caller must supply
- * a Document node, which will be used as the root of the constructed tree
+ * a DOM or element document node, which will be used as the root of the constructed tree
  */
 @CSharpModifiers(code = {"internal"})
 public class DOMDestination extends AbstractDestination {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,17 +14,19 @@ import net.sf.saxon.sxpath.IndependentContext;
 import net.sf.saxon.sxpath.XPathExpression;
 import net.sf.saxon.sxpath.XPathVariable;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.value.Cardinality;
 
 import java.util.*;
 import java.util.stream.Stream;
 
 /**
- * An XPathExecutable represents the compiled form of an XPath expression.
- * To evaluate the expression, it must first be loaded to form an {@link XPathSelector}.
- * <p>An XPathExecutable is immutable, and therefore thread-safe. It is simplest to load
- * a new XPathSelector each time the expression is to be evaluated. However, the XPathSelector
+ * An {@code XPathExecutable} represents the compiled form of an XPath expression.
+ * To evaluate the expression, it must first be loaded using the {@link #load()}
+ * method to form an {@link XPathSelector}.
+ * <p>An {@code XPathExecutable} is immutable, and therefore thread-safe. It is simplest to load
+ * a new {@code XPathSelector} each time the expression is to be evaluated. However, the {@code XPathSelector}
  * is serially reusable within a single thread.</p>
- * <p>An XPathExecutable is created by using the {@link XPathCompiler#compile} method
+ * <p>An {@code XPathExecutable} is created by using the {@link XPathCompiler#compile} method
  * on the {@link XPathCompiler} class.</p>
  */
 
@@ -110,7 +112,7 @@ public class XPathExecutable {
 
     public OccurrenceIndicator getResultCardinality() {
         int card = exp.getInternalExpression().getCardinality();
-        return OccurrenceIndicator.getOccurrenceIndicator(card);
+        return Cardinality.getOccurrenceIndicatorForCardinality(card);
     }
 
     /**
@@ -168,17 +170,15 @@ public class XPathExecutable {
      *         <code>allowUndeclaredVariables</code> option is set), the returned type will be
      *         {@link OccurrenceIndicator#ZERO_OR_MORE}.</p>
      *         <p>If no variable with the specified QName has been declared either explicitly or implicitly,
-     *         the method returns null.</p>
+     *         the method returns {@link OccurrenceIndicator#ZERO_OR_MORE}.</p>
      * @since 9.2
      */
 
     public OccurrenceIndicator getRequiredCardinalityForVariable(QName variableName) {
         XPathVariable var = env.getExternalVariable(variableName.getStructuredQName());
-        if (var == null) {
-            return null;
-        } else {
-            return OccurrenceIndicator.getOccurrenceIndicator(var.getRequiredType().getCardinality());
-        }
+        return var == null
+                ? OccurrenceIndicator.ZERO_OR_MORE
+                : Cardinality.getOccurrenceIndicatorForCardinality(var.getRequiredType().getCardinality());
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.type;
 
 import net.sf.saxon.lib.ConversionRules;
+import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.Genre;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NamespaceUri;
@@ -24,7 +25,7 @@ import java.util.Optional;
  * for items in a sequence) and a SchemaType (a possible type for validating and
  * annotating nodes).
  */
-public interface AtomicType extends SimpleType, PlainType, CastingTarget {
+public interface AtomicType extends SimpleType, PlainType, CastingTarget, AtomicMetadata {
 
     /**
      * Determine the Genre (top-level classification) of this type
@@ -169,7 +170,7 @@ public interface AtomicType extends SimpleType, PlainType, CastingTarget {
     @Override
     default double getDefaultPriority() {
         if (getBasicAlphaCode().equals("A")) {
-            return 0;
+            return -0.5;
         }
         double factor = 1;
         SchemaType at = this;
@@ -177,7 +178,16 @@ public interface AtomicType extends SimpleType, PlainType, CastingTarget {
             factor *= 0.5;
             at = at.getBaseType();
         } while (at != BuiltInAtomicType.ANY_ATOMIC);
-        return 1 - factor;
+        return 0.5 - factor;
+    }
+
+    /**
+     * An atomic type can be used directly as the metadata associated with an atomic value.
+     * In this case the atomic value has no label.
+     */
+
+    default MapItem getLabel() {
+        return null;
     }
 }
 

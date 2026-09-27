@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -33,12 +33,12 @@ import net.sf.saxon.value.ObjectValue;
 public final class Bindery {
 
     private GroundedValue[] globals;          // values of global variables and parameters
-    private long[] busy;                 // set to current thread id while variable is being evaluated
 
 
     public Bindery(PackageData pack) {
         allocateGlobals(pack.getGlobalSlotManager());
     }
+
     /**
      * Define how many slots are needed for global variables
      *
@@ -48,10 +48,8 @@ public final class Bindery {
     private void allocateGlobals(SlotManager map) {
         int n = map.getNumberOfVariables() + 1;
         globals = new GroundedValue[n];
-        busy = new long[n];
         for (int i = 0; i < n; i++) {
             globals[i] = null;
-            busy[i] = -1L;
         }
     }
 
@@ -65,70 +63,6 @@ public final class Bindery {
     public void setGlobalVariable(GlobalVariable binding, GroundedValue value) {
         globals[binding.getBinderySlotNumber()] = value;
     }
-
-    /**
-     * Set/Unset a flag to indicate that a particular global variable is currently being
-     * evaluated. Note that this code is not synchronized, so there is no absolute guarantee that
-     * two threads will not both evaluate the same global variable; however, apart from wasted time,
-     * it is harmless if they do.
-     *
-     * @param binding the global variable in question
-     * @return true if evaluation of the variable should proceed; false if it is found that the variable has now been
-     *         evaluated in another thread.
-     * @throws net.sf.saxon.trans.XPathException
-     *          If an attempt is made to set the flag when it is already set, this means
-     *          the definition of the variable is circular.
-     */
-
-    public boolean setExecuting(GlobalVariable binding)
-            throws XPathException {
-        long thisThread = Thread.currentThread().getId();
-        int slot = binding.getBinderySlotNumber();
-
-        long busyThread = busy[slot];
-        if (busyThread != -1L) {
-            if (busyThread == thisThread) {
-                // The global variable is being evaluated in this thread. This shouldn't happen, because
-                // we have already tested for circularities. If it does happen, however, we fail cleanly.
-                throw new XPathException.Circularity("Circular definition of variable "
-                        + binding.getVariableQName().getDisplayName());
-            } else {
-                // The global variable is being evaluated in another thread. Give it a chance to finish.
-                // It could be a circularity, or just an accident of timing. Note that in the latter case,
-                // we will actually re-evaluate the variable; this normally does no harm, though there is a small
-                // risk it could lead to problems with the identity of a node changing.
-                for (int i = 0; i < 10; i++) {
-                    try {
-                        Thread.sleep(20 * i);
-                    } catch (InterruptedException e) {
-                        // no action
-                    }
-                    if (busy[slot] == -1L) {
-                        // evaluation has finished in another thread
-                        return false;
-                    }
-                }
-                // We've waited long enough; there could be a deadlock if we wait any longer.
-                // Continue with the evaluation; whichever thread completes the evaluation first will
-                // save the value.
-                return true;
-            }
-        }
-        busy[slot] = thisThread;
-        return true;
-    }
-
-    /**
-     * Indicate that a global variable is not currently being evaluated
-     *
-     * @param binding the global variable
-     */
-
-    public void setNotExecuting(GlobalVariable binding) {
-        int slot = binding.getBinderySlotNumber();
-        busy[slot] = -1L;
-    }
-
 
     /**
      * Save the value of a global variable, and mark evaluation as complete.
@@ -148,12 +82,14 @@ public final class Bindery {
             // another thread has already evaluated the value
             return globals[slot];
         } else {
-            busy[slot] = -1L;
             globals[slot] = value;
             return value;
         }
     }
 
+    public void setGlobalVariableValue(int slot, GroundedValue value) {
+        globals[slot] = value;
+    }
 
     /**
      * Get the value of a global variable

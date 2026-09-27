@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,7 +20,12 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.BasePatternWithPredicate;
+import net.sf.saxon.pattern.ItemTypePattern;
+import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.pattern.PatternThatSetsCurrent;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.qname.*;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.XmlProcessingError;
@@ -28,13 +33,13 @@ import net.sf.saxon.trans.*;
 import net.sf.saxon.transpile.CSharpInjectMembers;
 import net.sf.saxon.transpile.CSharpSimpleEnum;
 import net.sf.saxon.tree.AttributeLocation;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.iter.NodeListIterator;
+import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.tree.linked.ElementImpl;
 import net.sf.saxon.tree.linked.NodeImpl;
 import net.sf.saxon.tree.linked.TextImpl;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.AnyXNodeType;
 import net.sf.saxon.value.BigDecimalValue;
 import net.sf.saxon.value.DecimalValue;
 import net.sf.saxon.value.SequenceType;
@@ -54,8 +59,8 @@ import java.util.*;
 
 // Enable the C# code to accept a lambda expression in calls to children()
 @CSharpInjectMembers(code = {""
-        + "    protected System.Collections.Generic.IEnumerable<Saxon.Hej.om.NodeInfo> children(System.Predicate<Saxon.Hej.om.NodeInfo> filter) {"
-        + "        return new Saxon.Hej.tree.util.Navigator.ChildrenAsIterable(this, Saxon.Hej.pattern.NodeSelector.of(filter));"
+        + "    protected System.Collections.Generic.IEnumerable<Saxon.Hej.om.GNode> children(System.Predicate<Saxon.Hej.om.GNode> filter) {"
+        + "        return new Saxon.Hej.tree.util.Navigator.ChildrenAsIterable(this, Saxon.Hej.pattern.NodePredicateLambda.of(filter.Invoke));"
         + "    }"})
 
 public abstract class StyleElement extends ElementImpl {
@@ -166,7 +171,11 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     public ExpressionVisitor makeExpressionVisitor() {
-        return ExpressionVisitor.make(getStaticContext());
+        ExpressionVisitor visitor = ExpressionVisitor.make(getStaticContext());
+        if (compilation.getCompilerInfo().isCompileForExport()) {
+            visitor.setOptimizeForExport(true);
+        }
+        return visitor;
     }
 
     /**
@@ -332,7 +341,7 @@ public abstract class StyleElement extends ElementImpl {
         int v = defaultValidation;
         NodeInfo p = this;
         while (v == Validation.DEFAULT) {
-            p = p.getParent();
+            p = (NodeInfo)p.getParent();
             if (!(p instanceof StyleElement)) {
                 return Validation.STRIP;
                 //return getCompilation().isSchemaAware() ? Validation.PRESERVE : Validation.STRIP;
@@ -350,7 +359,8 @@ public abstract class StyleElement extends ElementImpl {
      *
      * @param lexicalQName  The lexical QName as written, in the form "[prefix:]localname". Leading and trailing whitespace
      *                      will be trimmed. The EQName syntax "Q{uri}local" is also
-     *                      accepted.
+     *                      accepted, and the extended form "Q{uri}prefix:local" is accepted
+     *                      if the effective version is 4.0 or later.
      * @param errorCode     The error code to be used if the QName is not valid. If this is set to null,
      *                      then the code used is XTSE0280 for an undeclared prefix, and XTSE0020
      *                      for all other errors. The code XTSE0080 is used if the URI is a reserved
@@ -364,8 +374,13 @@ public abstract class StyleElement extends ElementImpl {
 
         StructuredQName qName;
         try {
+            NamespaceResolver resolver = this;
+            if (getModuleRoot().getFixedNamespaces() != null) {
+                resolver = getModuleRoot().getFixedNamespaces();
+            }
+            int qNameFormat = getEffectiveVersion() >= 40 ? StructuredQName.QUPL : StructuredQName.QUL;
             qName = StructuredQName.fromLexicalQName((lexicalQName), false,
-                                                     true, this);
+                                                     qNameFormat, resolver);
         } catch (XPathException e) {
             String requestedError = errorCode == null ? "XTSE0020" : errorCode;
             XPathException e2 = e.asStaticError()
@@ -398,6 +413,79 @@ public abstract class StyleElement extends ElementImpl {
     }
 
     /**
+     * Parse a NameTest (allowing EQNames and wildcards)
+     * @param s the input to be parsed, after stripping whitespace
+     * @param useDefault true if the default namespace for elements and types applies
+     * @param attributeName the attribute in the XSLT source in which the test appears (for diagnostics)
+     * @return the parsed {@link QNameTest}
+     */
+    protected QNameTest makeQNameTest(String s, boolean useDefault, String attributeName) {
+        if (s.equals("*")) {
+            return AnyQNameTest.getInstance();
+        } else if (s.startsWith("Q{")) {
+            int brace = s.indexOf('}');
+            if (brace < 0) {
+                compileErrorInAttribute("No closing '}' in EQName", "XTSE0010", attributeName);
+                return AnyQNameTest.getInstance();
+            } else if (brace == s.length() - 1) {
+                compileErrorInAttribute("Missing local part in EQName", "XTSE0010", attributeName);
+                return AnyQNameTest.getInstance();
+            } else {
+                NamespaceUri uri = NamespaceUri.of(s.substring(2, brace));
+                String local = s.substring(brace + 1);
+                if (local.equals("*")) {
+                    return new NamespaceQNameTest(uri);
+                } else {
+                    return new SpecificQNameTest(new StructuredQName("", uri, local), getConfiguration().getNamePool());
+                }
+            }
+        } else if (s.endsWith(":*")) {
+            if (s.length() == 2) {
+                compileError("No prefix before ':*'");
+                return AnyQNameTest.getInstance();
+            }
+            String prefix = s.substring(0, s.length() - 2);
+            NamespaceUri uri = getURIForPrefix(prefix, false);
+            if (uri == null) {
+                undeclaredNamespaceError(prefix, "XTSE0280", attributeName);
+                return AnyQNameTest.getInstance();
+            }
+            return new NamespaceQNameTest(uri);
+
+        } else if (s.startsWith("*:")) {
+            if (s.length() == 2) {
+                compileErrorInAttribute("No local name after '*:'", "XTSE0010", attributeName);
+                return AnyQNameTest.getInstance();
+            }
+            String localname = s.substring(2);
+            return new LocalQNameTest(localname);
+
+        } else {
+            String prefix;
+            String localName;
+            NamespaceUri uri;
+            try {
+                String[] parts = NameChecker.getQNameParts(s);
+                prefix = parts[0];
+                if (parts[0].equals("") && useDefault) {
+                    uri = getDefaultXPathNamespace();
+                } else {
+                    uri = getURIForPrefix(prefix, false);
+                    if (uri == null) {
+                        undeclaredNamespaceError(prefix, "XTSE0280", attributeName);
+                    }
+                }
+                localName = parts[1];
+            } catch (QNameException err) {
+                compileErrorInAttribute("Name " + s + " is not a valid QName", "XTSE0020", attributeName);
+                return AnyQNameTest.getInstance();
+            }
+            return new SpecificQNameTest(new StructuredQName("", uri, localName), getConfiguration().getNamePool());
+        }
+
+    }
+
+    /**
      * Get the first ancestor element in the stylesheet tree that has a given name, supplied by
      * fingerprint.
      *
@@ -412,7 +500,7 @@ public abstract class StyleElement extends ElementImpl {
                 if (parent.getFingerprint() == fingerprint) {
                     return (StyleElement) parent;
                 } else {
-                    parent = parent.getParent();
+                    parent = (NodeInfo)parent.getParent();
                 }
             } else {
                 return null;
@@ -497,7 +585,7 @@ public abstract class StyleElement extends ElementImpl {
     /**
      * Ask whether this instruction requires a different retained static context from the containing
      * (parent) instruction. That is, this instruction changes the static base URI, the default collation,
-     * or the set of in-scope namespaces.
+     * the set of in-scope namespaces, or the in-scope schema
      *
      * @return true if the context for evaluating this instruction differs in relevant ways from that
      * of the calling instruction
@@ -506,6 +594,9 @@ public abstract class StyleElement extends ElementImpl {
         NodeImpl parent = getParent();
         return parent == null
                 || !ExpressionTool.equalOrNull(getBaseURI(), parent.getBaseURI())
+                || (getNamespaceUri() == NamespaceUri.XSLT
+                    ? getAttributeValue("schema-role") != null
+                    : getAttributeValue(NamespaceUri.XSLT, "schema-role") != null)
                 || defaultCollationName != null
                 || defaultXPathNamespace != null
                 || !(parent instanceof StyleElement)
@@ -570,12 +661,16 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     public void processStandardAttributes(NamespaceUri namespace) {
+        if (namespace == NamespaceUri.NULL && isXslRecord()) {
+            namespace = NamespaceUri.XSLT;
+        }
         processExtensionElementAttribute(namespace);
         processExcludedNamespaces(namespace);
         processVersionAttribute(namespace);
         processDefaultXPathNamespaceAttribute(namespace);
         processDefaultValidationAttribute(namespace);
         processExpandTextAttribute(namespace);
+        processSchemaRoleAttribute(namespace);
     }
 
     /**
@@ -628,10 +723,13 @@ public abstract class StyleElement extends ElementImpl {
                          clarkName.endsWith("}extension-element-prefixes") ||
                          clarkName.endsWith("}exclude-result-prefixes") ||
                          clarkName.endsWith("}version") ||
+                         clarkName.endsWith("}schema-role") ||
                          clarkName.endsWith("}default-validation") ||
                          clarkName.endsWith("}use-when"))) {
             return;
         }
+
+        // TODO: disallow schema-role unless 4.0 is enabled
 
         // allow standard attributes on an XSLT element
 
@@ -643,6 +741,7 @@ public abstract class StyleElement extends ElementImpl {
                          clarkName.equals("extension-element-prefixes") ||
                          clarkName.equals("exclude-result-prefixes") ||
                          clarkName.equals("version") ||
+                         clarkName.equals("schema-role") ||
                          clarkName.equals("default-validation") ||
                          clarkName.equals("use-when"))) {
             return;
@@ -701,10 +800,11 @@ public abstract class StyleElement extends ElementImpl {
                 StructuredQName attName = att.getNodeName().getStructuredQName();
                 env = getStaticContext(attName);
             }
-            return ExpressionTool.make(expression, env, 0, Token.EOF,
+            return ExpressionTool.make(expression, env, 0, Tokenizer.END_OF_INPUT,
                                        getCompilation().getCompilerInfo().getCodeInjector());
         } catch (XPathException err) {
             err.maybeSetLocation(allocateLocation());
+            err.maybeSetErrorCode("XPST0003");
             if (err.isReportableStatically()) {
                 compileError(err);
             }
@@ -732,7 +832,7 @@ public abstract class StyleElement extends ElementImpl {
             err.maybeSetErrorCode("XTSE0340");
             XPathException err2 = err.replacingErrorCode("XPST0003", "XTSE0340");
             compileError(err2);
-            NodeTestPattern nsp = new NodeTestPattern(AnyNodeTest.getInstance());
+            ItemTypePattern nsp = new ItemTypePattern(AnyXNodeType.getInstance());
             nsp.setLocation(allocateLocation());
             return nsp;
         }
@@ -866,7 +966,7 @@ public abstract class StyleElement extends ElementImpl {
         XPathParser parser =
                 getConfiguration().newExpressionParser("XP", false, staticContext);
         QNameParser qp = new QNameParser(staticContext.getNamespaceResolver())
-                .withAcceptEQName(staticContext.getXPathVersion() >= 30)
+                .withAcceptEQName(staticContext.getXPathVersion() >= 30, staticContext.getXPathVersion())
                 .withErrorOnBadSyntax("XPST0003")
                 .withErrorOnUnresolvedPrefix("XPST0081");
 
@@ -886,7 +986,7 @@ public abstract class StyleElement extends ElementImpl {
         XPathParser parser =
                 getConfiguration().newExpressionParser("XP", false, env);
         QNameParser qp = new QNameParser(env.getNamespaceResolver())
-                .withAcceptEQName(true)
+                .withAcceptEQName(true, getEffectiveVersion())
                 .withErrorOnBadSyntax("XPST0003")
                 .withErrorOnUnresolvedPrefix("XPST0081");
         parser.setQNameParser(qp);
@@ -1091,12 +1191,16 @@ public abstract class StyleElement extends ElementImpl {
         return getEffectiveVersion() < 20;
     }
 
+    protected boolean isXslRecord() {
+        return getFingerprint() == StandardNames.XSL_RECORD;
+    }
+
     /**
      * Process the [xsl:]default-collation attribute if there is one.
      */
 
     void processDefaultCollationAttribute() {
-        NamespaceUri ns = isInXsltNamespace() ? NamespaceUri.NULL : NamespaceUri.XSLT;
+        NamespaceUri ns = isInXsltNamespace() && !isXslRecord() ? NamespaceUri.NULL : NamespaceUri.XSLT;
         String v = getAttributeValue(ns, "default-collation");
         if (v != null) {
             StringBuilder reasons = new StringBuilder();
@@ -1193,7 +1297,7 @@ public abstract class StyleElement extends ElementImpl {
      */
 
     void processDefaultMode() {
-        NamespaceUri ns = isInXsltNamespace() ? NamespaceUri.NULL : NamespaceUri.XSLT;
+        NamespaceUri ns = isInXsltNamespace() && !isXslRecord() ? NamespaceUri.NULL : NamespaceUri.XSLT;
         String v = getAttributeValue(ns, "default-mode");
         if (v != null) {
             if (v.equals("#unnamed")) {
@@ -1279,7 +1383,7 @@ public abstract class StyleElement extends ElementImpl {
             if (((StyleElement) anc).definesExtensionElement(uri)) {
                 return true;
             }
-            anc = anc.getParent();
+            anc = (NodeInfo)anc.getParent();
         }
         return false;
     }
@@ -1326,7 +1430,7 @@ public abstract class StyleElement extends ElementImpl {
             if (((StyleElement) anc).definesExcludedNamespace(uri)) {
                 return true;
             }
-            anc = anc.getParent();
+            anc = (NodeInfo)anc.getParent();
         }
         return false;
     }
@@ -1358,9 +1462,45 @@ public abstract class StyleElement extends ElementImpl {
             if (x != null) {
                 return x;
             }
-            anc = anc.getParent();
+            anc = (NodeInfo)anc.getParent();
         }
         return compilation.getCompilerInfo().getDefaultElementNamespace();
+    }
+
+    /**
+     * Get the schema role for this element
+     *
+     * @return the default namespace for elements and types.
+     * Return {@link NamespaceConstant#NULL} for the non-namespace
+     */
+
+    public String getSchemaRole() {
+        NodeInfo anc = this;
+        while (anc instanceof StyleElement) {
+            StyleElement el = (StyleElement)anc; 
+            String x = (anc.getNamespaceUri() == NamespaceUri.XSLT && !isXslRecord())
+                    ? el.getAttributeValue("schema-role")
+                    : el.getAttributeValue(NamespaceUri.XSLT, "schema-role");
+            if (x != null) {
+                return x;
+            }
+            anc = (NodeInfo)anc.getParent();
+        }
+        return "";
+    }
+
+    /**
+     * Get the in-scope imported schema (determined in part by the nearest
+     * [xsl:]schema-role attribute on a containing element)
+     * @return the in-scope schema declarations for this element
+     */
+
+    public Schema getImportedSchema() {
+        Schema s = getContainingPackage().getImportedSchema(getSchemaRole());
+        if (s == null) {
+            compileError("There is no imported schema with role '" + getSchemaRole() + "'", "XTSE4045");
+        }
+        return s;
     }
 
     /**
@@ -1380,7 +1520,24 @@ public abstract class StyleElement extends ElementImpl {
     }
 
     /**
-     * Process the [xsl:]expand-text attribute if there is one
+     * Process the [xsl:]schema-rolw attribute if there is one (and if XSLT 4.0 is enabled)
+     *
+     * @param ns the namespace URI of the attribute required  (the default namespace or the XSLT namespace.)
+     */
+
+    void processSchemaRoleAttribute(NamespaceUri ns) {
+        String v = getAttributeValue(ns, "schema-role");
+        if (v != null) {
+            requireXslt40Attribute("schema-role");
+            // We can't yet check that this role has actually been defined. We currently
+            // do this only if the schema is actually used within the scope of the schema-role
+            // attribute.
+        }
+    }
+
+
+    /**
+     * Process the [xsl:]default-validation attribute if there is one
      *
      * @param ns the namespace URI of the attribute required  (the default namespace or the XSLT namespace.)
      */
@@ -1449,12 +1606,12 @@ public abstract class StyleElement extends ElementImpl {
 
             // not a built-in type: look in the imported schemas
 
-            if (!getPrincipalStylesheetModule().isImportedSchema(uri)) {
-                compileError("There is no imported schema for the namespace of type " + typeAtt, "XTSE1520");
-                return null;
-            }
+//            if (!getPrincipalStylesheetModule().isImportedSchemaNamespace(uri)) {
+//                compileError("There is no imported schema for the namespace of type " + typeAtt, "XTSE1520");
+//                return null;
+//            }
             StructuredQName qName = new StructuredQName("", uri, lname);
-            SchemaType stype = getConfiguration().getSchemaType(qName);
+            SchemaType stype = getImportedSchema().getSchemaType(qName);
             if (stype == null) {
                 compileError("There is no type named " + typeAtt + " in an imported schema", "XTSE1520");
             }
@@ -1557,19 +1714,9 @@ public abstract class StyleElement extends ElementImpl {
             return exp;
         }
         try {
-            exp = exp.typeCheck(makeExpressionVisitor(), config.makeContextItemStaticInfo(Type.ITEM_TYPE, true));
+            exp = exp.typeCheck(makeExpressionVisitor(),
+                                config.makeContextItemStaticInfo(Type.ITEM_TYPE, Optionality.OPTIONAL));
             exp = ExpressionTool.resolveCallsToCurrentFunction(exp);
-            //            if (explaining) {
-            //                System.err.println("Attribute '" + name + "' of element '" + getDisplayName() + "' at line " + getLineNumber() + ':');
-            //                System.err.println("Static type: " +
-            //                        SequenceType.makeSequenceType(exp.getItemType(), exp.getCardinality()));
-            //                System.err.println("Optimized expression tree:");
-            //                exp.display(10, getNamePool(), System.err);
-            //            }
-//            CodeInjector injector = getCompilation().getCompilerInfo().getCodeInjector();
-//            if (injector != null) {
-//                return injector.inject(exp, getStaticContext(), LocationKind.XPATH_IN_XSLT, new StructuredQName("", "", name));
-//            }
             return exp;
         } catch (XPathException err) {
             // we can't report a dynamic error such as divide by zero unless the expression
@@ -1632,8 +1779,10 @@ public abstract class StyleElement extends ElementImpl {
             return null;
         }
         try {
+            ExpressionVisitor visitor = makeExpressionVisitor();
             ItemType cit = Type.ITEM_TYPE;
-            pattern = pattern.typeCheck(makeExpressionVisitor(), getConfiguration().makeContextItemStaticInfo(cit, true));
+            ContextItemStaticInfo cisi = getConfiguration().makeContextItemStaticInfo(cit, Optionality.OPTIONAL);
+            pattern = pattern.typeCheck(visitor, cisi);
             boolean usesCurrent = false;
 
             for (Operand o : pattern.operands()) {
@@ -1646,7 +1795,7 @@ public abstract class StyleElement extends ElementImpl {
             if (usesCurrent) {
                 PatternThatSetsCurrent p2 = new PatternThatSetsCurrent(pattern);
                 pattern.bindCurrent(p2.getCurrentBinding());
-                pattern = p2;
+                return p2.typeCheck(visitor, cisi);
             }
 
             return pattern;
@@ -1661,7 +1810,7 @@ public abstract class StyleElement extends ElementImpl {
                 throw e2;
             } else {
                 Pattern p = new BasePatternWithPredicate(
-                        new NodeTestPattern(ErrorType.getInstance()),
+                        new ItemTypePattern(ErrorType.getInstance()),
                         new ErrorExpression(new XmlProcessingException(err)));
                 p.setLocation(allocateLocation());
                 return p;
@@ -1705,6 +1854,16 @@ public abstract class StyleElement extends ElementImpl {
         }
     }
 
+    public XSLModuleRoot getModuleRoot() {
+        NodeImpl node = this;
+        while (true) {
+            NodeImpl next = node.getParent();
+            if (next instanceof XSLModuleRoot) {
+                return (XSLModuleRoot) next;
+            }
+            node = next;
+        }
+    }
 
     /**
      * Recursive walk through the stylesheet to validate all nodes
@@ -1901,6 +2060,22 @@ public abstract class StyleElement extends ElementImpl {
     }
 
     /**
+     * Check that if the element has a select attribute, the content is empty (except perhaps for xsl:fallback)
+     * @param allowFallback true if xsl:fallback children are allowed
+     */
+
+    public void checkSelectXorContent(boolean allowFallback) {
+        if (getAttributeValue("select") != null) {
+            for (NodeInfo child : children()) {
+                if (!(child instanceof XSLFallback) || !allowFallback) {
+                    compileError("An " + getDisplayName() + " element with a select attribute must be empty", "XTSE3185");
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
      * Convenience method to report the absence of a mandatory attribute
      *
      * @param attribute the name of the attribute whose absence is to be reported
@@ -1990,7 +2165,7 @@ public abstract class StyleElement extends ElementImpl {
             }
         }
         if (containsEmptyTest) {
-            List<NodeInfo> vars = new ArrayList<>();
+            List<NodeInfo> vars = new ArrayList<>();  
             List<NodeInfo> onEmpties = new ArrayList<>();
             List<NodeInfo> others = new ArrayList<>();
             for (NodeInfo kid : children()) {
@@ -2005,9 +2180,9 @@ public abstract class StyleElement extends ElementImpl {
             }
             vars.addAll(others);
             vars.addAll(onEmpties);
-            return compileSequenceConstructor(compilation, decl, new NodeListIterator(vars), includeParams);
+            return compileSequenceConstructor(compilation, decl, new ListIterator.Of<>(vars), includeParams);
         } else {
-            return compileSequenceConstructor(compilation, decl, iterateAxis(AxisInfo.CHILD), includeParams);
+            return compileSequenceConstructor(compilation, decl, iterateChildAxis(AnyGNode.TEST), includeParams);
         }
     }
 
@@ -2041,14 +2216,14 @@ public abstract class StyleElement extends ElementImpl {
                     compileContentValueTemplate((TextImpl) node, contents);
                 } else {
                     // handle literal text nodes by generating an xsl:value-of instruction, unless expand-text is enabled
-                    AxisIterator lookahead = node.iterateAxis(AxisInfo.FOLLOWING_SIBLING);
-                    NodeInfo sibling = lookahead.next();
+                    SequenceIterator lookahead = node.iterateFollowingSiblingAxis(AnyGNode.TEST);
+                    NodeInfo sibling = (NodeInfo)lookahead.next();
                     if (!(sibling instanceof XSLLocalParam || sibling instanceof XSLSort
                                   || sibling instanceof XSLContextItem || sibling instanceof XSLOnCompletion)) {
                         // The test for XSLParam and XSLSort is to eliminate whitespace nodes that have been retained
                         // because of xml:space="preserve"
                         Expression text = new ValueOf(new StringLiteral(node.getUnicodeStringValue()), false, false);
-                        text.setLocation(allocateLocation());
+                        text.setLocation(new Loc(node));
 
 //                        CodeInjector injector = getCompilation().getCompilerInfo().getCodeInjector();
 //                        if (injector != null) {
@@ -2061,8 +2236,7 @@ public abstract class StyleElement extends ElementImpl {
                     }
                 }
 
-            } else if (node instanceof XSLLocalVariable) {
-                XSLLocalVariable var = (XSLLocalVariable) node;
+            } else if (node instanceof XSLLocalVariable var) {
                 SourceBinding sourceBinding = var.getSourceBinding();
                 var.compileLocalVariable(compilation, decl);
 
@@ -2125,10 +2299,12 @@ public abstract class StyleElement extends ElementImpl {
                 }
             }
         }
+        Expression block;
         if (containsSpecials) {
-            return new ConditionalBlock(contents);
+            block = new ConditionalBlock(contents);
+        } else {
+            block = Block.makeBlock(contents);
         }
-        Expression block = Block.makeBlock(contents);
         if (block.getLocation() == null) {
             block.setLocation(locationId);
         }
@@ -2149,12 +2325,15 @@ public abstract class StyleElement extends ElementImpl {
     void compileContentValueTemplate(TextImpl node, List<Expression> contents) {
         if (node instanceof TextValueTemplateNode) {
             Expression exp = ((TextValueTemplateNode) node).getContentExpression();
+            exp.setLocation(new Loc(node));
             if (getConfiguration().getBooleanProperty(Feature.STRICT_STREAMABILITY) && !(exp instanceof Literal)) {
                 exp = new SequenceInstr(exp);
             }
             contents.add(exp);
         } else {
-            contents.add(new StringLiteral(node.getUnicodeStringValue()));
+            StringLiteral exp = new StringLiteral(node.getUnicodeStringValue());
+            exp.setLocation(new Loc(node));
+            contents.add(exp);
         }
     }
 
@@ -2359,7 +2538,7 @@ public abstract class StyleElement extends ElementImpl {
         // Set the location of the error if there is no current location information,
         // or if the current location information is local to an XPath expression, unless we are
         // positioned on an xsl:function or xsl:template, in which case this would lose too much information
-        if (error.getLocation() == null ||
+        if (error.getLocation() == null || error.getLocation() == Loc.NONE ||
                 ((error.getLocation() instanceof Loc ||
                           error.getLocation() instanceof Expression) && !(this instanceof StylesheetComponent))) {
             XmlProcessingIncident.maybeSetLocation(error, this);
@@ -2536,7 +2715,7 @@ public abstract class StyleElement extends ElementImpl {
             if (parent instanceof XSLElement || parent instanceof LiteralResultElement || parent instanceof XSLDocument || parent instanceof XSLCopy) {
                 return true;
             }
-            parent = parent.getParent();
+            parent = (NodeInfo)parent.getParent();
         }
     }
 
@@ -2572,7 +2751,7 @@ public abstract class StyleElement extends ElementImpl {
         // Now check for a global variable
         // we rely on the search following the order of decreasing import precedence.
         SourceBinding binding = getPrincipalStylesheetModule().getGlobalVariableBinding(variableName);
-        if (binding == null || Navigator.isAncestorOrSelf(binding.getSourceElement(), this)) {
+        if (binding == null || (Navigator.isAncestorOrSelf(binding.getSourceElement(), this) && getPackageData().getHostLanguageVersion() < 40)) {
             // test case variable-0118
             return null;
         } else {
@@ -2603,13 +2782,13 @@ public abstract class StyleElement extends ElementImpl {
         if (!isTopLevel()) {
             while (curr instanceof StyleElement && !((StyleElement) curr).seesAvuncularVariables()) {
                 // a local variable is not visible within a sibling xsl:fallback or xsl:catch element
-                curr = curr.getParent();
+                curr = (NodeInfo)curr.getParent();
             }
-            AxisIterator preceding = curr.iterateAxis(AxisInfo.PRECEDING_SIBLING);
+            SequenceIterator preceding = curr.iteratePrecedingSiblingAxis(AnyGNode.TEST);
             while (true) {
-                curr = preceding.next();
+                curr = (NodeInfo)preceding.next();
                 while (curr == null) {
-                    curr = prev.getParent();
+                    curr = (NodeInfo)prev.getParent();
                     if (curr instanceof StyleElement) {
                         implicit = ((StyleElement) curr).hasImplicitBinding(variableName, null);
                         if (implicit != null) {
@@ -2618,14 +2797,14 @@ public abstract class StyleElement extends ElementImpl {
                     }
                     while (curr instanceof StyleElement && !((StyleElement) curr).seesAvuncularVariables()) {
                         // a local variable is not visible within a sibling xsl:fallback or xsl:catch element
-                        curr = curr.getParent();
+                        curr = (NodeInfo)curr.getParent();
                     }
                     prev = curr;
                     if (curr.getParent() instanceof XSLModuleRoot) {
                         break;   // top level
                     }
-                    preceding = curr.iterateAxis(AxisInfo.PRECEDING_SIBLING);
-                    curr = preceding.next();
+                    preceding = curr.iteratePrecedingSiblingAxis(AnyGNode.TEST);
+                    curr = (NodeInfo)preceding.next();
                 }
                 if (curr.getParent() instanceof XSLModuleRoot) {
                     break;
@@ -2641,7 +2820,7 @@ public abstract class StyleElement extends ElementImpl {
         }
         return null;
     }
-
+    
     /**
      * Ask whether variables declared in an "uncle" element are visible.
      *

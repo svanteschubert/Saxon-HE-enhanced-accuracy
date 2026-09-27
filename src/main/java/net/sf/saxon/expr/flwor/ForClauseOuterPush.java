@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.Int64Value;
 
@@ -39,7 +40,7 @@ public class ForClauseOuterPush extends TuplePush {
         int pos = 0;
         Item next = iter.next();
         if (next == null) {
-            context.setLocalVariable(forClause.getRangeVariable().getLocalSlotNumber(), EmptySequence.getInstance());
+            context.setLocalVariable(forClause.getRangeVariable().getLocalSlotNumber(), EmptySequence.INSTANCE);
             if (forClause.getPositionVariable() != null) {
                 context.setLocalVariable(forClause.getPositionVariable().getLocalSlotNumber(), Int64Value.ZERO);
             }
@@ -50,7 +51,7 @@ public class ForClauseOuterPush extends TuplePush {
                 if (forClause.getPositionVariable() != null) {
                     context.setLocalVariable(
                             forClause.getPositionVariable().getLocalSlotNumber(),
-                            new Int64Value(++pos));
+                            new Int64Value(++pos, BuiltInAtomicType.NON_NEGATIVE_INTEGER));
                 }
                 destination.processTuple(context);
                 next = iter.next();

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,16 +7,13 @@
 
 package net.sf.saxon.value;
 
-import net.sf.saxon.functions.FormatNumber;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.AtomicType;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.ConversionResult;
-import net.sf.saxon.type.ValidationFailure;
+import net.sf.saxon.type.*;
 import net.sf.saxon.z.IntIterator;
 
 import java.math.BigDecimal;
@@ -45,6 +42,7 @@ public abstract class IntegerValue extends DecimalValue {
 
     /*@NotNull*/ private static final long[] ranges = {
             // arrange so the most frequently used types are near the start
+            StandardNames.XS_DECIMAL, NO_LIMIT, NO_LIMIT,
             StandardNames.XS_INTEGER, NO_LIMIT, NO_LIMIT,
             StandardNames.XS_LONG, Long.MIN_VALUE, Long.MAX_VALUE,
             StandardNames.XS_INT, Integer.MIN_VALUE, Integer.MAX_VALUE,
@@ -59,7 +57,7 @@ public abstract class IntegerValue extends DecimalValue {
             StandardNames.XS_UNSIGNED_SHORT, 0, 65535,
             StandardNames.XS_UNSIGNED_BYTE, 0, 255};
 
-    public IntegerValue(AtomicType typeLabel) {
+    public IntegerValue(AtomicMetadata typeLabel) {
         super(typeLabel);
     }
 
@@ -97,14 +95,48 @@ public abstract class IntegerValue extends DecimalValue {
             return err;
         }
         if (value > Long.MAX_VALUE || value < Long.MIN_VALUE) {
-            if (value == Math.floor(value)) {
-                return new BigIntegerValue(FormatNumber.adjustToDecimal(value, 2).toBigInteger());
-            } else {
-                return new BigIntegerValue(BigDecimal.valueOf(value).toBigInteger());
+            // Assertion: if the double is outside the range of a long, then there is no fractional part
+            long bits = Double.doubleToLongBits(value);
+            long mantissa = (bits & 0x000fffffffffffffL) | 0x0010000000000000L;
+            int unbiasedExponent = (int)((bits & 0x7ff0000000000000L) >> 52) - 1023;
+
+            BigInteger result = BigInteger.valueOf(mantissa).shiftLeft(unbiasedExponent - 52);
+            if (value < 0) {
+                result = result.negate();
             }
+            return new BigIntegerValue(result);
         }
         return Int64Value.makeIntegerValue((long) value);
     }
+
+    /**
+     * Comparison method using transitive semantics (for 4.0). When comparing
+     * mixed data types, doubles and floats are converted to an exact decimal.
+     * <p>Where NaN values are involved, they should be handled by the caller
+     * before invoking this method.</p>
+     *
+     * @param other the other comparand
+     * @return -1, 0, or +1 depending on the magnitude relationship.
+     */
+    @Override
+    public int transitiveCompareTo(NumericValue other) {
+        if (other instanceof IntegerValue) {
+            return asBigInteger().compareTo(((IntegerValue)other).asBigInteger());
+        }
+        if (other instanceof DecimalValue) {
+            try {
+                return getDecimalValue().compareTo(other.getDecimalValue());
+            } catch (ValidationException e) {
+                throw new UncheckedXPathException(e);
+            }
+        }
+        double dbl = other.getDoubleValue();
+        if (Double.isInfinite(dbl)) {
+            return Double.compare(0.0e0, dbl);
+        }
+        return getDecimalValue().compareTo(new BigDecimal(dbl));
+    }
+
 
     /**
      * This class allows subtypes of xs:integer to be held, as well as xs:integer values.
@@ -503,6 +535,7 @@ public abstract class IntegerValue extends DecimalValue {
      */
 
     public abstract BigInteger asBigInteger();
+
 
     /**
      * Get the signum of an int

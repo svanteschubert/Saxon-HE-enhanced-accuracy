@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,10 +19,12 @@ import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
-import net.sf.saxon.str.*;
+import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.XPathException;
-
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.type.Untyped;
@@ -201,6 +203,14 @@ public class ExpressionPresenter {
         }
     }
 
+    public Receiver getReceiver() {
+        return receiver;
+    }
+
+    public ComplexContentOutputter getComplexContentOutputter() {
+        return cco;
+    }
+
     /**
      * Set the default namespace, used for subsequent calls on startElement.
      * Must be consistent throughout the whole document
@@ -343,12 +353,8 @@ public class ExpressionPresenter {
                     (parentSC == null || !sc.getDefaultElementNamespace().equals(parentSC.getDefaultElementNamespace()))) {
                 emitAttribute("defaultElementNS", sc.getDefaultElementNamespace().toString());
             }
-            String defaultFnNs = sc.getDefaultFunctionNamespace().toString();
-            if (!NamespaceConstant.FN.equals(defaultFnNs)) {
-                emitAttribute("defaultFunctionNS", defaultFnNs);
-            }
             if (!options.suppressStaticContext && (parentSC == null || !sc.declaresSameNamespaces(parentSC))) {
-                boolean includeXmlNamespace = "JS".equals(getOptions().target) && getOptions().targetVersion == 2;
+                boolean includeXmlNamespace = "JS".equals(getOptions().target) && getOptions().targetVersion >= 2;
                 emitAttribute("ns", getNamespacesAsString(sc.getNamespaceMap(), includeXmlNamespace));
             }
         } catch (XPathException e) {
@@ -359,12 +365,13 @@ public class ExpressionPresenter {
     /**
      * From a NamespaceMap, produce the SEF concise representation, for example "xs=~ xsl=~ example=file://example.com/"
      * @param sc the namespace map
-     * @param includeXmlNamespace for compatibility with SaxonJS 2.x, indicate that any explicit binding for the
+     * @param includeXmlNamespace for compatibility with SaxonJS 2+, indicate that any explicit binding for the
      *                            XML namespace should be included in the list
      * @return the concise string representation of the namespace map
      * @throws XPathException if the namespace map contains unsuitable namespaces, for example namespace URIs containing
      * whitespace.
      */
+    @CSharpSuppressWarnings("UnsafeIteratorConversion")
     public static String getNamespacesAsString(NamespaceMap sc, boolean includeXmlNamespace) throws XPathException {
         // Note that this will throw an UnsupportedOperationException if the context does
         // not allow namespace prefixes to be enumerated: that is, if it is a JAXP static context.
@@ -408,17 +415,17 @@ public class ExpressionPresenter {
     private int _startElement(String name) {
         //System.err.println("start " + name + " at " + new XPathException("").getStackTrace().length);
         try {
-            if (inStartTag) {
-                cco.startContent();
-                inStartTag = false;
-            }
+//            if (inStartTag) {
+//                cco.startContent();
+//                inStartTag = false;
+//            }
             NodeName nodeName;
             if (defaultNamespace == null) {
                 nodeName = new NoNamespaceName(name);
             } else {
                 nodeName = new FingerprintedQName("", defaultNamespace, name);
             }
-            cco.startElement(nodeName, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
+            cco.startElement(nodeName, Untyped.INSTANCE, Loc.NONE, ReceiverOption.NONE);
             if (nextRole != null) {
                 emitAttribute("role", nextRole);
                 nextRole = null;
@@ -427,7 +434,7 @@ public class ExpressionPresenter {
             err.printStackTrace();
             throw new InternalError(err.getMessage());
         }
-        inStartTag = true;
+//        inStartTag = true;
         return depth++;
     }
 
@@ -507,11 +514,11 @@ public class ExpressionPresenter {
     public int endElement() {
         //System.err.println("end at " + new XPathException("").getStackTrace().length);
         try {
-            if (inStartTag) {
-                cco.startContent();
-                inStartTag = false;
-            }
-            cco.endElement();
+//            if (inStartTag) {
+//                cco.startContent();
+//                inStartTag = false;
+//            }
+              cco.endElement();
         } catch (XPathException err) {
             err.printStackTrace();
             throw new InternalError(err.getMessage());
@@ -551,6 +558,9 @@ public class ExpressionPresenter {
                 int c = ((CheckSumFilter) receiver).getChecksum();
                 cco.processingInstruction(CheckSumFilter.SIGMA, BMPString.of(Integer.toHexString(c)),
                                           Loc.NONE, ReceiverOption.NONE);
+                String digest = ((CheckSumFilter) receiver).getDigest();
+                cco.processingInstruction(CheckSumFilter.SIGMA2, BMPString.of(digest),
+                        Loc.NONE, ReceiverOption.NONE);
             }
             cco.endDocument();
             cco.close();
@@ -640,6 +650,50 @@ public class ExpressionPresenter {
             }
         }
         return out.toString();
+    }
+
+    public static String jsUnescape(String in) {
+        // Parse an escaped string, assuming it is valid
+        StringBuilder sb = new StringBuilder(in.length());
+        for (int i = 0; i < in.length(); i++) {
+            char c = in.charAt(i);
+            if (c == '\\') {
+                c = in.charAt(++i);
+                switch (c) {
+                    case '\'':
+                    case '\\':
+                    case '/':
+                    case '"':
+                        sb.append(c);
+                        break;
+                    case 'b':
+                        sb.append("\b");
+                        break;
+                    case 'f':
+                        sb.append("\f");
+                        break;
+                    case 'n':
+                        sb.append("\n");
+                        break;
+                    case 'r':
+                        sb.append("\r");
+                        break;
+                    case 't':
+                        sb.append("\t");
+                        break;
+                    case 'u':
+                        String hex = in.substring(i, i + 4);
+                        sb.append(Integer.parseInt(hex));
+                        i += 4;
+                        break;
+                    default:
+                        throw new IllegalArgumentException();
+                }
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     public static class ExportOptions {

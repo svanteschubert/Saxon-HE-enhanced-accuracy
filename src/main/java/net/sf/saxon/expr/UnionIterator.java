@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.LookaheadIterator;
@@ -29,20 +29,18 @@ public class UnionIterator implements SequenceIterator, LookaheadIterator {
     // as a Java TreeSet sorted by the document order of the next node to be
     // delivered.
 
-    private static class Intake {
-        public SequenceIterator iter;
-        public NodeInfo nextNode;
+    private record Intake(SequenceIterator iter, GNode nextNode) {};
 
-        public Intake(SequenceIterator iter, NodeInfo nextNode) {
-            this.iter = iter;
-            this.nextNode = nextNode;
-        }
-    }
+//        public Intake(SequenceIterator iter, GNode nextNode) {
+//            this.iter = iter;
+//            this.nextNode = nextNode;
+//        }
+//    }
 
     //@CSharpInjectMembers(code = "public override int Compare(net.sf.saxon.expr.UnionIterator.Intake a, net.sf.saxon.expr.UnionIterator.Intake b) { return compare(a, b); }")
     private static class IntakeComparer implements Comparator<Intake> {
-        private final Comparator<? super NodeInfo> itemOrderComparer;
-        public IntakeComparer(Comparator<? super NodeInfo> itemOrderComparer) {
+        private final Comparator<? super GNode> itemOrderComparer;
+        public IntakeComparer(Comparator<? super GNode> itemOrderComparer) {
             this.itemOrderComparer = itemOrderComparer;
         }
 
@@ -65,7 +63,7 @@ public class UnionIterator implements SequenceIterator, LookaheadIterator {
      */
 
     public UnionIterator(List<SequenceIterator> inputs,
-                         Comparator<? super NodeInfo> comparer) throws XPathException {
+                         Comparator<? super GNode> comparer) throws XPathException {
 
         // The comparator between Intakes is based on the supplied comparator between nodes
         // (The implementation using a static inner class is constrained by the C# conversion)
@@ -78,14 +76,14 @@ public class UnionIterator implements SequenceIterator, LookaheadIterator {
 
         intakes = new TreeSet<>(comp);
         for (SequenceIterator seq : inputs) {
-            NodeInfo next = (NodeInfo) seq.next();
+            GNode next = (GNode) seq.next();
             while (next != null) {
                 boolean added = intakes.add(new Intake(seq, next));
                 if (added) {
                     break;
                 } else {
                     // the node was a duplicate, so we skip it
-                    next = (NodeInfo) seq.next();
+                    next = (GNode) seq.next();
                 }
             }
         }
@@ -102,7 +100,7 @@ public class UnionIterator implements SequenceIterator, LookaheadIterator {
     }
 
     @Override
-    public NodeInfo next() {
+    public GNode next() {
 
         // Since the intakes are sorted, we can simply take the first.
 
@@ -116,17 +114,17 @@ public class UnionIterator implements SequenceIterator, LookaheadIterator {
             // or (b) any other entry in the TreeMap
 
             SequenceIterator iter = nextIntake.iter;
-            NodeInfo nextNode = (NodeInfo) iter.next();
+            GNode nextNode = (GNode) iter.next();
             while (nextNode != null) {
                 boolean added = false;
-                if (!nextNode.isSameNodeInfo(nextIntake.nextNode)) {
+                if (!nextNode.equals(nextIntake.nextNode)) {
                     Intake replacement = new Intake(iter, nextNode);
                     added = intakes.add(replacement);
                 }
                 if (added) {
                     break;
                 } else {
-                    nextNode = (NodeInfo) iter.next();
+                    nextNode = (GNode) iter.next();
                 }
             }
             return nextIntake.nextNode;

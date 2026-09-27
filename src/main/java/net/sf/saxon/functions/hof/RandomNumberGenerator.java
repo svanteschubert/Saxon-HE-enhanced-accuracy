@@ -8,19 +8,21 @@
 package net.sf.saxon.functions.hof;
 
 import net.sf.saxon.expr.Callable;
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.functions.CallableFunction;
+import net.sf.saxon.functions.SimpleLazyFunction;
+import net.sf.saxon.functions.SimpleUnaryFunction;
 import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.ma.map.DictionaryMap;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
+import net.sf.saxon.ma.map.RecordType;
+import net.sf.saxon.ma.map.Shape;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.str.Twine8;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.FunctionItemType;
+import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.DoubleValue;
@@ -36,122 +38,45 @@ import java.util.Random;
  */
 public class RandomNumberGenerator extends SystemFunction implements Callable {
 
-    public static final MapType RETURN_TYPE = new MapType(BuiltInAtomicType.STRING, SequenceType.SINGLE_ITEM);
+    public static ItemType RETURN_TYPE = RecordType.extensible(
+            new RecordType.Field("number", SequenceType.SINGLE_DOUBLE, false),
+            new RecordType.Field("next",
+                                 SequenceType.one(
+                                         // TODO: the precise type is recursive
+                                         new SpecificFunctionType(SequenceType.one(new MapType(BuiltInAtomicType.STRING, SequenceType.SINGLE_ITEM)))),
+                                 false),
+            new RecordType.Field("permute",
+                                 SequenceType.one(
+                                         new SpecificFunctionType(SequenceType.ANY_SEQUENCE, SequenceType.ANY_SEQUENCE)),
+                                 false));
 
-    private final static FunctionItemType NEXT_FN_TYPE = new SpecificFunctionType(
-            new SequenceType[]{}, // zero arguments
-            SequenceType.makeSequenceType(RETURN_TYPE, StaticProperty.ALLOWS_ONE));
+    private static final Shape SHAPE = new Shape(new Twine8("number"),
+                                                 new Twine8("next"),
+                                                 new Twine8("permute"));
 
-    private final static FunctionItemType PERMUTE_FN_TYPE = new SpecificFunctionType(
-        new SequenceType[]{SequenceType.ANY_SEQUENCE},
-        SequenceType.ANY_SEQUENCE);
-
-
-    private static MapItem generator(long seed, XPathContext context) throws XPathException {
+    private static MapItem generator(long seed) {
         Random random = new Random(seed);
         double number = random.nextDouble();
         long nextSeed = random.nextLong();
-        DictionaryMap map = new DictionaryMap();
-        map.initialPut("number",
-            new DoubleValue(number));
-        map.initialPut("next",
-            new CallableFunction(0, new NextGenerator(nextSeed), NEXT_FN_TYPE));
-        map.initialPut("permute",
-            new CallableFunction(1, new Permutation(nextSeed), PERMUTE_FN_TYPE));
-        return map;
+        return SHAPE.make(
+                // number
+                new DoubleValue(number),
+                // next
+                new SimpleLazyFunction(() -> generator(nextSeed), SequenceType.one(RETURN_TYPE)),
+                // permute
+                new SimpleUnaryFunction(input -> {
+                        SequenceIterator iterator = input.iterate();
+                        Item item;
+                        final List<Item> output = new ArrayList<>();
+                        Random rand = new Random(nextSeed);
+                        while ((item = iterator.next()) != null) {
+                            int p = rand.nextInt(output.size() + 1);
+                            output.add(p, item);
+                        }
+                        return new SequenceExtent.Of<>(output);
+                    }, SequenceType.ANY_SEQUENCE, SequenceType.ANY_SEQUENCE)
+        );
     }
-
-    private static class Permutation implements Callable {
-        Long nextSeed;
-        public Permutation(Long nextSeed) {
-            this.nextSeed = nextSeed;
-        }
-        /**
-         * Call the Callable.
-         *
-         * @param context   the dynamic evaluation context
-         * @param arguments the values of the arguments, supplied as Sequences.
-         *                  <p>Generally it is advisable, if calling iterate() to process a supplied sequence, to
-         *                  call it only once; if the value is required more than once, it should first be converted
-         *                  to a {@link net.sf.saxon.om.GroundedValue} by calling the utility methd
-         *                  SequenceTool.toGroundedValue().</p>
-         *                  <p>If the expected value is a single item, the item should be obtained by calling
-         *                  Sequence.head(): it cannot be assumed that the item will be passed as an instance of
-         *                  {@link net.sf.saxon.om.Item} or {@link net.sf.saxon.value.AtomicValue}.</p>
-         *                  <p>It is the caller's responsibility to perform any type conversions required
-         *                  to convert arguments to the type expected by the callee. An exception is where
-         *                  this Callable is explicitly an argument-converting wrapper around the original
-         *                  Callable.</p>
-         * @return the result of the evaluation, in the form of a Sequence. It is the responsibility
-         * of the callee to ensure that the type of result conforms to the expected result type.
-         * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs during the evaluation of the expression
-         */
-
-        @Override
-        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            Sequence input = arguments[0];
-            SequenceIterator iterator = input.iterate();
-            Item item;
-            final List<Item> output = new ArrayList<>();
-            Random random = new Random(nextSeed);
-            while ((item = iterator.next()) != null) {
-                int p = random.nextInt(output.size()+1);
-                output.add(p, item);
-            }
-            return new SequenceExtent.Of<>(output);
-        }
-
-        /**
-         * The value of toString() may be used to identify this function in diagnostics
-         */
-
-        public String toString() {
-            return "random-number-generator.permute";
-        }
-
-    }
-
-    private static class NextGenerator implements Callable {
-        long nextSeed;
-        public NextGenerator(long nextSeed){
-            this.nextSeed = nextSeed;
-        }
-
-        /**
-         * Call the Callable.
-         *
-         * @param context   the dynamic evaluation context
-         * @param arguments the values of the arguments, supplied as Sequences.
-         *                  <p>Generally it is advisable, if calling iterate() to process a supplied sequence, to
-         *                  call it only once; if the value is required more than once, it should first be converted
-         *                  to a {@link net.sf.saxon.om.GroundedValue} by calling the utility methd
-         *                  SequenceTool.toGroundedValue().</p>
-         *                  <p>If the expected value is a single item, the item should be obtained by calling
-         *                  Sequence.head(): it cannot be assumed that the item will be passed as an instance of
-         *                  {@link net.sf.saxon.om.Item} or {@link net.sf.saxon.value.AtomicValue}.</p>
-         *                  <p>It is the caller's responsibility to perform any type conversions required
-         *                  to convert arguments to the type expected by the callee. An exception is where
-         *                  this Callable is explicitly an argument-converting wrapper around the original
-         *                  Callable.</p>
-         * @return the result of the evaluation, in the form of a Sequence. It is the responsibility
-         * of the callee to ensure that the type of result conforms to the expected result type.
-         * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs during the evaluation of the expression
-         */
-
-        @Override
-        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            return generator(nextSeed, context);
-        }
-
-        /**
-         * The value of toString() may be used to identify this function in diagnostics
-         */
-
-        public String toString() {
-            return "random-number-generator.next";
-        }
-    }
-
 
 
     @Override
@@ -164,10 +89,10 @@ public class RandomNumberGenerator extends SystemFunction implements Callable {
             AtomicValue val = (AtomicValue) arguments[0].head();
             seed = val == null ? context.getCurrentDateTime().randomSeed() : val.hashCode();
         }
-        return generator(seed, context);
+        return generator(seed);
     }
 
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

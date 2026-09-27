@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -93,7 +93,7 @@ public final class RuleManager {
     public StylesheetPackage getStylesheetPackage() {
         return stylesheetPackage;
     }
-
+    
     /**
      * Get all registered modes
      *
@@ -171,11 +171,10 @@ public final class RuleManager {
      * @param part     Zero for a "real" rule; an incremented integer for rules generated
      *                 by splitting a real rule on a union pattern, in cases where no user-specified
      *                 priority is supplied.
-     * @return the number of (sub-)rules registered
      * @see Pattern
      */
 
-    public int registerRule(Pattern pattern, TemplateRule eh,
+    public void registerRule(Pattern pattern, TemplateRule eh,
                             Mode mode, StylesheetModule module, double priority, int position, int part) {
 
         if (Double.isNaN(priority)) {
@@ -187,7 +186,6 @@ public final class RuleManager {
         } else {
             mode.getActivePart().addRule(pattern, eh, module, mode.getMaxPrecedence(), priority, position, part);
         }
-        return 1;
     }
 
 

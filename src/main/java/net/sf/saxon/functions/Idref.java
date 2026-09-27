@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,14 +11,19 @@ import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.sort.DocumentOrderIterator;
 import net.sf.saxon.expr.sort.LocalOrderComparer;
 import net.sf.saxon.om.*;
-import net.sf.saxon.trans.KeyDefinitionSet;
-import net.sf.saxon.trans.KeyManager;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.*;
+import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
 
 
-public class Idref extends SystemFunction {
+public class Idref extends SystemFunction implements IContextAccessorFunction {
+
+    @Override
+    public boolean dependsOnContext() {
+        return getArity() == 1;
+    }
 
     /**
      * Get the static properties of this expression (other than its type). The result is
@@ -80,6 +85,35 @@ public class Idref extends SystemFunction {
         }
         return new LazySequence(getIdrefMultiple(arg2.getTreeInfo(), arguments[0].iterate(), context));
     }
+
+    /**
+     * Bind context information to appear as part of the function's closure. If this method
+     * has been called, the supplied context will be used in preference to the
+     * context at the point where the function is actually called.
+     *
+     * @param context the context to which the function applies. Must not be null.
+     */
+    @Override
+    public FunctionItem bindContext(XPathContext context) throws XPathException {
+        if (getArity() == 2) {
+            return this;
+        }
+        CallableDelegate.Lambda body;
+        try {
+            NodeInfo target = getContextNode(context);
+            body = (cxt, args) -> call(cxt, new Sequence[]{args[0], target});
+        } catch (XPathException e) {
+            // Test function-lookup-358. Don't throw the error unless and until the function is called.
+            body = (cxt, args) -> {
+                        throw new UncheckedXPathException(e);
+                    };
+        }
+        return new CallableFunction(
+                new SymbolicName.F(getFunctionName(), 1),
+                body,
+                new SpecificFunctionType(SequenceType.STRING_SEQUENCE, SequenceType.NODE_SEQUENCE));
+    }
+
 
     private static class IdrefMappingFunction implements MappingFunction {
         public TreeInfo document;

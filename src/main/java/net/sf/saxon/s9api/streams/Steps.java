@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.NameChecker;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
@@ -161,31 +161,56 @@ public class Steps {
      */
 
     private final static Step<XdmNode> FOLLOWING = new AxisStep(Axis.FOLLOWING);
+
+    /**
+     * A Step to navigate from a node to its following siblings, which are returned in document order,
+     * preceded by the node itself.
+     */
+    private final static Step<XdmNode> FOLLOWING_OR_SELF = new AxisStep(Axis.FOLLOWING_OR_SELF);
+
     /**
      * A Step to navigate from a node to its following siblings, which are returned in document order
      */
-
     private final static Step<XdmNode> FOLLOWING_SIBLING = new AxisStep(Axis.FOLLOWING_SIBLING);
+
+    /**
+     * A Step to navigate from a node to its following siblings, which are returned in document order,
+     * preceded by the node itself.
+     */
+    private final static Step<XdmNode> FOLLOWING_SIBLING_OR_SELF = new AxisStep(Axis.FOLLOWING_SIBLING_OR_SELF);
+
     /**
      * A {@code Step} to navigate from a node to its namespace nodes
      */
-
     private final static Step<XdmNode> NAMESPACE = new AxisStep(Axis.NAMESPACE);
     /**
      * A Step to navigate from a node to its parent
      */
 
     private final static Step<XdmNode> PARENT = new AxisStep(Axis.PARENT);
+
     /**
      * A Step to navigate from a node to its preceding siblings, which are returned in reverse document order
      */
-
     private final static Step<XdmNode> PRECEDING_SIBLING = new AxisStep(Axis.PRECEDING_SIBLING);
+
+    /**
+     * A Step to navigate from a node to its preceding sibling nodes, which are returned in reverse document order
+     * preceded by the origin node itself.
+     */
+    private final static Step<XdmNode> PRECEDING_SIBLING_OR_SELF = new AxisStep(Axis.PRECEDING_SIBLING_OR_SELF);
+
     /**
      * A Step to navigate from a node to its preceding nodes (excluding ancestors), which are returned in reverse document order
      */
-
     private final static Step<XdmNode> PRECEDING = new AxisStep(Axis.PRECEDING);
+
+    /**
+     * A Step to navigate from a node to its preceding nodes (excluding ancestors), which are returned in reverse document order
+     * preceded by the origin node itself.
+     */
+    private final static Step<XdmNode> PRECEDING_OR_SELF = new AxisStep(Axis.PRECEDING_OR_SELF);
+
     /**
      * A Step to navigate from a node to itself (useful only if applying a predicate)
      */
@@ -235,6 +260,15 @@ public class Steps {
         };
     }
 
+    private static Predicate<? super XdmNode> qnamePredicate(QName name) {
+        return item -> {
+            NodeInfo node = item.getUnderlyingNode();
+            return node.getNodeKind() == Type.ELEMENT
+                    && node.getNamespaceUri() == name.getNamespaceUri()
+                    && node.getLocalPart().equals(name.getLocalName());
+        };
+    }
+
     /**
      * Obtain a {@code Step} to navigate from a node to its ancestors, in reverse document
      * order (that is, nearest ancestor first, root node last)
@@ -267,12 +301,26 @@ public class Steps {
      * @param uri       the namespace URI of the ancestors to be selected by the {@code Step}
      * @param localName the local name of the ancestors to be selected by the {@code Step}:
      *                  supply a zero-length string to indicate the null namespace
-     * @return a {@code Step}, which selects the ancestors (at most one) of a supplied node that have the
+     * @return a {@code Step}, which selects the ancestors of a supplied node that have the
      * required local name and namespace URI.
      */
 
     public static Step<XdmNode> ancestor(String uri, String localName) {
         return ancestor().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Return a {@code Step} that navigates from a node to its ancestors having a specified
+     * namespace URI and local name, in reverse document order (that is, nearest ancestor first,
+     * root node last)
+     *
+     * @param name      the QName of the ancestors to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the ancestors of a supplied node that have the
+     * required local name and namespace URI.
+     */
+
+    public static Step<XdmNode> ancestor(QName name) {
+        return ancestor().where(qnamePredicate(name));
     }
 
     /**
@@ -324,9 +372,21 @@ public class Steps {
      * @return a {@code Step}, which selects the ancestors-or-self of a supplied node that have the
      * required local name and namespace URI.
      */
-
     public static Step<XdmNode> ancestorOrSelf(String uri, String localName) {
         return ancestorOrSelf().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to its ancestors-or-self having a specified
+     * namespace URI and local name, in reverse document order (that is, nearest ancestor first,
+     * root node last)
+     *
+     * @param name      the name of the ancestors to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the ancestors-or-self of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> ancestorOrSelf(QName name) {
+        return ancestorOrSelf().where(qnamePredicate(name));
     }
 
     /**
@@ -381,6 +441,17 @@ public class Steps {
     }
 
     /**
+     * Return a {@code Step} that navigates from a node to its attribute having a specified
+     * name
+     *
+     * @param name the name of the attributes to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the attributes of a supplied node that have the required name
+     */
+    public static Step<XdmNode> attribute(QName name) {
+        return attribute().where(hasName(name));
+    }
+
+    /**
      * Obtain a {@code Step} that filters the nodes found on the attribute axis using a supplied {@code Predicate}.
      * The function call {@code attribute(predicate)} is equivalent to {@code ATTRIBUTE.where(predicate)}.
      *
@@ -422,9 +493,20 @@ public class Steps {
      * @return a {@code Step}, which selects the element children of a supplied node that have the
      * required local name and namespace URI.
      */
-
     public static Step<XdmNode> child(String uri, String localName) {
         return child().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the element children having a specified
+     * namespace URI and local name
+     * @param name the name of the child elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the element children of a supplied node that have the
+     * required name.
+     */
+
+    public static Step<XdmNode> child(QName name) {
+        return child().where(qnamePredicate(name));
     }
 
     /**
@@ -472,18 +554,20 @@ public class Steps {
      * @return a {@code Step}, which selects the element descendants of a supplied node that have the
      * required local name and namespace URI.
      */
-
     public static Step<XdmNode> descendant(String uri, String localName) {
         return descendant().where(expandedNamePredicate(uri, localName));
     }
 
     /**
-     * Obtain a {@link Step} to navigate from a node to its descendants, which are returned in document order,
-     * preceded by the origin node itself
-     * @return a Step that selects all nodes on the descendant-or-self axis
+     * Obtain a {@code Step} that navigates from a node to the element descendants having a specified
+     * namespace URI and local name. These are returned in document order.
+     *
+     * @param name the name of the descendant elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the element descendants of a supplied node that have the
+     * required name.
      */
-    public static Step<XdmNode> descendantOrSelf() {
-        return DESCENDANT_OR_SELF;
+    public static Step<XdmNode> descendant(QName name) {
+        return descendant().where(qnamePredicate(name));
     }
 
     /**
@@ -496,9 +580,17 @@ public class Steps {
      * @param filter the predicate to be applied
      * @return a Step that filters the nodes found on the descendant axis using a supplied Predicate.
      */
-
     public static Step<XdmNode> descendant(Predicate<? super XdmNode> filter) {
         return descendant().where(filter);
+    }
+
+    /**
+     * Obtain a {@link Step} to navigate from a node to its descendants, which are returned in document order,
+     * preceded by the origin node itself
+     * @return a Step that selects all nodes on the descendant-or-self axis
+     */
+    public static Step<XdmNode> descendantOrSelf() {
+        return DESCENDANT_OR_SELF;
     }
 
     /**
@@ -527,9 +619,21 @@ public class Steps {
      * @return a {@code Step}, which selects the element descendants-or-self of a supplied node that have a
      * given local name and namespace URI.
      */
-
     public static Step<XdmNode> descendantOrSelf(String uri, String localName) {
         return descendantOrSelf().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the descendant-or-self elements having a specified
+     * name. These are returned in document order, preceded by the origin node
+     * itself if it matches the conditions.
+     *
+     * @param name the name of the descendant-or-self elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the element descendants-or-self of a supplied node that have a
+     * given name.
+     */
+    public static Step<XdmNode> descendantOrSelf(QName name) {
+        return descendantOrSelf().where(qnamePredicate(name));
     }
 
     /**
@@ -580,9 +684,20 @@ public class Steps {
      * @return a {@code Step}, which selects the following elements of a supplied node that have the
      * required local name and namespace URI.
      */
-
     public static Step<XdmNode> following(String uri, String localName) {
         return following().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following elements having a specified
+     * name. These are returned in document order.
+     *
+     * @param name the name of the following elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the following elements of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> following(QName name) {
+        return following().where(qnamePredicate(name));
     }
 
     /**
@@ -633,9 +748,20 @@ public class Steps {
      * @return a {@code Step}, which selects the following sibling elements of a supplied node that have the
      * required local name and namespace URI.
      */
-
     public static Step<XdmNode> followingSibling(String uri, String localName) {
         return followingSibling().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following sibling elements having a specified
+     * name. These are returned in document order.
+     *
+     * @param name the name of the following sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the following sibling elements of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> followingSibling(QName name) {
+        return followingSibling().where(qnamePredicate(name));
     }
 
     /**
@@ -651,6 +777,142 @@ public class Steps {
 
     public static Step<XdmNode> followingSibling(Predicate<? super XdmNode> filter) {
         return followingSibling().where(filter);
+    }
+
+    /**
+     * Obtain a {@link Step} to navigate from a node to its following nodes (excluding ancestors),
+     * which are returned in document order, preceded by the origin node itself
+     * @return a Step that selects all nodes on the following-or-self axis
+     */
+    public static Step<XdmNode> followingOrSelf() {
+        return FOLLOWING_OR_SELF;
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following elements having a specified
+     * local name. These are returned in document order, preceded by the origin node itself
+     * if it has the requested name.
+     *
+     * @param localName the local name of the preceding elements to be selected by the {@code Step},
+     *                  or "*" to select all preceding-or-self nodes that are element nodes
+     * @return a {@code Step}, which selects the preceding elements of a supplied node that have the
+     * required local name.
+     */
+
+    public static Step<XdmNode> followingOrSelf(String localName) {
+        return followingOrSelf().where(localNamePredicate(localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following elements having a specified
+     * namespace URI and local name. These are returned in document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param uri       the namespace URI of the preceding elements to be selected by the {@code Step}:
+     *                  supply a zero-length string to indicate the null namespace
+     * @param localName the local name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required local name and namespace URI.
+     */
+    public static Step<XdmNode> followingOrSelf(String uri, String localName) {
+        return followingOrSelf().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following elements having a specified
+     * namespace URI and local name. These are returned in document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param name the name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> followingOrSelf(QName name) {
+        return followingOrSelf().where(qnamePredicate(name));
+    }
+
+    /**
+     * Obtain a Step that filters the nodes found on the following-or-self axis using a supplied {@code Predicate}.
+     * The function call {@code followingOrSelf(predicate)} is equivalent to {@code FOLLOWING_OR_SELF.where(predicate)}.
+     * For example, {@code followingOrSelf(isElement())} returns a {@code Step} that selects the following elements
+     * of a given node, while {@code followingOrSelf(exists(attribute("id")))} selects those that have an attribute
+     * named "id". These are returned in document order, preceded by the origin node itself if it satisfies
+     * the predicate.
+     *
+     * @param filter the predicate to be applied
+     * @return a {@code Step} that filters the nodes found on the following-or-self axis using a supplied {@code Predicate}.
+     */
+
+    public static Step<XdmNode> followingOrSelf(Predicate<? super XdmNode> filter) {
+        return followingOrSelf().where(filter);
+    }
+
+    /**
+     * Obtain a {@link Step} to navigate from a node to its following sibling nodes
+     * which are returned in document order, preceded by the origin node itself
+     * @return a Step that selects all nodes on the preceding-or-self axis
+     */
+    public static Step<XdmNode> followingSiblingOrSelf() {
+        return FOLLOWING_SIBLING_OR_SELF;
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following sibling elements having a specified
+     * local name. These are returned in document order, preceded by the origin node itself
+     * if it has the requested name.
+     *
+     * @param localName the local name of the preceding elements to be selected by the {@code Step},
+     *                  or "*" to select all preceding-or-self nodes that are element nodes
+     * @return a {@code Step}, which selects the preceding elements of a supplied node that have the
+     * required local name.
+     */
+
+    public static Step<XdmNode> followingSiblingOrSelf(String localName) {
+        return followingSiblingOrSelf().where(localNamePredicate(localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following sibling elements having a specified
+     * namespace URI and local name. These are returned in document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param uri       the namespace URI of the preceding elements to be selected by the {@code Step}:
+     *                  supply a zero-length string to indicate the null namespace
+     * @param localName the local name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required local name and namespace URI.
+     */
+    public static Step<XdmNode> followingSiblingOrSelf(String uri, String localName) {
+        return followingSiblingOrSelf().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the following sibling elements having a specified
+     * namespace URI and local name. These are returned in document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param name the name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required name.
+     */
+
+    public static Step<XdmNode> followingSiblingOrSelf(QName name) {
+        return followingSiblingOrSelf().where(qnamePredicate(name));
+    }
+
+    /**
+     * Obtain a Step that filters the nodes found on the following-sibling-or-self axis using a supplied {@code Predicate}.
+     * The function call {@code followingSiblingOrSelf(predicate)} is equivalent to {@code FOLLOWING_SIBLING_OR_SELF.where(predicate)}.
+     * For example, {@code followingSiblingOrSelf(isElement())} returns a {@code Step} that selects the following sibling elements
+     * of a given node, while {@code followingSiblingOrSelf(exists(attribute("id")))} selects those that have an attribute
+     * named "id". These are returned in document order, preceded by the origin node itself if it satisfies
+     * the predicate.
+     *
+     * @param filter the predicate to be applied
+     * @return a {@code Step} that filters the nodes found on the following-sibling-or-self axis using a supplied {@code Predicate}.
+     */
+    public static Step<XdmNode> followingSiblingOrSelf(Predicate<? super XdmNode> filter) {
+        return followingSiblingOrSelf().where(filter);
     }
 
     /**
@@ -723,9 +985,20 @@ public class Steps {
      * @return a {@code Step}, which selects the parent element of a supplied node provided it is an
      * element with the required local name and namespace URI.
      */
-
     public static Step<XdmNode> parent(String uri, String localName) {
         return parent().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the parent element provided it has a specified
+     * namespace URI and local name
+     *
+     * @param name the name of the parent element to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the parent element of a supplied node provided it is an
+     * element with the required name.
+     */
+    public static Step<XdmNode> parent(QName name) {
+        return parent().where(qnamePredicate(name));
     }
 
     /**
@@ -775,9 +1048,20 @@ public class Steps {
      * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
      * required local name and namespace URI.
      */
-
     public static Step<XdmNode> precedingSibling(String uri, String localName) {
         return precedingSibling().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding sibling elements having a specified
+     * namespace URI and local name. These are returned in reverse document order.
+     *
+     * @param name the name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> precedingSibling(QName name) {
+        return precedingSibling().where(qnamePredicate(name));
     }
 
     /**
@@ -828,9 +1112,20 @@ public class Steps {
      * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
      * required local name and namespace URI.
      */
-
     public static Step<XdmNode> preceding(String uri, String localName) {
         return preceding().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding elements having a specified
+     * namespace URI and local name. These are returned in reverse document order.
+     *
+     * @param name the name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> preceding(QName name) {
+        return preceding().where(qnamePredicate(name));
     }
 
     /**
@@ -846,6 +1141,140 @@ public class Steps {
 
     public static Step<XdmNode> preceding(Predicate<? super XdmNode> filter) {
         return preceding().where(filter);
+    }
+
+    /**
+     * Obtain a {@link Step} to navigate from a node to its preceding nodes (excluding ancestors),
+     * which are returned in reverse document order, preceded by the origin node itself
+     * @return a Step that selects all nodes on the preceding-or-self axis
+     */
+    public static Step<XdmNode> precedingOrSelf() {
+        return PRECEDING_OR_SELF;
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding elements having a specified
+     * local name. These are returned in reverse document order, preceded by the origin node itself
+     * if it has the requested name.
+     *
+     * @param localName the local name of the preceding elements to be selected by the {@code Step},
+     *                  or "*" to select all preceding-or-self nodes that are element nodes
+     * @return a {@code Step}, which selects the preceding elements of a supplied node that have the
+     * required local name.
+     */
+
+    public static Step<XdmNode> precedingOrSelf(String localName) {
+        return precedingOrSelf().where(localNamePredicate(localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding elements having a specified
+     * namespace URI and local name. These are returned in reverse document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param uri       the namespace URI of the preceding elements to be selected by the {@code Step}:
+     *                  supply a zero-length string to indicate the null namespace
+     * @param localName the local name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required local name and namespace URI.
+     */
+    public static Step<XdmNode> precedingOrSelf(String uri, String localName) {
+        return precedingOrSelf().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding elements having a specified
+     * namespace URI and local name. These are returned in reverse document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param name the name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> precedingOrSelf(QName name) {
+        return precedingOrSelf().where(qnamePredicate(name));
+    }
+
+    /**
+     * Obtain a Step that filters the nodes found on the preceding-or-self axis using a supplied {@code Predicate}.
+     * The function call {@code precedingOrSelf(predicate)} is equivalent to {@code PRECEDING_OR_SELF.where(predicate)}.
+     * For example, {@code precedingOrSelf(isElement())} returns a {@code Step} that selects the preceding elements
+     * of a given node, while {@code precedingOrSelf(exists(attribute("id")))} selects those that have an attribute
+     * named "id". These are returned in reverse document order, preceded by the origin node if it satisfies
+     * the predicate.
+     *
+     * @param filter the predicate to be applied
+     * @return a {@code Step} that filters the nodes found on the preceding-or-self axis using a supplied {@code Predicate}.
+     */
+    public static Step<XdmNode> precedingOrSelf(Predicate<? super XdmNode> filter) {
+        return precedingOrSelf().where(filter);
+    }
+
+    /**
+     * Obtain a {@link Step} to navigate from a node to its preceding sibling nodes
+     * which are returned in reverse document order, preceded by the origin node itself
+     * @return a Step that selects all nodes on the preceding-or-self axis
+     */
+    public static Step<XdmNode> precedingSiblingOrSelf() {
+        return PRECEDING_SIBLING_OR_SELF;
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding sibling elements having a specified
+     * local name. These are returned in reverse document order, preceded by the origin node itself
+     * if it has the requested name.
+     *
+     * @param localName the local name of the preceding elements to be selected by the {@code Step},
+     *                  or "*" to select all preceding-or-self nodes that are element nodes
+     * @return a {@code Step}, which selects the preceding elements of a supplied node that have the
+     * required local name.
+     */
+
+    public static Step<XdmNode> precedingSiblingOrSelf(String localName) {
+        return precedingSiblingOrSelf().where(localNamePredicate(localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding sibling elements having a specified
+     * namespace URI and local name. These are returned in reverse document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param uri       the namespace URI of the preceding elements to be selected by the {@code Step}:
+     *                  supply a zero-length string to indicate the null namespace
+     * @param localName the local name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required local name and namespace URI.
+     */
+    public static Step<XdmNode> precedingSiblingOrSelf(String uri, String localName) {
+        return precedingSiblingOrSelf().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to the preceding sibling elements having a specified
+     * namespace URI and local name. These are returned in reverse document order, preceded by the origin
+     * node itself if it has the requested name.
+     *
+     * @param name the name of the preceding sibling elements to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the preceding sibling elements of a supplied node that have the
+     * required name.
+     */
+    public static Step<XdmNode> precedingSiblingOrSelf(QName name) {
+        return precedingSiblingOrSelf().where(qnamePredicate(name));
+    }
+
+    /**
+     * Obtain a Step that filters the nodes found on the preceding-sibling-or-self axis using a supplied {@code Predicate}.
+     * The function call {@code precedingSiblingOrSelf(predicate)} is equivalent to {@code PRECEDING_SIBLING_OR_SELF.where(predicate)}.
+     * For example, {@code precedingSiblingOrSelf(isElement())} returns a {@code Step} that selects the preceding sibling elements
+     * of a given node, while {@code precedingSiblingOrSelf(exists(attribute("id")))} selects those that have an attribute
+     * named "id". These are returned in reverse document order, preceded by the origin node if it satisfies
+     * the predicate.
+     *
+     * @param filter the predicate to be applied
+     * @return a {@code Step} that filters the nodes found on the preceding-sibling-or-self axis using a supplied {@code Predicate}.
+     */
+    public static Step<XdmNode> precedingSiblingOrSelf(Predicate<? super XdmNode> filter) {
+        return precedingSiblingOrSelf().where(filter);
     }
 
     /**
@@ -880,9 +1309,20 @@ public class Steps {
      * @return a {@code Step}, which selects the supplied node provided it is an element with a
      * given local name and namespace URI.
      */
-
     public static Step<XdmNode> self(String uri, String localName) {
         return self().where(expandedNamePredicate(uri, localName));
+    }
+
+    /**
+     * Obtain a {@code Step} that navigates from a node to itself provided it has a specified
+     * namespace URI and local name
+     *
+     * @param name the name of the element to be selected by the {@code Step}
+     * @return a {@code Step}, which selects the supplied node provided it is an element with a
+     * given name.
+     */
+    public static Step<XdmNode> self(QName name) {
+        return self().where(qnamePredicate(name));
     }
 
     /**
@@ -1014,8 +1454,7 @@ public class Steps {
      * and return the nodes (in a given document) that have that string as their ID.
      * @param doc the root node (document node) of the document within which the ID
      *            value should be sought
-     * @return a Step whose effect is to take a supplied item and split its string
-     * value into a sequence of xs:string instances
+     * @return a Step whose effect is to take a supplied item locate the node in the document with that ID.
      */
 
     public static Step<XdmNode> id(XdmNode doc) {
@@ -1036,5 +1475,5 @@ public class Steps {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 

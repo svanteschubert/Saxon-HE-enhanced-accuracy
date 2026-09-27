@@ -26,26 +26,42 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * A function obtained by currying another function, that is, the result of calling
- * fn:partial-apply
+ * A function obtained by currying another function: that is, the result of a partial function application
  */
 public class CurriedFunction extends AbstractFunction {
 
     private final FunctionItem targetFunction;
     private final Sequence[] boundValues;
+    private final int[] unboundArgumentMap;
     private FunctionItemType functionType;
 
     /**
-     * Create a curried function
+     * Create a curried (or partially applied) function
      *
-     * @param targetFunction the function to be curried
+     * @param targetFunction the base function to be curried
      * @param boundValues    the values to which the arguments are to be bound, representing
-     *                       unbound values (placeholders) by null
+     *                       unbound values (placeholders) by null. So if the arguments
+     *                       are (4, ?, 5) then this array will be [4, null, 5]. If keywords
+     *                       are used in the call then they will have been resolved to
+     *                       argument positions. The values supplied must conform to
+     *                       the required type: coercion is the responsibility of the caller.
+     * @param unboundArgMap  for unbound arguments (placeholders), mapping from
+     *                       argument positions in the curried function to argument
+     *                       positions in the target function. If the arguments are
+     *                       (4, ?, 5) then this array will be [1], indicating that
+     *                       the first and only argument in the curried function is
+     *                       bound to the second (position==1) argument in the underlying
+     *                       function. If keywords are used in the call then this
+     *                       mapping may be non-trivial; for example if the base function
+     *                       is f(x,y) and the partial function application is f(y:=?, x:=?),
+     *                       then this array will contain [1,0]. The length of this array
+     *                       is equal to the arity of the curried function.
      */
 
-    public CurriedFunction(FunctionItem targetFunction, Sequence[] boundValues) {
+    public CurriedFunction(FunctionItem targetFunction, Sequence[] boundValues, int[] unboundArgMap) {
         this.targetFunction = Objects.requireNonNull(targetFunction);
         this.boundValues = boundValues;
+        this.unboundArgumentMap = unboundArgMap;
     }
 
     /**
@@ -68,13 +84,16 @@ public class CurriedFunction extends AbstractFunction {
                     placeholders++;
                 }
             }
-            SequenceType[] argTypes = new SequenceType[placeholders];
+            SequenceType[] argTypes = new SequenceType[getArity()];
             if (baseItemType instanceof SpecificFunctionType) {
-                for (int i = 0, j = 0; i < boundValues.length; i++) {
-                    if (boundValues[i] == null) {
-                        argTypes[j++] = baseItemType.getArgumentTypes()[i];
-                    }
+                for (int i = 0; i<unboundArgumentMap.length; i++) {
+                    argTypes[i] = baseItemType.getArgumentTypes()[unboundArgumentMap[i]];
                 }
+//                for (int i = 0, j = 0; i < boundValues.length; i++) {
+//                    if (boundValues[i] == null) {
+//                        argTypes[j++] = baseItemType.getArgumentTypes()[i];
+//                    }
+//                }
             } else {
                 Arrays.fill(argTypes, SequenceType.ANY_SEQUENCE);
             }
@@ -93,6 +112,9 @@ public class CurriedFunction extends AbstractFunction {
     /*@Nullable*/
     @Override
     public StructuredQName getFunctionName() {
+        if (getArity() == targetFunction.getArity()) {
+            return targetFunction.getFunctionName();
+        }
         return null;
     }
 
@@ -116,13 +138,7 @@ public class CurriedFunction extends AbstractFunction {
 
     @Override
     public int getArity() {
-        int count = 0;
-        for (Sequence v : boundValues) {
-            if (v == null) {
-                count++;
-            }
-        }
-        return count;
+        return unboundArgumentMap.length;
     }
 
     /**
@@ -150,13 +166,15 @@ public class CurriedFunction extends AbstractFunction {
 
     @Override
     public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
+        assert args.length == unboundArgumentMap.length;
         Sequence[] newArgs = new Sequence[boundValues.length];
-        for (int i = 0, j = 0; i < newArgs.length; i++) {
-            if (boundValues[i] == null) {
-                newArgs[i] = args[j++];
-            } else {
-                newArgs[i] = boundValues[i];
+        for (int i = 0; i < newArgs.length; i++) {
+            if (boundValues[i] != null) {
+                newArgs[i] = boundValues[i].materialize();
             }
+        }
+        for (int i = 0; i < args.length; i++) {
+            newArgs[unboundArgumentMap[i]] = args[i];
         }
         XPathContext c2 = targetFunction.makeNewContext(context, null);
         if (targetFunction instanceof UserFunction) {

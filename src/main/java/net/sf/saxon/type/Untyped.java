@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.type;
 
+//import com.saxonica.ee.schema.UserComplexType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.lib.NamespaceConstant;
@@ -29,13 +30,6 @@ public enum Untyped implements ComplexType {
 
     INSTANCE;
 
-    /**
-     * Get the singular instance of this class
-     *
-     * @return the singular object representing xs:anyType
-     */
-
-    /*@NotNull*/
     public static Untyped getInstance() {
         return INSTANCE;
     }
@@ -252,7 +246,7 @@ public enum Untyped implements ComplexType {
 
     /*@NotNull*/
     public SchemaType getKnownBaseType() throws IllegalStateException {
-        return AnyType.getInstance();
+        return AnyType.INSTANCE;
     }
 
     /**
@@ -276,7 +270,7 @@ public enum Untyped implements ComplexType {
     /*@NotNull*/
     @Override
     public SchemaType getBaseType() {
-        return AnyType.getInstance();
+        return AnyType.INSTANCE;
     }
 
     /**
@@ -443,11 +437,12 @@ public enum Untyped implements ComplexType {
      *
      * @param expression the expression that delivers the content
      * @param kind       the node kind whose content is being delivered: {@link Type#ELEMENT},
-*                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
+     *                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
+     * @param schema
      */
 
     @Override
-    public void analyzeContentExpression(Expression expression, int kind) {
+    public void analyzeContentExpression(Expression expression, int kind, Schema schema) {
         //return;
     }
 
@@ -471,13 +466,15 @@ public enum Untyped implements ComplexType {
      * If there is no such particle, return null. If the fingerprint matches an element wildcard,
      * return the type of the global element declaration with the given name if one exists, or AnyType
      * if none exists and lax validation is permitted by the wildcard.
+     *
      * @param elementName        Identifies the name of the child element within this content model
-     * @param considerExtensions  True if types derived from this type by extension are to be included in the search
+     * @param schema
+     * @param considerExtensions True if types derived from this type by extension are to be included in the search
      */
 
     /*@NotNull*/
     @Override
-    public SchemaType getElementParticleType(int elementName, boolean considerExtensions) {
+    public SchemaType getElementParticleType(int elementName, Schema schema, boolean considerExtensions) {
         return this;
     }
 
@@ -488,12 +485,14 @@ public enum Untyped implements ComplexType {
      * {@link net.sf.saxon.expr.StaticProperty#EXACTLY_ONE}, {@link net.sf.saxon.expr.StaticProperty#ALLOWS_ZERO_OR_ONE},
      * {@link net.sf.saxon.expr.StaticProperty#ALLOWS_ZERO_OR_MORE}, {@link net.sf.saxon.expr.StaticProperty#ALLOWS_ONE_OR_MORE},
      * If there is no such particle, return zero.
+     *
      * @param elementName        Identifies the name of the child element within this content model
+     * @param schema
      * @param considerExtensions True if types derived from this type by extension are to be included in the search
      */
 
     @Override
-    public int getElementParticleCardinality(int elementName, boolean considerExtensions) {
+    public int getElementParticleCardinality(int elementName, Schema schema, boolean considerExtensions) {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
@@ -505,11 +504,12 @@ public enum Untyped implements ComplexType {
      * if none exists and lax validation is permitted by the wildcard.
      *
      * @param attributeName Identifies the name of the child element within this content model
+     * @param schema
      */
 
     /*@NotNull*/
     @Override
-    public SimpleType getAttributeUseType(StructuredQName attributeName) {
+    public SimpleType getAttributeUseType(StructuredQName attributeName, Schema schema) {
         return BuiltInAtomicType.UNTYPED_ATOMIC;
     }
 
@@ -523,12 +523,13 @@ public enum Untyped implements ComplexType {
      * <p>If there are types derived from this type by extension, search those too.</p>
      *
      * @param attributeName Identifies the name of the child element within this content model
+     * @param schema
      * @return the schema type associated with the attribute use identified by the fingerprint.
-     *         If there is no such attribute use, return null.
+     * If there is no such attribute use, return null.
      */
 
     @Override
-    public int getAttributeUseCardinality(StructuredQName attributeName) {
+    public int getAttributeUseCardinality(StructuredQName attributeName, Schema schema) {
         return StaticProperty.ALLOWS_ZERO_OR_ONE;
     }
 
@@ -540,7 +541,7 @@ public enum Untyped implements ComplexType {
      */
 
     @Override
-    public boolean allowsAttributes() {
+    public boolean allowsAttributes(Schema schema) {
         return true;
     }
 
@@ -549,6 +550,8 @@ public enum Untyped implements ComplexType {
      * Get a list of all the names of elements that can appear as children of an element having this
      * complex type, as integer fingerprints. If the list is unbounded (because of wildcards or the use
      * of xs:anyType), return null.
+     *
+     * @param schema
      * @param children        a set, initially empty, which on return will hold the names of all permitted
      *                        child elements; if the result contains the value XS_INVALID_NAME, this indicates that it is not possible to enumerate
      *                        all the children, typically because of wildcards. In this case the other contents of the set should
@@ -556,7 +559,7 @@ public enum Untyped implements ComplexType {
      */
 
     @Override
-    public void gatherAllPermittedChildren(IntHashSet children, boolean ignoreWildcards) {
+    public void gatherAllPermittedChildren(Schema schema, IntHashSet children, boolean ignoreWildcards) {
         children.add(-1);
     }
 
@@ -565,6 +568,7 @@ public enum Untyped implements ComplexType {
      * complex type, as integer fingerprints. If the list is unbounded (because of wildcards or the use
      * of xs:anyType), return null.
      *
+     * @param schema
      * @param descendants an integer set, initially empty, which on return will hold the fingerprints of all permitted
      *                    descendant elements; if the result contains the value XS_INVALID_NAME, this indicates that it is not possible to enumerate
      *                    all the descendants, typically because of wildcards. In this case the other contents of the set should
@@ -572,7 +576,7 @@ public enum Untyped implements ComplexType {
      */
 
     @Override
-    public void gatherAllPermittedDescendants(/*@NotNull*/ IntHashSet descendants) {
+    public void gatherAllPermittedDescendants(/*@NotNull*/ Schema schema, IntHashSet descendants) {
         descendants.add(-1);
     }
 
@@ -581,14 +585,15 @@ public enum Untyped implements ComplexType {
      * the type of the element when it appears as a descendant. If it appears with more than one type,
      * return xs:anyType.
      *
+     * @param schema
      * @param fingerprint the name of the required descendant element
      * @return the type of the descendant element; null if the element cannot appear as a descendant;
-     *         anyType if it can appear with several different types
+     * anyType if it can appear with several different types
      */
 
     /*@NotNull*/
     @Override
-    public SchemaType getDescendantElementType(int fingerprint) {
+    public SchemaType getDescendantElementType(Schema schema, int fingerprint) {
         return this;
     }
 
@@ -596,12 +601,13 @@ public enum Untyped implements ComplexType {
      * Assuming an element is a permitted descendant in the content model of this type, determine
      * the cardinality of the element when it appears as a descendant.
      *
+     * @param schema
      * @param elementFingerprint the name of the required descendant element
      * @return the cardinality of the descendant element within this complex type
      */
 
     @Override
-    public int getDescendantElementCardinality(int elementFingerprint) {
+    public int getDescendantElementCardinality(Schema schema, int elementFingerprint) {
         return StaticProperty.ALLOWS_ZERO_OR_MORE;
     }
 
@@ -613,7 +619,7 @@ public enum Untyped implements ComplexType {
      */
 
     @Override
-    public boolean containsElementWildcard() {
+    public boolean containsElementWildcard(Schema schema) {
         return true;
     }
 
@@ -627,14 +633,11 @@ public enum Untyped implements ComplexType {
         return false;
     }
 
-    /**
-     * Decide what kind of layout to use when formatting an element of this type using the
-     * xdm-to-json function. The result is a layout name, such as "record", "list", "mixed", "sequence"
-     */
     @Override
-    public String getPreferredJsonLayout() {
-        return "mixed";
+    public OpenContentVariety getOpenContentMode() {
+        return OpenContentVariety.ABSENT;
     }
+
 
 
 }

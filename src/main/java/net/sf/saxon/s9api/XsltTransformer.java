@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,9 @@ import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.SequenceNormalizerWithSpaceSeparator;
 import net.sf.saxon.expr.instruct.GlobalContextRequirement;
 import net.sf.saxon.expr.instruct.GlobalParameterSet;
+import net.sf.saxon.expr.parser.Optionality;
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeSource;
@@ -333,7 +335,7 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
         try {
             Receiver out = getDestinationReceiver(controller, destination);
             GlobalContextRequirement gcr = controller.getExecutable().getGlobalContextRequirement();
-            if ((gcr == null || !gcr.isAbsentFocus()) && initialSelection != null) {
+            if ((gcr == null || gcr.getContextValueOptionality() != Optionality.PROHIBITED) && initialSelection != null) {
                 if (initialSelection instanceof NodeInfo) {
                     reset = maybeSetGlobalContextItem((NodeInfo) initialSelection);
                 } else if (initialSelection instanceof DOMSource) {
@@ -341,7 +343,8 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
                     reset = maybeSetGlobalContextItem(node);
                     initialSelection = node.asActiveSource();
                 } else {
-                    NodeInfo node = controller.makeSourceTree(initialSelection, getSchemaValidationMode().getNumber());
+                    NodeInfo node = controller.makeSourceTree(initialSelection,
+                                                              Validation.fromValidationMode(getSchemaValidationMode()));
                     reset = maybeSetGlobalContextItem(node);
                     initialSelection = node.asActiveSource();
                 }
@@ -351,6 +354,7 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
                 out.setSystemId(getBaseOutputURI());
             }
             controller.initializeController(parameters);
+            controller.openTraceEpisode();
 
             if (initialTemplateName != null) {
                 controller.callTemplate(initialTemplateName.getStructuredQName(), out);
@@ -372,6 +376,7 @@ public class XsltTransformer extends AbstractXsltTransformer implements Destinat
             if (reset) {
                 controller.clearGlobalContextItem();
             }
+            controller.closeTraceEpisode();
         }
     }
 

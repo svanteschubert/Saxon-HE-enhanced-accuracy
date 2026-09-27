@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,19 +8,22 @@
 package net.sf.saxon.option.jdom2;
 
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.str.EmptyUnicodeString;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.tree.iter.*;
+import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.NodeWrappingAxisIterator;
+import net.sf.saxon.tree.iter.NodeWrappingFunction;
+import net.sf.saxon.tree.iter.PrependIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.wrapper.AbstractNodeWrapper;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 import org.jdom2.*;
 import org.jdom2.filter.ElementFilter;
 import org.jdom2.located.Located;
@@ -156,7 +159,7 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         if (other instanceof SiblingCountingNode) {
             return Navigator.compareOrder(this, (SiblingCountingNode) other);
         } else {
@@ -402,26 +405,26 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
             if (parent == null) {
                 return 0;
             }
-            AxisIterator iter;
+            SequenceIterator iter;
             switch (nodeKind) {
                 case Type.ELEMENT:
                 case Type.TEXT:
                 case Type.COMMENT:
                 case Type.PROCESSING_INSTRUCTION:
-                    iter = parent.iterateAxis(AxisInfo.CHILD);
+                    iter = parent.iterateChildAxis(AnyGNode.TEST);
                     break;
                 case Type.ATTRIBUTE:
-                    iter = parent.iterateAxis(AxisInfo.ATTRIBUTE);
+                    iter = parent.iterateAttributeAxis(AnyGNode.TEST);
                     break;
                 case Type.NAMESPACE:
-                    iter = parent.iterateAxis(AxisInfo.NAMESPACE);
+                    iter = parent.iterateNamespaceAxis(AnyGNode.TEST);
                     break;
                 default:
                     index = 0;
                     return index;
             }
             while (true) {
-                NodeInfo n = iter.next();
+                GNode n = (GNode)iter.next();
                 if (n == null) {
                     break;
                 }
@@ -441,53 +444,57 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
     }
 
     @Override
-    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
-        AxisIterator base = new AttributeEnumeration(this);
-        if (nodeTest == AnyNodeTest.getInstance()) {
-            return base;
-        } else {
-            return new Navigator.AxisFilter(base, nodeTest);
-        }
-    }
-
-    @Override
-    protected AxisIterator iterateChildren(NodeTest nodeTest) {
-        if (hasChildNodes()) {
-            AxisIterator base = new ChildEnumeration(this, true, true);
-            if (nodeTest == AnyNodeTest.getInstance()) {
+    protected SequenceIterator iterateAttributes(NodePredicate nodeTest) {
+        if (getNodeKind() == Type.ELEMENT) {
+            SequenceIterator base = new AttributeEnumeration(this);
+            if (nodeTest == AnyGNodeType.getInstance()) {
                 return base;
             } else {
-                return new Navigator.AxisFilter(base, nodeTest);
+                return Navigator.filter(base, nodeTest);
             }
         } else {
-            return EmptyIterator.ofNodes();
+            return EmptyIterator.INSTANCE;
         }
     }
 
     @Override
-    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
-        if (nodeTest == AnyNodeTest.getInstance()) {
+    protected SequenceIterator iterateChildren(NodePredicate nodeTest) {
+        if (hasChildNodes()) {
+            SequenceIterator base = new ChildEnumeration(this, true, true);
+            if (nodeTest == AnyGNodeType.getInstance()) {
+                return base;
+            } else {
+                return Navigator.filter(base, nodeTest);
+            }
+        } else {
+            return EmptyIterator.INSTANCE;
+        }
+    }
+
+    @Override
+    protected SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards) {
+        if (nodeTest == AnyGNodeType.getInstance()) {
             return new ChildEnumeration(this, false, forwards);
         } else {
-            return new Navigator.AxisFilter(
+            return Navigator.filter(
                     new ChildEnumeration(this, false, forwards),
                     nodeTest);
         }
     }
 
     @Override
-    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
+    protected SequenceIterator iterateDescendants(NodePredicate predicate, boolean includeSelf) {
         Iterator<? extends Content> descendants;
-        final UType uType = nodeTest.getUType();
+        final UType uType= Navigator.getPotentialNodeKinds(predicate);
         if (uType.overlaps(UType.TEXT)) {
             // if selecting text nodes, we have to handle adjacent sibling text nodes. The best way
             // to achieve this is by using the recursive implementation of the descendant axis available
             // in the Navigator class, which works in terms of the child axis only. See bug #5348.
-            AxisIterator allDescendants = new Navigator.DescendantEnumeration(this, includeSelf, true);
-            if (nodeTest == AnyNodeTest.getInstance()) {
+            SequenceIterator allDescendants = new Navigator.DescendantIterator(this, includeSelf, true);
+            if (predicate == AnyGNodeType.getInstance()) {
                 return allDescendants;
             } else {
-                return new Navigator.AxisFilter(allDescendants, nodeTest);
+                return Navigator.filter(allDescendants, predicate);
             }
         }
         if (uType == UType.ELEMENT) {
@@ -502,15 +509,15 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
                 return makeWrapper(node, getTreeInfo());
             }
         };
-        AxisIterator wrappedDescendants = new DescendantWrappingIterator<Content>(descendants, wrappingFunct);
-        if (includeSelf && nodeTest.test(this)) {
-            wrappedDescendants = new PrependAxisIterator(this, wrappedDescendants);
+        SequenceIterator wrappedDescendants = new DescendantWrappingIterator<Content>(descendants, wrappingFunct);
+        if (includeSelf && predicate.test(this)) {
+            wrappedDescendants = new PrependIterator(this, wrappedDescendants);
         }
 
-        if (nodeTest instanceof AnyNodeTest || (nodeTest instanceof NodeKindTest && ((NodeKindTest) nodeTest).getNodeKind() == Type.ELEMENT)) {
+        if (predicate == AnyGNodeType.getInstance()) {
             return wrappedDescendants;
         } else {
-            return new Navigator.AxisFilter(wrappedDescendants, nodeTest);
+            return Navigator.filter(wrappedDescendants, predicate);
         }
     }
 
@@ -695,13 +702,13 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
             return false;
         }
     }
-
+    
     ///////////////////////////////////////////////////////////////////////////////
     // Axis enumeration classes
     ///////////////////////////////////////////////////////////////////////////////
 
 
-    private final class AttributeEnumeration implements AxisIterator {
+    private final class AttributeEnumeration implements SequenceIterator {
 
         private final Iterator<Attribute> atts;
         private int ix = 0;
@@ -731,7 +738,7 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
      * preceding and preceding-or-ancestor axes (the latter being used by xsl:number)
      */
 
-    private final class ChildEnumeration implements AxisIterator {
+    private final class ChildEnumeration implements SequenceIterator {
 
         private final JDOM2NodeWrapper commonParent;
         private final ListIterator children;
@@ -880,4 +887,4 @@ public class JDOM2NodeWrapper extends AbstractNodeWrapper implements SiblingCoun
 }
 
 
-// Original Code is Copyright (c) 2009-2020 Saxonica Limited
+// Original Code is Copyright (c) 2009-2026 Saxonica Limited

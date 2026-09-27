@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
@@ -27,9 +27,9 @@ public class DifferenceIterator implements SequenceIterator {
     private final SequenceIterator p1;
     private final SequenceIterator p2;
 
-    private NodeInfo nextNode1;
-    private NodeInfo nextNode2;
-    private final Comparator<? super NodeInfo> comparer;
+    private GNode nextNode1;
+    private GNode nextNode2;
+    private final Comparator<? super GNode> comparer;
 
     /**
      * Form an enumeration of the difference of two nodesets, that is, the nodes
@@ -42,7 +42,7 @@ public class DifferenceIterator implements SequenceIterator {
      */
 
     public DifferenceIterator(SequenceIterator p1, SequenceIterator p2,
-                              Comparator<? super NodeInfo> comparer) throws XPathException {
+                              Comparator<? super GNode> comparer) throws XPathException {
         this.p1 = p1;
         this.p2 = p2;
         this.comparer = comparer;
@@ -62,13 +62,13 @@ public class DifferenceIterator implements SequenceIterator {
      * @throws UncheckedXPathException if a failure occurs reading the input
      */
 
-    private NodeInfo nextNode(SequenceIterator iter) {
-        return (NodeInfo)iter.next();
+    private GNode nextNode(SequenceIterator iter) {
+        return (GNode)iter.next();
         // rely on type-checking to prevent a ClassCastException
     }
 
     @Override
-    public NodeInfo next() {
+    public GNode next() {
         // main merge loop: if the node in p1 has a lower key value that that in p2, return it;
         // if they are equal, advance both nodesets; if p1 is higher, advance p2.
 
@@ -108,8 +108,8 @@ public class DifferenceIterator implements SequenceIterator {
      * @return the next node from the first node-set
      * @throws UncheckedXPathException if a failure occurs reading from the input
      */
-    private NodeInfo deliver() {
-        NodeInfo current = nextNode1;
+    private GNode deliver() {
+        GNode current = nextNode1;
         nextNode1 = nextNode(p1);
         return current;
     }

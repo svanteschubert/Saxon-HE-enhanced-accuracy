@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,7 +18,7 @@ import net.sf.saxon.regex.ARegularExpression;
 import net.sf.saxon.regex.JavaRegularExpression;
 import net.sf.saxon.regex.RegularExpression;
 import net.sf.saxon.str.StringView;
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.trans.Instantiator;
 import net.sf.saxon.trans.Maker;
 import net.sf.saxon.trans.XPathException;
@@ -95,13 +95,13 @@ public class URIQueryParameters {
         } else if (keyword.equals("strip-space")) {
             switch (value) {
                 case "yes":
-                    strippingRule = Optional.of(AllElementsSpaceStrippingRule.getInstance());
+                    strippingRule = Optional.of(AllElementsSpaceStrippingRule.INSTANCE);
                     break;
                 case "ignorable":
-                    strippingRule = Optional.of(IgnorableSpaceStrippingRule.getInstance());
+                    strippingRule = Optional.of(IgnorableSpaceStrippingRule.INSTANCE);
                     break;
                 case "no":
-                    strippingRule = Optional.of(NoElementsSpaceStrippingRule.getInstance());
+                    strippingRule = Optional.of(NoElementsSpaceStrippingRule.INSTANCE);
                     break;
             }
         } else if (keyword.equals("stable")) {
@@ -148,26 +148,26 @@ public class URIQueryParameters {
     }
 
     public static FilenameFilter makeGlobFilter(String value) throws XPathException {
-        UnicodeBuilder sb = new UnicodeBuilder();
-        sb.append('^');
+        TwineBuilder tb = TwineBuilder.make(128);
+        tb = tb.append('^');
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
             if (c == '.') {
                 // replace "." with "\."
-                sb.appendLatin("\\.");
+                tb = tb.append('\\').append('.');
             } else if (c == '*') {
                 // replace "*" with ".*"
-                sb.appendLatin(".*");
+                tb = tb.append('.').append('*');
             } else if (c == '?') {
                 // replace "?" with ".?"
-                sb.appendLatin(".?");
+                tb = tb.append('.').append('?');
             } else {
-                sb.append(c);
+                tb = tb.append(c);
             }
         }
-        sb.append('$');
+        tb = tb.append('$');
         try {
-            return new RegexFilter(new JavaRegularExpression(sb.toUnicodeString(), ""));
+            return new RegexFilter(new JavaRegularExpression(tb.toUnicodeString(), ""));
         } catch (XPathException e) {
             throw new XPathException("Invalid glob " + value + " in collection URI", "FODC0004");
         }

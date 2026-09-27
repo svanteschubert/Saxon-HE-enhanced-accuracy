@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,12 @@
 package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.event.Receiver;
-import net.sf.saxon.om.AtomicSequence;
-import net.sf.saxon.om.CopyOptions;
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -102,7 +102,7 @@ public class TypeStrippedNode extends AbstractVirtualNode implements WrappingFun
     @Override
     public SchemaType getSchemaType() {
         if (getNodeKind() == Type.ELEMENT) {
-            return Untyped.getInstance();
+            return Untyped.INSTANCE;
         } else {
             return BuiltInAtomicType.UNTYPED_ATOMIC;
         }
@@ -144,7 +144,7 @@ public class TypeStrippedNode extends AbstractVirtualNode implements WrappingFun
      */
 
     @Override
-    public int compareOrder(/*@NotNull*/ NodeInfo other) {
+    public int compareOrder(/*@NotNull*/ GNode other) {
         if (other instanceof TypeStrippedNode) {
             return node.compareOrder(((TypeStrippedNode) other).node);
         } else {
@@ -160,7 +160,7 @@ public class TypeStrippedNode extends AbstractVirtualNode implements WrappingFun
     @Override
     public NodeInfo getParent() {
         if (parent == null) {
-            NodeInfo realParent = node.getParent();
+            NodeInfo realParent = (NodeInfo)node.getParent();
             if (realParent != null) {
                 parent = makeWrapper(realParent, (TypeStrippedDocument) docWrapper, null);
             }
@@ -169,18 +169,259 @@ public class TypeStrippedNode extends AbstractVirtualNode implements WrappingFun
     }
 
     /**
-     * Return an iteration over the nodes reached by the given axis from this node
+     * Get an iterator over the ancestor axis, starting at this node; the nodes will
+     * be in reverse document order.
      *
-     * @param axisNumber the axis to be used
-     * @return a SequenceIterator that scans the nodes reached by the axis in turn.
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
      */
-
-    /*@Nullable*/
     @Override
-    public AxisIterator iterateAxis(int axisNumber) {
-        return new WrappingIterator(node.iterateAxis(axisNumber), this, null);
+    public SequenceIterator iterateAncestorAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateAncestorAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
     }
 
+    /**
+     * Get an iterator over the ancestor-or-self axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateAncestorOrSelfAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateAncestorOrSelfAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the attribute axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateAttributeAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateAttributeAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the child axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateChildAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateChildAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the descendant axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateDescendantAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the descendant-or-self axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantOrSelfAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateDescendantOrSelfAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the following axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateFollowingAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the following-or-self axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingOrSelfAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateFollowingOrSelfAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the following-sibling axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingSiblingAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateFollowingSiblingAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the following-sibling-or-self axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingSiblingOrSelfAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateFollowingSiblingOrSelfAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the namespace axis, starting at this node; the nodes will
+     * be in reverse document order. The default implementation must be overridden
+     * for classes that implement element nodes.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateNamespaceAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateNamespaceAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the parent axis, starting at this node; returns zero or one nodes
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateParentAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateParentAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the preceding axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iteratePrecedingAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the preceding-or-self axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingOrSelfAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iteratePrecedingOrSelfAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the preceding-sibling axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingSiblingAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iteratePrecedingSiblingAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the preceding-sibling-or-self axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingSiblingOrSelfAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iteratePrecedingSiblingOrSelfAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
+
+    /**
+     * Get an iterator over the self axis, starting at this node; there will be zero
+     * or one nodes.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateSelfAxis(NodePredicate predicate) {
+        return Navigator.filter(
+                new WrappingIterator(node.iterateSelfAxis(AnyGNode.TEST), this, null),
+                predicate
+        );
+    }
 
     /**
      * Copy this node to a given outputter (deep copy)

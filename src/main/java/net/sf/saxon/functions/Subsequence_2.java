@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -80,13 +80,13 @@ public class Subsequence_2 extends SystemFunction implements Callable {
                 return seq;
             }
         } else if (startVal.isNaN()) {
-            return EmptyIterator.getInstance();
+            return EmptyIterator.INSTANCE;
         } else {
             startVal = startVal.round(0);
             if (startVal.compareTo(Int64Value.PLUS_ONE) <= 0) {
                 return seq;
             } else if (startVal.compareTo(Int64Value.MAX_LONG) > 0) {
-                return EmptyIterator.getInstance();
+                return EmptyIterator.INSTANCE;
             } else {
                 lstart = startVal.longValue();
             }
@@ -94,7 +94,7 @@ public class Subsequence_2 extends SystemFunction implements Callable {
 
         if (lstart > Integer.MAX_VALUE) {
             // we don't allow sequences longer than an this
-            return EmptyIterator.getInstance();
+            return EmptyIterator.INSTANCE;
         }
 
         return TailIterator.make(seq, (int) lstart);

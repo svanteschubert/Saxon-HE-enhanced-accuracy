@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -40,7 +40,8 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * A class that exists to contain common code shared between XsltTransformer and Xslt30Transformer
+ * A class that exists to contain common code shared between {@link XsltTransformer} and
+ * {@link Xslt30Transformer}. Not intended for external use.
  */
 
 //@CSharpInjectMembers(code = {
@@ -121,7 +122,8 @@ public abstract class AbstractXsltTransformer {
      * instruction has the attribute <code>streamable="yes"</code>; if it does, the returned
      * <code>Source</code> object must be a <code>StreamSource</code> or <code>SAXSource</code>.</p>
      * <p>The resolver is also used for a number of other cases where URIs are dereferenced during
-     * stylesheet execution, for example in the <code>fn:transform</code> function</p>
+     * stylesheet execution, for example in the <code>fn:transform</code> and
+     * <code>fn:unparsed-binary</code> functions.</p>
      *
      * @param resolver the <code>ResourceResolver</code> to be used during stylesheet execution.
      */
@@ -263,7 +265,7 @@ public abstract class AbstractXsltTransformer {
     @CSharpInnerClass(
             outer=false,
             extra={"System.Func<System.Uri,Saxon.Hej.s9api.Destination> handler"})
-
+    
     public void setResultDocumentHandler(java.util.function.Function<URI, Destination> handler) {
         controller.setResultDocumentResolver(new ResultDocumentResolver() {
             @Override
@@ -308,16 +310,6 @@ public abstract class AbstractXsltTransformer {
     }
 
     /**
-     * Set a message handler to be notified of {@code xsl:message} and {@code xsl:assert} output.
-     * @param messageHandler the message handler to be notified
-     * @since 11
-     */
-
-    public void setMessageHandler(Consumer<Message> messageHandler) {
-        controller.setMessageHandler(messageHandler);
-    }
-
-    /**
      * Get the MessageListener2 to be notified whenever the stylesheet evaluates an
      * <code>xsl:message</code> instruction. If no MessageListener2 has been nominated,
      * return null
@@ -330,6 +322,29 @@ public abstract class AbstractXsltTransformer {
     public MessageListener2 getMessageListener2() {
         return messageListener2;
     }
+
+
+    /**
+     * Set a message handler to be notified of {@code xsl:message} and {@code xsl:assert} output.
+     * @param messageHandler the message handler to be notified
+     * @since 11
+     */
+
+    public void setMessageHandler(Consumer<Message> messageHandler) {
+        controller.setMessageHandler(messageHandler);
+    }
+
+    /**
+     * Get the message handler to be notified of {@code xsl:message} and {@code xsl:assert} output.
+     *
+     * @return the message handler to be notified
+     * @since 13
+     */
+
+    public Consumer<Message> getMessageHandler(Consumer<Message> messageHandler) {
+        return controller.getMessageHandler();
+    }
+
 
 
     /**
@@ -437,7 +452,7 @@ public abstract class AbstractXsltTransformer {
         }
         Configuration config = controller.getConfiguration();
         try {
-            source = config.getSourceResolver().resolveSource(source, config);
+            source = config.getSourceResolver().resolveSource(source, new ParseOptions(), config);
         } catch (XPathException e) {
             return false;
         }
@@ -458,7 +473,7 @@ public abstract class AbstractXsltTransformer {
 
     public void setSchemaValidationMode(ValidationMode mode) {
         if (mode != null) {
-            controller.setSchemaValidationMode(mode.getNumber());
+            controller.setSchemaValidationMode(Validation.fromValidationMode(mode));
         }
     }
 
@@ -473,7 +488,7 @@ public abstract class AbstractXsltTransformer {
      */
 
     public ValidationMode getSchemaValidationMode() {
-        return ValidationMode.get(controller.getSchemaValidationMode());
+        return XQueryEvaluator.getSchemaValidationMode(controller.getSchemaValidationMode());
     }
 
     /**
@@ -547,7 +562,9 @@ public abstract class AbstractXsltTransformer {
             receiver = new RegularSequenceChecker(receiver, true);
         }
         //receiver = new TracingFilter(receiver);
-        receiver.getPipelineConfiguration().setController(controller);
+        if (receiver.getPipelineConfiguration().getController() == null) {  // bug 6626
+            receiver.getPipelineConfiguration().setController(controller);
+        }
 
         if (baseOutputUriWasSet) {
             try {

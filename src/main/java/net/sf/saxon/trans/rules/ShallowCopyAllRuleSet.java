@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,8 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.instruct.TailCall;
+import net.sf.saxon.functions.ConstantFunction;
+import net.sf.saxon.ma.arrays.ArrayFunctionSet;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.SimpleArrayItem;
 import net.sf.saxon.ma.map.*;
@@ -32,7 +34,8 @@ import java.util.List;
  */
 public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
 
-    private static final ShallowCopyAllRuleSet THE_INSTANCE = new ShallowCopyAllRuleSet();
+    private static final ShallowCopyAllRuleSet INSTANCE_WITH_COPY_NS = new ShallowCopyAllRuleSet(true);
+    private static final ShallowCopyAllRuleSet INSTANCE_WITH_NO_COPY_NS = new ShallowCopyAllRuleSet(false);
 
     /**
      * Get the singleton instance of this class
@@ -40,11 +43,12 @@ public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
      * @return the singleton instance
      */
 
-    public static ShallowCopyAllRuleSet getInstance() {
-        return THE_INSTANCE;
+    public static ShallowCopyRuleSet getInstance(boolean copyNamespaces) {
+        return copyNamespaces ? INSTANCE_WITH_COPY_NS : INSTANCE_WITH_NO_COPY_NS;
     }
 
-    private ShallowCopyAllRuleSet() {
+    private ShallowCopyAllRuleSet(boolean copyNamespaces) {
+        super(copyNamespaces);
     }
 
     /**
@@ -61,13 +65,14 @@ public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
     public void process(Item item, ParameterSet parameters,
                         ParameterSet tunnelParams, Outputter out, XPathContext context,
                         Location locationId) throws XPathException {
-        if (item instanceof ArrayItem) {
+        if (item instanceof ArrayItem arrayItem) {
             SequenceCollector collector = context.getController().allocateSequenceOutputter();
             ComplexContentOutputter cco = new ComplexContentOutputter(collector);
             ProxyOutputter checker = new ShallowCopyProxyOutputterForArrays(cco, locationId);
-
+  
             collector.setSystemId(out.getSystemId());
-            SequenceIterator iter = ((ArrayItem) item).parcels();
+            GroundedValue inputMembers = ArrayFunctionSet.arrayMembers(arrayItem);
+            SequenceIterator iter = inputMembers.iterate();
 
             PipelineConfiguration pipe = out.getPipelineConfiguration();
             XPathContextMajor c2 = context.newContext();
@@ -97,8 +102,8 @@ public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
                 AtomicValue key = null;
                 GroundedValue singletonValue = null;
                 for (KeyValuePair pair : ((MapItem)item).keyValuePairs()) {
-                    key = pair.key;
-                    singletonValue = pair.value;
+                    key = pair.key();
+                    singletonValue = pair.value();
                     break;
                 }
                 SequenceCollector collector = context.getController().allocateSequenceOutputter();
@@ -119,7 +124,7 @@ public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
                     tc = tc.processLeavingTail();
                 }
                 pipe.setXPathContext(context);
-                MapItem singletonMap = new SingleEntryMap(key, collector.getSequence());
+                MapItem singletonMap = new SingleEntryMap(key, collector.getSequence(), 40);
                 out.append(singletonMap, locationId, 0);
 
             } else if (size > 1) {
@@ -145,7 +150,7 @@ public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
                 pipe.setXPathContext(context);
 
                 MapItem mergedMap = MapFunctionSet.MapMerge.mergeMaps(
-                        collector.iterate(), context, "use-last", null, null);
+                        collector.iterate(), context, null, 40);
                 out.append(mergedMap, locationId, 0);
             }
 
@@ -220,8 +225,11 @@ public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
 
         @Override
         public void append(Item item) throws XPathException {
-            if (RecordTest.VALUE_RECORD.matches(item, getConfiguration().getTypeHierarchy())) {
+            if (RecordType.VALUE_RECORD.matches(item)) {
                 super.append(item);
+            } else if (item instanceof ConstantFunction fn) {
+                // Temporary while the 4.0 spec gets sorted out
+                super.append(new ShapedMap(ArrayFunctionSet.VALUE_RECORD, fn.getConstantValue()));
             } else {
                 mustBeValueRecord(locationId);
             }
@@ -229,8 +237,11 @@ public class ShallowCopyAllRuleSet extends ShallowCopyRuleSet {
 
         @Override
         public void append(Item item, Location locationId, int properties) throws XPathException {
-            if (RecordTest.VALUE_RECORD.matches(item, getConfiguration().getTypeHierarchy())) {
+            if (RecordType.VALUE_RECORD.matches(item)) {
                 super.append(item, locationId, properties);
+            } else if (item instanceof ConstantFunction fn) {
+                // Temporary while the 4.0 spec gets sorted out
+                super.append(new ShapedMap(ArrayFunctionSet.VALUE_RECORD, fn.getConstantValue()));
             } else {
                 mustBeValueRecord(locationId);
             }

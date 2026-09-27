@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,12 +18,11 @@ import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
 import net.sf.saxon.om.Action;
-import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.query.XQueryFunctionLibrary;
 import net.sf.saxon.s9api.HostLanguage;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.serialize.CharacterMap;
 import net.sf.saxon.serialize.CharacterMapIndex;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -65,9 +64,6 @@ public class StylesheetPackage extends PackageData {
     private StructuredQName defaultMode;
     private boolean declaredModes;
     protected Map<StructuredQName, Properties> namedOutputProperties = new HashMap<>(4);
-
-    // table of imported schemas. The members of this set are strings holding the target namespace.
-    protected Set<NamespaceUri> schemaIndex = new HashSet<>(10);
 
     private FunctionLibraryList functionLibrary;
     private XQueryFunctionLibrary queryFunctions;
@@ -409,16 +405,7 @@ public class StylesheetPackage extends PackageData {
     public Properties getNamedOutputProperties(StructuredQName name) {
         return namedOutputProperties.get(name);
     }
-
-    /**
-     * Get the set of namespaces of schema declarations imported into this package
-     * @return the set of imported namespaces
-     */
-
-    public Set<NamespaceUri> getSchemaNamespaces() {
-        return schemaIndex;
-    }
-
+    
     /**
      * Set the required context item type. Used when there is an xsl:global-context-item child element
      * @param requirement details of the requirement for the global context item
@@ -428,8 +415,7 @@ public class StylesheetPackage extends PackageData {
     public void setContextItemRequirements(GlobalContextRequirement requirement) throws XPathException {
         if (containsGlobalContextItemDeclaration) {
             // the new requirements must be consistent with the existing requirements
-            if ((!requirement.isAbsentFocus() && globalContextRequirement.isAbsentFocus()) ||
-                    (requirement.isMayBeOmitted() && !globalContextRequirement.isMayBeOmitted())) {
+            if ((requirement.getContextValueOptionality() != globalContextRequirement.getContextValueOptionality())) {
                 throw new XPathException(
                         "The package contains two xsl:global-context-item declarations with conflicting @use attributes", "XTSE3087");
             }
@@ -521,14 +507,10 @@ public class StylesheetPackage extends PackageData {
      */
 
     private void registerGlobalVariable(Component c, SlotManager slotManager) {
-        if (c.getActor() instanceof GlobalVariable) {
-            GlobalVariable var = (GlobalVariable) c.getActor();
+        if (c.getActor() instanceof GlobalVariable var) {
             int slot = slotManager.allocateSlotNumber(var.getVariableQName(), null);
             var.setPackageData(this);
             var.setBinderySlotNumber(slot);
-//            if (c.getVisibility() != Visibility.HIDDEN) {
-//                addGlobalVariable(var);
-//            }
         }
     }
 
@@ -587,9 +569,6 @@ public class StylesheetPackage extends PackageData {
         return componentIndex.get(name);
     }
 
-//    public Component getHiddenComponent(SymbolicName name) {
-//        return hiddenComponents.get(name);
-//    }
 
     public void addHiddenComponent(Component component) {
         hiddenComponents.add(component);
@@ -650,7 +629,8 @@ public class StylesheetPackage extends PackageData {
                     if (!XSLAccept.isCompatible(oldV, acceptedVisibility)) {
                         throw new XPathException("Cannot accept a " + Err.describeVisibility(oldV) +
                                                          " component (" + name + ") from package " + usedPackage.getPackageName()
-                                                         + " with visibility " + Err.describeVisibility(acceptedVisibility), "XTSE3040");
+                                                         + " with visibility " + Err.describeVisibility(acceptedVisibility), "XTSE3040")
+                                .maybeWithLocation(oldC.getActor().getLocation());
                     }
                     newV = acceptedVisibility;
                 } else {
@@ -813,7 +793,7 @@ public class StylesheetPackage extends PackageData {
         Visibility vis = Visibility.UNDEFINED;
         for (XSLAccept acceptor : acceptors) {
             for (ComponentTest test : acceptor.getWildcardComponentTests()) {
-                if (((NodeTest) test.getQNameTest()).getDefaultPriority() == -0.25 && test.matches(name)) {
+                if (test.isPartialWildcard() && test.matches(name)) {
                     vis = acceptor.getVisibility();
                 }
             }
@@ -843,8 +823,11 @@ public class StylesheetPackage extends PackageData {
         functionLibrary.addFunctionLibrary(new StylesheetFunctionLibrary(this, true));
         functionLibrary.addFunctionLibrary(config.getBuiltInExtensionLibraryList(hostLanguageVersion==40 ? 40 : 31));
         functionLibrary.addFunctionLibrary(new ConstructorFunctionLibrary(config));
-        if ("JS".equals(getTargetEdition())) {
+        if ("JS".equals(getTargetEdition()) || "JS2".equals(getTargetEdition())) {
             addIxslFunctionLibrary(functionLibrary);
+        }
+        if ("JS3".equals(getTargetEdition())) {
+            addIxsl3FunctionLibrary(functionLibrary);
         }
 
         queryFunctions = new XQueryFunctionLibrary(config);
@@ -858,6 +841,12 @@ public class StylesheetPackage extends PackageData {
     }
 
     protected void addIxslFunctionLibrary(FunctionLibraryList functionLibrary) {}
+
+    protected void addIxsl3FunctionLibrary(FunctionLibraryList functionLibrary) {}
+
+    protected void addStubFunctionLibrary(FunctionLibrary stubFunctions) {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Get the function library.
@@ -977,7 +966,7 @@ public class StylesheetPackage extends PackageData {
         }
 
         pss.setTopLevelPackage(this);
-        if (isSchemaAware() || !schemaIndex.isEmpty()) {
+        if (isSchemaAware()) {
             pss.setSchemaAware(true);
         }
         pss.setHostLanguage(HostLanguage.XSLT);
@@ -1102,11 +1091,15 @@ public class StylesheetPackage extends PackageData {
         }
         if (!abstractComponents.isEmpty()) {
             StringBuilder buff = new StringBuilder(256);
+            Location loc = null;
             int count = 0;
             for (SymbolicName name : abstractComponents.keySet()) {
+                if (loc == null) {
+                    loc = abstractComponents.get(name).getActor().getLocation();
+                }
                 if (count++ > 0) {
                     buff.append(", ");
-                }
+                } 
                 buff.append(name.toString());
                 if (buff.length() > 300) {
                     buff.append(" ...");
@@ -1115,7 +1108,7 @@ public class StylesheetPackage extends PackageData {
             }
             throw new XPathException(
                     "The package is not executable, because it contains abstract components: " +
-                            buff, "XTSE3080");
+                            buff, "XTSE3080").maybeWithLocation(loc);
         }
     }
 

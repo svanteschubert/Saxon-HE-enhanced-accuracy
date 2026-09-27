@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,12 @@
 
 package net.sf.saxon.expr.sort;
 
+import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.type.Type;
-import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.ObjectValue;
 
 import java.util.Comparator;
@@ -78,12 +78,19 @@ public class MergeIterator implements
             } catch (ClassCastException e) {
                 ItemWithMergeKeys i1 = nextItem1.getObject();
                 ItemWithMergeKeys i2 = nextItem2.getObject();
-                AtomicValue a1 = i1.sortKeyValues.get(0);
-                AtomicValue a2 = i2.sortKeyValues.get(0);
-                XPathException err = new XPathException("Merge key values are of non-comparable types ("
-                        + Type.displayTypeName(a1)
-                        + " and " + Type.displayTypeName(a2) + ")", "XTTE2230");
-                err.setIsTypeError(true);
+                GroundedValue a1 = i1.sortKeyValues.get(0);
+                GroundedValue a2 = i2.sortKeyValues.get(0);
+                String message;
+                if (e.getMessage().startsWith("Cannot compare")) {
+                    message = "Merge keys are non-comparable. " + e.getMessage();
+                } else {
+                    message = "Merge key values are of non-comparable types ("
+                            + Type.displayTypeName(a1.itemAt(0))
+                            + " and " + Type.displayTypeName(a2.itemAt(0)) + ")";
+                }
+                XPathException err = new XPathException(message)
+                        .withErrorCode("XTTE2230")
+                        .asTypeError();
                 throw new UncheckedXPathException(err);
             }
             if (c <= 0) {

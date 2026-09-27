@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2023 Saxonica Limited
+// Copyright (c) 2023-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,13 @@
 
 package net.sf.saxon.expr.elab;
 
+import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.value.Cardinality;
 
 /**
  * Abstract implementation of {@link Elaborator} for expressions that primarily evaluate in pull mode,
@@ -59,14 +62,30 @@ public abstract class PullElaborator extends Elaborator {
     }
 
     public BooleanEvaluator elaborateForBoolean() {
-        PullEvaluator pull = elaborateForPull();
-        return context -> {
-            try {
-                return ExpressionTool.effectiveBooleanValue(pull.iterate(context));
-            } catch (UncheckedXPathException err) {
-                throw err.getXPathException();
-            }
-        };
+        Expression expr = getExpression();
+        if (Cardinality.allowsMany(expr.getCardinality())) {
+            PullEvaluator pull = elaborateForPull();
+            return context -> {
+                try {
+                    return ExpressionTool.effectiveBooleanValue(pull.iterate(context));
+                } catch (UncheckedXPathException err) {
+                    throw err.getXPathException().maybeWithLocation(expr.getLocation());
+                } catch (XPathException err) {
+                    throw err.maybeWithLocation(expr.getLocation());
+                }
+            };
+        } else {
+            ItemEvaluator pull = elaborateForItem();
+            return context -> {
+                try {
+                    return ExpressionTool.effectiveBooleanValue(pull.eval(context));
+                } catch (UncheckedXPathException err) {
+                    throw err.getXPathException().maybeWithLocation(expr.getLocation());
+                } catch (XPathException err) {
+                    throw err.maybeWithLocation(expr.getLocation());
+                }
+            };
+        }
     }
 
     @Override

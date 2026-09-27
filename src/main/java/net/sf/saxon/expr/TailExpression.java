@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,9 +7,9 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.PullElaborator;
+import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -95,8 +95,8 @@ public class TailExpression extends UnaryExpression {
     }
 
     @Override
-    protected int computeCardinality() {
-        return getBaseExpression().getCardinality() | StaticProperty.ALLOWS_ZERO;
+    protected int computeCardinality() { // bug 6313
+        return getBaseExpression().getCardinality() | StaticProperty.ALLOWS_ZERO | StaticProperty.ALLOWS_ONE;
     }
 
     @Override

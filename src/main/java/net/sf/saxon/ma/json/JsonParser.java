@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,18 +9,27 @@ package net.sf.saxon.ma.json;
 
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.SystemFunction;
+import net.sf.saxon.ma.map.Shape;
 import net.sf.saxon.om.*;
 import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
-import net.sf.saxon.str.StringView;
+import net.sf.saxon.serialize.charcode.XMLCharacterData;
+import net.sf.saxon.str.*;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.transpile.CSharpSimpleEnum;
-import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.type.StringToDouble;
-import net.sf.saxon.value.*;
+import net.sf.saxon.value.BooleanValue;
+import net.sf.saxon.value.DoubleValue;
+import net.sf.saxon.value.StringValue;
+import net.sf.saxon.z.IntIterator;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+
 
 /**
  * Parser for JSON, which notifies parsing events to a JsonHandler
@@ -31,11 +40,12 @@ public class JsonParser {
     public static final int ALLOW_ANY_TOP_LEVEL = 2;
     public static final int LIBERAL = 4;
     public static final int VALIDATE = 8;
-    public static final int DEBUG = 16;
     public static final int DUPLICATES_RETAINED = 32;
     public static final int DUPLICATES_LAST = 64;
     public static final int DUPLICATES_FIRST = 128;
     public static final int DUPLICATES_REJECTED = 256;
+    public static final int NUMERIC_FORMAT_RETAINED = 512;
+    public static final int ORDER_RETAINED = 1024;
 
     public static final int DUPLICATES_SPECIFIED = DUPLICATES_FIRST | DUPLICATES_LAST | DUPLICATES_RETAINED | DUPLICATES_REJECTED;
 
@@ -49,6 +59,8 @@ public class JsonParser {
 
     private FunctionItem numberParser = null;
     private int nesting;
+    private Function<UnicodeString, UnicodeString> fallbackFunction = null;
+    private HashMap<List<UnicodeString>, Shape> shapePool;
 
     /**
      * Create a JSON parser
@@ -61,29 +73,46 @@ public class JsonParser {
     /**
      * Parse the JSON string according to supplied options
      *
-     * @param input   JSON input string
+     * @param input   JSON input string, supplied as an iterator over Unicode codepoints
      * @param flags   options for the conversion as a map of xs:string : value pairs
      * @param handler event handler to which parsing events are notified
-     * @param context XPath evaluation context
+     * @param context the XPath evaluation context
      * @throws XPathException if the syntax of the input is incorrect
      */
-    public void parse(String input, int flags, JsonHandler handler, XPathContext context) throws XPathException {
-        if (input.isEmpty()) {
-            invalidJSON("An empty string is not valid JSON", ERR_GRAMMAR, 1);
-        }
-
-        JsonTokenizer t = new JsonTokenizer(input);
-        t.next();
-
+    public void parse(IntIterator input, int flags, JsonHandler handler, XPathContext context) throws XPathException {
         try {
-            parseConstruct(handler, t, flags, context);
-        } catch (IllegalStateException e) {
-            // e.g. unmatched surrogate pairs
-            invalidJSON(e.getMessage(), ERR_GRAMMAR, t.lineNumber);
-        }
+            if (!input.hasNext()) {
+                invalidJSON("An empty string is not valid JSON", ERR_GRAMMAR, 1);
+            }
 
-        if (t.next() != JsonToken.EOF) {
-            invalidJSON("Unexpected token beyond end of JSON input", ERR_GRAMMAR, t.lineNumber);
+            if ((flags & ESCAPE) == 0 && handler.getFallbackFunction() != null) {
+                FunctionItem fallback = handler.getFallbackFunction();
+                fallbackFunction = esc -> {
+                    try {
+                        Item result = fallback.call(context, new Sequence[]{new StringValue(esc)}).head();
+                        return result == null ? EmptyUnicodeString.getInstance() : result.getUnicodeStringValue();
+                    } catch (XPathException e) {
+                        throw new UncheckedXPathException(e);
+                    }
+                };
+            } 
+
+            JsonTokenizer t = new JsonTokenizer(input);
+            t.next();
+
+            try {
+                parseConstruct(handler, t, flags, context);
+            } catch (IllegalStateException e) {
+                // e.g. unmatched surrogate pairs
+                invalidJSON(e.getMessage(), ERR_GRAMMAR, t.lineNumber);
+            }
+
+            t.next();
+            if (t.currentToken != JsonToken.EOF) {
+                invalidJSON("Unexpected token beyond end of JSON input", ERR_GRAMMAR, t.lineNumber);
+            }
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException().maybeWithErrorCode("FOJS0001");
         }
 
     }
@@ -99,10 +128,6 @@ public class JsonParser {
 
     public static int getFlags(Map<String, GroundedValue> options, boolean allowValidate, boolean isSchemaAware) throws XPathException {
         int flags = 0;
-        BooleanValue debug = (BooleanValue) options.get("debug");
-        if (debug != null && debug.getBooleanValue()) {
-            flags |= DEBUG;
-        }
 
         BooleanValue escape = ((BooleanValue) options.get("escape"));
         if (escape != null && escape.getBooleanValue()) {
@@ -110,6 +135,11 @@ public class JsonParser {
             if (options.get("fallback") != null) {
                 throw new XPathException("Cannot specify a fallback function when escape=true", "FOJS0005");
             }
+        }
+
+        BooleanValue retainOrder = ((BooleanValue) options.get("retain-order"));
+        if (retainOrder != null && retainOrder.getBooleanValue()) {
+            flags |= ORDER_RETAINED;
         }
 
         BooleanValue liberal = ((BooleanValue) options.get("liberal"));
@@ -166,10 +196,6 @@ public class JsonParser {
      */
 
     private void parseConstruct(JsonHandler handler, JsonTokenizer tokenizer, int flags, XPathContext context) throws XPathException {
-        boolean debug = (flags & DEBUG) != 0;
-        if (debug) {
-            System.err.println("token:" + tokenizer.currentToken + " :" + tokenizer.currentTokenValue);
-        }
         if (nesting > NESTING_LIMIT) {
             // Needed for C#, because we can't rely on catching StackOverflow
             invalidJSON("Objects are too deeply nested", ERR_LIMITS, tokenizer.lineNumber);
@@ -190,8 +216,12 @@ public class JsonParser {
 
             case NUMERIC_LITERAL:
                 String lexical = tokenizer.currentTokenValue.toString();
-                AtomicValue d = parseNumericLiteral(lexical, flags, tokenizer.lineNumber, context);
-                handler.writeNumeric(lexical, d);
+                Item d = parseNumericLiteral(lexical, flags, tokenizer.lineNumber, context);
+                if (d == null) {
+                    handler.writeNull();
+                } else {
+                    handler.writeNumeric(lexical, d);
+                }
                 break;
 
             case TRUE:
@@ -207,13 +237,394 @@ public class JsonParser {
                 break;
 
             case STRING_LITERAL:
-                String literal = tokenizer.currentTokenValue.toString();
-                handler.writeString(unescape(literal, flags, ERR_GRAMMAR, tokenizer.lineNumber));
+                UnicodeString literal = tokenizer.currentTokenValue;
+                handler.writeString(processStringLiteral(literal, flags));
                 break;
 
             default:
                 invalidJSON("Unexpected symbol: " + tokenizer.currentTokenValue, ERR_GRAMMAR, tokenizer.lineNumber);
                 break;
+        }
+    }
+
+    /**
+     * Process a string literal (it may be a key or a value). Note that the tokenizer does nothing
+     * other than searching for an unescaped closing quotation mark; all the work of handling
+     * escape sequences is done here.
+     * @param literal the raw literal (everything between the quotes) exactly as written
+     * @return the literal after processing of escape sequences, as defined by the escape
+     * and fallback options
+     * @throws XPathException if the literal is not valid according to the JSON grammar
+     */
+
+    private UnicodeString processStringLiteral(UnicodeString literal, int flags) throws XPathException {
+        if ((flags & ESCAPE) != 0) {
+            return processStringWithEscape(literal);
+        } else {
+            return processStringWithoutEscape(literal, flags);
+        }
+    }
+
+    /**
+     * Process a string literal with escape=true.
+     * @param literal the raw literal (everything between the quotes) exactly as written
+     * @return the literal after processing of escaped and special characters
+     */
+
+    private UnicodeString processStringWithEscape(UnicodeString literal) throws XPathException {
+        /*
+         * reject syntactically invalid JSON
+         * retain existing escape sequences if they represent "special" characters
+         * combine properly-paired surrogates, whether escaped or not
+         * unescape any escape sequences that represent non-special characters, for example "\/" or "\ u 0025"
+         * escape any special characters present in the input in unescaped form,
+         */
+        int pendingHighSurrogate = -1;
+        String pendingHighSurrogateHex = null;
+        TwineBuilder tb = TwineBuilder.make(literal.length32());
+        IntIterator codePoints = literal.codePoints();
+        while (codePoints.hasNext()) {
+            int ch = codePoints.next();
+            if (ch == '\\') {
+                if (codePoints.hasNext()) {
+                    ch = codePoints.next();
+                    if (ch == 'u') {
+                        String hex = expectHex(codePoints)
+                                + expectHex(codePoints)
+                                + expectHex(codePoints)
+                                + expectHex(codePoints);
+                        char escapedChar = (char)Integer.parseInt(hex, 16);
+                        // Deal with a low or high surrogate
+                        if (UTF16CharacterSet.isSurrogate(escapedChar)) {
+                            if (pendingHighSurrogate > 0 && UTF16CharacterSet.isLowSurrogate(escapedChar)) {
+                                // Combine high and low surrogates into a single codepoint
+                                int pair = UTF16CharacterSet.combinePair(
+                                        (char) pendingHighSurrogate, escapedChar);
+                                tb = tb.append(pair);
+                                pendingHighSurrogate = -1;
+                            } else if (UTF16CharacterSet.isHighSurrogate(escapedChar)) {
+                                // We've got a high surrogate, leave it pending for now
+                                pendingHighSurrogate = escapedChar;
+                                pendingHighSurrogateHex = hex;
+                            } else if (UTF16CharacterSet.isLowSurrogate(escapedChar)) {
+                                // This is an unmatched low surrogate
+                                tb = tb.append('\\').append('u').append(hex);
+                            }
+                        } else {
+                            // This is not a surrogate
+                            if (pendingHighSurrogate > 0) {
+                                // Handle an unmatched high surrogate
+                                tb = tb.append('\\').append('u').append(pendingHighSurrogateHex);
+                                pendingHighSurrogate = -1;
+                            }
+                            if (isSpecial(escapedChar)) {
+                                tb = escapeSpecialChar(tb, escapedChar);
+                            } else {
+                                tb = tb.append(escapedChar);
+                            }
+                        }
+                    } else {
+                        // Escape sequence other than \ u xxxx
+                        if (pendingHighSurrogate > 0) {
+                            // There is an unmatched high surrogate
+                            tb = tb.append('\\').append('u').append(pendingHighSurrogateHex);
+                            pendingHighSurrogate = -1;
+                        }
+                        if (ch == '\\' || ch == 'n' || ch == 't' || ch == 'r' || ch == 'b' || ch == 'f') {
+                            // Output the two-character escape sequence
+                            tb = tb.append('\\').append(ch);
+                        } else if (ch == '/' || ch == '"') {
+                            // Output the character that follows the backslash
+                            tb = tb.append(ch);
+                        } else {
+                            invalidJSON("Unrecognized escape sequence in JSON string", "FOJS0001", -1);
+                        }
+                    }
+                } else {
+                    // the tokenizer should never return a string with a backslash at the end
+                    throw new IllegalStateException("Unescaped backslash at end of string");
+                }
+            } else {
+                // input is not an escape sequence
+                if (ch < 0x20) {
+                    invalidJSON("Unescaped control character 0x" + Integer.toHexString(ch), "FOJS0001", -1);
+                }
+                if (UTF16CharacterSet.isSurrogate(ch)) {
+                    // In principle a UnicodeString should not contain codepoints representing
+                    // unpaired surrogates. But we can be called with a codepoint iterator in which
+                    // this happens, for example in json-doc when reading directly from external resources
+                    if (pendingHighSurrogate > 0 && UTF16CharacterSet.isLowSurrogate(ch)) {
+                        // Combine high surrogate and low surrogate into a single codepoint
+                        int pair = UTF16CharacterSet.combinePair(
+                                (char) pendingHighSurrogate, (char)ch);
+                        tb = tb.append(pair);
+                        pendingHighSurrogate = -1;
+                    } else if (UTF16CharacterSet.isHighSurrogate(ch)) {
+                        // This is a high surrogate, deal with it later
+                        pendingHighSurrogate = ch;
+                        pendingHighSurrogateHex = JsonReceiver.hex4(ch, true);
+                    } else if (UTF16CharacterSet.isLowSurrogate(ch)) {
+                        // This is an unmatched low surrogate
+                        tb = tb.append('\\').append('u').append(JsonReceiver.hex4(ch, true));
+                    }
+                } else {
+                    if (pendingHighSurrogate > 0) {
+                        // There was an unmatched high surrogate
+                        tb = tb.append('\\').append('u').append(pendingHighSurrogateHex);
+                        pendingHighSurrogate = -1;
+                    }
+                    if (isSpecial(ch)) {
+                        tb = escapeSpecialChar(tb, ch);
+                    } else {
+                        tb = tb.append(ch);
+                    }
+                }
+            }
+        }
+        // We've reached the end; check whether the last thing was an unmatched high surrogate
+        if (pendingHighSurrogate > 0) {
+            tb = tb.append('\\').append('u').append(pendingHighSurrogateHex);
+        }
+        return tb.toUnicodeString();
+    }
+
+    /**
+     * Expand an escape sequence
+     * @param tb the TwineBuilder to be used for output
+     * @param ch the codepoint to be written
+     * @return the TwineBuilder that results from turning the codeoint into an escape sequence.
+     */
+
+    private static TwineBuilder escapeSpecialChar(TwineBuilder tb, int ch) {
+        if (ch == '\n') {
+            tb = tb.append('\\').append('n');
+        } else if (ch == '\r') {
+            tb = tb.append('\\').append('r');
+        } else if (ch == '\t') {
+            tb = tb.append('\\').append('t');
+        } else if (ch == '\b') {
+            tb = tb.append('\\').append('b');
+        } else if (ch == '\f') {
+            tb = tb.append('\\').append('f');
+        } else {
+            tb = tb.append('\\').append('u').append(JsonReceiver.hex4(ch, true));
+        }
+        return tb;
+    }
+
+    /**
+     * Process a string literal with escape=false
+     *
+     * @param literal the raw literal (everything between the quotes) exactly as written
+     * @return the literal after processing of escaped and special characters
+     */
+
+    private UnicodeString processStringWithoutEscape(UnicodeString literal, int flags) throws XPathException {
+        /*
+         * reject syntactically invalid JSON
+         * for a valid escape sequence, unescape it
+         * combine properly-paired surrogates, whether escaped or not
+         * for an invalid escape sequence, call the fallback/substitution mechanism
+         * for an invalid codepoint that was not escaped (e.g. an unpaired surrogate), escape it and call the fallback/substitution mechanism.
+         */
+        int pendingHighSurrogate = -1;
+        String pendingHighSurrogateHex = null;
+        TwineBuilder tb = TwineBuilder.make(literal.length32());
+        IntIterator codePoints = literal.codePoints();
+        while (codePoints.hasNext()) {
+            int ch = codePoints.next();
+            if (ch == '\\') {
+                if (codePoints.hasNext()) {
+                    ch = codePoints.next();
+                    if (ch == 'u') {
+                        String hex = expectHex(codePoints)
+                                + expectHex(codePoints)
+                                + expectHex(codePoints)
+                                + expectHex(codePoints);
+                        char escapedChar = (char) Integer.parseInt(hex, 16);
+                        // Deal with a low or high surrogate
+                        if (UTF16CharacterSet.isSurrogate(escapedChar)) {
+                            if (pendingHighSurrogate > 0 && UTF16CharacterSet.isLowSurrogate(escapedChar)) {
+                                // Combine high and low surrogate into a single codepoint
+                                int pair = UTF16CharacterSet.combinePair(
+                                        (char) pendingHighSurrogate, escapedChar);
+                                tb = tb.append(pair);
+                                pendingHighSurrogate = -1;
+                            } else if (UTF16CharacterSet.isHighSurrogate(escapedChar)) {
+                                // This is a high surrogate; deal with it later
+                                pendingHighSurrogate = escapedChar;
+                                pendingHighSurrogateHex = hex;
+                            } else if (UTF16CharacterSet.isLowSurrogate(escapedChar)) {
+                                // This is an unmatched low surrogate; invoke fallback
+                                tb = tb.append(fallback("\\u" + hex));
+                            }
+                        } else {
+                            // this is not a surrogate
+                            if (pendingHighSurrogate > 0) {
+                                // Detect a pending unmatched high surrogate; invoke fallback
+                                tb = tb.append(fallback("\\u" + pendingHighSurrogateHex));
+                                pendingHighSurrogate = -1;
+                            }
+                            if (isInvalidXml(escapedChar)) {
+                                tb = tb.append(fallback("\\u" + hex));
+                            } else {
+                                tb = tb.append(escapedChar);
+                            }
+                        }
+                    } else {
+                        // This is an escape sequence other than \ uxxxx
+                        if (pendingHighSurrogate > 0) {
+                            // Detect a pending unmatched high surrogate; invoke fallback
+                            tb = tb.append(fallback("\\u" + pendingHighSurrogateHex));
+                            pendingHighSurrogate = -1;
+                        }
+                        switch (ch) {
+                            case '"':
+                            case '/':
+                            case '\\':
+                                tb = tb.append(ch);
+                                break;
+                            case 'n':
+                                tb = tb.append('\n');
+                                break;
+                            case 'r':
+                                tb = tb.append('\r');
+                                break;
+                            case 't':
+                                tb = tb.append('\t');
+                                break;
+                            case 'b':
+                                if (isInvalidXml('\b')) {
+                                    tb = tb.append(fallback("\\b"));
+                                } else {
+                                    tb = tb.append('\b');
+                                }
+                                break;
+                            case 'f':
+                                if (isInvalidXml('\f')) {
+                                    tb = tb.append(fallback("\\f"));
+                                } else {
+                                    tb = tb.append('\f');
+                                }
+                                break;
+                            default:
+                                if ((flags & LIBERAL) != 0) {
+                                    tb = tb.append(ch);
+                                } else {
+                                    invalidJSON("Invalid JSON escape sequence \\" + ch, "FOJS0001", -1);
+                                }
+                                break;
+                        }
+                    }
+                } else {
+                    // the tokenizer should never return a string with a backslash at the end
+                    throw new IllegalStateException("Unescaped backslash at end of string");
+                }
+            } else {
+                // input is not an escape sequence
+                if (ch < 0x20) {
+                    invalidJSON("Unescaped control character 0x" + Integer.toHexString(ch), "FOJS0001", -1);
+                }
+                if (UTF16CharacterSet.isSurrogate(ch)) {
+                    // This is an unescaped surrogate. In principle this never happens when iterating
+                    // over a UnicodeString, but it is possible for the input to be an iterator over
+                    // codepoints that don't follow this rule, e.g. when read directly from an input file.
+                    if (pendingHighSurrogate > 0 && UTF16CharacterSet.isLowSurrogate(ch)) {
+                        // Merge a high surrogate and low surrogate into a single codepoint
+                        int pair = UTF16CharacterSet.combinePair(
+                                (char) pendingHighSurrogate, (char) ch);
+                        tb = tb.append(pair);
+                        pendingHighSurrogate = -1;
+                    } else if (UTF16CharacterSet.isHighSurrogate(ch)) {
+                        // This is a high surrogate; deal with it later;
+                        pendingHighSurrogate = ch;
+                        pendingHighSurrogateHex = JsonReceiver.hex4(ch, true);
+                    } else if (UTF16CharacterSet.isLowSurrogate(ch)) {
+                        // This is an unmatched low surrogate
+                        tb = tb.append(fallback("\\u" + JsonReceiver.hex4(ch, true)));
+                    }
+                } else {
+                    if (pendingHighSurrogate > 0) {
+                        // Unmatched high surrogate
+                        tb = tb.append('\\').append('u').append(pendingHighSurrogateHex);
+                        pendingHighSurrogate = -1;
+                    }
+                    if (isSpecial(ch)) {
+                        tb = escapeSpecialChar(tb, ch);
+                    } else {
+                        tb = tb.append(ch);
+                    }
+                }
+            }
+        }
+        // At the end of the input, check that the last thing wasn't an unmatched high surrogate
+        if (pendingHighSurrogate > 0) {
+            tb = tb.append(fallback("\\u" + pendingHighSurrogateHex));
+        }
+        return tb.toUnicodeString();
+    }
+
+    /**
+     * Expect a hex digit in the input stream, and return it as a string
+     * @param cp the input stream
+     * @return the hex digit found, advancing the stream
+     * @throws XPathException if no hex digit was found
+     */
+
+    private String expectHex(IntIterator cp) throws XPathException {
+        if (cp.hasNext()) {
+            int ch = cp.next();
+            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+                return "" + (char)ch;
+            } else {
+                invalidJSON("Four hex digits required after \\u ", ERR_GRAMMAR, -1);
+                return "";
+            }
+        } else {
+            invalidJSON("Four hex digits required after \\u ", ERR_GRAMMAR, -1);
+            return "";
+        }
+    }
+
+    /**
+     * Ask if a character is "special" according to the rules of parse-json with escape=true
+     * @param ch the character in question
+     * @return true if is a C0 or C1 control character, or a backslash, or an invalid XML character
+     */
+
+    private boolean isSpecial(int ch) {
+        // Special characters are:
+        // * all codepoints in the range U+0000 (NULL) to U+001F (IS1) or U+007F (DELETE) to U+009F (APC);
+        // * all codepoints that do not represent characters that are valid in the version of XML
+        //   supported by the processor, including codepoints representing unpaired surrogates;
+        // * the character U+005C (REVERSE SOLIDUS, BACKSLASH, \) itself.
+        if (ch < 0x20 || ch == '\\' || ch >= 0x7F && ch <= 0x9F) {
+            return true;
+        }
+        return !XMLCharacterData.isValid10(ch);
+    }
+
+    /**
+     * Ask if a character is an invalid XML character
+     * @param ch the character in question
+     * @return true if the character is invalid in XML 1.0
+     */
+
+    private boolean isInvalidXml(int ch) {
+        return !XMLCharacterData.isValid10(ch);
+    }
+
+    /**
+     * Get a fallback for an invalid character or escape sequence. Invokes the user-supplied
+     * fallback function if present; otherwise returns the substitute character 0xFFFD,
+     * @param escapeSeq the invalid character as an escape sequence
+     * @return the fallback string
+     */
+    private String fallback(String escapeSeq) {
+        if (fallbackFunction == null) {
+            return "\uFFFD";
+        } else {
+            return fallbackFunction.apply(StringView.of(escapeSeq)).toString();
         }
     }
 
@@ -233,18 +644,17 @@ public class JsonParser {
         JsonToken tok = tokenizer.next();
         while (tok != JsonToken.RCURLY) {
             if (tok != JsonToken.STRING_LITERAL && !(tok == JsonToken.UNQUOTED_STRING && liberal)) {
-                invalidJSON("Property name must be a string literal (found " + showToken(tok, tokenizer.currentTokenValue.toString() + ")"),
+                invalidJSON("Property name must be a string literal (found " + showToken(tok, tokenizer.currentTokenValue) + ")",
                             ERR_GRAMMAR, tokenizer.lineNumber);
             }
-            String key = tokenizer.currentTokenValue.toString();
-            key = unescape(key, flags, ERR_GRAMMAR, tokenizer.lineNumber);
-            String reEscaped = handler.reEscape(key);
+            UnicodeString key = tokenizer.currentTokenValue;
+            key = processStringLiteral(key, flags);
             tok = tokenizer.next();
             if (tok != JsonToken.COLON) {
                 invalidJSON("Missing colon after \"" + Err.wrap(key) + "\"", ERR_GRAMMAR, tokenizer.lineNumber);
             }
             tokenizer.next();
-            boolean duplicate = handler.setKey(key, reEscaped);
+            boolean duplicate = handler.setKey(key);
             if (duplicate && ((flags & DUPLICATES_REJECTED) != 0)) {
                 invalidJSON("Duplicate key value \"" + Err.wrap(key) + "\"", ERR_DUPLICATE, tokenizer.lineNumber);
             }
@@ -316,7 +726,7 @@ public class JsonParser {
             } else if (tok == JsonToken.RSQB) {
                 break;
             } else {
-                invalidJSON("Unexpected token (" + showToken(tok, tokenizer.currentTokenValue.toString()) +
+                invalidJSON("Unexpected token (" + showToken(tok, tokenizer.currentTokenValue) +
                                     ") after entry in array", ERR_GRAMMAR, tokenizer.lineNumber);
             }
         }
@@ -332,7 +742,7 @@ public class JsonParser {
      * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs (such as invalid JSON input)
      */
 
-    private AtomicValue parseNumericLiteral(String token, int flags, int lineNumber, XPathContext context) throws XPathException {
+    private Item parseNumericLiteral(String token, int flags, int lineNumber, XPathContext context) throws XPathException {
         try {
             if ((flags & LIBERAL) == 0) {
                 // extra checks on the number disabled by choosing spec="liberal"
@@ -357,9 +767,11 @@ public class JsonParser {
             }
             if (numberParser != null) {
                 Sequence[] args = new Sequence[1];
-                args[0] = new StringValue(token);
-                Sequence result = SystemFunction.dynamicCall(numberParser, context, args).head();
-                return (AtomicValue)result.head();
+                args[0] = StringValue.makeUntypedAtomic(StringTool.fromCharSequence(token));
+                Item parserResult = SystemFunction.dynamicCall(numberParser, context, args).head();
+                return (parserResult == null && ((flags & NUMERIC_FORMAT_RETAINED) != 0)) ? StringValue.EMPTY_STRING : parserResult;
+            } else if ((flags & NUMERIC_FORMAT_RETAINED) != 0) {
+                return new StringValue(token);
             } else {
                 return new DoubleValue(StringToDouble.getInstance().stringToNumber(StringView.tidy(token)));
             }
@@ -367,85 +779,6 @@ public class JsonParser {
             invalidJSON("Invalid numeric literal: " + e.getMessage(), ERR_GRAMMAR, lineNumber);
             return DoubleValue.NaN;
         }
-    }
-
-    /**
-     * Unescape a JSON string literal
-     *
-     * @param literal    the string literal to be processed
-     * @param flags      parsing options
-     * @param errorCode  Error code
-     * @param lineNumber the line number
-     * @return the result of parsing and conversion to XDM
-     * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs (such as invalid JSON input)
-     */
-
-    public static String unescape(String literal, int flags, String errorCode, int lineNumber) throws XPathException {
-        if (literal.indexOf('\\') < 0) {
-            return literal;
-        }
-        boolean liberal = (flags & LIBERAL) != 0;
-        StringBuilder buffer = new StringBuilder(literal.length());
-        for (int i = 0; i < literal.length(); i++) {
-            char c = literal.charAt(i);
-            if (c == '\\') {
-                if (i++ == literal.length() - 1) {
-                    throw new XPathException("Invalid JSON escape: String " + Err.wrap(literal) + " ends in backslash", errorCode);
-                }
-                switch (literal.charAt(i)) {
-                    case '"':
-                        buffer.append('"');
-                        break;
-                    case '\\':
-                        buffer.append('\\');
-                        break;
-                    case '/':
-                        buffer.append('/');
-                        break;
-                    case 'b':
-                        buffer.append('\b');
-                        break;
-                    case 'f':
-                        buffer.append('\f');
-                        break;
-                    case 'n':
-                        buffer.append('\n');
-                        break;
-                    case 'r':
-                        buffer.append('\r');
-                        break;
-                    case 't':
-                        buffer.append('\t');
-                        break;
-                    case 'u':
-                        try {
-                            String hex = literal.substring(i + 1, i + 5);
-                            int code = Integer.parseInt(hex, 16);
-                            buffer.append((char) code);
-                            i += 4;
-                        } catch (Exception e) {
-                            if (liberal) {
-                                buffer.append("\\u");
-                            } else {
-                                throw new XPathException("Invalid JSON escape: \\u must be followed by four hex characters", errorCode);
-                            }
-                        }
-                        break;
-                    default:
-                        if (liberal) {
-                            buffer.append(literal.charAt(i));
-                        } else {
-                            char next = literal.charAt(i);
-                            String xx = next < 256 ? next + "" : "x" + Integer.toHexString(next);
-                            throw new XPathException("Unknown escape sequence \\" + xx, errorCode);
-                        }
-                        break;
-                }
-            } else {
-                buffer.append(c);
-            }
-        }
-        return buffer.toString();
     }
 
     /**
@@ -486,18 +819,18 @@ public class JsonParser {
 
     private static class JsonTokenizer {
 
-        public final String input;
-        public int position;
+        private final IntIterator codepoints;
+        private int ch;
         public int lineNumber = 1;
         public JsonToken currentToken;
-        public StringBuilder currentTokenValue = new StringBuilder(64);
+        public UnicodeString currentTokenValue;
 
-        JsonTokenizer(String input) {
-            this.input = input;
-            this.position = 0;
+        JsonTokenizer(IntIterator input) {
+            codepoints = input;
+            readCh();
             // Ignore a leading BOM
-            if (!input.isEmpty() && input.charAt(0) == 65279) {
-                position++;
+            if (ch == 65279) {
+                readCh();
             }
         }
 
@@ -506,24 +839,30 @@ public class JsonParser {
             return currentToken;
         }
 
+        private void readCh() {
+            if (codepoints.hasNext()) {
+                ch = codepoints.next();
+            } else {
+                ch = -1;
+            }
+        }
+
         private JsonToken readToken() throws XPathException {
-            if (position >= input.length()) {
+            if (ch == -1) {
                 return JsonToken.EOF;
             }
             boolean breakLoop = false;
             do {
-                char c = input.charAt(position);
-                switch (c) {
+                switch (ch) {
                     case '\n':
-                    case '\r':
-                        if (!(c == '\n' && position > 0 && input.charAt(position) == '\n')) {
-                            lineNumber++;
-                        }
+                        lineNumber++;
                         // drop through
                         CSharp.emitCode("goto case ' ';");
+                    case '\r':
                     case ' ':
                     case '\t':
-                        if (++position >= input.length()) {
+                        readCh();
+                        if (ch == -1) {
                             return JsonToken.EOF;
                         }
                         break;
@@ -532,46 +871,57 @@ public class JsonParser {
                         break;
                 }
             } while (!breakLoop);
-            char ch = input.charAt(position++);
+
             switch (ch) {
                 case '[':
+                    readCh();
                     return JsonToken.LSQB;
                 case '{':
+                    readCh();
                     return JsonToken.LCURLY;
                 case ']':
+                    readCh();
                     return JsonToken.RSQB;
                 case '}':
+                    readCh();
                     return JsonToken.RCURLY;
-                case '"':
-                    currentTokenValue.setLength(0);
+                case '"': {
+                    // String literal. We search for an unescaped closing quote, and pass the raw string,
+                    // as written, back to the parser for processing of escapes, invalid characters, etc.
+                    TwineBuilder tb = TwineBuilder.make(64);
                     boolean afterBackslash = false;
                     while (true) {
-                        if (position >= input.length()) {
-                            invalidJSON("Unclosed quotes in string literal", ERR_GRAMMAR, lineNumber);
-                        }
-                        char c = input.charAt(position++);
-                        if (c < 32) {
-                            invalidJSON("Unescaped control character (x" + Integer.toHexString(c) + ")", ERR_GRAMMAR, lineNumber);
-                        }
-                        if (afterBackslash && c == 'u') {
-                            try {
-                                String hex = input.substring(position, position + 4);
-                                Integer.parseInt(hex, 16);
-                            } catch (Exception e) {
-                                invalidJSON("\\u must be followed by four hex characters", ERR_GRAMMAR, lineNumber);
-                            }
-                        }
-                        if (c == '"' && !afterBackslash) {
-                            break;
-                        } else {
-                            currentTokenValue.append(c);
-                            afterBackslash = c == '\\' && !afterBackslash;
+                        readCh();
+                        switch (ch) {
+                            case '"':
+                                if (afterBackslash) {
+                                    tb = tb.append(ch);
+                                    afterBackslash = false;
+                                } else {
+                                    readCh();
+                                    currentTokenValue = tb.toUnicodeString();
+                                    return JsonToken.STRING_LITERAL;
+                                }
+                                break;
+                            case '\\':
+                                afterBackslash = !afterBackslash;
+                                tb = tb.append(ch);
+                                break;
+                            case -1:
+                                invalidJSON("Unclosed string literal at end of input", ERR_GRAMMAR, lineNumber);
+                                break;
+                            default:
+                                afterBackslash = false;
+                                tb = tb.append(ch);
+                                break;
                         }
                     }
-                    return JsonToken.STRING_LITERAL;
+                }
                 case ':':
+                    readCh();
                     return JsonToken.COLON;
                 case ',':
+                    readCh();
                     return JsonToken.COMMA;
                 case '-':
                 case '+': // for liberal parsing
@@ -585,53 +935,54 @@ public class JsonParser {
                 case '6':
                 case '7':
                 case '8':
-                case '9':
-                    currentTokenValue.setLength(0);
-                    currentTokenValue.append(ch);
-                    if (position < input.length()) {   // We could be in ECMA mode when there is a single digit
-                        while (true) {
-                            char c = input.charAt(position);
-                            if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E') {
-                                currentTokenValue.append(c);
-                                if (++position >= input.length()) {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
+                case '9': {
+                    TwineBuilder tb = TwineBuilder.make(16);
+                    tb = tb.append(ch);
+                    readCh();
+                    while (ch != -1) {
+                        if ((ch >= '0' && ch <= '9') || ch == '-' || ch == '+' || ch == '.' || ch == 'e' || ch == 'E') {
+                            tb = tb.append(ch);
+                            readCh();
+                        } else {
+                            break;
                         }
                     }
+                    currentTokenValue = tb.toUnicodeString();
                     return JsonToken.NUMERIC_LITERAL;
+                }
                 default: {
                     // Allow unquoted strings in liberal mode
+                    TwineBuilder tb = TwineBuilder.make(32);
                     if (NameChecker.isNCNameChar(ch)) {
-                        currentTokenValue.setLength(0);
-                        currentTokenValue.append(ch);
-                        while (position < input.length()) {
-                            char c = input.charAt(position);
-                            if (NameChecker.isNCNameChar(c)) {
-                                currentTokenValue.append(c);
-                                position++;
+                        tb = tb.append(ch);
+                        readCh();
+                        while (ch != -1) {
+                            if (NameChecker.isNCNameChar(ch)) {
+                                tb = tb.append(ch);
+                                readCh();
                             } else {
                                 break;
                             }
                         }
-                        String val = currentTokenValue.toString();
-                        switch (val) {
-                            case "true":
+                        currentTokenValue = tb.toUnicodeString();
+                        long len = currentTokenValue.length();
+                        if (len == 4) {
+                            if (currentTokenValue.equals(StringConstants.TRUE)) {
                                 return JsonToken.TRUE;
-                            case "false":
-                                return JsonToken.FALSE;
-                            case "null":
+                            }
+                            if (currentTokenValue.equals(StringConstants.NULL)) {
                                 return JsonToken.NULL;
-                            default:
-                                return JsonToken.UNQUOTED_STRING;
+                            }
+                        } else if (len == 5) {
+                            if (currentTokenValue.equals(StringConstants.FALSE)) {
+                                return JsonToken.FALSE;
+                            }
                         }
+                        return JsonToken.UNQUOTED_STRING;
+
                     } else {
-                        char c = input.charAt(--position);
-                        String s = UTF16CharacterSet.isSurrogate(c) ? "" : " '" + c + "'";
-                        invalidJSON("Unexpected character" + s + " (\\u" +
-                                            Integer.toHexString(c) + ") at position " + position, ERR_GRAMMAR, lineNumber);
+                        invalidJSON("Unexpected character " + ch + " (\\u" +
+                                            Integer.toHexString(ch) + ")", ERR_GRAMMAR, lineNumber);
                         return JsonToken.EOF;
                     }
                 }
@@ -639,8 +990,7 @@ public class JsonParser {
         }
     }
 
-
-    public static String showToken(JsonToken token, String currentTokenValue) {
+    public static String showToken(JsonToken token, UnicodeString currentTokenValue) {
         switch (token) {
             case LSQB:
                 return "[";
@@ -672,27 +1022,36 @@ public class JsonParser {
     }
 
 
-    public void setNumberParser(Map<String, GroundedValue> options, XPathContext context) throws XPathException {
+    public void setNumberParser(Map<String, GroundedValue> options) throws XPathException {
         Sequence val = options.get("number-parser");
         if (val != null) {
             Item fn = val.head();
             if (fn instanceof FunctionItem) {
                 numberParser = (FunctionItem) fn;
-                if (numberParser.getArity() != 1) {
-                    throw new XPathException("Number-parser function must have arity=1", "FOJS0005");
-                }
-                SpecificFunctionType required = new SpecificFunctionType(
-                        new SequenceType[]{SequenceType.SINGLE_STRING}, SequenceType.SINGLE_ATOMIC);
-                if (!required.matches(numberParser, context.getConfiguration().getTypeHierarchy())) {
-                    throw new XPathException("Number-parser function does not match the required type", "FOJS0005");
-                }
             } else {
-                throw new XPathException("Value of option 'number-parser' is not a function", "FOJS0005");
+                throw new XPathException("Value of option 'number-parser' is not a function", "XPTY0004");
             }
         }
+    }
+
+    /**
+     * Given a list of keys present in a JSON map/object, find a {@link Shape} that can be used to
+     * create a shaped map for these keys. The thinking is that in JSON, many maps/objects
+     * will often have the same set of keys and this can be used to optimize storage and retrieval
+     * @param keyList the list of keys
+     * @return a Shape corresponding to this list of keys. Shapes are pooled at the level of the
+     * JSON parser, so two records in the same JSON document with the same set of keys will
+     * share the same Shape object.
+     */
+
+    public Shape obtainShape(List<UnicodeString> keyList) {
+        if (shapePool == null) {
+            shapePool = new HashMap<>();
+        }
+        return shapePool.computeIfAbsent(keyList, keys -> new Shape(keyList.toArray(new UnicodeString[]{})));
     }
 
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

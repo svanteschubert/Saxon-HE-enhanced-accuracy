@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,13 @@ package net.sf.saxon.ma.json;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.SimpleArrayItem;
-import net.sf.saxon.ma.map.DictionaryMap;
-import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.ma.map.MapFunctionSet;
+import net.sf.saxon.ma.map.StringMapBuilder;
 import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.StringValue;
@@ -29,38 +30,49 @@ import java.util.Stack;
  * representing the content of the JSON text.
  */
 public class JsonHandlerMap extends JsonHandler {
-    Stack<Sequence> stack;
+    final JsonParser parser;
+    Stack<Object> stack;
 
-    protected Stack<String> keys;
+    protected Stack<UnicodeString> keys;
+    private GroundedValue nullRepresentation = EmptySequence.INSTANCE;
+    private final int flags;
+    private MapFunctionSet.OnDuplicatesAction duplicatesCombiner = null;
 
-    public JsonHandlerMap(XPathContext context, int flags) {
+    public JsonHandlerMap(XPathContext context, JsonParser parser, int flags) {
         setContext(context);
         stack = new Stack<>();
         keys = new Stack<>();
+        this.parser = parser;
+        this.flags = flags;
+        if ((flags & JsonParser.DUPLICATES_FIRST) != 0) {
+            duplicatesCombiner = (a, b, cxt) -> a;
+        } else if ((flags & JsonParser.DUPLICATES_LAST) != 0) {
+            duplicatesCombiner = (a, b, cxt) -> b;
+        }
         escape = (flags & JsonParser.ESCAPE) != 0;
         charChecker = context.getConfiguration().getValidCharacterChecker();
     }
 
+    public void setNullRepresentation(GroundedValue representation) {
+        this.nullRepresentation = representation;
+    }
+
     @Override
     public Sequence getResult() {
-        return stack.peek();
+        return (Sequence)stack.peek();
     }
 
     /**
      * Set the key to be written for the next entry in an object/map
      *
-     * @param unEscaped the key for the entry (null implies no key) in unescaped form (backslashes,
-     *                  if present, do not signal an escape sequence)
-     * @param reEscaped the key for the entry (null implies no key) in reescaped form. In this form
-     *                  special characters are represented as backslash-escaped sequences if the escape
-     *                  option is yes; if escape=no, the reEscaped form is the same as the unEscaped form.
+     * @param key the key for the entry (null implies no key) in unescaped form (backslashes,
+     *            if present, do not signal an escape sequence)
      * @return true if the key is already present in the map, false if it is not
      */
     @Override
-    public boolean setKey(String unEscaped, String reEscaped) {
-        this.keys.push(reEscaped);
-        MapItem map = (MapItem) stack.peek();
-        return map.get(new StringValue(reEscaped)) != null;
+    public boolean setKey(UnicodeString key) {
+        this.keys.push(key);
+        return false;
     }
 
     /**
@@ -70,20 +82,20 @@ public class JsonHandlerMap extends JsonHandler {
     @Override
     public void startArray() {
         List<GroundedValue> memberList = new ArrayList<>();
-        ArrayItem map = new SimpleArrayItem(memberList);
-        stack.push(map);
+        ArrayItem arrayItem = new SimpleArrayItem(memberList);
+        stack.push(arrayItem);
     }
 
     /**
      * Close the current array
      */
     @Override
-    public void endArray() {
-        ArrayItem map = (ArrayItem) stack.pop();
+    public void endArray() throws XPathException {
+        ArrayItem arrayItem = (ArrayItem) stack.pop();
         if (stack.empty()) {
-            stack.push(map); // the end
+            stack.push(arrayItem); // the end
         } else {
-            writeItem(map);
+            writeItem(arrayItem);
         }
     }
 
@@ -92,20 +104,21 @@ public class JsonHandlerMap extends JsonHandler {
      */
     @Override
     public void startMap() {
-        DictionaryMap map = new DictionaryMap();
-        stack.push(map);
+        StringMapBuilder mapBuilder = new StringMapBuilder(40);
+        mapBuilder.setCombiner(duplicatesCombiner);
+        stack.push(mapBuilder);
     }
 
     /**
      * Close the current object/map
      */
     @Override
-    public void endMap() {
-        DictionaryMap map = (DictionaryMap) stack.pop();
+    public void endMap() throws XPathException {
+        StringMapBuilder map = (StringMapBuilder) stack.pop();
         if (stack.empty()) {
-            stack.push(map); // the end
+            stack.push(map.getCompletedMap()); // the end
         } else {
-            writeItem(map);
+            writeItem(map.getCompletedMap());
         }
     }
 
@@ -113,17 +126,15 @@ public class JsonHandlerMap extends JsonHandler {
      * Write an item into the current map, with the preselected key
      * @param val   the value/map to be written
      */
-    private void writeItem(GroundedValue val) {
+    private void writeItem(GroundedValue val) throws XPathException {
         if (stack.empty()) {
             stack.push(val);
         } else if (stack.peek() instanceof ArrayItem) {
             SimpleArrayItem array = (SimpleArrayItem) stack.peek();
             array.getMembers().add(val.materialize());
         } else {
-            DictionaryMap map = (DictionaryMap) stack.peek();
-            //StringValue key = new StringValue(reEscape(keys.pop(), true, false, false));
-            //StringValue key = new StringValue(keys.pop());
-            map.initialPut(keys.pop(), val);
+            StringMapBuilder map = (StringMapBuilder) stack.peek();
+            map.put(keys.pop(), val);
         }
     }
 
@@ -133,7 +144,7 @@ public class JsonHandlerMap extends JsonHandler {
      * @param parsedValue the double representation of the value
      */
     @Override
-    public void writeNumeric(String asString, AtomicValue parsedValue) {
+    public void writeNumeric(String asString, Item parsedValue) throws XPathException {
         writeItem(parsedValue);
     }
 
@@ -145,8 +156,9 @@ public class JsonHandlerMap extends JsonHandler {
      * @throws XPathException if a dynamic error occurs
      */
     @Override
-    public void writeString(String val) throws XPathException {
-        writeItem(new StringValue(reEscape(val)));
+    public void writeString(UnicodeString val) throws XPathException {
+        //writeItem(new StringValue(reEscape(val)));
+        writeItem(new StringValue(val));
     }
 
     /**
@@ -155,7 +167,7 @@ public class JsonHandlerMap extends JsonHandler {
      * @param value the boolean value to be written
      */
     @Override
-    public void writeBoolean(boolean value)  {
+    public void writeBoolean(boolean value) throws XPathException {
         writeItem(BooleanValue.get(value));
     }
 
@@ -163,8 +175,8 @@ public class JsonHandlerMap extends JsonHandler {
      * Write a null value
      */
     @Override
-    public void writeNull() {
-        writeItem(EmptySequence.getInstance());
+    public void writeNull() throws XPathException {
+        writeItem(nullRepresentation);
     }
 
 

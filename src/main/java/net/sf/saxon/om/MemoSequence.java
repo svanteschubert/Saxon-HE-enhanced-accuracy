@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -51,7 +51,10 @@ public class MemoSequence implements Sequence {
         // it indicates a recursive entry, which is only possible on an error path
         BUSY,
         // State in which we know that the value is an empty sequence
-        EMPTY}
+        EMPTY,
+        // State in which we have already encountered and reported an error in reading this variable
+        // It's possible further attempts will be made to read it again: see bug 6440.
+        ERROR }
 
     private State state = State.UNREAD;
 
@@ -93,7 +96,7 @@ public class MemoSequence implements Sequence {
                 switch (used) {
                     case 0:
                         state = State.EMPTY;
-                        return EmptyIterator.getInstance();
+                        return EmptyIterator.INSTANCE;
                     case 1:
                         assert reservoir != null;
                         return SingletonIterator.makeIterator(reservoir[0]);
@@ -108,7 +111,11 @@ public class MemoSequence implements Sequence {
                 throw new UncheckedXPathException(de);
 
             case EMPTY:
-                return EmptyIterator.getInstance();
+                return EmptyIterator.INSTANCE;
+
+            case ERROR:
+                XPathException e2 = new XPathException("Attempting to read a local variable when an error in that variable has already been reported", "XTDE0640");
+                throw new UncheckedXPathException(e2);
 
             default:
                 throw new IllegalStateException("Unknown iterator state");
@@ -133,6 +140,9 @@ public class MemoSequence implements Sequence {
         if (state == State.ALL_READ || state == State.EMPTY) {
             return null;
         }
+        if (state == State.ERROR) {
+            throw new XPathException("Attempting to read a local variable when an error in that variable has already been reported", "XTDE0640");
+        }
         if (state == State.UNREAD) {
             Item item = inputIterator.next();
             if (item == null) {
@@ -149,15 +159,20 @@ public class MemoSequence implements Sequence {
         }
         // We have read some items from the input sequence but not enough. Read as many more as are needed.
         int diff = n - used + 1;
-        while (diff-- > 0) {
-            Item i = inputIterator.next();
-            if (i == null) {
-                state = State.ALL_READ;
-                condense();
-                return null;
+        try {
+            while (diff-- > 0) {
+                Item i = inputIterator.next();
+                if (i == null) {
+                    state = State.ALL_READ;
+                    condense();
+                    return null;
+                }
+                append(i);
+                state = State.MAYBE_MORE;
             }
-            append(i);
-            state = State.MAYBE_MORE;
+        } catch (UncheckedXPathException e) {
+            state = State.ERROR;
+            throw e.getXPathException();
         }
         //noinspection ConstantConditions
         return reservoir[n];
@@ -238,13 +253,19 @@ public class MemoSequence implements Sequence {
                     return null;
                 } else {
                     assert container.inputIterator != null;
-                    Item i = container.inputIterator.next();
-                    if (i == null) {
-                        container.state = State.ALL_READ;
-                        container.condense();
-                        position = -2;
-                        reportCompletion();
-                        return null;
+                    Item i = null;
+                    try {
+                        i = container.inputIterator.next();
+                        if (i == null) {
+                            container.state = State.ALL_READ;
+                            container.condense();
+                            position = -2;
+                            reportCompletion();
+                            return null;
+                        }
+                    } catch (UncheckedXPathException e) {
+                        container.state = State.ERROR;
+                        throw e;
                     }
                     position = container.used;
                     container.append(i);
@@ -299,7 +320,7 @@ public class MemoSequence implements Sequence {
             if (container.state == State.ALL_READ) {
                 return makeExtent();
             } else if (container.state == State.EMPTY) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             } else {
                 // save the current position
                 int savePos = position;
@@ -316,7 +337,7 @@ public class MemoSequence implements Sequence {
         private GroundedValue makeExtent() {
             if (container.used == container.reservoir.length) {
                 if (container.used == 0) {
-                    return EmptySequence.getInstance();
+                    return EmptySequence.INSTANCE;
                 } else if (container.used == 1) {
                     return container.reservoir[0];
                 } else {
@@ -331,7 +352,7 @@ public class MemoSequence implements Sequence {
         @Override
         public GroundedValue getResidue() {
             if (container.state == State.EMPTY || position >= container.used || position == -2) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             } else if (container.state == State.ALL_READ) {
                 return SequenceExtent.makeSequenceExtent(
                         Arrays.asList(container.reservoir).subList(position + 1, container.used));

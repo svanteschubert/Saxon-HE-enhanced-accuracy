@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,13 +24,26 @@ import net.sf.saxon.value.EmptySequence;
  * empty sequence, and has no context dependencies.
  */
 
-public abstract class ScalarSystemFunction extends SystemFunction {
+public abstract class ScalarSystemFunction extends SystemFunction implements ArityOneFunction {
+
+    /**
+     * Call a function with one argument
+     *
+     * @param context the dynamic evaluation context
+     * @param arg0    the first argument
+     * @return the result of the function call
+     * @throws XPathException if the call fails with a dynamic error
+     */
+    @Override
+    public Sequence call1(XPathContext context, Sequence arg0) throws XPathException {
+        return SequenceTool.itemOrEmpty(evaluate(arg0.head(), context));
+    }
 
     /**
      * Abstract method that must be supplied in subclasses to perform the evaluation
      * @param arg the supplied argument
      * @param context the dynamic context
-     * @return the result of the evaluation
+     * @return the result of the evaluation. May be null indicating the result is an empty sequence.
      * @throws XPathException if a dynamic error occurs
      */
 
@@ -44,7 +57,7 @@ public abstract class ScalarSystemFunction extends SystemFunction {
      */
 
     public Sequence resultWhenEmpty() {
-        return EmptySequence.getInstance();
+        return EmptySequence.INSTANCE;
     }
 
     /**

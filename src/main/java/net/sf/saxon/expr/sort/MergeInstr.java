@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr.sort;
 
+//import com.saxonica.ee.stream.adjunct.MergeInstrAdjunct;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.*;
@@ -22,11 +23,11 @@ import net.sf.saxon.functions.*;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
+import net.sf.saxon.ma.arrays.ArraySort;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
@@ -144,6 +145,7 @@ public class MergeInstr extends Instruction {
             ms.schemaType = schemaType;
             ms.streamable = streamable;
             ms.location = location;
+            ms.accumulators = accumulators;
             return ms;
         }
 
@@ -291,7 +293,7 @@ public class MergeInstr extends Instruction {
             ContextItemStaticInfo rowContextItemType = contextInfo;
             if (mergeSource.getForEachItem() != null) {
                 mergeSource.forEachItemOp.typeCheck(visitor, contextInfo);
-                rowContextItemType = config.makeContextItemStaticInfo(mergeSource.getForEachItem().getItemType(), false);
+                rowContextItemType = config.makeContextItemStaticInfo(mergeSource.getForEachItem().getItemType());
             } else if (mergeSource.getForEachSource() != null) {
                 mergeSource.forEachStreamOp.typeCheck(visitor, contextInfo);
 
@@ -300,7 +302,7 @@ public class MergeInstr extends Instruction {
                 mergeSource.setForEachStream(tc.staticTypeCheck(
                         mergeSource.getForEachSource(), SequenceType.STRING_SEQUENCE, role, visitor));
 
-                rowContextItemType = config.makeContextItemStaticInfo(NodeKindTest.DOCUMENT, false);
+                rowContextItemType = config.makeContextItemStaticInfo(NodeKindType.DOCUMENT);
             }
             mergeSource.rowSelectOp.typeCheck(visitor, rowContextItemType);
             ItemType rowItemType = mergeSource.getRowSelect().getItemType();
@@ -309,19 +311,19 @@ public class MergeInstr extends Instruction {
             } else {
                 inputType = Type.getCommonSuperType(inputType, rowItemType, th);
             }
-            ContextItemStaticInfo cit = config.makeContextItemStaticInfo(inputType, false);
+            ContextItemStaticInfo cit = config.makeContextItemStaticInfo(inputType);
             if (mergeSource.mergeKeyDefinitions != null) {
                 for (SortKeyDefinition skd : mergeSource.mergeKeyDefinitions) {
                     Expression sortKey = skd.getSortKey();
                     sortKey = sortKey.typeCheck(visitor, cit);
-                    if (sortKey != null) {
+                    if (sortKey != null && visitor.getStaticContext().getXPathVersion() < 40) {
                         Supplier<RoleDiagnostic> role = () ->
                                 new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:merge-key/select", 0, "XTTE1020");
                         sortKey = CardinalityChecker.makeCardinalityChecker(sortKey, StaticProperty.ALLOWS_ZERO_OR_ONE, role);
 
                         skd.setSortKey(sortKey, true);
                     }
-                    Expression exp = skd.getLanguage().typeCheck(visitor, config.makeContextItemStaticInfo(inputType, false));
+                    Expression exp = skd.getLanguage().typeCheck(visitor, config.makeContextItemStaticInfo(inputType));
                     skd.setLanguage(exp);
 
                     exp = skd.getOrder().typeCheck(visitor, cit);
@@ -347,7 +349,7 @@ public class MergeInstr extends Instruction {
 
         }
 
-        actionOp.typeCheck(visitor, config.makeContextItemStaticInfo(inputType, false));
+        actionOp.typeCheck(visitor, config.makeContextItemStaticInfo(inputType));
 
         if (Literal.isEmptySequence(getAction())) {
             return getAction();
@@ -374,6 +376,9 @@ public class MergeInstr extends Instruction {
             fn.setControllingInstruction(instr, isInLoop);
         } else if (exp.isCallOn(CurrentMergeKey.class)) {
             CurrentMergeKey fn = (CurrentMergeKey) ((SystemFunctionCall) exp).getTargetFunction();
+            fn.setControllingInstruction(instr);
+        } else if (exp.isCallOn(CurrentMergeKeyArray.class)) {
+            CurrentMergeKeyArray fn = (CurrentMergeKeyArray) ((SystemFunctionCall) exp).getTargetFunction();
             fn.setControllingInstruction(instr);
         } else if (exp instanceof MergeInstr) {
             // a current-merge-group() reference to the outer xsl:merge can occur in the
@@ -435,10 +440,10 @@ public class MergeInstr extends Instruction {
             ContextItemStaticInfo rowContextItemType = contextInfo;
             if (mergeSource.getForEachItem() != null) {
                 mergeSource.forEachItemOp.optimize(visitor, contextInfo);
-                rowContextItemType = config.makeContextItemStaticInfo(mergeSource.getForEachItem().getItemType(), false);
+                rowContextItemType = config.makeContextItemStaticInfo(mergeSource.getForEachItem().getItemType());
             } else if (mergeSource.getForEachSource() != null) {
                 mergeSource.forEachStreamOp.optimize(visitor, contextInfo);
-                rowContextItemType = config.makeContextItemStaticInfo(NodeKindTest.DOCUMENT, false);
+                rowContextItemType = config.makeContextItemStaticInfo(NodeKindType.DOCUMENT);
             }
             mergeSource.rowSelectOp.optimize(visitor, rowContextItemType);
             ItemType rowItemType = mergeSource.getRowSelect().getItemType();
@@ -450,7 +455,7 @@ public class MergeInstr extends Instruction {
             //mergeSource.prepareForStreaming();
         }
 
-        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(inputType, false);
+        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(inputType);
         setAction(getAction().optimize(visitor, cit));
 
         if (Literal.isEmptySequence(getAction())) {
@@ -514,7 +519,7 @@ public class MergeInstr extends Instruction {
                     } else {
                         AtomicComparer[] comps = getComparators(context);
 
-                        GroupIterator mgi = context.getCurrentMergeGroupIterator();
+                        MergeGroupingIterator mgi = context.getCurrentMergeGroupIterator();
                         final XPathContextMajor c1 = context.newContext();
                         c1.setCurrentMergeGroupIterator(mgi);
                         SequenceIterator inputIterator = getMergedInputIterator(context, comps);
@@ -552,7 +557,7 @@ public class MergeInstr extends Instruction {
             // and apply the merging action to each group of duplicate items within this sequence
             //c1.setCurrentMergeGroupIterator((GroupIterator) inputIterator);
             XPathContextMajor c3 = context.newContext();
-            c3.setCurrentMergeGroupIterator((GroupIterator) inputIterator);
+            c3.setCurrentMergeGroupIterator((MergeGroupingIterator) inputIterator);
             c3.trackFocus(inputIterator);
             return new ContextMappingIterator(cxt -> getAction().iterate(cxt), c3);
         } catch (XPathException e) {
@@ -572,7 +577,7 @@ public class MergeInstr extends Instruction {
     private SequenceIterator getMergedInputIterator(XPathContext context, AtomicComparer[] comps) throws XPathException {
         // Now construct a tree of merge iterators, one for each merge sequence, for each merge source.
 
-        SequenceIterator inputIterator = EmptyIterator.getInstance();
+        SequenceIterator inputIterator = EmptyIterator.INSTANCE;
         for (final MergeSource ms : mergeSources) {
 
             SequenceIterator anchorsIter;
@@ -742,13 +747,7 @@ public class MergeInstr extends Instruction {
                 ItemWithMergeKeys bItem = b.getObject();
 
                 for (int i = 0; i < sKeys.size(); i++) {
-                    int val;
-                    try {
-                        val = comps[i].compareAtomicValues(aItem.sortKeyValues.get(i), bItem.sortKeyValues.get(i));
-                    } catch (NoDynamicContextException e) {
-                        throw new IllegalStateException(e);
-                    }
-
+                    int val = ArraySort.compareSortKeys(aItem.sortKeyValues.get(i), bItem.sortKeyValues.get(i), comps[i]);
                     if (val != 0) {
                         return val;
                     }
@@ -876,7 +875,7 @@ public class MergeInstr extends Instruction {
             Item currentItem = context.getContextItem();
             manualIterator.setContextItem(currentItem);
             ItemWithMergeKeys newItem = new ItemWithMergeKeys(currentItem, ms.mergeKeyDefinitions, ms.sourceName, keyContext);
-            return SingletonIterator.makeIterator(new ObjectValue<ItemWithMergeKeys>(newItem));
+            return SingletonIterator.makeIterator(new ObjectValue<ItemWithMergeKeys>(newItem, ItemWithMergeKeys.class));
 
         }
     }
@@ -899,7 +898,7 @@ public class MergeInstr extends Instruction {
 
                     // and apply the merging action to each group of duplicate items within this sequence
                     XPathContextMajor c3 = context.newContext();
-                    c3.setCurrentMergeGroupIterator((GroupIterator) inputIterator);
+                    c3.setCurrentMergeGroupIterator((MergeGroupingIterator) inputIterator);
                     c3.trackFocus(inputIterator);
                     //noinspection Convert2MethodRef
                     return new ContextMappingIterator(cxt -> actionPull.iterate(cxt), c3);

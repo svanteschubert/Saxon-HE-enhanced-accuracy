@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,6 +23,33 @@ import net.sf.saxon.trans.XPathException;
  * a TraceListener to be notified when the expression is evaluated
  */
 public class TraceCodeInjector implements CodeInjector {
+
+    protected int traceLevel = TraceLevel.NORMAL;
+
+    public void setTraceLevel(int traceLevel) {
+        this.traceLevel = traceLevel;
+    }
+
+    /**
+     * Convert trace level from string to integer
+     * @param level one of "none", "low", "normal", "high"
+     * @return the corresponding integer constant, for example {@link TraceLevel#HIGH}
+     */
+    public static int levelValue(String level) {
+        switch (level) {
+            case "none":
+                return TraceLevel.NONE;
+            case "low":
+                return TraceLevel.LOW;
+            case "normal":
+                return TraceLevel.NORMAL;
+            case "high":
+                return TraceLevel.HIGH;
+            default:
+                throw new IllegalArgumentException("Trace level " + level);
+        }
+    }
+
 
     @Override
     public Expression inject(Expression exp) {

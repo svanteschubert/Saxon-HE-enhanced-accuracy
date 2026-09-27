@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,33 +7,24 @@
 
 package net.sf.saxon.functions.registry;
 
-import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.Literal;
-import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.XPathParser;
-import net.sf.saxon.functions.Doc_2;
-import net.sf.saxon.functions.SystemFunction;
-import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.functions.*;
+import net.sf.saxon.lib.StandardDiagnostics;
 import net.sf.saxon.ma.map.*;
 import net.sf.saxon.ma.zeno.ZenoChain;
 import net.sf.saxon.ma.zeno.ZenoSequence;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.str.StringConstants;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.str.Twine8;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.tiny.TinyElementImpl;
-import net.sf.saxon.type.AnyItemType;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.NumericType;
-import net.sf.saxon.type.Type;
+import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
 
 import javax.xml.transform.SourceLocator;
-import java.util.ArrayList;
-import java.util.List;
 
 
 /**
@@ -59,50 +50,38 @@ public class VendorFunctionSetHE extends BuiltInFunctionSet {
                 .arg(0, NumericType.getInstance(), OPT, EMPTY));
 
         // Evaluate the value of a try-catch variable such as $err:code
-        register("dynamic-error-info", 1, e -> e.populate(DynamicErrorInfoFn::new, AnyItemType.getInstance(), STAR, FOCUS | LATE | SIDE)
-                .arg(0, BuiltInAtomicType.STRING, ONE, null));
-
-        // saxon:apply is the same as fn:apply, but does not require the HOF feature
-//        register("apply", 2, e -> e.populate(ApplyFn::new, AnyItemType.getInstance(), STAR, LATE)
-//                .arg(0, AnyFunctionType.getInstance(), ONE, null)
-//                .arg(1, ArrayItemType.ANY_ARRAY_TYPE, ONE, null));
-
-        // Create a map according to the semantics of the XPath map constructor and XSLT xsl:map instruction
-        register("create-map", 1, e -> e.populate(MapCreate::new, MapType.ANY_MAP_TYPE, ONE, 0)
-                .arg(0, MapType.ANY_MAP_TYPE, STAR, null));
+        register("dynamic-error-info", 1, e -> {
+            return e.populate(DynamicErrorInfoFn::new, AnyItemType.getInstance(), STAR, FOCUS | LATE | SIDE)
+                    .arg(0, BuiltInAtomicType.STRING, ONE, null);
+        });
 
         // Variant of the doc() function with an options parameter
-        register("doc", 2, e -> e.populate(Doc_2::new, NodeKindTest.DOCUMENT, ONE, LATE)
+        register("doc", 2, e -> e.populate(SaxonDoc::new, NodeKindType.DOCUMENT, ONE, LATE)
                 .arg(0, BuiltInAtomicType.STRING, ONE, null)
                 .arg(1, MapType.ANY_MAP_TYPE, ONE, EMPTY)
-                .setOptionDetails(Doc_2.makeOptionsParameter()));
+                .setOptionDetails(SaxonDoc.makeOptionsParameter(31)));
 
         // Ask whether the supplied element node has any local namespace declarations
         register("has-local-namespaces", 1, e -> e.populate(HasLocalNamespaces::new, BuiltInAtomicType.BOOLEAN, ONE, 0)
-                .arg(0, NodeKindTest.ELEMENT, ONE, null));
+                .arg(0, NodeKindType.ELEMENT, ONE, null));
 
         // Ask whether the supplied element node has consistent in scope namespaces throughout its subtree
         register("has-uniform-namespaces", 1, e -> e.populate(HasUniformNamespaces::new, BuiltInAtomicType.BOOLEAN, ONE, 0)
-                .arg(0, NodeKindTest.ELEMENT, ONE, null));
+                .arg(0, NodeKindType.ELEMENT, ONE, null));
 
         // Function analogous to map:contains except in the way it handles untyped key values
         register("map-untyped-contains", 2, e -> e.populate(MapUntypedContains::new, BuiltInAtomicType.BOOLEAN, ONE, 0)
                 .arg(0, MapType.ANY_MAP_TYPE, STAR, null)
                 .arg(1, BuiltInAtomicType.ANY_ATOMIC, ONE, null));
 
-        RecordTest mapRepresentation = RecordTest.nonExtensible(
-                field("key", SequenceType.SINGLE_ATOMIC, false),
-                field("value", SequenceType.ANY_SEQUENCE, false));
-
-        register("map-as-sequence-of-maps", 1, e -> e.populate(MapAsSequenceOfMaps::new, mapRepresentation, STAR, 0)
-                .arg(0, MapType.ANY_MAP_TYPE, ONE, null));
-
         register("yes-no-boolean", 1, e -> e.populate(YesNoBoolean::new, BuiltInAtomicType.BOOLEAN, ONE, 0)
                 .arg(0, BuiltInAtomicType.STRING, ONE, null));
 
-        register("concatenate-sequences", 2, e -> e.populate(ConcatenateSequences::new, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, AnyItemType.getInstance(), STAR, null)
-                .arg(1, AnyItemType.getInstance(), STAR, null));
+        register("concatenate-sequences", 2, e -> {
+            return e.populate(ConcatenateSequences::new, AnyItemType.getInstance(), STAR, 0)
+                    .arg(0, AnyItemType.getInstance(), STAR, null)
+                    .arg(1, AnyItemType.getInstance(), STAR, null);
+        });
 
     }
 
@@ -166,7 +145,7 @@ public class VendorFunctionSetHE extends BuiltInFunctionSet {
         @Override
         public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
             NodeInfo child = (NodeInfo) arguments[0].head();
-            NodeInfo parent = child.getParent();
+            NodeInfo parent = (NodeInfo)child.getParent();
             return BooleanValue.get(
                     parent == null || parent.getNodeKind() == Type.DOCUMENT ||
                     child.getAllNamespaces() != parent.getAllNamespaces());
@@ -227,103 +206,182 @@ public class VendorFunctionSetHE extends BuiltInFunctionSet {
             @SuppressWarnings({"ThrowableResultOfMethodCallIgnored"})
             XPathException error = context.getCurrentException();
             if (error == null) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             }
             SourceLocator locator = error.getLocator();
             switch (var) {
-                case "code":
+                case "code": {
                     StructuredQName errorCodeQName = error.getErrorCodeQName();
                     if (errorCodeQName == null) {
                         errorCodeQName = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
                     }
                     return new QNameValue(errorCodeQName, BuiltInAtomicType.QNAME);
-                case "description":
+                }
+                case "description": {
                     String s = error.getMessage();
                     if (error.getCause() != null) {
                         s += "(" + error.getCause().getMessage() + ")";
                     }
                     return new StringValue(s);
-                case "value":
+                }
+                case "value": {
                     Sequence value = error.getErrorObject();
                     if (value == null) {
-                        return EmptySequence.getInstance();
+                        return EmptySequence.INSTANCE;
                     } else {
                         return value;
                     }
-                case "module":
+                }
+                case "module": {
                     String module = locator == null ? null : locator.getSystemId();
                     if (module == null) {
-                        return EmptySequence.getInstance();
+                        return EmptySequence.INSTANCE;
                     } else {
                         return new StringValue(module);
                     }
-                case "line-number":
+                }
+                case "line-number": {
                     int line = locator == null ? -1 : locator.getLineNumber();
                     if (line == -1) {
-                        return EmptySequence.getInstance();
+                        return EmptySequence.INSTANCE;
                     } else {
                         return new Int64Value(line);
                     }
-                case "column-number":
+                }
+                case "column-number": {
                     // Bug 4144
                     int column = -1;
                     if (locator == null) {
-                        return EmptySequence.getInstance();
+                        return EmptySequence.INSTANCE;
                     } else if (locator instanceof XPathParser.NestedLocation) {
                         column = ((XPathParser.NestedLocation) locator).getContainingLocation().getColumnNumber();
                     } else {
                         column = locator.getColumnNumber();
                     }
                     if (column == -1) {
-                        return EmptySequence.getInstance();
+                        return EmptySequence.INSTANCE;
                     } else {
                         return new Int64Value(column);
                     }
+                }
+                case "stack-trace": {
+                    final XPathContext errorContext = error.getXPathContext();
+                    if (errorContext == null) {
+                        return EmptySequence.INSTANCE;
+                    } else {
+                        return new LazyString(() -> StandardDiagnostics.stackTrace(errorContext));
+                    }
+                    
+                }
+                case "map": {
+                    StructuredQName errorCodeQName = error.getErrorCodeQName();
+                    if (errorCodeQName == null) {
+                        errorCodeQName = new StructuredQName("saxon", NamespaceUri.SAXON, "XXXX9999");
+                    }
+                    QNameValue errorCode = new QNameValue(errorCodeQName, BuiltInAtomicType.QNAME);
+
+                    String s = error.getMessage();
+                    if (error.getCause() != null) {
+                        s += "(" + error.getCause().getMessage() + ")";
+                    }
+                    StringValue description = new StringValue(s);
+
+                    Sequence errorObject = error.getErrorObject();
+                    if (errorObject == null) {
+                        errorObject = EmptySequence.INSTANCE;
+                    } 
+
+                    String module = locator == null ? null : locator.getSystemId();
+                    if (module == null) {
+                        module = "";
+                    }
+                    int line = locator == null ? -1 : locator.getLineNumber();
+
+                    int column = -1;
+                    if (locator == null) {
+                        return EmptySequence.INSTANCE;
+                    } else if (locator instanceof XPathParser.NestedLocation) {
+                        column = ((XPathParser.NestedLocation) locator).getContainingLocation().getColumnNumber();
+                    } else {
+                        column = locator.getColumnNumber();
+                    }
+
+                    final XPathContext errorContext = error.getXPathContext();
+                    GroundedValue stackTrace;
+                    if (errorContext == null) {
+                        stackTrace = EmptySequence.INSTANCE;
+                    } else {
+                        stackTrace = new LazyString(
+                                () -> StandardDiagnostics.stackTrace(errorContext));
+                    }
+
+                    return new ShapedMap(errorMapShape,
+                                           errorCode,
+                                           description,
+                                           errorObject.materialize(),
+                                           new StringValue(module),
+                                           new Int64Value(line),
+                                           new Int64Value(column),
+                                         EmptySequence.INSTANCE,
+                                           stackTrace
+                                        );
+                }
                 default:
-                    return EmptySequence.getInstance();
+                    return EmptySequence.INSTANCE;
             }
 
         }
     }
 
+    private static final Shape errorMapShape = new Shape(
+            new Twine8("code"),
+            new Twine8("description"),
+            new Twine8("value"),
+            new Twine8("module"),
+            new Twine8("line-number"),
+            new Twine8("column-number"),
+            new Twine8("additional"),
+            new Twine8("stack-trace")
+    );
 
-    private static StringValue valueKey = new StringValue(new Twine8(StringConstants.bytes("value")));
 
-    /**
-     * Implementation of the function saxon:array-as-sequence-of-maps(array)
-     */
+//    private static StringValue valueKey = new StringValue(new Twine8(StringConstants.bytes("value")));
 
-    public static class ArrayAsSequenceOfMaps extends SystemFunction {
-        @Override
-        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            ArrayItem array = (ArrayItem) arguments[0].head();
-            List<Item> mapList = new ArrayList<>();
-            for (GroundedValue value : array.members()) {
-                mapList.add(new SingleEntryMap(valueKey, value));
-            }
-            return new SequenceExtent.Of<>(mapList);
-        }
-    }
+//    /**
+//     * Implementation of the function saxon:array-as-sequence-of-maps(array)
+//     */
+//
+//    public static class ArrayAsSequenceOfMaps extends SystemFunction {
+//        @Override
+//        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+//            ArrayItem array = (ArrayItem) arguments[0].head();
+//            List<Item> mapList = new ArrayList<>();
+//            for (GroundedValue value : array.members()) {
+//                mapList.add(new SingleEntryMap(valueKey, value));
+//            }
+//            return new SequenceExtent.Of<>(mapList);
+//        }
+//    }
 
-    /**
-     * Implementation of the function saxon:map-as-sequence-of-maps(array)
-     */
-
-    public static class MapAsSequenceOfMaps extends SystemFunction {
-        @Override
-        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            MapItem map = (MapItem) arguments[0].head();
-            List<Item> mapList = new ArrayList<>();
-
-            for (KeyValuePair pair : map.keyValuePairs()) {
-                DictionaryMap dictionary = new DictionaryMap(2);
-                dictionary.initialPut("key", pair.key);
-                dictionary.initialPut("value",pair.value);
-                mapList.add(dictionary);
-            }
-            return new SequenceExtent.Of<>(mapList);
-        }
-    }
+//    /**
+//     * Implementation of the function saxon:map-as-sequence-of-maps(array)
+//     */
+//
+//    public static class MapAsSequenceOfMaps extends SystemFunction {
+//        @Override
+//        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+//            MapItem map = (MapItem) arguments[0].head();
+//            List<Item> mapList = new ArrayList<>();
+//
+//            for (KeyValuePair pair : map.keyValuePairs()) {
+//                DictionaryMap dictionary = new DictionaryMap(2);
+//                dictionary.initialPut("key", pair.key);
+//                dictionary.initialPut("value",pair.value);
+//                mapList.add(dictionary);
+//            }
+//            return new SequenceExtent.Of<>(mapList);
+//        }
+//    }
 
     public static class YesNoBoolean extends SystemFunction {
 
@@ -361,4 +419,4 @@ public class VendorFunctionSetHE extends BuiltInFunctionSet {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

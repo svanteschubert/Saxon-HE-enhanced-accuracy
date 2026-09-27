@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -79,7 +79,8 @@ public abstract class Clause {
     /**
      * Create a copy of this clause
      *
-     * @param flwor the new FLWORExpression to contain the copied clause
+     * @param flwor the new FLWORExpression to contain the copied clause. Note that this will
+     *              not have been fully initialized.
      * @param rebindings the rebinding map
      * @return the copied clause
      */
@@ -193,15 +194,6 @@ public abstract class Clause {
 
     public void refineVariableType(final ExpressionVisitor visitor, List<VariableReference> references, Expression returnExpr) {
     }
-
-    /**
-     * Collect information about the navigation paths followed by this clause, for document projection purposes
-     *
-     * @param pathMap        the path map in which the data is to be collected
-     * @param pathMapNodeSet the path map node set representing the paths to the context item
-     */
-
-    public abstract void addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet);
 
     /**
      * Get a keyword identifying what kind of clause this is

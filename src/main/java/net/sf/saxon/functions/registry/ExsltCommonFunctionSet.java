@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,7 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceTool;
-import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.type.gnode.AnyXNodeType;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.StringValue;
@@ -36,11 +36,15 @@ public class ExsltCommonFunctionSet extends BuiltInFunctionSet {
 
     private void init() {
 
-        register("node-set", 1, e -> e.populate(NodeSetFn::new, AnyItemType.getInstance(), OPT, 0)
-                .arg(0, AnyItemType.getInstance(), OPT, EMPTY));
+        register("node-set", 1, e -> {
+            return e.populate(NodeSetFn::new, AnyItemType.getInstance(), OPT, 0)
+                    .arg(0, AnyItemType.getInstance(), OPT, EMPTY);
+        });
 
-        register("object-type", 1, e -> e.populate(ObjectTypeFn::new, BuiltInAtomicType.STRING, ONE, 0)
-                .arg(0, AnyItemType.getInstance(), ONE, null));
+        register("object-type", 1, e -> {
+            return e.populate(ObjectTypeFn::new, BuiltInAtomicType.STRING, ONE, 0)
+                    .arg(0, AnyItemType.getInstance(), ONE, null);
+        });
 
     }
 
@@ -75,7 +79,7 @@ public class ExsltCommonFunctionSet extends BuiltInFunctionSet {
             final TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
             Item value = arguments[0].head();
             ItemType type = SequenceTool.getItemType(value, th);
-            if (th.isSubType(type, AnyNodeTest.getInstance())) {
+            if (th.isSubType(type, AnyXNodeType.getInstance())) {
                 return StringValue.bmp("node-set");
             } else if (th.isSubType(type, BuiltInAtomicType.STRING)) {
                 return StringValue.bmp("string");
@@ -93,4 +97,4 @@ public class ExsltCommonFunctionSet extends BuiltInFunctionSet {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

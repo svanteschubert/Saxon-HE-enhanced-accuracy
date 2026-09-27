@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,25 +10,20 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.AtomicSequence;
-import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NamespaceResolver;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.trans.Err;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.List;
-import java.util.Optional;
-
-import static net.sf.saxon.om.Genre.ATOMIC;
 
 /**
  * Interface representing a union type. This may be either a built-in union type (of which there are
  * currently two, namely ErrorType and NumericType), or a user-defined union type.
  */
 
-public interface UnionType extends ItemType, CastingTarget {
+public interface UnionType extends ItemType, CastingTarget, ChoiceType {
 
     /**
      * Get the name of the type. If the type is unnamed, return an invented
@@ -59,6 +54,7 @@ public interface UnionType extends ItemType, CastingTarget {
 
     List<? extends PlainType> getPlainMemberTypes() throws MissingComponentException;
 
+    Iterable<? extends ItemType> getAlternatives();
     /**
      * Get the result type of a cast operation to this union type, as a sequence type.
      *
@@ -97,35 +93,7 @@ public interface UnionType extends ItemType, CastingTarget {
 
     ValidationFailure checkAgainstFacets(AtomicValue value, ConversionRules rules);
 
-    /**
-     * Get extra diagnostic information about why a supplied item does not conform to this
-     * item type, if available. If extra information is returned, it should be in the form of a complete
-     * sentence, minus the closing full stop. No information should be returned for obvious cases.
-     *
-     * @param item the item that doesn't match this type
-     * @param th   the type hierarchy cache
-     * @return optionally, a message explaining why the item does not match the type
-     */
-    @Override
-    default Optional<String> explainMismatch(Item item, TypeHierarchy th) {
-        if (item.getGenre() == ATOMIC) {
-            String message = "This is a union type, and the supplied value "
-                    + Err.depict(item)
-                    + " of type "
-                    + ((AtomicValue) item).getItemType().getDescription()
-                    + " does not match any of its member types";
-            return Optional.of(message);
-        } else {
-            return Optional.empty();
-        }
-    }
 
-    default String getDescription() {
-        if (this instanceof SimpleType) {
-            return ((SimpleType)this).getDescription();
-        } else {
-            return toString();
-        }
-    }
+    String getDescription();
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -59,6 +59,10 @@ public class OperandRole {
             new OperandRole(0, OperandUsage.ABSORPTION,  SequenceType.SINGLE_ATOMIC);
     public final static OperandRole ATOMIC_SEQUENCE =
             new OperandRole(0, OperandUsage.ABSORPTION,  SequenceType.ATOMIC_SEQUENCE);
+    public final static OperandRole CONSTRAINED_SINGLE_ATOMIC =
+            new OperandRole(OperandRole.CONSTRAINED_CLASS, OperandUsage.ABSORPTION, SequenceType.SINGLE_ATOMIC);
+    public final static OperandRole CONSTRAINED_ATOMIC_SEQUENCE =
+            new OperandRole(OperandRole.CONSTRAINED_CLASS, OperandUsage.ABSORPTION, SequenceType.ATOMIC_SEQUENCE);
     public final static OperandRole NEW_FOCUS_ATOMIC =
             new OperandRole(OperandRole.USES_NEW_FOCUS | OperandRole.HIGHER_ORDER, OperandUsage.ABSORPTION, SequenceType.ATOMIC_SEQUENCE);
     public final static OperandRole PATTERN =
@@ -223,6 +227,10 @@ public class OperandRole {
     public OperandRole modifyProperty(int property, boolean on) {
         int newProp = on ? (properties | property) : (properties & ~property);
         return new OperandRole(newProp, usage, requiredType);
+    }
+
+    public OperandRole withUsage(OperandUsage usage) {
+        return new OperandRole(properties, usage, requiredType);
     }
 
     public int getProperties() {

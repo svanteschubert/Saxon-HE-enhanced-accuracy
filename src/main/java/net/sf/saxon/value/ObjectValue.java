@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -43,6 +43,7 @@ import java.util.Objects;
 public class ObjectValue<T> implements AnyExternalObject {
 
     /*@NotNull*/ private final T value;
+    private final Class<? extends T> theInterface;
 
     /**
      * Constructor
@@ -52,6 +53,16 @@ public class ObjectValue<T> implements AnyExternalObject {
 
     public ObjectValue(/*@NotNull*/ T object) {
         value = Objects.requireNonNull(object, "External object cannot wrap a Java null");
+        theInterface = null;
+    }
+
+    public ObjectValue(/*@NotNull*/ T object, Class<? extends T> theInterface) {
+        value = Objects.requireNonNull(object, "External object cannot wrap a Java null");
+        this.theInterface = Objects.requireNonNull(theInterface);
+    }
+
+    public Class<? extends T> getInterface() {
+        return theInterface;
     }
 
     /**
@@ -136,7 +147,7 @@ public class ObjectValue<T> implements AnyExternalObject {
      *
      * @return the Java object that this external object wraps
      */
-
+    
     public T getObject() {
         return value;
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,11 @@
 package net.sf.saxon.option.exslt;
 
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
+import net.sf.saxon.functions.hof.FilterFn;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.ZeroOrOne;
 import net.sf.saxon.trans.XPathException;
 
 /**
@@ -113,12 +112,10 @@ public abstract class Sets {
 
         // Filter ns1 to select nodes that come before this one
 
-        Expression filter = new IdentityComparison(
-                new ContextItemExpression(),
-                Token.PRECEDES,
-                Literal.makeLiteral(new ZeroOrOne<>(first)));
-
-        return new FilterIterator(ns1, filter, context);
+        final NodeInfo finalFirst = first;
+        return new FilterFn.PositionalFilterIterator(
+                ns1,
+                (it, pos) -> ((NodeInfo)it).compareOrder(finalFirst) < 0);
 
     }
 

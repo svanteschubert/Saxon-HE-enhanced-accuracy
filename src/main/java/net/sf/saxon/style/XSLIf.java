@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -114,6 +114,8 @@ public class XSLIf extends StyleElement {
     @Override
     public void validate(ComponentDeclaration decl) throws XPathException {
         test = typeCheck("test", test);
+        thenExp = typeCheck("then", thenExp);
+        elseExp = typeCheck("else", elseExp);
         if (thenExp != null && hasChildNodes()) {
             compileError("xsl:if element must be empty if @then is present", "XTSE0010");
         }

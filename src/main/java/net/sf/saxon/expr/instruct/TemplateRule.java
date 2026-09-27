@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,7 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.elab.PushEvaluator;
-import net.sf.saxon.expr.parser.RebindingMap;
+import net.sf.saxon.expr.parser.Optionality;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
@@ -55,7 +55,6 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
     protected PushEvaluator bodyEvaluator;
     protected Pattern matchPattern;
     private SequenceType requiredType;
-    private boolean declaredStreamable;
     private ItemType requiredContextItemType = AnyItemType.getInstance();
     private boolean absentFocus;
     private SlotManager stackFrameMap;
@@ -136,12 +135,12 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
      * Set the required context item type. Used when there is an xsl:context-item child element
      *
      * @param type        the required context item type
-     * @param absentFocus true if the context item is treated as absent even if supplied (use="absent")
+     * @param contextItemOptionality indicates if the context item is treated as absent even if supplied (use="absent")
      */
 
-    public void setContextItemRequirements(ItemType type, boolean absentFocus) {
+    public void setContextItemRequirements(ItemType type, Optionality contextItemOptionality) {
         requiredContextItemType = type;
-        this.absentFocus = absentFocus;
+        this.absentFocus = contextItemOptionality == Optionality.PROHIBITED;
     }
 
     public int getComponentKind() {
@@ -359,8 +358,8 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
     public TailCall applyLeavingTail(Outputter output, XPathContext context) throws XPathException {
         //initialize();
         TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
-        if (requiredContextItemType != AnyItemType.getInstance() &&
-                !requiredContextItemType.matches(context.getContextItem(), th)) {
+        if (requiredContextItemType != AnyItemType.INSTANCE &&
+                !requiredContextItemType.matches(context.getContextItem())) {
             RoleDiagnostic role = new RoleDiagnostic(
                     RoleDiagnostic.MISC, "context item for the template rule", 0);
             String message = role.composeErrorMessage(requiredContextItemType, context.getContextItem(), th);
@@ -424,9 +423,9 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
         return false;
     }
 
-    public void explainProperties(ExpressionPresenter presenter) throws XPathException {
-        if (getRequiredContextItemType() != AnyItemType.getInstance()) {
-            SequenceType st = SequenceType.makeSequenceType(getRequiredContextItemType(), StaticProperty.EXACTLY_ONE);
+    public void explainProperties(ExpressionPresenter presenter) {
+        if (getRequiredContextItemType() != AnyItemType.INSTANCE) {
+            SequenceType st = SequenceType.one(getRequiredContextItemType());
             presenter.emitAttribute("cxt", st.toAlphaCode());
         }
 
@@ -445,22 +444,22 @@ public class TemplateRule implements RuleTarget, Location, ExpressionOwner, Trac
         }
     }
 
-    protected void copyTo(TemplateRule tr) {
-        if (body != null) {
-            tr.body = body.copy(new RebindingMap());
-        }
-        if (matchPattern != null) {
-            tr.matchPattern = matchPattern.copy(new RebindingMap());
-        }
-        tr.requiredType = requiredType;
-        tr.declaredStreamable = declaredStreamable; // ? this can vary from one mode to another
-        tr.requiredContextItemType = requiredContextItemType;
-        tr.absentFocus = absentFocus;
-        tr.stackFrameMap = stackFrameMap;
-        tr.packageData = packageData;
-        tr.systemId = systemId;
-        tr.lineNumber = lineNumber;
-    }
+//    protected void copyTo(TemplateRule tr) {
+//        if (body != null) {
+//            tr.body = body.copy(new RebindingMap());
+//        }
+//        if (matchPattern != null) {
+//            tr.matchPattern = matchPattern.copy(new RebindingMap());
+//        }
+//        tr.requiredType = requiredType;
+//        tr.declaredStreamable = declaredStreamable; // ? this can vary from one mode to another
+//        tr.requiredContextItemType = requiredContextItemType;
+//        tr.absentFocus = absentFocus;
+//        tr.stackFrameMap = stackFrameMap;
+//        tr.packageData = packageData;
+//        tr.systemId = systemId;
+//        tr.lineNumber = lineNumber;
+//    }
 
     @Override
     public void setChildExpression(Expression expr) {

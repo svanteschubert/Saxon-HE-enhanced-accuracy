@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,7 +11,6 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.sort.DocumentOrderIterator;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
 import net.sf.saxon.lib.*;
@@ -110,11 +109,13 @@ public class DocumentFn extends SystemFunction implements Callable {
         SequenceIterator hrefSequence = arguments[0].iterate();
         String baseURI = null;
         if (numArgs == 2) {
-            // we can trust the type checking: it must be a node
             NodeInfo base = (NodeInfo) arguments[1].head();
-            baseURI = base.getBaseURI();
-            if (baseURI == null) {
-                throw new XPathException("The second argument to document() is a node with no base URI", "XTDE1162");
+            if (base != null) {
+                // empty sequence is allowed in 4.0; type checking prevents it if 4.0 not enabled
+                baseURI = base.getBaseURI();
+                if (baseURI == null) {
+                    throw new XPathException("The second argument to document() is a node with no base URI", "XTDE1162");
+                }
             }
         }
 
@@ -123,6 +124,10 @@ public class DocumentFn extends SystemFunction implements Callable {
         map.stylesheetURI = getStaticBaseUriString();
         map.packageData = getRetainedStaticContext().getPackageData();
         map.locator = location;
+        if (map.packageData instanceof StylesheetPackage) {
+            map.parseOptions = map.parseOptions.withSpaceStrippingRule(
+                    ((StylesheetPackage) map.packageData).getSpaceStrippingRule());
+        }
 
         ItemMappingIterator iter = new ItemMappingIterator(hrefSequence, map);
 
@@ -141,9 +146,11 @@ public class DocumentFn extends SystemFunction implements Callable {
         public Location locator;
         public PackageData packageData;
         public XPathContext context;
+        public ParseOptions parseOptions;
 
         public DocumentMappingFunction(XPathContext context) {
             this.context = context;
+            this.parseOptions = context.getConfiguration().getParseOptions();
         }
 
         @Override
@@ -156,14 +163,13 @@ public class DocumentFn extends SystemFunction implements Callable {
                     b = stylesheetURI;
                 }
             }
-            return makeDoc(item.getStringValue(), b, packageData, null, context, locator, false);
+            return makeDoc(item.getStringValue(), b, packageData, parseOptions, context, locator, false);
         }
     }
 
     /**
      * Supporting routine to load one external document given a URI (href) and a baseURI. This is used
      * in the normal case when a document is loaded at run-time (that is, when a Controller is available)
-     *
      *
      * @param href    the relative URI
      * @param baseURI the base URI
@@ -182,6 +188,9 @@ public class DocumentFn extends SystemFunction implements Callable {
             throws XPathException {
 
         Configuration config = c.getConfiguration();
+
+        // See if the call is required to be stable
+        boolean stable = options.isStable();
 
         // If the href contains a fragment identifier, strip it out now
         String[] parts = extractFragment(href);
@@ -204,41 +213,44 @@ public class DocumentFn extends SystemFunction implements Callable {
         }
 
         // Resolve relative URI
-        DocumentKey documentKey = computeDocumentKey(href, baseURI, packageData, c);
+        DocumentKey documentKey = computeDocumentKey(href, baseURI, packageData, options);
 
         // see if the document is already loaded
 
-        TreeInfo doc = config.getGlobalDocumentPool().find(documentKey);
-        if (doc != null) {
-            return doc.getRootNode();
-        }
-
+        TreeInfo doc = null;
         DocumentPool pool = controller.getDocumentPool();
 
-        //noinspection SynchronizationOnLocalVariableOrMethodParameter
-        synchronized (controller) {
-            doc = pool.find(documentKey);
+        if (stable) {
+            doc = config.getGlobalDocumentPool().find(documentKey);
             if (doc != null) {
-                return getFragment(doc, fragmentId, c, locator);
+                return doc.getRootNode();
             }
+            
+            //noinspection SynchronizationOnLocalVariableOrMethodParameter
+            synchronized(controller) {
+                doc = pool.find(documentKey);
+                if (doc != null) {
+                    return getFragment(doc, fragmentId, c, locator);
+                }
 
-            // check that the document was not written by this transformation
+                // check that the document was not written by this transformation
 
-            if (controller instanceof XsltController &&
-                    !((XsltController)controller).checkUniqueOutputDestination(documentKey)) {
-                pool.markUnavailable(documentKey);
-                throw new XPathException(
+                if (controller instanceof XsltController &&
+                        !((XsltController) controller).checkUniqueOutputDestination(documentKey)) {
+                    pool.markUnavailable(documentKey);
+                    throw new XPathException(
                             "Cannot read a document that was written during the same transformation: " + documentKey)
-                        .withXPathContext(c)
-                        .withErrorCode("XTRE1500")
-                        .withLocation(locator);
-            }
+                            .withXPathContext(c)
+                            .withErrorCode("XTRE1500")
+                            .withLocation(locator);
+                }
 
-            if (pool.isMarkedUnavailable(documentKey)) {
-                throw new XPathException("Document has been marked not available: " + documentKey)
-                        .withXPathContext(c)
-                        .withErrorCode("FODC0002")
-                    .withLocation(locator);
+                if (pool.isMarkedUnavailable(documentKey)) {
+                    throw new XPathException("Document has been marked not available: " + documentKey)
+                            .withXPathContext(c)
+                            .withErrorCode("FODC0002")
+                            .withLocation(locator);
+                }
             }
         }
 
@@ -248,12 +260,12 @@ public class DocumentFn extends SystemFunction implements Callable {
 
             Source source = resolveURI(href, baseURI, documentKey.toString(), c);
 
-            if (source == null || source instanceof EmptySource) {
+            if (source instanceof EmptySource) {
                 return null;
             }
 
             //System.err.println("URI resolver returned " + source.getClass() + " " + source.getSystemId());
-            source = config.getSourceResolver().resolveSource(source, config);
+            source = config.getSourceResolver().resolveSource(source, options, config);
             //System.err.println("Resolved source " + source.getClass() + " " + source.getSystemId());
 
             TreeInfo newdoc;
@@ -273,7 +285,7 @@ public class DocumentFn extends SystemFunction implements Callable {
                     options = b.getPipelineConfiguration().getParseOptions();
                     if (packageData instanceof StylesheetPackage) {
                         SpaceStrippingRule rule = ((StylesheetPackage)packageData).getSpaceStrippingRule();
-                        if (rule != NoElementsSpaceStrippingRule.getInstance()) {
+                        if (rule != NoElementsSpaceStrippingRule.INSTANCE) {
                             options = options.withSpaceStrippingRule(rule);
                         }
                     }
@@ -297,13 +309,6 @@ public class DocumentFn extends SystemFunction implements Callable {
                     s = config.getAnnotationStripper(s);
                 }
 
-                PathMap map = controller.getPathMapForDocumentProjection();
-                if (map != null) {
-                    PathMap.PathMapRoot pathRoot = map.getRootForDocument(documentKey.toString());
-                    if (pathRoot != null && !pathRoot.isReturnable() && !pathRoot.hasUnknownDependencies()) {
-                        options = options.withFilter(config.makeDocumentProjector(pathRoot));
-                    }
-                }
                 s.setPipelineConfiguration(b.getPipelineConfiguration());
                 try {
                     Sender.send(source, s, options);
@@ -326,14 +331,16 @@ public class DocumentFn extends SystemFunction implements Callable {
             // check on the document pool, and if this has happened, we discard the document
             // we have just built and use the one from the pool instead.
             //noinspection SynchronizationOnLocalVariableOrMethodParameter
-            synchronized (controller) {
-                doc = pool.find(documentKey);
-                if (doc != null) {
-                    return getFragment(doc, fragmentId, c, locator);
-                }
-                controller.registerDocument(newdoc, documentKey);
-                if (controller instanceof XsltController) {
-                    ((XsltController) controller).addUnavailableOutputDestination(documentKey);
+            if (stable) {
+                synchronized(controller) {
+                    doc = pool.find(documentKey);
+                    if (doc != null) {
+                        return getFragment(doc, fragmentId, c, locator);
+                    }
+                    controller.registerDocument(newdoc, documentKey);
+                    if (controller instanceof XsltController) {
+                        ((XsltController) controller).addUnavailableOutputDestination(documentKey);
+                    }
                 }
             }
             return getFragment(newdoc, fragmentId, c, locator);
@@ -411,14 +418,21 @@ public class DocumentFn extends SystemFunction implements Callable {
         request.nature = ResourceRequest.XML_NATURE;
         request.purpose = ResourceRequest.ANY_PURPOSE;
         try {
-            return request.resolve(resolver, config.getResourceResolver(), new DirectResourceResolver(config));
+            Source source = request.resolve(resolver, config.getResourceResolver(), new DirectResourceResolver(config));
+            if (source == null) {
+                throw new XPathException("Resource resolver failed to resolve `"
+                        + href + (baseURI == null || baseURI.isEmpty() ? "" : "` with base URI `" + baseURI) + "`");
+            }
+            return source;
         } catch (XPathException err) {
-            err.setErrorCode("FODC0005");
+            err.maybeSetErrorCode("FODC0005");
             err.maybeSetContext(context);
             throw err;
         } catch (Exception ex) {
-            XPathException de = new XPathException("Exception thrown by URIResolver resolving `"
-                                                           + href + "` against `" + baseURI + "'", ex);
+            XPathException de = new XPathException("Exception thrown by resource resolver resolving `"
+                                                           + href
+                                                           + (baseURI == null || baseURI.isEmpty() ? "" : "` with base URI `" + baseURI) + "`",
+                                                   ex);
             if (config.getBooleanProperty(Feature.TRACE_EXTERNAL_FUNCTIONS)) {
                 ex.printStackTrace();
             }
@@ -427,12 +441,14 @@ public class DocumentFn extends SystemFunction implements Callable {
     }
 
     /**
-     * Compute a document key
+     * Compute a document key for a stylesheet module
      */
 
-    protected static DocumentKey computeDocumentKey(String href, String baseURI, PackageData packageData, XPathContext c) throws XPathException {
-        return computeDocumentKey(href, baseURI, packageData, true);
+    public static DocumentKey computeStylesheetDocumentKey(String href, String baseURI, PackageData packageData) throws XPathException {
+        return computeDocumentKey(href, baseURI, packageData, stylesheetParseOptions);
     }
+
+    private final static ParseOptions stylesheetParseOptions = new ParseOptions();
 
     /**
      * Compute a document key (an absolute URI that can be used to see if a document is already loaded)
@@ -440,11 +456,11 @@ public class DocumentFn extends SystemFunction implements Callable {
      * @param baseURI  the base URI
      * @param packageData the package in which the call to doc() or document() appears (affects options
  *                    such as strip-space)
-     * @param strip true if the document is subject to whitespace stripping (typically a source document),
-     *              otherwise false
+     * @param options the parsing options
      */
     public static DocumentKey computeDocumentKey(
-            String href, String baseURI, PackageData packageData, boolean strip) {
+            String href, String baseURI, PackageData packageData, ParseOptions options) {
+
         String absURI;
 
         // Saxon takes charge of absolutization, leaving the user URIResolver to handle dereferencing only
@@ -468,11 +484,33 @@ public class DocumentFn extends SystemFunction implements Callable {
             }
         }
 
-        if (strip && packageData instanceof StylesheetPackage &&
-                ((StylesheetPackage) packageData).getSpaceStrippingRule() != NoElementsSpaceStrippingRule.getInstance()) {
-            String name = ((StylesheetPackage) packageData).getPackageName();
-            if (name != null) {
-                return new DocumentKey(absURI, name, ((StylesheetPackage) packageData).getPackageVersion());
+        if (options == stylesheetParseOptions) {
+            return new DocumentKey(absURI);
+        }
+
+        if (options.isXIncludeAware()) {
+            absURI = absURI + "?XI";
+        }
+
+        SpaceStrippingRule rule = options.getSpaceStrippingRule();
+        if (rule == null && packageData instanceof StylesheetPackage) {
+            rule = ((StylesheetPackage)packageData).getSpaceStrippingRule();
+        }
+
+        if (rule == AllElementsSpaceStrippingRule.INSTANCE) {
+            absURI = absURI + "?StripAll";
+        } else if (rule == NoElementsSpaceStrippingRule.INSTANCE) {
+            absURI = absURI + "?StripNone";
+        }
+
+        // TODO: reflect schema-validation options in document key
+
+        if (rule instanceof SelectedElementsSpaceStrippingRule && packageData instanceof StylesheetPackage) {
+            if (((StylesheetPackage) packageData).getSpaceStrippingRule() != NoElementsSpaceStrippingRule.INSTANCE) {
+                String name = ((StylesheetPackage) packageData).getPackageName();
+                if (name != null) {
+                    return new DocumentKey(absURI, name, ((StylesheetPackage) packageData).getPackageVersion());
+                }
             }
         }
         return new DocumentKey(absURI);
@@ -508,7 +546,11 @@ public class DocumentFn extends SystemFunction implements Callable {
             }
         }
 
-        DocumentKey documentKey = computeDocumentKey(href, baseURI, packageData, true);
+        ParseOptions options = config.getParseOptions()
+                .withSpaceStrippingRule(
+                        new StylesheetSpaceStrippingRule(
+                                packageData.getConfiguration().getNamePool()));
+        DocumentKey documentKey = computeDocumentKey(href, baseURI, packageData, options);
 
         // see if the document is already loaded
 
@@ -535,7 +577,6 @@ public class DocumentFn extends SystemFunction implements Callable {
             throw de;
         }
 
-        ParseOptions options = config.getParseOptions();
         if (params != null) {
             options = options.merge(params.makeParseOptions(config));
         }
@@ -584,7 +625,9 @@ public class DocumentFn extends SystemFunction implements Callable {
 
         // Resolve relative URI
 
-        DocumentKey documentKey = computeDocumentKey(href, baseURI, packageData, true);
+        ParseOptions options = new ParseOptions().withSpaceStrippingRule(new StylesheetSpaceStrippingRule(
+                packageData.getConfiguration().getNamePool()));
+        DocumentKey documentKey = computeDocumentKey(href, baseURI, packageData, options);
 
         Controller controller = context.getController();
         Configuration config = controller.getConfiguration();
@@ -592,7 +635,7 @@ public class DocumentFn extends SystemFunction implements Callable {
         // see if the document is already loaded
 
         TreeInfo doc = controller.getDocumentPool().find(documentKey);
-        Source source = null;
+        Source source;
         if (doc != null) {
             source = doc.getRootNode().asActiveSource();
         } else {

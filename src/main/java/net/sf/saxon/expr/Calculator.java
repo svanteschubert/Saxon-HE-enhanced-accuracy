@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,9 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.expr.parser.Token;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AtomicType;
@@ -43,11 +44,13 @@ public abstract class Calculator {
      * @return the corresponding token
      */
 
-    public static int getTokenFromOperator(int operator) {
+    public static OperatorSymbol getArithmeticOperatorSymbol(int operator) {
         return tokens[operator];
     }
 
-    private static final int[] tokens = new int[] {Token.PLUS, Token.MINUS, Token.MULT, Token.DIV, Token.MOD, Token.IDIV};
+    private static final OperatorSymbol[] tokens = new OperatorSymbol[] {
+            OperatorSymbol.PLUS, OperatorSymbol.MINUS,
+            OperatorSymbol.TIMES, OperatorSymbol.DIV, OperatorSymbol.MOD, OperatorSymbol.IDIV};
 
     /**
      * Get a short code to identify the calculator in expression export files
@@ -849,7 +852,7 @@ public abstract class Calculator {
             return BuiltInAtomicType.DECIMAL;
         }
     }
-
+    
     public static BigDecimalValue decimalDivide(NumericValue a, NumericValue b) throws XPathException {
         if (b.signum() == 0) {
             throw new XPathException("Decimal divide by zero", "FOAR0001");
@@ -1020,7 +1023,11 @@ public abstract class Calculator {
     private static class DateTimeMinusDateTime extends Calculator {
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
-            return ((CalendarValue) a).subtract((CalendarValue) b, c);
+            try {
+                return ((CalendarValue) a).subtract((CalendarValue) b, c);
+            } catch (NoDynamicContextException e) {
+                throw new XPathException(e);
+            }
         }
 
         @Override
@@ -1174,8 +1181,16 @@ public abstract class Calculator {
     private static class DurationDivNumeric extends Calculator {
         @Override
         public AtomicValue compute(AtomicValue a, AtomicValue b, XPathContext c) throws XPathException {
-            double d = 1.0 / ((NumericValue) b).getDoubleValue();
-            return ((DurationValue) a).multiply(d);
+            if (((NumericValue)b).signum() == 0) {
+                throw new XPathException("Duration cannot be divided by zero", "FOAR0001");
+            }
+            if (b instanceof DoubleValue || b instanceof FloatValue) {
+                double divisor = ((NumericValue) b).getDoubleValue();
+                return ((DurationValue) a).multiply(1.0 / divisor);
+            } else {
+                BigDecimal divisor = ((NumericValue) b).getDecimalValue();
+                return ((DurationValue) a).multiply(BigDecimal.ONE.divide(divisor, 20, RoundingMode.HALF_DOWN));
+            }
         }
 
         @Override

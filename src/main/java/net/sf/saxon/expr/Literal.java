@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,16 +12,22 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.elab.*;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.sort.SimpleTypeComparison;
 import net.sf.saxon.functions.hof.FunctionLiteral;
 import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.jnode.JNode;
+import net.sf.saxon.ma.jnode.RootJNode;
 import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTestPattern;
+import net.sf.saxon.pattern.ItemTypePattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.query.QueryResult;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.EmptyUnicodeString;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -123,6 +129,36 @@ public class Literal extends Expression {
         }
     }
 
+    /**
+     * Test whether the value is an instance of a supplied type
+     * @param req the required type
+     * @param th the type hierarchy cache
+     * @return true if the value is (strictly) an instance of the type, in the sense of the "instance of" operator
+     */
+    public boolean isInstance(SequenceType req, TypeHierarchy th) {
+        int requiredCardinality = req.getCardinality();
+        int count = value.getLength();
+        if (!Cardinality.allows(requiredCardinality, count)) {
+            return false;
+        }
+        ItemType requiredType = req.getPrimaryType();
+        if (requiredType == AnyItemType.getInstance()) {
+            return true;
+        }
+        if (value instanceof IntegerRange) {
+            return th.isSubType(BuiltInAtomicType.INTEGER, requiredType);
+        }
+        if (value instanceof Item it) {
+            return requiredType.matches(it);
+        }
+        for (Item item : value.asIterable()) {
+            if (!requiredType.matches(item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 
     /**
      * Get the static type of the expression as a UType, following precisely the type
@@ -153,7 +189,7 @@ public class Literal extends Expression {
     protected int computeCardinality() {
         if (value.getLength() == 0) {
             return StaticProperty.EMPTY;
-        } else if (value instanceof AtomicValue) {
+        } else if (value instanceof Item) {
             return StaticProperty.EXACTLY_ONE;
         }
         SequenceIterator iter = value.iterate();
@@ -200,33 +236,6 @@ public class Literal extends Expression {
     }
 
     /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     * unknown or not applicable.
-     */
-    /*@Nullable*/
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        if (value instanceof IntegerValue) {
-            return new IntegerValue[]{(IntegerValue) value, (IntegerValue) value};
-        } else if (value instanceof IntegerRange) {
-            return new IntegerValue[]{
-                    Int64Value.makeIntegerValue(((IntegerRange) value).getStart()),
-                    Int64Value.makeIntegerValue(((IntegerRange) value).getEnd())};
-        } else {
-            return null;
-        }
-    }
-
-    /**
      * Determine whether this is a vacuous expression as defined in the XQuery update specification
      *
      * @return true if this expression is vacuous
@@ -257,32 +266,18 @@ public class Literal extends Expression {
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath
      * @return the equivalent pattern
      * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
         if (isEmptySequence(this)) {
-            return new NodeTestPattern(ErrorType.getInstance());
+            return new ItemTypePattern(ErrorType.getInstance());
         } else {
-            return super.toPattern(config);
+            return super.toPattern(config, firstInPath);
         }
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the set of nodes within the path map
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     * expression is the first operand of a path expression or filter expression
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        return pathMapNodeSet;
     }
 
     /**
@@ -571,10 +566,20 @@ public class Literal extends Expression {
             out.startElement("map");
             out.emitAttribute("size", "" + ((MapItem) value).size());
             for (KeyValuePair kvp : ((MapItem) value).keyValuePairs()) {
-                exportAtomicValue(kvp.key, out);
-                exportValue(kvp.value, out);
+                exportAtomicValue(kvp.key(), out);
+                exportValue(kvp.value(), out);
             }
             out.endElement();
+        } else if (value instanceof JNode) {
+            if (value instanceof RootJNode root) {
+                out.startElement("jnodeRoot");
+                exportValue(root.getContent(), out);
+                out.endElement();
+            } else {
+                throw new XPathException(
+                        "Cannot export a stylesheet containing a non-root JNode literal",
+                        SaxonErrorCode.SXST0070);
+            }
         } else if (value instanceof FunctionItem) {
             ((FunctionItem) value).export(out);
         } else if (value instanceof AnyExternalObject) {
@@ -785,7 +790,7 @@ public class Literal extends Expression {
      */
 
     public static Literal makeEmptySequence() {
-        return new Literal(EmptySequence.getInstance());
+        return new Literal(EmptySequence.INSTANCE);
     }
 
 
@@ -798,8 +803,8 @@ public class Literal extends Expression {
 
     public static Literal makeLiteral(GroundedValue value) {
         value = value.reduce();
-        if (value instanceof StringValue) {
-            return new StringLiteral((StringValue) value);
+        if (value instanceof StringValue sv) {
+            return new StringLiteral(sv);
         } else if (value instanceof FunctionItem && !(value instanceof MapItem || value instanceof ArrayItem)) {
             return new FunctionLiteral((FunctionItem) value);
         } else {
@@ -877,15 +882,16 @@ public class Literal extends Expression {
         public PushEvaluator elaborateForPush() {
             Literal expr = (Literal)getExpression();
             GroundedValue value = ((Literal) getExpression()).getGroundedValue();
-            if (value instanceof Item) {
+            Location loc = expr.getLocation();
+            if (value instanceof Item it) {
                 return (out, context) -> {
-                    out.append((Item)value, expr.getLocation(), ReceiverOption.ALL_NAMESPACES);
+                    out.append(it, loc, ReceiverOption.ALL_NAMESPACES);
                     return null;
                 };
             } else {
                 return (out, context) -> {
                     for (Item item : value.asIterable()) {
-                         out.append(item, expr.getLocation(), ReceiverOption.ALL_NAMESPACES);
+                         out.append(item, loc, ReceiverOption.ALL_NAMESPACES);
                     }
                     return null;
                 };

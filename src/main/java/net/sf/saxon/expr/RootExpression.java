@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,24 +7,29 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.ItemElaborator;
-import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.*;
-import net.sf.saxon.om.AxisInfo;
+import net.sf.saxon.ma.jnode.AnyJNodeType;
+import net.sf.saxon.ma.jnode.JNode;
+import net.sf.saxon.ma.jnode.RootJNodeType;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTestPattern;
+import net.sf.saxon.pattern.ItemTypePattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
+import net.sf.saxon.value.SequenceType;
 
 
 /**
@@ -38,6 +43,7 @@ public class RootExpression extends Expression {
 
     private boolean contextMaybeUndefined = true;
     private boolean doneWarnings = false;
+    private ItemType itemType = null;
 
     public RootExpression() {
     }
@@ -54,25 +60,31 @@ public class RootExpression extends Expression {
             throw new XPathException(noContextMessage() + ": the context item is absent")
                     .withErrorCode("XPDY0002").asTypeError().withLocation(getLocation());
         } else if (!doneWarnings && contextInfo.isParentless()
-                && th.relationship(contextInfo.getItemType(),NodeKindTest.DOCUMENT) == Affinity.DISJOINT) {
+                && th.relationship(contextInfo.getItemType(), NodeKindType.DOCUMENT) == Affinity.DISJOINT) {
+            // Note that isParentless() can only be true when we are processing XNode trees
             visitor.issueWarning(noContextMessage() + ": the context item is parentless and is not a document node", SaxonErrorCode.SXWN9026, getLocation());
             doneWarnings = true;
         }
-        contextMaybeUndefined = contextInfo.isPossiblyAbsent();
-        if (th.isSubType(contextInfo.getItemType(), NodeKindTest.DOCUMENT)) {
-            // this rewrite is important for streamability analysis
-            ContextItemExpression cie = new ContextItemExpression();
-            ExpressionTool.copyLocationInfo(this, cie);
-            cie.setStaticInfo(contextInfo);
-            return cie;
-        }
-
-        Affinity relation = th.relationship(contextInfo.getItemType(), AnyNodeTest.getInstance());
-        if (relation == Affinity.DISJOINT) {
-            throw new XPathException(noContextMessage() + ": the context item is not a node")
-                    .withErrorCode("XPTY0020")
-                    .asTypeError()
-                    .withLocation(getLocation());
+        contextMaybeUndefined = contextInfo.getOptionality() != Optionality.REQUIRED;
+        if (th.isSubType(contextInfo.getItemType(), AnyXNodeType.getInstance())) {
+            itemType = NodeKindType.DOCUMENT;
+            if (th.isSubType(contextInfo.getItemType(), NodeKindType.DOCUMENT)) {
+                // this rewrite is important for streamability analysis
+                ContextItemExpression cie = new ContextItemExpression();
+                ExpressionTool.copyLocationInfo(this, cie);
+                cie.setStaticInfo(contextInfo);
+                return cie;
+            }
+        } else if (th.isSubType(contextInfo.getItemType(), AnyJNodeType.getInstance())) {
+            itemType = new RootJNodeType(SequenceType.ANY_SEQUENCE);
+        } else {
+            Affinity relation = th.relationship(contextInfo.getItemType(), AnyGNodeType.getInstance());
+            if (relation == Affinity.DISJOINT) {
+                throw new XPathException(noContextMessage() + ": the context item is not a node")
+                        .withErrorCode("XPTY0020")
+                        .asTypeError()
+                        .withLocation(getLocation());
+            }
         }
         return this;
     }
@@ -153,7 +165,11 @@ public class RootExpression extends Expression {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return NodeKindTest.DOCUMENT;
+        if (itemType == null) {
+            return ChoiceItemType.of(new RootJNodeType(SequenceType.ANY_SEQUENCE), NodeKindType.DOCUMENT);
+        } else {
+            return itemType;
+        }
     }
 
 
@@ -165,7 +181,17 @@ public class RootExpression extends Expression {
      */
     @Override
     public UType getStaticUType(UType contextItemType) {
-        return UType.DOCUMENT;
+        boolean maybeX = contextItemType.overlaps(UType.XNODE);
+        boolean maybeJ = contextItemType.overlaps(UType.JNODE);
+        if (maybeX && maybeJ) {
+            return UType.DOCUMENT.union(UType.JNODE);
+        } else if (maybeX) {
+            return UType.DOCUMENT;
+        } else if (maybeJ) {
+            return UType.JNODE;
+        } else {
+            return UType.VOID;
+        }
     }
 
 
@@ -202,7 +228,7 @@ public class RootExpression extends Expression {
      */
 
     /*@Nullable*/
-    public NodeInfo getNode(XPathContext context) throws XPathException {
+    public GNode getNode(XPathContext context) throws XPathException {
         Item current = context.getContextItem();
         if (current == null) {
             dynamicError("Finding root of tree: the context item is absent", "XPDY0002", context);
@@ -213,6 +239,8 @@ public class RootExpression extends Expression {
                 dynamicError("The root of the tree containing the context item is not a document node", "XPDY0050", context);
             }
             return doc;
+        } else if (current instanceof JNode) {
+            return ((JNode) current).getRoot();
         }
         typeError("Finding root of tree: the context item is not a node", "XPTY0020", context);
         // dummy return; we never get here
@@ -248,32 +276,14 @@ public class RootExpression extends Expression {
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath
      * @return the equivalent pattern
-     * @throws net.sf.saxon.trans.XPathException
-     *          if conversion is not possible
+     * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
-        return new NodeTestPattern(NodeKindTest.DOCUMENT);
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     *
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     *         expression is the first operand of a path expression or filter expression
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        if (pathMapNodeSet == null) {
-            ContextItemExpression cie = new ContextItemExpression();
-            ExpressionTool.copyLocationInfo(this, cie);
-            pathMapNodeSet = new PathMap.PathMapNodeSet(pathMap.makeNewRoot(cie));
-        }
-        return pathMapNodeSet.createArc(AxisInfo.ANCESTOR_OR_SELF, NodeKindTest.DOCUMENT);
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
+        return new ItemTypePattern(NodeKindType.DOCUMENT);
     }
 
     /**
@@ -316,7 +326,7 @@ public class RootExpression extends Expression {
     }
 
     @Override
-    public NodeInfo evaluateItem(XPathContext context) throws XPathException {
+    public GNode evaluateItem(XPathContext context) throws XPathException {
         return getNode(context);
     }
 

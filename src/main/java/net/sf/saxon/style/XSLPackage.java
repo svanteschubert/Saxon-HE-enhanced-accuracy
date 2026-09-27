@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,6 +26,7 @@ public class XSLPackage extends XSLModuleRoot {
     private PackageVersion packageVersion = null;
     private boolean declaredModes = true;
     private boolean prepared = false;
+
 
     /**
      * Initialise a new ElementImpl with an element name
@@ -110,7 +111,8 @@ public class XSLPackage extends XSLModuleRoot {
 
             } else if (lexicalName.equals("declared-modes") && getLocalPart().equals("package")) {
                 declaredModes = processBooleanAttribute("declared-modes", value);
-
+            } else if (lexicalName.equals("fixed-namespaces")) {
+                requireXslt40Attribute("fixed-namespaces"); // Value already processed in use-when filter
             } else if (lexicalName.equals("input-type-annotations")) {
                 inputTypeAnnotationsAtt = value;
             } else {

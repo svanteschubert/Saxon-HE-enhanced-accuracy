@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,10 +18,10 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 /**
- * The class XdmItem represents an item in a sequence, as defined by the XDM data model.
+ * The class {@code XdmItem} represents an item in a sequence, as defined by the XDM data model.
  * An item may be an atomic value, a node, a function item (including maps and arrays), or an external object.
  * <p>An item is a member of a sequence, but it can also be considered as a sequence
- * (of length one) in its own right. <code>XdmItem</code> is a subtype of <code>XdmValue</code> because every
+ * (of length one) in its own right. <code>XdmItem</code> is a subtype of {@link XdmValue} because every
  * Item in the XDM data model is also a value.</p>
  * <p>It cannot be assumed that every sequence of length one will be represented by
  * an <code>XdmItem</code>. It is quite possible for an <code>XdmValue</code> that is not an <code>XdmItem</code> to hold
@@ -36,9 +36,10 @@ public abstract class XdmItem extends XdmValue {
 
 
     /**
-     * Construct an XdmItem as a wrapper around an existing Saxon Item object
+     * Construct an {@code XdmItem} as a wrapper around an internal Saxon {@link Item} object.
+     * This is intended mainly for system use.
      *
-     * @param item the Item object to be wrapped. This can be retrieved using the
+     * @param item the {@link Item} object to be wrapped. This can be retrieved using the
      *             {@link #getUnderlyingValue} method.
      * @throws NullPointerException if item is null
      * @since 9.5 (previously a protected constructor)
@@ -86,10 +87,15 @@ public abstract class XdmItem extends XdmValue {
      * returns an XML serialization of the node.</p>
      *
      * @return the result of converting the item to a string.
+     * @throws IllegalStateException if the item is one that has no string value, for example a map
      */
 
     public String getStringValue() {
-        return getUnderlyingValue().getStringValue();
+        try {
+            return getUnderlyingValue().getStringValue();
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage());
+        }
     }
 
     /**
@@ -101,10 +107,15 @@ public abstract class XdmItem extends XdmValue {
      * but represented as an instance of {@link UnicodeString}.</p>
      *
      * @return the result of converting the item to a string.
+     * @throws IllegalStateException if the item is one that has no string value, for example a map
      */
 
     public UnicodeString getUnicodeStringValue() {
-        return getUnderlyingValue().getUnicodeStringValue();
+        try {
+            return getUnderlyingValue().getUnicodeStringValue();
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage());
+        }
     }
 
     /**

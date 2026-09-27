@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,10 +11,11 @@ import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
+import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.serialize.charcode.CharacterSet;
-import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.Latin1;
 import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
@@ -36,6 +37,8 @@ public class CDATAFilter extends ProxyReceiver {
     private final Stack<NodeName> stack = new Stack<>();
     private Set<NodeName> nameList;             // names of cdata elements
     private CharacterSet characterSet;
+    private boolean conditional = false;
+
 
     /**
      * Create a CDATA Filter
@@ -59,6 +62,7 @@ public class CDATAFilter extends ProxyReceiver {
             throws XPathException {
         getCdataElements(details);
         characterSet = getConfiguration().getCharacterSetFactory().getCharacterSet(details);
+        conditional = "yes".equals(details.getProperty(SaxonOutputKeys.CONDITIONAL_CDATA));
     }
 
     /**
@@ -143,13 +147,21 @@ public class CDATAFilter extends ProxyReceiver {
             cdata = isCDATA(top);
         }
 
+        UnicodeString content = buffer.toUnicodeString();
+
+        // Saxon serialization property conditional-cdata - don't output CDATA tags unless
+        // there are special characters
+        if (cdata && conditional && content.indexOf('<') < 0 && content.indexOf('&') < 0) {
+            cdata = false;
+        }
+
         if (cdata) {
 
             // If we're doing Unicode normalization, we need to do this before CDATA processing.
             // In this situation the normalizer will be the next thing in the serialization pipeline.
 
             if (getNextReceiver() instanceof UnicodeNormalizer) {
-                UnicodeString normal = ((UnicodeNormalizer) getNextReceiver()).normalize(buffer.toUnicodeString(), true);
+                UnicodeString normal = ((UnicodeNormalizer) getNextReceiver()).normalize(content, true);
                 buffer = new UnicodeBuilder();
                 buffer.accept(normal);
                 end = (int)buffer.length();
@@ -193,7 +205,7 @@ public class CDATAFilter extends ProxyReceiver {
             flushCDATA(bufferContent.substring(start, end));
 
         } else {
-            nextReceiver.characters(buffer.toUnicodeString(), Loc.NONE, ReceiverOption.NONE);
+            nextReceiver.characters(content, Loc.NONE, ReceiverOption.NONE);
         }
 
         buffer.clear();
@@ -202,7 +214,7 @@ public class CDATAFilter extends ProxyReceiver {
 
     /**
      * Output an array as a CDATA section. At this stage we have checked that all the characters
-     * are OK, but we haven't checked that there is no "]]>" sequence in the data
+     * are OK, but we haven't checked that there is no "]]&gt;" sequence in the data
      *
      * @param data the data to be output
      */
@@ -216,7 +228,7 @@ public class CDATAFilter extends ProxyReceiver {
         final int chprop =
                 ReceiverOption.DISABLE_ESCAPING | ReceiverOption.DISABLE_CHARACTER_MAPS;
         final Location loc = Loc.NONE;
-        nextReceiver.characters(BMPString.of("<![CDATA["), loc, chprop);
+        nextReceiver.characters(CDATA_OPEN, loc, chprop);
 
         // Check that the character data doesn't include the substring "]]>"
         // Also get rid of any zero bytes inserted by character map expansion
@@ -226,7 +238,7 @@ public class CDATAFilter extends ProxyReceiver {
         while (i < len - 2) {
             if (data.codePointAt(i) == ']' && data.codePointAt(i + 1) == ']' && data.codePointAt(i+2) == '>') {
                 nextReceiver.characters(data.substring(doneto, i + 2), loc, chprop);
-                nextReceiver.characters(BMPString.of("]]><![CDATA["), loc, chprop);
+                nextReceiver.characters(CDATA_CLOSE_AND_REOPEN, loc, chprop);
                 doneto = i + 2;
             } else if (data.codePointAt(i) == 0) {
                 nextReceiver.characters(data.substring(doneto, i), loc, chprop);
@@ -235,8 +247,12 @@ public class CDATAFilter extends ProxyReceiver {
             i++;
         }
         nextReceiver.characters(data.substring(doneto, len), loc, chprop);
-        nextReceiver.characters(BMPString.of("]]>"), loc, chprop);
+        nextReceiver.characters(CDATA_CLOSE, loc, chprop);
     }
+
+    public static final UnicodeString CDATA_OPEN = Latin1.of("<![CDATA[");
+    public static final UnicodeString CDATA_CLOSE = Latin1.of("]]>");
+    public static final UnicodeString CDATA_CLOSE_AND_REOPEN = Latin1.of("]]><![CDATA[");
 
 
     /**

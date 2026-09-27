@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,25 +11,26 @@ import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.iter.SingleAtomicIterator;
-import net.sf.saxon.type.*;
+import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.PlainType;
+import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Collections;
 
 /**
- * A key and a corresponding value to be held in a Map. A key-value pair also acts as a singleton
- * map in its own right.
+ * A map comprising a single key-value pair.
  */
 
 public class SingleEntryMap extends MapItem {
-    public AtomicValue key;
-    public GroundedValue value;
+    private final AtomicValue key;
+    private final GroundedValue value;
 
-    public SingleEntryMap(AtomicValue key, GroundedValue value) {
+    public SingleEntryMap(AtomicValue key, GroundedValue value, int specVersion) {
         this.key = key;
         this.value = value;
+        setSpecVersion(specVersion);
     }
 
     /**
@@ -59,7 +60,8 @@ public class SingleEntryMap extends MapItem {
      */
     @Override
     public GroundedValue get(AtomicValue key) {
-        return this.key.asMapKey().equals(key.asMapKey()) ? value : null;
+        int vn = getSpecVersion();
+        return this.key.asMapKey(vn).equals(key.asMapKey(vn)) ? value : null;
     }
 
     /**
@@ -99,9 +101,7 @@ public class SingleEntryMap extends MapItem {
      */
     @Override
     public Iterable<KeyValuePair> keyValuePairs() {
-        List<KeyValuePair> list = new ArrayList<>(1);
-        list.add(new KeyValuePair(key, value));
-        return list;
+        return Collections.singleton(new KeyValuePair(key, value));
     }
 
     /**
@@ -114,8 +114,12 @@ public class SingleEntryMap extends MapItem {
      * @return the new map containing the additional entry
      */
     @Override
-    public MapItem addEntry(AtomicValue key, GroundedValue value) {
-        return toHashTrieMap().addEntry(key, value);
+    public MapItem put(AtomicValue key, GroundedValue value) {
+        int vn = getSpecVersion();
+        if (this.key.asMapKey(vn).equals(key.asMapKey(vn))) {
+            return new SingleEntryMap(key, value, vn);
+        }
+        return toGeneralMap().put(key, value);
     }
 
     /**
@@ -130,7 +134,7 @@ public class SingleEntryMap extends MapItem {
         if (get(key) == null) {
             return this;
         } else {
-            return new HashTrieMap();
+            return EmptyMap.getInstance(getSpecVersion());
         }
     }
 
@@ -139,12 +143,11 @@ public class SingleEntryMap extends MapItem {
      *
      * @param keyType   the required keyType
      * @param valueType the required valueType
-     * @param th        the type hierarchy cache for the configuration
      * @return true if the map conforms to the required type
      */
     @Override
-    public boolean conforms(PlainType keyType, SequenceType valueType, TypeHierarchy th) {
-        return keyType.matches(key, th) && valueType.matches(value, th);
+    public boolean conforms(PlainType keyType, SequenceType valueType) {
+        return keyType.matches(key) && valueType.matches(value);
     }
 
     /**
@@ -162,25 +165,16 @@ public class SingleEntryMap extends MapItem {
     }
 
     /**
-     * Get the lowest common item type of the keys in the map
-     *
-     * @return the most specific type to which all the keys belong. If the map is
-     * empty, return UType.VOID
+     * Convert to a HashTrieMap (typically when adding further entries)
      */
-    @Override
-    public UType getKeyUType() {
-        return key.getUType();
+
+    private MapItem toGeneralMap() {
+        return ExtensibleMap.copyOf(this);
     }
 
-    /**
-     * Convert to a HashTrieMap
-     */
-
-    private HashTrieMap toHashTrieMap() {
-        HashTrieMap target = new HashTrieMap();
-        target.initialPut(key, value);
-        return target;
+    public String toString() {
+        return "{" + key.toString() + ": " + value.toString() + "}";
     }
 }
 
-// Copyright (c) 2010-2023 Saxonica Limited
+// Copyright (c) 2010-2026 Saxonica Limited

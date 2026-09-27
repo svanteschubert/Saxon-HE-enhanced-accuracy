@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -157,6 +157,9 @@ public class ResourceLoader {
         InputStream inputStream = null;
         if (config != null && url.startsWith("classpath:")) {
             inputStream = ResourceLoader.urlStream(config, url);
+            if (inputStream == null) {
+                throw new FileNotFoundException(url);
+            }
         } else {
             conn = ResourceLoader.urlConnection(new URL(url));
             inputStream = conn.getInputStream();
@@ -194,7 +197,7 @@ public class ResourceLoader {
 
         assert resourceEncoding != null;
 
-        return getReaderFromStream(inputStream, resourceEncoding);
+        return getReaderFromStream(inputStream, resourceEncoding, false);
     }
 
     /**
@@ -206,15 +209,20 @@ public class ResourceLoader {
      * @throws UnsupportedEncodingException if there's a problem with the encoding
      */
 
-    public static BufferedReader getReaderFromStream(InputStream inputStream, String resourceEncoding) throws UnsupportedEncodingException {
+    public static BufferedReader getReaderFromStream(InputStream inputStream, String resourceEncoding, boolean fallback) throws UnsupportedEncodingException {
         try {
             Objects.requireNonNull(inputStream);
             Objects.requireNonNull(resourceEncoding);
             Charset charset2 = Charset.forName(resourceEncoding);
             // ensure that encoding errors are not recovered
-            CharsetDecoder decoder = charset2.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT);
+            CharsetDecoder decoder = charset2.newDecoder();
+            if (fallback) {
+                decoder.onMalformedInput(CodingErrorAction.REPLACE);
+                decoder.onUnmappableCharacter(CodingErrorAction.REPLACE);
+            } else {
+                decoder.onMalformedInput(CodingErrorAction.REPORT);
+                decoder.onUnmappableCharacter(CodingErrorAction.REPORT);
+            }
             return new BufferedReader(new InputStreamReader(inputStream, decoder));
         } catch (Exception e) {
             throw new UnsupportedEncodingException("Unable to get reader with encoding: " + resourceEncoding);

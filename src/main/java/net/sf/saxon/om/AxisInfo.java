@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,8 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.transpile.CSharpUsing;
 import net.sf.saxon.type.PrimitiveUType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.UType;
@@ -19,6 +21,7 @@ import java.util.Set;
  * An axis, that is a direction of navigation in the document structure.
  */
 
+@CSharpUsing(code = "Saxon.Hej.type")
 public final class AxisInfo {
 
     /**
@@ -75,13 +78,37 @@ public final class AxisInfo {
      */
     public static final int SELF = 12;
 
+    /**
+     * Constant representing the following-or-self axis introduced in 4.0
+     */
+
+    public static final int FOLLOWING_OR_SELF = 13;
+
+    /**
+     * Constant representing the following-sibling-or-self axis introduced in 4.0
+     */
+
+    public static final int FOLLOWING_SIBLING_OR_SELF = 14;
+
+    /**
+     * Constant representing the preceding-or-self axis introduced in 4.0
+     */
+
+    public static final int PRECEDING_OR_SELF = 15;
+
+    /**
+     * Constant representing the preceding-sibling-or-self axis introduced in 4.0
+     */
+
+    public static final int PRECEDING_SIBLING_OR_SELF = 16;
+
     // preceding-or-ancestor axis gives all preceding nodes including ancestors,
     // in reverse document order
 
     /**
      * Constant representing the preceding-or-ancestor axis. This axis is used internally by the xsl:number implementation, it returns the union of the preceding axis and the ancestor axis.
      */
-    public static final int PRECEDING_OR_ANCESTOR = 13;
+    public static final int PRECEDING_OR_ANCESTOR = 17;
 
     /**
      * Table indicating the principal node type of each axis
@@ -102,6 +129,10 @@ public final class AxisInfo {
                     Type.ELEMENT,       // PRECEDING;
                     Type.ELEMENT,       // PRECEDING_SIBLING;
                     Type.ELEMENT,       // SELF;
+                    Type.ELEMENT,       // FOLLOWING_OR_SELF;
+                    Type.ELEMENT,       // FOLLOWING_SIBLING_OR_SELF;
+                    Type.ELEMENT,       // PRECEDING_OR_SELF;
+                    Type.ELEMENT,       // PRECEDING_SIBLING_OR_SELF;
                     Type.ELEMENT,       // PRECEDING_OR_ANCESTOR;
             };
 
@@ -120,6 +151,10 @@ public final class AxisInfo {
                     UType.ELEMENT,       // PRECEDING;
                     UType.ELEMENT,       // PRECEDING_SIBLING;
                     UType.ELEMENT,       // SELF;
+                    UType.ELEMENT,       // FOLLOWING_OR_SELF;
+                    UType.ELEMENT,       // FOLLOWING_SIBLING_OR_SELF;
+                    UType.ELEMENT,       // PRECEDING_OR_SELF;
+                    UType.ELEMENT,       // PRECEDING_SIBLING_OR_SELF;
                     UType.ELEMENT,       // PRECEDING_OR_ANCESTOR;
             };
 
@@ -142,6 +177,10 @@ public final class AxisInfo {
                     false,          // PRECEDING;
                     false,          // PRECEDING_SIBLING;
                     true,           // SELF;
+                    true,           // FOLLOWING_OR_SELF;
+                    true,           // FOLLOWING_SIBLING_OR_SELF;
+                    false,          // PRECEDING_OR_SELF;
+                    false,          // PRECEDING_SIBLING_OR_SELF;
                     false,          // PRECEDING_OR_ANCESTOR;
             };
 
@@ -165,6 +204,10 @@ public final class AxisInfo {
                     false,          // PRECEDING;
                     true,           // PRECEDING_SIBLING;
                     true,           // SELF;
+                    false,          // FOLLOWING_OR_SELF;
+                    true,           // FOLLOWING_SIBLING_OR_SELF;
+                    false,          // PRECEDING_OR_SELF;
+                    true,           // PRECEDING_SIBLING_OR_SELF;
                     false,          // PRECEDING_OR_ANCESTOR;
             };
 
@@ -188,6 +231,10 @@ public final class AxisInfo {
                     false,          // PRECEDING;
                     false,          // PRECEDING_SIBLING;
                     true,           // SELF;
+                    false,          // FOLLOWING_OR_SELF;
+                    false,          // FOLLOWING_SIBLING_OR_SELF;
+                    false,          // PRECEDING_OR_SELF;
+                    false,          // PRECEDING_SIBLING_OR_SELF;
                     false,          // PRECEDING_OR_ANCESTOR;
             };
 
@@ -197,20 +244,24 @@ public final class AxisInfo {
 
     public static final String[] axisName =
             {
-                    "ancestor",             // ANCESTOR
-                    "ancestor-or-self",     // ANCESTOR_OR_SELF;
-                    "attribute",            // ATTRIBUTE;
-                    "child",                // CHILD;
-                    "descendant",           // DESCENDANT;
-                    "descendant-or-self",   // DESCENDANT_OR_SELF;
-                    "following",            // FOLLOWING;
-                    "following-sibling",    // FOLLOWING_SIBLING;
-                    "namespace",            // NAMESPACE;
-                    "parent",               // PARENT;
-                    "preceding",            // PRECEDING;
-                    "preceding-sibling",    // PRECEDING_SIBLING;
-                    "self",                 // SELF;
-                    "preceding-or-ancestor",// PRECEDING_OR_ANCESTOR;
+                    "ancestor",                 // ANCESTOR
+                    "ancestor-or-self",         // ANCESTOR_OR_SELF;
+                    "attribute",                // ATTRIBUTE;
+                    "child",                    // CHILD;
+                    "descendant",               // DESCENDANT;
+                    "descendant-or-self",       // DESCENDANT_OR_SELF;
+                    "following",                // FOLLOWING;
+                    "following-sibling",        // FOLLOWING_SIBLING;
+                    "namespace",                // NAMESPACE;
+                    "parent",                   // PARENT;
+                    "preceding",                // PRECEDING;
+                    "preceding-sibling",        // PRECEDING_SIBLING;
+                    "self",                     // SELF;
+                    "following-or-self",        // FOLLOWING_OR_SELF;
+                    "following-sibling-or-self",// FOLLOWING_SIBLING_OR_SELF;
+                    "preceding-or-self",        // PRECEDING_OR_SELF;
+                    "preceding-sibling-or-self",// PRECEDING_SIBLING_OR_SELF;
+                    "preceding-or-ancestor",    // PRECEDING_OR_ANCESTOR;
             };
 
     /**
@@ -244,21 +295,29 @@ public final class AxisInfo {
                 return DESCENDANT_OR_SELF;
             case "following":
                 return FOLLOWING;
+            case "following-or-self":
+                return FOLLOWING_OR_SELF;
             case "following-sibling":
                 return FOLLOWING_SIBLING;
+            case "following-sibling-or-self":
+                return FOLLOWING_SIBLING_OR_SELF;
             case "namespace":
                 return NAMESPACE;
             case "parent":
                 return PARENT;
             case "preceding":
                 return PRECEDING;
+            case "preceding-or-self":
+                return PRECEDING_OR_SELF;
             case "preceding-sibling":
                 return PRECEDING_SIBLING;
+            case "preceding-sibling-or-self":
+                return PRECEDING_SIBLING_OR_SELF;
             case "self":
                 return SELF;
-            case "preceding-or-ancestor":
-                return PRECEDING_OR_ANCESTOR;
-                // preceding-or-ancestor cannot be used in an XPath expression
+//            case "preceding-or-ancestor":
+//                return PRECEDING_OR_ANCESTOR;
+//                // preceding-or-ancestor cannot be used in an XPath expression
             default:
                 throw new XPathException("Unknown axis name: " + name);
         }
@@ -292,6 +351,11 @@ public final class AxisInfo {
             DOC,                                // PRECEDING;
             DOC | ATT | NAM,                    // PRECEDING_SIBLING;
             0,                                  // SELF;
+            0,                                  // FOLLOWING_OR_SELF;
+            0,                                  // FOLLOWING_SIBLING_OR_SELF;
+            0,                                  // PRECEDING_OR_SELF;
+            0,                                  // PRECEDING_SIBLING_OR_SELF;
+            0                                   // PRECEDING_OR_ANCESTOR;
     };
 
     /**
@@ -326,6 +390,10 @@ public final class AxisInfo {
             ELE | TEX | PIN | COM,                     // PRECEDING;
             ELE | TEX | PIN | COM,                     // PRECEDING_SIBLING;
             DOC | ELE | ATT | TEX | PIN | COM | NAM,   // SELF;
+            DOC | ELE | ATT | TEX | PIN | COM | NAM,   // FOLLOWING_OR_SELF;
+            DOC | ELE | ATT | TEX | PIN | COM | NAM,   // FOLLOWING_SIBLING_OR_SELF;
+            DOC | ELE | ATT | TEX | PIN | COM | NAM,   // PRECEDING_OR_SELF;
+            DOC | ELE | ATT | TEX | PIN | COM | NAM,   // PRECEDING_SIBLING_OR_SELF;
     };
 
     /**
@@ -338,7 +406,10 @@ public final class AxisInfo {
      */
 
     public static boolean containsNodeKind(int axis, int nodeKind) {
-        return nodeKind == Type.NODE || (nodeKindTable[axis] & (1 << nodeKind)) != 0;
+        return nodeKind == Type.XNODE
+                || nodeKind == Type.GNODE
+                || nodeKind == Type.ITEM
+                || (nodeKindTable[axis] & (1 << nodeKind)) != 0;
     }
 
     /**
@@ -360,7 +431,11 @@ public final class AxisInfo {
             CHILD,                  //        PARENT;
             FOLLOWING,              //        PRECEDING;
             FOLLOWING_SIBLING,      //        PRECEDING_SIBLING;
-            SELF                    //        SELF;
+            SELF,                   //        SELF;
+            PRECEDING_OR_SELF,      //        FOLLOWING_OR_SELF;
+            PRECEDING_SIBLING_OR_SELF,     // FOLLOWING_SIBLING_OR_SELF;
+            FOLLOWING_OR_SELF,     //         PRECEDING_OR_SELF;
+            FOLLOWING_SIBLING_OR_SELF,    //  PRECEDING_SIBLING_OR_SELF;
     };
 
     /**
@@ -381,7 +456,11 @@ public final class AxisInfo {
             PARENT,                //        PARENT;
             PRECEDING,             //        PRECEDING;
             PRECEDING_SIBLING,     //        PRECEDING_SIBLING;
-            SELF                   //        SELF;
+            SELF,                  //        SELF;
+            FOLLOWING,             //        FOLLOWING_OR_SELF;
+            FOLLOWING_SIBLING,     //        FOLLOWING_SIBLING_OR_SELF;
+            PRECEDING,             //        PRECEDING_OR_SELF;
+            PRECEDING_SIBLING      //        PRECEDING_SIBLING_OR_SELF;
     };
 
 
@@ -391,6 +470,7 @@ public final class AxisInfo {
         axisTransitions.put(makeKey(origin, axis), target);
     }
 
+    @CSharpReplaceBody(code=" return (((int)origin) << 16) | axis;")
     private static int makeKey(PrimitiveUType origin, int axis) {
         return origin.getBit()<<16 | axis;
     }
@@ -404,13 +484,19 @@ public final class AxisInfo {
 
     public static UType getTargetUType(UType origin, int axis) {
         UType resultType = UType.VOID;
-        Set<PrimitiveUType> origins = origin.intersection(UType.ANY_NODE).decompose();
+        if (origin == UType.JNODE) {
+            return UType.JNODE;
+        }
+        Set<PrimitiveUType> origins = origin.intersection(UType.XNODE).decompose();
         for (PrimitiveUType u : origins) {
             UType r = axisTransitions.get(makeKey(u, axis));
             if (r == null) {
                 throw new AssertionError("Unknown transitions for primitive type " + u.toString() + "::" + axis);
             }
             resultType = resultType.union(r);
+        }
+        if (origin.overlaps(UType.JNODE)) {
+            resultType = resultType.union(UType.JNODE);
         }
         return resultType;
     }
@@ -434,6 +520,10 @@ public final class AxisInfo {
         e(PrimitiveUType.DOCUMENT, PRECEDING, UType.VOID);
         e(PrimitiveUType.DOCUMENT, PRECEDING_SIBLING, UType.VOID);
         e(PrimitiveUType.DOCUMENT, SELF, UType.DOCUMENT);
+        e(PrimitiveUType.DOCUMENT, FOLLOWING_OR_SELF, UType.DOCUMENT);
+        e(PrimitiveUType.DOCUMENT, FOLLOWING_SIBLING_OR_SELF, UType.DOCUMENT);
+        e(PrimitiveUType.DOCUMENT, PRECEDING_OR_SELF, UType.DOCUMENT);
+        e(PrimitiveUType.DOCUMENT, PRECEDING_SIBLING_OR_SELF, UType.DOCUMENT);
 
         e(PrimitiveUType.ELEMENT, ANCESTOR, UType.PARENT_NODE_KINDS);
         e(PrimitiveUType.ELEMENT, ANCESTOR_OR_SELF, UType.PARENT_NODE_KINDS);
@@ -448,6 +538,10 @@ public final class AxisInfo {
         e(PrimitiveUType.ELEMENT, PRECEDING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.ELEMENT, PRECEDING_SIBLING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.ELEMENT, SELF, UType.ELEMENT);
+        e(PrimitiveUType.ELEMENT, FOLLOWING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.ELEMENT, FOLLOWING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.ELEMENT, PRECEDING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.ELEMENT, PRECEDING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
 
         e(PrimitiveUType.ATTRIBUTE, ANCESTOR, UType.PARENT_NODE_KINDS);
         e(PrimitiveUType.ATTRIBUTE, ANCESTOR_OR_SELF, UType.ATTRIBUTE.union(UType.PARENT_NODE_KINDS));
@@ -462,6 +556,10 @@ public final class AxisInfo {
         e(PrimitiveUType.ATTRIBUTE, PRECEDING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.ATTRIBUTE, PRECEDING_SIBLING, UType.VOID);
         e(PrimitiveUType.ATTRIBUTE, SELF, UType.ATTRIBUTE);
+        e(PrimitiveUType.ATTRIBUTE, FOLLOWING_OR_SELF, UType.CHILD_NODE_KINDS.union(UType.ATTRIBUTE));
+        e(PrimitiveUType.ATTRIBUTE, FOLLOWING_SIBLING_OR_SELF, UType.ATTRIBUTE);
+        e(PrimitiveUType.ATTRIBUTE, PRECEDING_OR_SELF, UType.CHILD_NODE_KINDS.union(UType.ATTRIBUTE));
+        e(PrimitiveUType.ATTRIBUTE, PRECEDING_SIBLING_OR_SELF, UType.ATTRIBUTE);
 
         e(PrimitiveUType.TEXT, ANCESTOR, UType.PARENT_NODE_KINDS);
         e(PrimitiveUType.TEXT, ANCESTOR_OR_SELF, UType.TEXT.union(UType.PARENT_NODE_KINDS));
@@ -476,6 +574,10 @@ public final class AxisInfo {
         e(PrimitiveUType.TEXT, PRECEDING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.TEXT, PRECEDING_SIBLING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.TEXT, SELF, UType.TEXT);
+        e(PrimitiveUType.TEXT, FOLLOWING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.TEXT, FOLLOWING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.TEXT, PRECEDING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.TEXT, PRECEDING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
 
         e(PrimitiveUType.PI, ANCESTOR, UType.PARENT_NODE_KINDS);
         e(PrimitiveUType.PI, ANCESTOR_OR_SELF, UType.PI.union(UType.PARENT_NODE_KINDS));
@@ -490,6 +592,10 @@ public final class AxisInfo {
         e(PrimitiveUType.PI, PRECEDING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.PI, PRECEDING_SIBLING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.PI, SELF, UType.PI);
+        e(PrimitiveUType.PI, FOLLOWING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.PI, FOLLOWING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.PI, PRECEDING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.PI, PRECEDING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
 
         e(PrimitiveUType.COMMENT, ANCESTOR, UType.PARENT_NODE_KINDS);
         e(PrimitiveUType.COMMENT, ANCESTOR_OR_SELF, UType.COMMENT.union(UType.PARENT_NODE_KINDS));
@@ -504,6 +610,10 @@ public final class AxisInfo {
         e(PrimitiveUType.COMMENT, PRECEDING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.COMMENT, PRECEDING_SIBLING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.COMMENT, SELF, UType.COMMENT);
+        e(PrimitiveUType.COMMENT, FOLLOWING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.COMMENT, FOLLOWING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.COMMENT, PRECEDING_OR_SELF, UType.CHILD_NODE_KINDS);
+        e(PrimitiveUType.COMMENT, PRECEDING_SIBLING_OR_SELF, UType.CHILD_NODE_KINDS);
 
         e(PrimitiveUType.NAMESPACE, ANCESTOR, UType.PARENT_NODE_KINDS);
         e(PrimitiveUType.NAMESPACE, ANCESTOR_OR_SELF, UType.NAMESPACE.union(UType.PARENT_NODE_KINDS));
@@ -518,6 +628,10 @@ public final class AxisInfo {
         e(PrimitiveUType.NAMESPACE, PRECEDING, UType.CHILD_NODE_KINDS);
         e(PrimitiveUType.NAMESPACE, PRECEDING_SIBLING, UType.VOID);
         e(PrimitiveUType.NAMESPACE, SELF, UType.NAMESPACE);
+        e(PrimitiveUType.NAMESPACE, FOLLOWING_OR_SELF, UType.CHILD_NODE_KINDS.union(UType.NAMESPACE));
+        e(PrimitiveUType.NAMESPACE, FOLLOWING_SIBLING_OR_SELF, UType.NAMESPACE);
+        e(PrimitiveUType.NAMESPACE, PRECEDING_OR_SELF, UType.CHILD_NODE_KINDS.union(UType.NAMESPACE));
+        e(PrimitiveUType.NAMESPACE, PRECEDING_SIBLING_OR_SELF, UType.NAMESPACE);
     }
 
 }
@@ -537,4 +651,8 @@ public final class AxisInfo {
     PRECEDING;
     PRECEDING_SIBLING;
     SELF;
+    FOLLOWING_OR_SELF;
+    FOLLOWING_SIBLING_OR_SELF;
+    PRECEDING_OR_SELF;
+    PRECEDING_SIBLING_OR_SELF;
 */

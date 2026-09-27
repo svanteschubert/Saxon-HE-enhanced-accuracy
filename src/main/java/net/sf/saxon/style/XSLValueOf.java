@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,13 +14,12 @@ import net.sf.saxon.expr.instruct.ValueOf;
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.Whitespace;
 
 
 /**
- * An xsl:value-of element in the stylesheet. <br>
+ * An xsl:value-of element in the stylesheet. In 4.0 this also supports the xsl:text instruction.<br>
  * The xsl:value-of element takes attributes:<ul>
  * <li>a mandatory attribute select="expression".
  * This must be a valid String expression</li>
@@ -33,13 +32,14 @@ public final class XSLValueOf extends XSLLeafNodeConstructor {
 
     private boolean disable = false;
     /*@Nullable*/ private Expression separator;
-
+    private Expression cdata;
 
     @Override
     protected void prepareAttributes() {
 
         String selectAtt = null;
         String disableAtt = null;
+        String cdataAtt = null;
         String separatorAtt = null;
 
         for (AttributeInfo att : attributes()) {
@@ -47,24 +47,28 @@ public final class XSLValueOf extends XSLLeafNodeConstructor {
             String f = attName.getDisplayName();
             String value = att.getValue();
             switch (f) {
-                case "disable-output-escaping":
+                case "disable-output-escaping" -> {
                     disableAtt = Whitespace.trim(value);
-                    break;
-                case "select":
+                }
+                case "select" -> {
                     selectAtt = value;
                     select = makeExpression(selectAtt, att);
-                    break;
-                case "separator":
+                }
+                case "separator" -> {
                     separatorAtt = value;
                     separator = makeAttributeValueTemplate(separatorAtt, att);
-                    break;
-                default:
+                }
+                case "cdata" -> {
+                    cdataAtt = value;
+                    cdata = makeAttributeValueTemplate(cdataAtt, att);
+                }
+                default -> {
                     checkUnknownAttribute(attName);
-                    break;
+                }
             }
         }
 
-        if (disableAtt != null) {
+        if (disableAtt != null && cdataAtt == null) {
             disable = processBooleanAttribute("disable-output-escaping", disableAtt);
         }
     }
@@ -74,6 +78,7 @@ public final class XSLValueOf extends XSLLeafNodeConstructor {
         super.validate(decl);
         select = typeCheck("select", select);
         separator = typeCheck("separator", separator);
+        cdata = typeCheck("cdata", cdata);
     }
 
     /**
@@ -90,8 +95,7 @@ public final class XSLValueOf extends XSLLeafNodeConstructor {
     @Override
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
         Configuration config = getConfiguration();
-        final TypeHierarchy th = config.getTypeHierarchy();
-        if (separator == null && select != null && xPath10ModeIsEnabled()) {
+        if (separator == null && select != null && getLocalPart().equals("value-of") && xPath10ModeIsEnabled()) {
             // Handle XSLT 1.0 backwards compatibility
             select = config.getTypeChecker(true).processValueOf(select, config);
         } else {
@@ -105,6 +109,9 @@ public final class XSLValueOf extends XSLLeafNodeConstructor {
         }
         ValueOf inst = new ValueOf(select, disable, false);
         inst.setRetainedStaticContext(makeRetainedStaticContext());
+        if (cdata != null) {
+            inst.setCdataExpression(cdata);
+        }
         compileContent(exec, decl, inst, separator);
         return inst.withLocation(saveLocation());
     }

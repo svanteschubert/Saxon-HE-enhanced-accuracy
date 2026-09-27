@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 
 package net.sf.saxon.value;
 
-import net.sf.saxon.type.AtomicType;
+import net.sf.saxon.type.AtomicMetadata;
 
 import java.math.BigDecimal;
 
@@ -23,7 +23,7 @@ import java.math.BigDecimal;
 
 public abstract class DecimalValue extends NumericValue {
 
-    public DecimalValue(AtomicType typeLabel) {
+    public DecimalValue(AtomicMetadata typeLabel) {
         super(typeLabel);
     }
     /**
@@ -32,6 +32,8 @@ public abstract class DecimalValue extends NumericValue {
      */
     @Override
     public abstract BigDecimal getDecimalValue();
+
+
 }
 
 

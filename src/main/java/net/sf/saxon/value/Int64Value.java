@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,16 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.Calculator;
+import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.XPathComparable;
+import net.sf.saxon.functions.Round;
+import net.sf.saxon.ma.map.BigDecimalMapKey;
 import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.str.StringConstants;
-import net.sf.saxon.str.Twine8;
 import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ValidationFailure;
@@ -41,8 +45,13 @@ public final class Int64Value extends IntegerValue {
      * IntegerValue representing the value +1
      */
     public static final Int64Value PLUS_ONE = new Int64Value(+1);
+
     /**
-     * IntegerValue representing the maximum value for a long
+     * IntegerValue representing the maximum value for a 32-bit int
+     */
+    public static final Int64Value MAX_INT = new Int64Value(Integer.MAX_VALUE);
+    /**
+     * IntegerValue representing the maximum value for a 64-bit int
      */
     public static final Int64Value MAX_LONG = new Int64Value(Long.MAX_VALUE);
     /**
@@ -95,7 +104,7 @@ public final class Int64Value extends IntegerValue {
      * @param typeLabel the type annotation (trusted to be correct)
      */
 
-    public Int64Value(long value, AtomicType typeLabel) {
+    public Int64Value(long value, AtomicMetadata typeLabel) {
         super(typeLabel);
         this.value = value;
     }
@@ -186,17 +195,17 @@ public final class Int64Value extends IntegerValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     /*@NotNull*/
     @Override
-    public AtomicValue copyAsSubType(/*@NotNull*/ AtomicType typeLabel) {
-        if (typeLabel.getPrimitiveType() == StandardNames.XS_INTEGER) {
-            return new Int64Value(value, typeLabel);
+    public AtomicValue withMetadata(/*@NotNull*/ AtomicMetadata metadata) {
+        if (metadata.getType().getPrimitiveType() == StandardNames.XS_INTEGER) {
+            return new Int64Value(value, metadata);
         } else {
-            return new BigDecimalValue(value).copyAsSubType(typeLabel);
+            return new BigDecimalValue(value).withMetadata(metadata);
         }
     }
 
@@ -283,6 +292,27 @@ public final class Int64Value extends IntegerValue {
     }
 
     /**
+     * Comparison method using transitive semantics (for 4.0). When comparing
+     * mixed data types, doubles and floats are converted to an exact decimal.
+     * <p>Where NaN values are involved, they should be handled by the caller
+     * before invoking this method.</p>
+     *
+     * @param other the other comparand
+     * @return -1, 0, or +1 depending on the magnitude relationship.
+     */
+    @Override
+    public int transitiveCompareTo(NumericValue other) {
+        if (other instanceof Int64Value) {
+            try {
+                return compareTo(other.longValue());
+            } catch (XPathException e) {
+                throw new UncheckedXPathException(e);
+            }
+        }
+        return super.transitiveCompareTo(other);
+    }
+
+    /**
      * Compare the value to a long
      *
      * @param other the value to be compared with
@@ -302,110 +332,9 @@ public final class Int64Value extends IntegerValue {
 
     @Override
     public UnicodeString getPrimitiveStringValue() {
-        // Copied from Long.toString(), but generating single-byte characters
-        if (value == Long.MIN_VALUE) {
-            return StringConstants.MIN_LONG;
-        }
-        int size = (value < 0) ? stringSize(-value) + 1 : stringSize(value);
-        byte[] buf = new byte[size];
-        getDigits(value, size, buf);
-        return new Twine8(buf);
-        //return BMPString.of(Long.toString(value));
+        return UnicodeString.fromLong(value);
     }
 
-    private static void getDigits(long i, int index, byte[] buf) {
-        // Derived from Long.getChars()
-        long q;
-        int r;
-        int charPos = index;
-        byte sign = 0;
-
-        if (i < 0) {
-            sign = (byte)'-';
-            i = -i;
-        }
-
-        // Get 2 digits/iteration using longs until quotient fits into an int
-        while (i > Integer.MAX_VALUE) {
-            q = i / 100;
-            // really: r = i - (q * 100);
-            r = (int) (i - ((q << 6) + (q << 5) + (q << 2)));
-            i = q;
-            buf[--charPos] = DIGIT_ONES[r];
-            buf[--charPos] = DIGIT_TENS[r];
-        }
-
-        // Get 2 digits/iteration using ints
-        int q2;
-        int i2 = (int) i;
-        while (i2 >= 65536) {
-            q2 = i2 / 100;
-            // really: r = i2 - (q * 100);
-            r = i2 - ((q2 << 6) + (q2 << 5) + (q2 << 2));
-            i2 = q2;
-            buf[--charPos] = DIGIT_ONES[r];
-            buf[--charPos] = DIGIT_TENS[r];
-        }
-
-        // Fall thru to fast mode for smaller numbers
-        // assert(i2 <= 65536, i2);
-        do {
-            q2 = (i2 * 52429) >>> (16 + 3);
-            r = i2 - ((q2 << 3) + (q2 << 1));  // r = i2-(q2*10) ...
-            buf[--charPos] = DIGITS[r];
-            i2 = q2;
-        } while (i2 != 0);
-
-        if (sign != 0) {
-            buf[--charPos] = sign;
-        }
-    }
-
-
-    private final static byte[] DIGITS = StringConstants.bytes("0123456789");
-
-    private final static byte[] DIGIT_TENS = StringConstants.bytes
-            (   "0000000000" +
-                "1111111111" +
-                "2222222222" +
-                "3333333333" +
-                "4444444444" +
-                "5555555555" +
-                "6666666666" +
-                "7777777777" +
-                "8888888888" +
-                "9999999999" );
-
-    private final static byte[] DIGIT_ONES = StringConstants.bytes
-            (   "0123456789" +
-                "0123456789" +
-                "0123456789" +
-                "0123456789" +
-                "0123456789" +
-                "0123456789" +
-                "0123456789" +
-                "0123456789" +
-                "0123456789" +
-                "0123456789" );
-
-
-    // Requires positive x
-    private static int stringSize(long x) {
-        for (int w=0; w<18; w++) {
-            if (x < powersOfTen[w]) {
-                return w+1;
-            }
-        }
-        return 19;
-    }
-
-    private static final long[] powersOfTen = new long[] {
-                10L, 100L, 1000L,
-                10000L, 100000L, 1_000_000L,
-                10_000_000L, 100_000_000L, 1_000_000_000L,
-                10_000_000_000L, 100_000_000_000L, 1_000_000_000_000L,
-                10_000_000_000_000L, 100_000_000_000_000L, 1_000_000_000_000_000L,
-                10_000_000_000_000_000L, 100_000_000_000_000_000L, 1_000_000_000_000_000_000L};
 
 /**
      * Get the numeric value as a double
@@ -520,46 +449,64 @@ public final class Int64Value extends IntegerValue {
     }
 
     /**
-     * Implement the XPath round-to-half-even() function
+     * Implement the XPath round-to-half-even() and round#3 functions
      *
-     * @param scale number of digits required after the decimal point; the
-     *              value -2 (for example) means round to a multiple of 100
-     * @return if the scale is &gt;=0, return this value unchanged. Otherwise
-     *         round it to a multiple of 10**-scale
+     * @param scale        number of digits required after the decimal point; the
+     *                     value -2 (for example) means round to a multiple of 100
+     * @param roundingRule indicates how the rounding should be done
+     * @return if the scale is &gt;=0, return this value unchanged. Otherwise,
+     * round it to a multiple of 10**-scale
      */
 
     @Override
-    public NumericValue roundHalfToEven(int scale) {
-        if (scale >= 0) {
+    public NumericValue round(int scale, Round.RoundingRule roundingRule) {
+        if (scale >= 0 || value == 0) {
             return this;
         } else {
             if (scale < -15) {
-                return new BigIntegerValue(value).roundHalfToEven(scale);
+                return new BigIntegerValue(value).round(scale, roundingRule);
             }
-            long absolute = Math.abs(value);
+            boolean negative = value < 0;
+
+            // factor is 1 for scale=0, 10 for scale=-1, 100 for scale=-2, etc
             long factor = 1;
             for (long i = 1; i <= -scale; i++) {
                 factor *= 10;
             }
-            long modulus = absolute % factor;
-            long rval = absolute - modulus;
-            long d = modulus * 2;
-            if (d > factor) {
-                rval += factor;
-            } else if (d < factor) {
-                // no-op
-            } else {
-                // round to even
-                if (rval % (2 * factor) == 0) {
-                    // no-op
-                } else {
-                    rval += factor;
-                }
+
+            long towardsZero = (value / factor) * factor;
+            if (towardsZero == value) {
+                return this;
             }
-            if (value < 0) {
-                rval = -rval;
+            long awayFromZero = negative ? towardsZero - factor : towardsZero + factor;
+            long floor = negative ? awayFromZero : towardsZero;
+            long ceiling = negative ? towardsZero : awayFromZero;
+            long midpoint = floor + (ceiling - floor)/2;
+            boolean midway = value == midpoint;
+            long nearest = value > midpoint ? ceiling : floor;
+            switch (roundingRule) {
+                case FLOOR:
+                    return Int64Value.makeIntegerValue(floor);
+                case TOWARD_ZERO:
+                    return Int64Value.makeIntegerValue(towardsZero);
+                case CEILING:
+                    return Int64Value.makeIntegerValue(ceiling);
+                case AWAY_FROM_ZERO:
+                    return Int64Value.makeIntegerValue(awayFromZero);
+                case HALF_TO_FLOOR:
+                    return Int64Value.makeIntegerValue(midway ? floor : nearest);
+                case HALF_TO_CEILING:
+                default:
+                    return Int64Value.makeIntegerValue(midway ? ceiling : nearest);
+                case HALF_TOWARD_ZERO:
+                    return Int64Value.makeIntegerValue(midway ? towardsZero : nearest);
+                case HALF_AWAY_FROM_ZERO:
+                    return Int64Value.makeIntegerValue(midway ? awayFromZero : nearest);
+                case HALF_TO_EVEN:
+                    return Int64Value.makeIntegerValue(midway ? (floor/factor % 2 == 0 ? floor : ceiling) : nearest);
             }
-            return new Int64Value(rval);
+
+
         }
     }
 
@@ -727,7 +674,7 @@ public final class Int64Value extends IntegerValue {
 
     /**
      * Test whether this value needs a long to hold it. Specifically, whether
-     * the absolute value is > 2^31.
+     * the absolute value is &gt; 2^31.
      * @return true if the value is too big to fit in a 32-bit int
      */
 
@@ -743,6 +690,35 @@ public final class Int64Value extends IntegerValue {
     @Override
     public BigInteger asBigInteger() {
         return BigInteger.valueOf(value);
+    }
+
+    /**
+     * Get a value whose {@code equals()} and {@code hashcode()} methods follows the "same key"
+     * rules for comparing the keys of a map. For numeric values, this is done as follows:
+     * <ul>
+     *     <li>For NaN, return {@code AtomicSortComparer.COLLATION_KEY_NaN;}</li>
+     *     <li>For +INF and -INF, call {@code java.lang.Double.hashcode()}</li>
+     *     <li>For any value that is numerically equal to some 32-bit signed integer, return
+     *         a {@link net.sf.saxon.ma.map.Int32MapKey}</li>
+     *     <li>For any other value, return a {@link net.sf.saxon.ma.map.BigDecimalMapKey}</li>
+     * </ul>
+     *
+     * @return a value with the property that the {@code equals()} and {@code hashcode()} methods follow the rules for comparing
+     * keys in maps.
+     */
+
+    @Override
+    public AtomicMatchKey asMapKey(int specVersion) {
+        if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
+            return new net.sf.saxon.ma.map.Int32MapKey((int) value);
+        } else {
+            return new BigDecimalMapKey(fromLong(value));
+        }
+    }
+
+    @CSharpReplaceBody(code="return Saxon.Impl.Helpers.BigDecimalUtils.ValueOf(value);")
+    private static BigDecimal fromLong(long value) {
+        return new BigDecimal(value);
     }
 
 }

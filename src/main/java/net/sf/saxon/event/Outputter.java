@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,17 +7,14 @@
 
 package net.sf.saxon.event;
 
-import net.sf.saxon.Configuration;
-import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.NamespaceBindingSet;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.NodeName;
 import net.sf.saxon.s9api.Location;
-import net.sf.saxon.str.*;
+import net.sf.saxon.str.UniStringConsumer;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.transpile.CSharpInnerClass;
-import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
-import net.sf.saxon.value.StringValue;
 
 /**
  * Outputter: This interface represents a recipient of XML tree-walking (push) events. It was
@@ -33,112 +30,15 @@ import net.sf.saxon.value.StringValue;
  * @since 10.0; derived from the original Outputter interface and SequenceReceiver class.
  * This interface is now used primarily for capturing the results of push-mode evaluation
  * of tree construction expressions in XSLT and XQuery.
+ *
+ * @since 12.10; the original Outputter abstract class was renamed to AbstractOutputter
+ * and refactored into this (minimal) interface. The refactoring was part of an effort to work
+ * around what appears to be a bug in .NET Core. Refactoring the Java code was simpler than
+ * trying to adapt the transpiler to make an interface here.
  */
 
-public abstract class Outputter implements Receiver {
-
-    protected PipelineConfiguration pipelineConfiguration;
-    protected String systemId = null;
-
-    /**
-     * Set the pipeline configuration
-     *
-     * @param pipe the pipeline configuration
-     */
-
-    @Override
-    public void setPipelineConfiguration(/*@NotNull*/ PipelineConfiguration pipe) {
-        this.pipelineConfiguration = pipe;
-    }
-
-    /**
-     * Get the pipeline configuration
-     *
-     * @return the pipeline configuration
-     */
-
-    /*@NotNull*/
-    @Override
-    public PipelineConfiguration getPipelineConfiguration() {
-        return pipelineConfiguration;
-    }
-
-    /**
-     * Get the Saxon Configuration
-     * @return the configuration
-     */
-
-    public final Configuration getConfiguration() {
-        return pipelineConfiguration.getConfiguration();
-    }
-
-    /**
-     * Set the System ID of the tree represented by this event stream
-     *
-     * @param systemId the system ID (which is used as the base URI of the nodes
-     *                 if there is no xml:base attribute)
-     */
-
-    @Override
-    public void setSystemId(String systemId) {
-        this.systemId = systemId;
-    }
-
-    /**
-     * Get the system ID
-     *
-     * @return the system ID that was supplied using the setSystemId() method
-     */
-
-    /*@Nullable*/
-    @Override
-    public String getSystemId() {
-        return systemId;
-    }
-
-
-    /**
-     * Notify the start of the event stream
-     *
-     * @throws XPathException if an error occurs
-     */
-
-    @Override
-    public void open() throws XPathException {}
-
-    /**
-     * Notify the start of a document node
-     *
-     * @param properties bit-significant integer indicating properties of the document node.
-     *                   The definitions of the bits are in class {@link ReceiverOption}
-     * @throws XPathException if an error occurs
-     */
-
-    @Override
-    abstract public void startDocument(int properties) throws XPathException;
-
-    /**
-     * Notify the end of a document node
-     *
-     * @throws XPathException if an error occurs
-     */
-
-    @Override
-    abstract public void endDocument() throws XPathException;
-
-    /**
-     * Notify an unparsed entity URI.
-     *
-     * @param name     The name of the unparsed entity
-     * @param systemID The system identifier of the unparsed entity
-     * @param publicID The identifier of the unparsed entity
-     * @throws XPathException if an error occurs
-     */
-
-    @Override
-    public void setUnparsedEntity(String name, String systemID, String publicID) throws XPathException {}
-
-    /**
+public interface Outputter extends Receiver {
+   /**
      * Notify the start of an element. This version of <code>startElement()</code> must be followed
      * by calls on {@link #attribute(NodeName, SimpleType, String, Location, int)} and
      * {@link #namespace(String, NamespaceUri, int)} to supply the attributes and namespaces; these calls
@@ -152,35 +52,8 @@ public abstract class Outputter implements Receiver {
      * @throws XPathException if an error occurs
      */
 
-    abstract public void startElement(NodeName elemName, SchemaType typeCode, Location location, int properties)
+    void startElement(NodeName elemName, SchemaType typeCode, Location location, int properties)
             throws XPathException;
-
-    /**
-     * Notify the start of an element, supplying all attributes and namespaces
-     *
-     * @param elemName   the name of the element.
-     * @param type       the type annotation of the element.
-     * @param attributes the attributes of this element
-     * @param namespaces the in-scope namespaces of this element: generally this is all the in-scope
-     *                   namespaces, without relying on inheriting namespaces from parent elements
-     * @param location   an object providing information about the module, line, and column where the node originated
-     * @param properties bit-significant properties of the element node. If there are no relevant
-     *                   properties, zero is supplied. The definitions of the bits are in class {@link ReceiverOption}
-     * @throws XPathException if an error occurs
-     */
-    @Override
-    public void startElement(NodeName elemName, SchemaType type, AttributeMap attributes, NamespaceMap namespaces, Location location, int properties) throws XPathException {
-        // This is a default implementation which is not particularly efficient. An Outputter that feeds
-        // directly into a Receiver should try to avoid decomposing the attributes and namespaces.
-        startElement(elemName, type, location, properties);
-        for (NamespaceBinding ns : namespaces) {
-            namespace(ns.getPrefix(), ns.getNamespaceUri(), properties);
-        }
-        for (AttributeInfo att : attributes) {
-            attribute(att.getNodeName(), att.getType(), att.getValue(), att.getLocation(), att.getProperties());
-        }
-        startContent();
-    }
 
     /**
      * Notify a namespace binding. This method is called at some point after startElement().
@@ -203,7 +76,7 @@ public abstract class Outputter implements Receiver {
      * in a single call.
      */
 
-    abstract public void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException;
+    void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException;
 
     /**
      * Output a set of namespace bindings. This should have the same effect as outputting the
@@ -217,12 +90,7 @@ public abstract class Outputter implements Receiver {
      * @throws XPathException if any failure occurs
      */
 
-    public void namespaces(NamespaceBindingSet bindings, int properties) throws XPathException {
-        // Optimized in ComplexContentOutputter subclass
-        for (NamespaceBinding nb: bindings) {
-            namespace(nb.getPrefix(), nb.getNamespaceUri(), properties);
-        }
-    }
+    void namespaces(NamespaceBindingSet bindings, int properties) throws XPathException;
 
     /**
      * Notify an attribute. Attributes are notified after the startElement event, and before any
@@ -242,7 +110,7 @@ public abstract class Outputter implements Receiver {
      * @throws XPathException         if an error occurs
      */
 
-    abstract public void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties)
+    void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties)
             throws XPathException;
 
     /**
@@ -254,92 +122,7 @@ public abstract class Outputter implements Receiver {
      * @throws XPathException if an error occurs
      */
 
-    public void startContent() throws XPathException {}
-
-    /**
-     * Notify the end of an element. The Outputter must maintain a stack if it needs to know which
-     * element is ending.
-     *
-     * @throws XPathException if an error occurs
-     */
-
-    @Override
-    abstract public void endElement() throws XPathException;
-
-    /**
-     * Notify character data. Note that some receivers may require the character data to be
-     * sent in a single event, but in general this is not a requirement.
-     *
-     * @param chars      The characters
-     * @param location  provides information such as line number and system ID.
-     * @param properties Bit significant value. The following bits are defined:
-     *                   <dl>
-     *                   <dt>DISABLE_ESCAPING</dt>           <dd>Disable escaping for this text node</dd>
-     *                   <dt>USE_CDATA</dt>                  <dd>Output as a CDATA section</dd>
-     *                   </dl>
-     * @throws XPathException if an error occurs
-     */
-
-    @Override
-    abstract public void characters(UnicodeString chars, Location location, int properties)
-            throws XPathException;
-
-    /**
-     * Output a processing instruction
-     *
-     * @param name       The PI name. This must be a legal name (it will not be checked).
-     * @param data       The data portion of the processing instruction
-     * @param location   provides information such as line number and system ID.
-     * @param properties Additional information about the PI.
-     * @throws IllegalArgumentException the content is invalid for an XML processing instruction
-     * @throws XPathException            if an error occurs
-     */
-
-    @Override
-    abstract public void processingInstruction(String name, UnicodeString data, Location location, int properties)
-            throws XPathException;
-
-    /**
-     * Notify a comment. Comments are only notified if they are outside the DTD.
-     *
-     * @param content    The content of the comment
-     * @param location  provides information such as line number and system ID.
-     * @param properties Additional information about the comment.
-     * @throws IllegalArgumentException  the content is invalid for an XML comment
-     * @throws XPathException            if an error occurs
-     */
-
-    @Override
-    abstract public void comment(UnicodeString content, Location location, int properties) throws XPathException;
-
-    /**
-     * Append an arbitrary item (node, atomic value, or function) to the output. The default
-     * implementation throws {@code UnsupportedOperationException}.
-     * @param item           the item to be appended
-     * @param locationId     the location of the calling instruction, for diagnostics
-     * @param properties if the item is an element node, this indicates whether its namespaces
-*                       need to be copied. Values are {@link ReceiverOption#ALL_NAMESPACES}; the default (0) means
-     */
-
-     @Override
-     public void append(Item item, Location locationId, int properties) throws XPathException {
-         throw new UnsupportedOperationException();
-     }
-
-    /**
-     * Append an arbitrary item (node, atomic value, or function) to the output.
-     * By default, if the item is an element node, it is copied with all namespaces.
-     * The default implementation calls {@link #append(Item, Location, int)}, whose
-     * default implementation throws {@code UnsupportedOperationException}
-     *
-     * @param item the item to be appended
-     * @throws net.sf.saxon.trans.XPathException if the operation fails
-     */
-
-    @Override
-    public void append(Item item) throws XPathException {
-        append(item, Loc.NONE, ReceiverOption.ALL_NAMESPACES);
-    }
+    void startContent() throws XPathException;
 
     /**
      * Get a string-value consumer object that allows an item of type xs:string
@@ -352,71 +135,5 @@ public abstract class Outputter implements Receiver {
      *                   as a text node item rather than a string
      */
 
-    @CSharpInnerClass(outer = true, extra = {"Saxon.Hej.s9api.Location loc"})
-    public UniStringConsumer getStringReceiver(boolean asTextNode, Location loc) {
-        if (asTextNode) {
-            return new AbstractUniStringConsumer() {
-
-                final UnicodeBuilder buffer = new UnicodeBuilder();
-
-                @Override
-                @CSharpModifiers(code={"public", "override"})
-                public UniStringConsumer accept(UnicodeString chars) {
-                    buffer.accept(chars);
-                    return this;
-                }
-
-                @Override
-                @CSharpModifiers(code = {"public", "override"})
-                public void close() throws XPathException {
-                    Outputter.this.characters(buffer.toUnicodeString(), loc, ReceiverOption.NONE);
-                }
-            };
-        } else {
-            return new AbstractUniStringConsumer() {
-
-                final UnicodeBuilder buffer = new UnicodeBuilder();
-
-                @Override
-                @CSharpModifiers(code = {"public", "override"})
-                public UniStringConsumer accept(UnicodeString chars) {
-                    buffer.accept(chars);
-                    return this;
-                }
-
-                @Override
-                @CSharpModifiers(code = {"public", "override"})
-                public void close() throws XPathException {
-                    Outputter.this.append(new StringValue(buffer.toUnicodeString()));
-                }
-            };
-        }
-    }
-
-    /**
-     * Notify the end of the event stream
-     *
-     * @throws XPathException if an error occurs
-     */
-
-    @Override
-    public void close() throws XPathException {}
-
-    /**
-     * Ask whether this Outputter (or the downstream pipeline) makes any use of the type annotations
-     * supplied on element and attribute events. The default implementation of this method
-     * returns false.
-     *
-     * @return true if the Outputter makes any use of this information. If false, the caller
-     *         may supply untyped nodes instead of supplying the type annotation (or conversely, it may
-     *         avoid stripping unwanted type annotations)
-     */
-
-    @Override
-    public boolean usesTypeAnnotations() {
-        return false;
-    }
-
-
+    UniStringConsumer getStringReceiver(boolean asTextNode, Location loc);
 }
-

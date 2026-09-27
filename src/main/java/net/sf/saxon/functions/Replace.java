@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,6 +32,8 @@ import java.util.List;
 
 public class Replace extends RegexFunction  {
 
+    private boolean replacementChecked = false;
+
     private int version = 20;
 
     public static Replace make20() {
@@ -46,11 +48,10 @@ public class Replace extends RegexFunction  {
         return rep;
     }
 
-    private boolean replacementChecked = false;
 
     @Override
     protected boolean allowRegexMatchingEmptyString() {
-        return false;
+        return version >= 40;
     }
 
     /**
@@ -76,7 +77,7 @@ public class Replace extends RegexFunction  {
         }
         if (arguments[2] instanceof StringLiteral && doEarlyReplacementCheck) {
             // Do early checking of the replacement expression if known statically
-            UnicodeString rep = ((StringLiteral) arguments[2]).getString();
+            UnicodeString rep = ((StringLiteral) arguments[2]).getUnicodeString();
             if (checkReplacement(rep) == null) {
                 replacementChecked = true;
             }
@@ -102,45 +103,41 @@ public class Replace extends RegexFunction  {
         RegularExpression re = getRegularExpression(arguments, 1, 3);
 
         Item replacementArg = arguments[2].head();
-        UnicodeString replacement = replacementArg == null ? null : replacementArg.getUnicodeStringValue();
-        if (replacement == null && version == 20) {
-            throw new XPathException("Third argument of fn:replace() must not be empty")
-                    .withErrorCode("XPTY0004")
-                    .asTypeError();
-        }
+        UnicodeString replacement = null;
         java.util.function.BiFunction<UnicodeString, UnicodeString[], UnicodeString> action = null;
-        if (arguments.length == 5) {
-            FunctionItem actionFn = (FunctionItem) arguments[4].head();
-            if (actionFn != null) {
-                action = (in, groups) -> {
-                    try {
-                        // cast to UnicodeString[] is needed for the transpiler
-                        List<Item> groupItems = new ArrayList<>(((UnicodeString[])groups).length);
-                        for (UnicodeString group : groups) {
-                            groupItems.add(new StringValue(group, BuiltInAtomicType.UNTYPED_ATOMIC));
-                        }
-                        Sequence result = actionFn.call(context,
-                                                        new Sequence[]{new StringValue(in, BuiltInAtomicType.UNTYPED_ATOMIC),
-                                                                SequenceExtent.makeSequenceExtent(groupItems)});
-                        Item resultItem = result.head();
-                        if (resultItem == null) {
-                            return EmptyUnicodeString.getInstance();
-                        } else {
-                            return resultItem.getUnicodeStringValue();
-                        }
-                    } catch (XPathException e) {
-                        throw new AssertionError(e);
+
+        if (replacementArg instanceof StringValue) {
+            replacement = replacementArg.getUnicodeStringValue();
+        } else if (replacementArg instanceof FunctionItem) {
+            FunctionItem actionFn = (FunctionItem) replacementArg;
+            action = (in, groups) -> {
+                try {
+                    // cast to UnicodeString[] is needed for the transpiler
+                    List<Item> groupItems = new ArrayList<>(((UnicodeString[])groups).length);
+                    for (UnicodeString group : groups) {
+                        groupItems.add(new StringValue(group, BuiltInAtomicType.UNTYPED_ATOMIC));
                     }
-                };
-            }
+                    Sequence result = actionFn.call(context,
+                                                    new Sequence[]{new StringValue(in, BuiltInAtomicType.UNTYPED_ATOMIC),
+                                                            SequenceExtent.makeSequenceExtent(groupItems)});
+                    Item resultItem = result.head();
+                    if (resultItem == null) {
+                        return EmptyUnicodeString.getInstance();
+                    } else {
+                        return resultItem.getUnicodeStringValue();
+                    }
+                } catch (XPathException e) {
+                    throw new AssertionError(e);
+                }
+            };
 
 //            RegularExpression re = getRegularExpression(arguments, 1, 3);
 //            return new StringValue(re.replaceWith(input.getUnicodeStringValue(), fn));
         }
 
-        if (replacement != null && action != null) {
-            throw new XPathException("Cannot supply both a replacement string and a replacement action", "FORX0005");
-        }
+//        if (replacement != null && action != null) {
+//            throw new XPathException("Cannot supply both a replacement string and a replacement action", "FORX0005");
+//        }
 
         if (replacement != null && !replacementChecked && !re.getFlags().contains("q") && !re.isPlatformNative()) {
             // if it is a string literal, the check was done at compile time

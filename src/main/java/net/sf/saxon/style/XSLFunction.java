@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,10 +20,8 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.query.Annotation;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trans.*;
-import net.sf.saxon.type.Affinity;
-import net.sf.saxon.type.PlainType;
-import net.sf.saxon.type.SchemaType;
-import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.transpile.CSharpUsing;
+import net.sf.saxon.type.*;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.Whitespace;
 
@@ -37,6 +35,7 @@ import java.util.List;
  * saxon:memo-function=yes|no indicates whether it acts as a memo function.
  */
 
+@CSharpUsing(code = "Saxon.Hej.trans")
 public class XSLFunction extends StyleElement implements StylesheetComponent {
 
     private boolean doneAttributes = false;
@@ -52,7 +51,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
     private int numberOfOptionalParameters = -1;  // -1 means not yet known
     private UserFunction compiledFunction;
     private Visibility visibility = Visibility.UNDEFINED;
-    private FunctionStreamability streamability;
+    private FunctionStreamability streamability = FunctionStreamability.UNCLASSIFIED;
     private UserFunction.Determinism determinism = UserFunction.Determinism.PROACTIVE;
     private boolean explaining;
     private boolean updating = false;
@@ -104,10 +103,6 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
                         nameAtt = Whitespace.trim(att.getValue());
                         assert nameAtt != null;
                         StructuredQName functionName = makeQName(nameAtt, null, "name");
-                        if (functionName.hasURI(NamespaceUri.NULL)) {
-                            functionName = new StructuredQName("saxon", NamespaceUri.SAXON, functionName.getLocalPart());
-                            compileError("Function name must be in a namespace", "XTSE0740");
-                        }
                         setObjectName(functionName);
                         break;
                     case "as":
@@ -195,6 +190,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
         }
 
         if (extraAsAtt != null) {
+            compileWarning("saxon:as is deprecated", SaxonErrorCode.SXWN9053);
             SequenceType extraResultType = null;
             try {
                 extraResultType = makeExtendedSequenceType(extraAsAtt);
@@ -203,7 +199,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
                 extraResultType = resultType;
             }
             if (asAtt != null) {
-                Affinity rel = getConfiguration().getTypeHierarchy().sequenceTypeRelationship(extraResultType, resultType);
+                Affinity rel = Subsumption.sequenceTypeRelationship(extraResultType, resultType);
                 if (rel == Affinity.SAME_TYPE || rel == Affinity.SUBSUMED_BY) {
                     resultType = extraResultType;
                 } else {
@@ -224,7 +220,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
             streamability = FunctionStreamability.UNCLASSIFIED;
         } else {
             streamability = getStreamabilityValue(streamabilityAtt);
-            if (streamability.isStreaming()) {
+            if (FunctionStreamabilityHelper.isStreaming(streamability)) {
                 boolean streamable = processStreamableAtt("yes");
                 if (!streamable) {
                     streamability = FunctionStreamability.UNCLASSIFIED;
@@ -258,10 +254,10 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
             return FunctionStreamability.UNCLASSIFIED;
         }
         try {
-            return FunctionStreamability.of(s);
+            return FunctionStreamabilityHelper.of(s);
         } catch (IllegalArgumentException ill) {
             invalidAttribute("streamability", "unclassified|absorbing|inspection|filter|shallow-descent|deep-descent|ascent");
-            return null;
+            return FunctionStreamability.UNCLASSIFIED;
         }
     }
 
@@ -376,10 +372,10 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
     public boolean isUpdating() {
         return updating;
     }
+    
 
     @Override
     public void index(ComponentDeclaration decl, PrincipalStylesheetModule top) {
-        //getSkeletonCompiledFunction();
         getCompiledFunction();
         top.indexFunction(decl);
     }
@@ -399,11 +395,21 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
 
         int maxArity = getNumberOfParameters();
         int minArity = maxArity - getNumberOfOptionalParameters();
+
         if (minArity <= 1 && maxArity >= 1) {
-            SchemaType type = getConfiguration().getSchemaType(getObjectName());
+            StructuredQName name = getObjectName();
+            SchemaType type = getImportedSchema().getSchemaType(name);
             if (type instanceof PlainType) {
                 compileError("Stylesheet function clashes with constructor function for an imported atomic type", "XTSE0770");
             }
+        }
+
+        if (getObjectName().hasURI(NamespaceUri.NULL)
+                && (getCompilation().getCompilerInfo().getXsltVersion() < 40 || getVisibility() != Visibility.PRIVATE)) {
+            String reason = getCompilation().getCompilerInfo().getXsltVersion() < 40
+                    ? "(XSLT 4.0 extensions are not enabled)"
+                    : "(No-namespace functions must be private)";
+            compileError("Function name must be in a namespace. " + reason, "XTSE0740");
         }
 
     }
@@ -456,7 +462,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
         ExpressionVisitor visitor = makeExpressionVisitor();
         Expression exp2 = exp.typeCheck(visitor, ContextItemStaticInfo.ABSENT);
 
-        if (streamability.isStreaming()) {
+        if (FunctionStreamabilityHelper.isStreaming(streamability)) {
             visitor.setOptimizeForStreaming(true);
         }
         exp2 = ExpressionTool.optimizeComponentBody(exp2, getCompilation(), visitor, ContextItemStaticInfo.ABSENT, true);
@@ -466,7 +472,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
 
         // Assess the streamability of the function body
         Optimizer optimizer = visitor.getConfiguration().obtainOptimizer();
-        if (streamability.isStreaming()) {
+        if (FunctionStreamabilityHelper.isStreaming(streamability)) {
             optimizer.assessFunctionStreamability(this, compiledFunction);
         }
 
@@ -476,7 +482,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
         }
 
         OptimizerOptions options = getCompilation().getCompilerInfo().getOptimizerOptions();
-        if (options.isSet(OptimizerOptions.TAIL_CALLS) && !streamability.isStreaming()) {
+        if (options.isSet(OptimizerOptions.TAIL_CALLS) && !FunctionStreamabilityHelper.isStreaming(streamability)) {
             int tailCalls = ExpressionTool.markTailFunctionCalls(exp2, getObjectName(), getNumberOfParameters());
             if (tailCalls != 0) {
                 compiledFunction.setTailRecursive(tailCalls > 0, tailCalls > 1);
@@ -487,7 +493,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
 
         //compiledFunction.computeEvaluationMode();
 
-        if (streamability.isStreaming()) {
+        if (FunctionStreamabilityHelper.isStreaming(streamability)) {
             compiledFunction.prepareForStreaming();
         }
 
@@ -579,7 +585,7 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
      */
 
     public void setParameterDefinitions(UserFunction fn) {
-        UserFunctionParameter[] params = new UserFunctionParameter[getNumberOfParameters()];
+        UserFunctionParameter[] params = fn.getParameterDefinitions();
         int count = 0;
         int optional = 0;
         for (NodeInfo node : children()) {
@@ -601,8 +607,8 @@ public class XSLFunction extends StyleElement implements StylesheetComponent {
                 break;
             }
         }
-        fn.setParameterDefinitions(params);
-        fn.setMinimumArity(count - optional);
+//        fn.setParameterDefinitions(params);
+//        fn.setMinimumArity(count - optional);
     }
 
     /**

@@ -9,30 +9,40 @@ package net.sf.saxon.type;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.StaticProperty;
-import net.sf.saxon.expr.parser.Token;
+import net.sf.saxon.expr.parser.OperatorSymbol;
+import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
-import net.sf.saxon.ma.arrays.SimpleArrayItem;
-import net.sf.saxon.ma.map.*;
-import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.ma.jnode.AnyJNodeType;
+import net.sf.saxon.ma.jnode.RootJNodeType;
+import net.sf.saxon.ma.jnode.SpecificJNodeType;
+import net.sf.saxon.ma.map.KeyValuePair;
+import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.ma.map.MapType;
+import net.sf.saxon.ma.map.RecordType;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.NameChecker;
+import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.pattern.UnionQNameTest;
+import net.sf.saxon.pattern.qname.*;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeChar;
+import net.sf.saxon.type.gnode.*;
+import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.SequenceExtent;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * <p>An AlphaCode is a compact, context-independent string representation of a SequenceType</p>
  *
  * <p>The syntax actually handles ItemTypes as well as SequenceTypes; and in addition, it can handle the two examples
- * of NodeTests that are not item types, namely *:local and uri:*. It can therefore be used in the SEF
- * wherever a SequenceType, ItemType, or NodeTest is required.</p>
+ * of NodeTests that are not item types, namely *:local and uri:*. (These become legal item types in 4.0).
+ * It can therefore be used in the SEF wherever a SequenceType, ItemType, or NodeTest is required.</p>
  *
  * <p>The first character of an alphacode is the occurrence indicator. This is one of: * (zero or more),
  * + (one or more), ? (zero or one), 0 (exactly zero), 1 (exactly one). If the first character is
@@ -61,6 +71,9 @@ import java.util.Set;
  * <li>ASNTNCI: xs:ID</li>
  * <li>ASNTNCE: xs:ENTITY</li>
  * <li>ASNTNCR: xs:IDREF</li>
+ *
+ * <li>ASE s{s1|s2|s3}: enum. The enum values are separated by vertical bars, and special
+ * characters (whitespace, vertical bar, backslash, closing brace) are backslash-escaped.</li>
  *
  * <li>AQ: xs:QName</li>
  * <li>AU: xs:anyURI</li>
@@ -98,7 +111,7 @@ import java.util.Set;
  * <li>AX: xs:hexBinary  </li>
  * <li>AZ: xs:untypedAtomic </li>
  *
- * <li>N: node() </li>
+ * <li>N: node() (=xnode)</li>
  * <li>NE: element(*) </li>
  * <li>NA: attribute(*) </li>
  * <li>NT: text() </li>
@@ -109,9 +122,15 @@ import java.util.Set;
  *
  * <li>F: function(*) </li>
  * <li>FM: map(*) -- including record types</li>
+ * <li>FMR: named record type</li>
  * <li>FA: array(*) </li>
  *
+ * <li>J: jnode(). Parameters k for the key type (defaulting to string), s for the key value (as a string), c for the content type</li>
+ * <li>JR: root jnode(). Parameter c for the content type.</li>
+ *
  * <li>E: xs:error </li>
+ *
+ * <li>U: union (choice) of the alternatives listed in the 'm' property</li>
  *
  * <li>X: external (wrapped) object </li>
  * <li>XJ: external Java object </li>
@@ -137,6 +156,11 @@ import java.util.Set;
  * in a NameTest, but never in a SequenceType. However, they can be represented in alphacodes using the syntax
  * "n*:name" and "nQ{uri}*" respectively. The syntax "~localname" is used for a name in the XSD namespace.</p>
  *
+ * <p>n - may also represent a choice of names, written in square brackets, space separated, for example
+ * "n[Q{}A Q{}B]</p>
+ *
+ * <p>n - also used for named record types (primary code FMR)</p>
+ *
  * <ul>
  *
  * <li><p>c - Node content type (XSD type annotation), as a URI-qualified name optionally followed by "?" to indicate
@@ -147,7 +171,7 @@ import java.util.Set;
  * <li><p>k - Key type, present when the basic code is FM (i.e. for maps), omitted if the key type is xs:anyAtomicType.
  * The value is the alphacode of the key type, enclosed in square brackets: it will always start with "1A".</p></li>
  *
- * <li><p>v - Value type, present when when the basic code is (FM, FA) (i.e. for maps and arrays), omitted if the
+ * <li><p>v - Value type, present when the basic code is (FM, FA) (i.e. for maps and arrays), omitted if the
  * value type is item()*. The value is the alphacode of the value type, enclosed in square brackets. For example
  * the alphacode for array(xs:string+)* is "*FA v[+AS]".</p></li>
  *
@@ -164,7 +188,8 @@ import java.util.Set;
  *
  * <li><p>m - Member types of an anonymous union type. The value is an array of alphacodes for the member
  * types (these will always be atomic types), enclosed in square brackets and comma-separated. The basic code
- * in this case will be "A", indicating xs:anyAtomicType. This is not used for the built-in union type
+ * in this case will be "A", indicating xs:anyAtomicType or "U" indicating a general choice type (not necessarily
+ * atomic). This is not used for the built-in union type
  * xs:numeric, nor for user-defined atomic types defined in a schema; it is used only for anonymous union types
  * defined using the Saxon extension syntax "union(a, b, c)".</p></li>
  *
@@ -182,6 +207,9 @@ import java.util.Set;
  * type will typically be "N" or "NE". Saxon uses venn types internally to give a more precise inferred type
  * for expressions; it is probably largely unused at run-time, and can therefore be safely ignored when reading a
  * SEF file.</p></li>
+ *
+ * <li><p>s - Enumeration string. Takes the form <code>s{s1|s2|s3} where s1, s2, s3 are the enumeration constants,
+ * with special characters (whitespace, vertical bar, backslash, closing brace) backslash-escaped.</code></p></li>
  *
  * </ul>
  *
@@ -249,49 +277,6 @@ public class AlphaCode {
     }
 
     /**
-     * Implementation of the callback where the container is an XDM MapItem, using
-     * the {@link DictionaryMap} implementation
-     */
-    private static class MapItemCallBack implements ParserCallBack<DictionaryMap> {
-
-        @Override
-        public DictionaryMap makeContainer() {
-            return new DictionaryMap();
-        }
-
-        @Override
-        public void setStringProperty(DictionaryMap container, String key, String value) {
-            container.initialPut(key, new StringValue(value));
-        }
-
-        @Override
-        public void setMultiStringProperty(DictionaryMap container, String key, List<String> value) {
-            List<Item> xdmValue = new ArrayList<>();
-            for (String v : value) {
-                xdmValue.add(new StringValue(v));
-            }
-            container.initialPut(key, new SequenceExtent.Of<>(xdmValue));
-        }
-
-        @Override
-        public void setTypeProperty(DictionaryMap container, String key, DictionaryMap value) {
-            container.initialPut(key, value);
-        }
-
-        @SuppressWarnings("UseBulkOperation")
-        @Override
-        public void setMultiTypeProperty(DictionaryMap container, String key, List<DictionaryMap> value) {
-            List<GroundedValue> contents = new ArrayList<>();
-            // Written this way for C# conversion
-            for (DictionaryMap map : value) {
-                contents.add(map);
-            }
-            container.initialPut(key, new SimpleArrayItem(contents));
-        }
-
-    }
-
-    /**
      * Implementation of the callback where the container is an AlphaCodeTree
      */
 
@@ -305,87 +290,71 @@ public class AlphaCode {
         @Override
         public void setStringProperty(AlphaCodeTree tree, String key, String value) {
             switch (key) {
-                case "o": // cardinality
-                    tree.cardinality = value;
-                    break;
-                case "p": // principal item type
-                    tree.principal = value;
-                    break;
-                case "n": // element or attribute name
-                    tree.name = value;
-                    break;
-                case "c": // element or attribute content type
-                    tree.content = value;
-                    break;
-                case "z": // nillable flag
-                    tree.nillable = true;
-                    break;
-                case "x": // extensible tuple type flag
-                    tree.extensibleTupleType = true;
-                    break;
-                default:
-                    throw new IllegalArgumentException("Bad alphacode component " + key);
+                case "o" -> // cardinality
+                        tree.cardinality = value;
+                case "p" -> // principal item type
+                        tree.principal = value;
+                case "n" -> // element or attribute name
+                        tree.name = value;
+                case "c" -> // element or attribute content type
+                        tree.content = value;
+                case "z" -> // nillable flag
+                        tree.nillable = true;
+                default ->
+                        throw new IllegalArgumentException("Bad alphacode component " + key);
             }
         }
 
         @Override
         public void setMultiStringProperty(AlphaCodeTree tree, String key, List<String> value) {
-            if (key.equals("f")) { // fields in tuple type
-                tree.fieldNames = value;
-            } else if (key.equals("optionalFields")) {
-                tree.optionalFieldNames = new HashSet<>();
-                tree.optionalFieldNames.addAll(value);
-            } else {
-                throw new IllegalArgumentException("Bad alphacode component " + key);
+            switch (key) {
+                case "f" ->  // fields in tuple type
+                        tree.fieldNames = value;
+                case "s" -> tree.enumValues = value;
+                case "optionalFields" -> {
+                    tree.optionalFieldNames = new HashSet<>();
+                    tree.optionalFieldNames.addAll(value);
+                }
+                default -> throw new IllegalArgumentException("Bad alphacode component " + key);
             }
         }
 
         @Override
         public void setTypeProperty(AlphaCodeTree tree, String key, AlphaCodeTree value) {
             switch (key) {
-                case "k": // key type of map
-                    tree.keyType = value;
-                    break;
-                case "v": // value type of map, member type of array
-                    tree.valueType = value;
-                    break;
-                case "r": // result type of function
-                    tree.resultType = value;
-                    break;
-                case "e": // element type of document type
-                    tree.elementType = value;
-                    break;
-                case "selfReference":
-                    tree.selfReference = value;
-                    break;
-                default:
-                    throw new IllegalArgumentException("Bad alphacode component " + key);
+                case "k" -> // key type of map
+                        tree.keyType = value;
+                case "v" -> // value type of map, member type of array
+                        tree.valueType = value;
+                case "r" -> // result type of function
+                        tree.resultType = value;
+                case "e" -> // element type of document type
+                        tree.elementType = value;
+                default ->
+                        throw new IllegalArgumentException("Bad alphacode component " + key);
             }
         }
 
         @Override
         public void setMultiTypeProperty(AlphaCodeTree tree, String key, List<AlphaCodeTree> value) {
             switch (key) {
-                case "a": // argument types of a function
-                    tree.argTypes = value;
-                    break;
-                case "m": // member types of a union
-                    tree.members = value;
-                    break;
-                case "i": // intersection of types
+                case "a" -> // argument types of a function
+                        tree.argTypes = value;
+                case "m" -> // member types of a union
+                        tree.members = value;
+                case "i" -> {
                     tree.vennOperands = value.toArray(new AlphaCodeTree[]{});
-                    tree.vennOperator = Token.INTERSECT;
-                    break;
-                case "u": // union of types
+                    tree.vennOperator = OperatorSymbol.INTERSECT;
+                }
+                case "u" -> {
                     tree.vennOperands = value.toArray(new AlphaCodeTree[]{});
-                    tree.vennOperator = Token.UNION;
-                    break;
-                case "d": // difference of types
+                    tree.vennOperator = OperatorSymbol.UNION;
+                }
+                case "d" -> {
                     tree.vennOperands = value.toArray(new AlphaCodeTree[]{});
-                    tree.vennOperator = Token.EXCEPT;
-                    break;
-                default:
-                    throw new IllegalArgumentException("Bad alphacode component " + key);
+                    tree.vennOperator = OperatorSymbol.EXCEPT;
+                }
+                default -> throw new IllegalArgumentException("Bad alphacode component " + key);
             }
         }
 
@@ -393,7 +362,7 @@ public class AlphaCode {
 
 
     /**
-     * Inner class implementing the parser for Alphacodes
+     * Inner class implementing the parser for AlphaCodes
      *
      * @param <T> the type of container used by the calling application to hold the result of parsing
      */
@@ -457,7 +426,7 @@ public class AlphaCode {
             int indicator = nextChar();
             if (indicator < 0) {
                 callBack.setStringProperty(container, "o", "1");
-            } else if (("*+1?0\u00B0".indexOf((char) indicator) >= 0)) {      // TODO: \u00B0 is obsolescent
+            } else if (("*+1?0".indexOf((char) indicator) >= 0)) {
                 if (indicator == 0xB0) {
                     indicator = '0';
                 }
@@ -468,9 +437,7 @@ public class AlphaCode {
             }
             String primary = nextToken();
             callBack.setStringProperty(container, "p", primary);
-            if (primary.equals("..")) {
-                callBack.setTypeProperty(container, "selfReference", parent);
-            }
+
             while (position < input.length()) {
                 char c = input.charAt(position);
                 switch (c) {
@@ -480,20 +447,29 @@ public class AlphaCode {
                     case ' ':
                         position++;
                         break;
-                    case 'n':
-                    case 'c':
+                    case 'n': {
                         position++;
                         String token = nextToken();
                         if (token.startsWith("~")) {
                             token = "Q{" + NamespaceConstant.SCHEMA + "}" + token.substring(1);
                         }
-                        if (c == 'c' && token.endsWith("?")) {
+                        callBack.setStringProperty(container, "n", token);
+                        break;
+                    }
+                    case 'c': {
+                        position++;
+                        String token = nextToken();
+                        if (token.startsWith("~")) {
+                            token = "Q{" + NamespaceConstant.SCHEMA + "}" + token.substring(1);
+                        }
+                        if (token.endsWith("?")) {
                             // nillability: represented in alphaTree as "z":"1"
                             callBack.setStringProperty(container, "z", "1");
                             token = token.substring(0, token.length() - 1);
                         }
-                        callBack.setStringProperty(container, "" + c, token);
+                        callBack.setStringProperty(container, "c", token);
                         break;
+                    }
                     case 'k':
                     case 'r':
                     case 'v':
@@ -528,11 +504,7 @@ public class AlphaCode {
                             }
                         }
                         break;
-                    case 'f':  // tuple field types
-                    case 'F':  // tuple field types, extensible
-                        if (c == 'F') {
-                            callBack.setStringProperty(container, "x", "1");
-                        }
+                    case 'f': { // tuple field types
                         position++;
                         expect('[');
                         List<String> fieldNames = new ArrayList<>();
@@ -561,30 +533,57 @@ public class AlphaCode {
                             }
                         }
                         break;
+                    }
+                    case 's': { // enumeration values
+                        position++;
+                        expect('{');
+                        List<String> values = new ArrayList<>();
+                        StringBuilder currentValue = new StringBuilder();
+                        boolean escaped = false;
+                        while (true) {
+                            char ch = input.charAt(position++);
+                            if (escaped) {
+                                escaped = false;
+                                currentValue.append(switch (ch) {
+                                    case 's' -> ' ';
+                                    case 'n' -> '\n';
+                                    case 'r' -> '\r';
+                                    case 't' -> '\t';
+                                    case '|' -> '|';
+                                    case '\\' -> '\\';
+                                    case '}' -> '}';
+                                    default -> throw new IllegalArgumentException("Illegal escape sequence: " + ch);
+                                });
+                            } else if (ch == '\\') {
+                                escaped = true;
+                            } else if (ch == '|') {
+                                values.add(currentValue.toString());
+                                currentValue.setLength(0);
+                            } else if (ch == '}') {
+                                values.add(currentValue.toString());
+                                callBack.setMultiStringProperty(container, "s", values);
+                                break;
+                            } else {
+                                currentValue.append(ch);
+                            }
+                        }
+                        break;
+                    }
                     default:
-                        throw new IllegalStateException("Expected one of n|c|t|k|r|v|a|u, found '" + c + "'");
+                        throw new IllegalStateException("Expected one of n|c|t|k|r|v|a|u|s, found '" + c + "'");
                 }
             }
             return container;
         }
     }
 
-    /**
-     * Parse an AlphaCode into an XDM map
-     *
-     * @param input the input alphacode
-     * @return the resulting map
-     * @throws IllegalArgumentException if the input is not a valid AlphaCode
-     */
 
-    public static MapItem toXdmMap(String input) {
-        MapItemCallBack callBack = new MapItemCallBack();
-        AlphaCodeParser<DictionaryMap> parser = new AlphaCodeParser<>(input, callBack);
-        return parser.parseType(null);
-    }
+    private final static StringValue SV_O = new StringValue(new UnicodeChar('o'));
+    private final static StringValue SV_P = new StringValue(new UnicodeChar('p'));
 
     /**
      * Serialize the XDM map representation of an alphacode
+     *
      * @param map the alphacode represented as an XDM map
      * @return the corresponding alphacode as a string
      */
@@ -593,16 +592,16 @@ public class AlphaCode {
         // TODO: may need updating. Used when running the XX compiler under Saxon/J
         StringBuilder out = new StringBuilder();
 
-        StringValue indicator = (StringValue) map.get(StringValue.bmp("o"));
+        StringValue indicator = (StringValue) map.get(SV_O);
         out.append(indicator == null ? "1" : indicator.getStringValue());
 
-        StringValue alphaCode = (StringValue) map.get(StringValue.bmp("p"));
+        StringValue alphaCode = (StringValue) map.get(SV_P);
         out.append(alphaCode == null ? "" : alphaCode.getStringValue());
 
         out.append(" ");
 
         for (KeyValuePair kvp : map.keyValuePairs()) {
-            String key = kvp.key.getStringValue();
+            String key = kvp.key().getStringValue();
             switch (key) {
                 case "o":
                 case "p":
@@ -611,7 +610,7 @@ public class AlphaCode {
                 case "c":
                 case "t":
                     out.append(key);
-                    out.append(((StringValue) kvp.value).getStringValue());
+                    out.append(((StringValue) kvp.value()).getStringValue());
                     out.append(" ");
                     break;
                 case "k":
@@ -620,7 +619,7 @@ public class AlphaCode {
                 case "e":
                     out.append(key);
                     out.append('[');
-                    out.append(fromXdmMap((MapItem) kvp.value));
+                    out.append(fromXdmMap((MapItem) kvp.value()));
                     out.append(']');
                     out.append(" ");
                     break;
@@ -628,7 +627,7 @@ public class AlphaCode {
                 case "u":
                     out.append(key);
                     out.append('[');
-                    ArrayItem types = (ArrayItem) kvp.value;
+                    ArrayItem types = (ArrayItem) kvp.value();
                     boolean first = true;
                     for (GroundedValue t : types.members()) {
                         if (first) {
@@ -664,11 +663,11 @@ public class AlphaCode {
         AlphaCodeTree resultType;
         List<AlphaCodeTree> argTypes;
         AlphaCodeTree elementType;
-        int vennOperator;
+        OperatorSymbol vennOperator;
         AlphaCodeTree[] vennOperands;
         List<String> fieldNames;
+        List<String> enumValues;
         Set<String> optionalFieldNames;
-        boolean extensibleTupleType;
         AlphaCodeTree selfReference;
     }
 
@@ -676,17 +675,18 @@ public class AlphaCode {
      * Convert an AlphaCode to a SequenceType
      *
      * @param input  the input alphacode
-     * @param config the Saxon Configuration (which must contain any user-defined types that are
+     * @param config
+     * @param schema the schema (which must contain any user-defined types that are
      *               referenced in the Alphacode)
      * @return the corresponding SequenceType
      * @throws IllegalArgumentException if the input is not a valid AlphaCode
      */
 
-    public static SequenceType toSequenceType(String input, Configuration config) {
+    public static SequenceType toSequenceType(String input, Configuration config, Schema schema) {
         TreeCallBack callBack = new TreeCallBack();
         AlphaCodeParser<AlphaCodeTree> parser = new AlphaCodeParser<>(input, callBack);
         AlphaCodeTree tree = parser.parseType(null);
-        return sequenceTypeFromTree(tree, config);
+        return sequenceTypeFromTree(tree, schema);
     }
 
     /**
@@ -694,14 +694,15 @@ public class AlphaCode {
      * may be omitted, or may be "1": any other value is treated as an error.
      *
      * @param input  the input alphacode
-     * @param config the Saxon Configuration (which must contain any user-defined types that are
+     * @param config
+     * @param schema the imported schema (which must contain any user-defined types that are
      *               referenced in the Alphacode)
      * @return the corresponding SequenceType
      * @throws IllegalArgumentException if the input is not a valid AlphaCode
      */
 
-    public static ItemType toItemType(String input, Configuration config) {
-        SequenceType st = toSequenceType(input, config);
+    public static ItemType toItemType(String input, Configuration config, Schema schema) {
+        SequenceType st = toSequenceType(input, config, schema);
         if (st.getCardinality() != StaticProperty.EXACTLY_ONE) {
             throw new IllegalArgumentException("Supplied alphacode has a cardinality other than 1");
         }
@@ -712,16 +713,20 @@ public class AlphaCode {
      * Convert a tree (that results from parsing an AlphaCode) to a corresponding SequenceType
      *
      * @param tree   the tree resulting from parsing
-     * @param config the Saxon Configuration (which must contain any user-defined types that are
+     * @param schema the imported schema (which must contain any user-defined types that are
      *               referenced in the Alphacode)
      * @return the corresponding SequenceType
      */
 
-    private static SequenceType sequenceTypeFromTree(AlphaCodeTree tree, Configuration config) {
+    private static SequenceType sequenceTypeFromTree(AlphaCodeTree tree, Schema schema) {
+        Configuration config = schema.getConfiguration();
         String principal = tree.principal;
         ItemType itemType = null;
         if (principal.isEmpty()) {
-            itemType = AnyItemType.getInstance();
+            itemType = AnyItemType.INSTANCE;
+        } else if (principal.equals("ASE")) {
+            List<String> values = tree.enumValues;
+            itemType = EnumerationUnionType.of(values.toArray(new String[]{}));
         } else if (principal.startsWith("A")) {
             BuiltInAtomicType builtIn = BuiltInAtomicType.fromAlphaCode(principal);
             if (builtIn == null) {
@@ -729,15 +734,16 @@ public class AlphaCode {
             }
             itemType = builtIn;
             if (tree.name != null) {
-                SchemaType type = config.getSchemaType(StructuredQName.fromEQName(tree.name));
+                StructuredQName name = StructuredQName.fromEQName40(tree.name);
+                SchemaType type = schema.getSchemaType(name);
                 if (!(type instanceof PlainType)) {
                     throw new IllegalArgumentException("Schema type " + tree.name + " is not known");
                 }
                 itemType = (PlainType) type;
             } else if (builtIn == BuiltInAtomicType.ANY_ATOMIC && tree.members != null) {
-                List<AtomicType> members = new ArrayList<>();
+                List<ItemType> members = new ArrayList<>();
                 for (AlphaCodeTree m : tree.members) {
-                    SequenceType st = sequenceTypeFromTree(m, config);
+                    SequenceType st = sequenceTypeFromTree(m, schema);
                     if (st.getPrimaryType().isAtomicType()) {
                         final AtomicType primaryType = (AtomicType) st.getPrimaryType();
                         members.add(primaryType);
@@ -750,229 +756,247 @@ public class AlphaCode {
 
             String contentName = tree.content;
             StructuredQName contentQName;
-            ContentTypeTest contentTest = null;
+            SchemaType contentType = null;
             boolean nillable = tree.nillable;
             if (contentName != null) {
-                contentQName = StructuredQName.fromEQName(contentName);
-                SchemaType contentType = config.getSchemaType(contentQName);
+                contentQName = StructuredQName.fromEQName40(contentName);
+                contentType = schema.getSchemaType(contentQName);
                 if (contentType == null) {
                     throw new IllegalArgumentException("Unknown type " + contentName);
                 }
-                contentTest = new ContentTypeTest(principal.equals("NE") ? Type.ELEMENT : Type.ATTRIBUTE,
-                                                  contentType, config, nillable);
+//                contentTest = new ContentTypeTest(principal.equals("NE") ? Type.ELEMENT : Type.ATTRIBUTE,
+//                                                  AnyNodeTest.getInstance(), contentType, nillable, config);
             }
             if (tree.vennOperands != null) {
-                if (tree.vennOperands.length == 2) {
-                    NodeTest nt0 = (NodeTest) sequenceTypeFromTree(tree.vennOperands[0], config).getPrimaryType();
-                    NodeTest nt1 = (NodeTest) sequenceTypeFromTree(tree.vennOperands[1], config).getPrimaryType();
-                    itemType = new CombinedNodeTest(nt0, tree.vennOperator, nt1);
-                } else {
-                    // Dangerous short-cut here - we know this will be a union of node kind tests
-                    assert tree.vennOperator == Token.UNION;
-                    UType u = UType.VOID;
-                    for (int i = 0; i < tree.vennOperands.length; i++) {
-                        ItemType it = sequenceTypeFromTree(tree.vennOperands[i], config).getPrimaryType();
-                        assert it instanceof NodeKindTest;
-                        u = u.union(it.getUType());
-                    }
-                    itemType = new MultipleNodeKindTest(u);
-                }
+                throw new UnsupportedOperationException(); // TEMPORARILY
+//                if (tree.vennOperands.length == 2) {
+//                    ItemType nt0 = sequenceTypeFromTree(tree.vennOperands[0], schema).getPrimaryType();
+//                    ItemType nt1 = sequenceTypeFromTree(tree.vennOperands[1], schema).getPrimaryType();
+//                    itemType = new CombinedNodeTest(nt0, tree.vennOperator, nt1);
+//                } else {
+//                    // Dangerous short-cut here - we know this will be a union of node kind tests
+//                    assert tree.vennOperator == OperatorSymbol.UNION;
+//                    UType u = UType.VOID;
+//                    for (int i = 0; i < tree.vennOperands.length; i++) {
+//                        ItemType it = sequenceTypeFromTree(tree.vennOperands[i], schema).getPrimaryType();
+//                        assert it instanceof NodeKindType;
+//                        u = u.union(it.getUType());
+//                    }
+//                    itemType = new MultipleNodeKindTest(u);
+//                }
             } else {
-                int kind = Type.NODE;
-                if (principal.length() >= 2) {
-                    switch (principal.substring(0, 2)) {
-                        case "NT":
-                            kind = Type.TEXT;
-                            break;
-                        case "NC":
-                            kind = Type.COMMENT;
-                            break;
-                        case "NN":
-                            kind = Type.NAMESPACE;
-                            break;
-                        case "NP":
-                            kind = Type.PROCESSING_INSTRUCTION;
-                            break;
-                        case "ND":
-                            kind = Type.DOCUMENT;
-                            break;
-                        case "NE":
-                            kind = Type.ELEMENT;
-                            break;
-                        case "NA":
-                            kind = Type.ATTRIBUTE;
-                            break;
-
-                    }
-                }
+//                int kind = Type.XNODE;
+//                if (principal.length() >= 2) {
+//                    kind = switch (principal.substring(0, 2)) {
+//                        case "NT" -> Type.TEXT;
+//                        case "NC" -> Type.COMMENT;
+//                        case "NN" -> Type.NAMESPACE;
+//                        case "NP" -> Type.PROCESSING_INSTRUCTION;
+//                        case "ND" -> Type.DOCUMENT;
+//                        case "NE" -> Type.ELEMENT;
+//                        case "NA" -> Type.ATTRIBUTE;
+//                        default -> kind;
+//                    };
+//                }
                 String name = tree.name;
-                QNameTest partialNameTest = null;
-                if (name != null && name.contains("*")) {
-                    if (name.startsWith("*:")) {
-                        partialNameTest = new LocalNameTest(config.getNamePool(), kind, name.substring(2));
-                    } else if (name.endsWith("}*")) {
-                        String uri = name.substring(2, name.length() - 2);
-                        partialNameTest = new NamespaceTest(config.getNamePool(), kind, NamespaceUri.of(uri));
-                    }
+                QNameTest qNameTest = null;
+                if (name != null) {
+                    qNameTest = parseNameTest(tree.name, config);
                 }
-                if (partialNameTest != null) {
-                    itemType = (NodeTest) partialNameTest;
-                } else {
-                    StructuredQName qName = name == null ? null : StructuredQName.fromEQName(name);
-                    switch (principal) {
-                        case "N":
-                            itemType = AnyNodeTest.getInstance();
-                            break;
-                        case "NT":
-                            itemType = NodeKindTest.TEXT;
-                            break;
-                        case "NC":
-                            itemType = NodeKindTest.COMMENT;
-                            break;
-                        case "NN":
-                            if (name == null) {
-                                itemType = NodeKindTest.NAMESPACE;
-                            } else {
-                                itemType = new NameTest(Type.NAMESPACE, NamespaceUri.NULL, qName.getLocalPart(), config.getNamePool());
-                            }
-                            break;
-                        case "NP":
-                            if (name == null) {
-                                itemType = NodeKindTest.PROCESSING_INSTRUCTION;
-                            } else {
-                                itemType = new NameTest(Type.PROCESSING_INSTRUCTION, NamespaceUri.NULL, qName.getLocalPart(), config.getNamePool());
-                            }
-                            break;
-                        case "ND":
-                            AlphaCodeTree elementType = tree.elementType;
-                            if (elementType == null) {
-                                itemType = NodeKindTest.DOCUMENT;
-                            } else {
-                                ItemType e = sequenceTypeFromTree(elementType, config).getPrimaryType();
-                                itemType = new DocumentNodeTest((NodeTest) e);
-                            }
-                            break;
-                        case "NE":
-                            if (qName == null) {
-                                if (contentTest == null) {
-                                    itemType = NodeKindTest.ELEMENT;
-                                } else {
-                                    itemType = contentTest;
-                                }
-                            } else {
-                                itemType = new NameTest(Type.ELEMENT, qName.getNamespaceUri(), qName.getLocalPart(), config.getNamePool());
-                                if (contentTest != null) {
-                                    itemType = new CombinedNodeTest((NodeTest) itemType, Token.INTERSECT, contentTest);
-                                }
-                            }
-                            break;
-                        case "NA":
-                            if (qName == null) {
-                                if (contentTest == null) {
-                                    itemType = NodeKindTest.ATTRIBUTE;
-                                } else {
-                                    itemType = contentTest;
-                                }
-                            } else {
-                                itemType = new NameTest(Type.ATTRIBUTE, qName.getNamespaceUri(), qName.getLocalPart(), config.getNamePool());
-                                if (contentTest != null) {
-                                    itemType = new CombinedNodeTest((NodeTest) itemType, Token.INTERSECT, contentTest);
-                                }
-                            }
-                            break;
-                        case "NES": {
-                            assert qName != null;
-                            SchemaDeclaration decl = config.getElementDeclaration(qName);
-                            if (decl != null) {
-                                try {
-                                    itemType = decl.makeSchemaNodeTest();
-                                } catch (MissingComponentException e) {
-                                    //
-                                }
-                            }
-                            if (itemType == null) {
-                                itemType = new NameTest(Type.ELEMENT, qName.getNamespaceUri(), qName.getLocalPart(), config.getNamePool());
-                            }
-                            break;
+                StructuredQName qName = (qNameTest instanceof SpecificQNameTest spec) ? spec.getStructuredQName() : null;
+                switch (principal) {
+                    case "N":
+                        itemType = AnyXNodeType.getInstance();
+                        break;
+                    case "NT":
+                        itemType = NodeKindType.TEXT;
+                        break;
+                    case "NC":
+                        itemType = NodeKindType.COMMENT;
+                        break;
+                    case "NN":
+                        if (name == null) {
+                            itemType = NodeKindType.NAMESPACE;
+                        } else {
+                            itemType = new NamedXNodeType(Type.NAMESPACE, qNameTest, config);
                         }
-                        case "NAS": {
-                            assert qName != null;
-                            SchemaDeclaration decl = config.getAttributeDeclaration(qName);
-                            if (decl != null) {
-                                try {
-                                    itemType = decl.makeSchemaNodeTest();
-                                } catch (MissingComponentException e) {
-                                    //
-                                }
-                            }
-                            if (itemType == null) {
-                                itemType = new NameTest(Type.ATTRIBUTE, qName.getNamespaceUri(), qName.getLocalPart(), config.getNamePool());
-                            }
-                            break;
+                        break;
+                    case "NP":
+                        if (name == null) {
+                            itemType = NodeKindType.PROCESSING_INSTRUCTION;
+                        } else {
+                            itemType = new NamedXNodeType(Type.PROCESSING_INSTRUCTION, qNameTest, config);
                         }
-                        default:
-                            itemType = AnyNodeTest.getInstance();
-                            break;
+                        break;
+                    case "ND":
+                        AlphaCodeTree elementType = tree.elementType;
+                        if (elementType == null) {
+                            itemType = NodeKindType.DOCUMENT;
+                        } else {
+                            ItemType e = sequenceTypeFromTree(elementType, schema).getPrimaryType();
+                            itemType = new DocumentNodeType((XNodeType) e);
+                        }
+                        break;
+                    case "NE":
+                        if (contentType == null) {
+                            itemType = name == null
+                                    ? NodeKindType.ELEMENT
+                                    : new NamedXNodeType(Type.ELEMENT,
+                                                         qNameTest,
+                                                         config);
+                            ;
+                        } else {
+                            itemType = new NamedXNodeType(Type.ELEMENT, qNameTest, contentType, nillable, config);
+                        }
+                        break;
+                    case "NA":
+                        if (contentType == null) {
+                            itemType = name == null
+                                    ? NodeKindType.ATTRIBUTE
+                                    : new NamedXNodeType(Type.ATTRIBUTE, qNameTest, config);
+                            ;
+                        } else {
+                            itemType = new NamedXNodeType(Type.ATTRIBUTE, qNameTest, contentType, false, config);
+                        }
+                        break;
+                    case "NES": {
+                        assert name != null;
+                        IElementDecl decl = schema.getElementDecl(qName);
+                        if (decl != null) {
+                            try {
+                                itemType = schema.makeSchemaElementTest(decl.getFingerprint());
+                            } catch (MissingComponentException e) {
+                                //
+                            } catch (SchemaException e) {
+                                throw new IllegalArgumentException(e);
+                            }
+                        }
+                        if (itemType == null) {
+                            itemType = new NamedXNodeType(Type.ELEMENT, qName, config);
+                        }
+                        break;
                     }
+                    case "NAS": {
+                        assert qName != null;
+                        IAttributeDecl decl = schema.getAttributeDecl(qName);
+                        if (decl != null) {
+                            try {
+                                itemType = schema.makeSchemaAttributeTest(decl.getFingerprint());
+                            } catch (MissingComponentException e) {
+                                //
+                            } catch (SchemaException e) {
+                                throw new IllegalArgumentException(e);
+                            }
+                        }
+                        if (itemType == null) {
+                            itemType = new NamedXNodeType(Type.ATTRIBUTE, qName, config);
+                        }
+                        break;
+                    }
+                    default:
+                        itemType = AnyXNodeType.getInstance();
+                        break;
                 }
             }
+
+        } else if (principal.startsWith("G")) {
+            itemType = AnyGNodeType.getInstance();
+        } else if (principal.equals("J")) {
+            SequenceType valueType = tree.valueType != null ? sequenceTypeFromTree(tree.valueType, schema) : null;
+            AtomicValue keyValue = null;
+            if (valueType == null) {
+                itemType = AnyJNodeType.getInstance();
+            } else if (tree.keyType != null) {
+                AtomicType keyItemType = (AtomicType) sequenceTypeFromTree(tree.keyType, schema).getPrimaryType();
+                String lexicalKey = tree.content;
+                try {
+                    keyValue = (AtomicValue) keyItemType.getTypedValue(StringView.of(lexicalKey), null, ConversionRules.DEFAULT);
+                } catch (ValidationException e) {
+                    throw new AssertionError(e);
+                }
+                itemType = new SpecificJNodeType(keyValue, valueType);
+            } else {
+                itemType = new SpecificJNodeType(valueType);
+            }
+            //itemType = AnyJNodeType.getInstance();
+        } else if (principal.equals("JR")) {
+            itemType = new RootJNodeType(sequenceTypeFromTree(tree.valueType, schema));
         } else if (principal.startsWith("F")) {
             if (principal.equals("FA")) {
                 AlphaCodeTree valueType = tree.valueType;
                 if (valueType == null) {
                     itemType = ArrayItemType.ANY_ARRAY_TYPE;
                 } else {
-                    itemType = new ArrayItemType(sequenceTypeFromTree(valueType, config));
+                    itemType = new ArrayItemType(sequenceTypeFromTree(valueType, schema));
                 }
-            } else if (principal.equals("FM")) {
-                if (tree.fieldNames == null) {
+            } else if (principal.startsWith("FM")) {
+                if (tree.name != null) {
+                    StructuredQName qName = StructuredQName.fromEQName40(tree.name);
+                    if (qName.hasURI(NamespaceUri.FN)) {
+                        itemType = config.getBuiltInRecordType(qName.getLocalPart());
+                    } else {
+                        throw new IllegalArgumentException("Named record type not in FN namespace");
+                    }
+                } else if (tree.fieldNames == null) {
                     AlphaCodeTree keyType = tree.keyType;
                     AlphaCodeTree valueType = tree.valueType;
                     if (keyType != null && valueType != null) {
-                        AtomicType a = (AtomicType) sequenceTypeFromTree(keyType, config).getPrimaryType();
-                        SequenceType v = sequenceTypeFromTree(valueType, config);
+                        PlainType a = (PlainType) sequenceTypeFromTree(keyType, schema).getPrimaryType();
+                        SequenceType v = sequenceTypeFromTree(valueType, schema);
                         itemType = new MapType(a, v);
                     } else {
                         itemType = MapType.ANY_MAP_TYPE;
                     }
                 } else {
                     List<SequenceType> fieldTypes = new ArrayList<>(tree.argTypes.size());
-                    RecordTest recordTest = new RecordTest();
+                    RecordType recordTest = new RecordType();
                     for (AlphaCodeTree t : tree.argTypes) {
-                        if (t.selfReference != null) {
-                            SelfReferenceRecordTest selfie = new SelfReferenceRecordTest(recordTest);
-                            int xcardinality = Cardinality.fromOccurrenceIndicator(tree.cardinality);
-                            fieldTypes.add(SequenceType.makeSequenceType(selfie, xcardinality));
-                        } else {
-                            fieldTypes.add(sequenceTypeFromTree(t, config));
-                        }
+                        fieldTypes.add(sequenceTypeFromTree(t, schema));
                     }
-                    recordTest.setDetails(tree.fieldNames, fieldTypes, tree.optionalFieldNames, tree.extensibleTupleType);
+                    recordTest.setDetails(tree.fieldNames, fieldTypes, tree.optionalFieldNames, false);
                     itemType = recordTest;
                 }
             } else {
                 AlphaCodeTree returnType = tree.resultType;
                 List<AlphaCodeTree> argTypes = tree.argTypes;
                 if (argTypes == null) {
-                    itemType = AnyFunctionType.getInstance();
+                    itemType = AnyFunctionType.INSTANCE;
                 } else {
                     SequenceType r;
                     if (returnType == null) {
                         r = SequenceType.ANY_SEQUENCE;
                     } else {
-                        r = sequenceTypeFromTree(returnType, config);
+                        r = sequenceTypeFromTree(returnType, schema);
                     }
                     SequenceType[] a = new SequenceType[argTypes.size()];
                     for (int i = 0; i < a.length; i++) {
-                        a[i] = sequenceTypeFromTree(argTypes.get(i), config);
+                        a[i] = sequenceTypeFromTree(argTypes.get(i), schema);
                     }
                     itemType = new SpecificFunctionType(a, r);
                 }
             }
+        } else if (principal.equals("U")) {
+            // general choice item type introduced in 4.0
+            List<ItemType> members = new ArrayList<>();
+            boolean allAtomic = true;
+            for (AlphaCodeTree m : tree.members) {
+                SequenceType st = sequenceTypeFromTree(m, schema);
+                final ItemType primaryType = st.getPrimaryType();
+                members.add(primaryType);
+                if (!primaryType.isAtomicType()) {
+                    allAtomic = false;
+                }
+            }
+            if (allAtomic) {
+                itemType = new LocalUnionType(members);
+            } else {
+                itemType = new ChoiceItemType(members);
+            }
+
         } else if (principal.startsWith("X")) {
             Class<?> theClass = Object.class;
             if (tree.name != null) {
-                String className = StructuredQName.fromEQName(tree.name).getLocalPart();
+                String className = StructuredQName.fromEQName40(tree.name).getLocalPart();
                 try {
                     theClass = Class.forName(className);
                 } catch (ClassNotFoundException e) {
@@ -984,6 +1008,30 @@ public class AlphaCode {
         String indicator = tree.cardinality;
         int cardinality = Cardinality.fromOccurrenceIndicator(indicator);
         return SequenceType.makeSequenceType(itemType, cardinality);
+    }
+
+    private static QNameTest parseNameTest(String test, Configuration config) {
+        if (test.contains("|")) {
+            // TODO: disregard a vertical bar within a namespace URI
+            StringTokenizer st = new StringTokenizer(test, "|");
+            List<QNameTest> tests = new ArrayList<>();
+            while (st.hasMoreTokens()) {
+                String token = st.nextToken();
+                tests.add(parseNameTest(token, config));
+            }
+            return new UnionQNameTest(tests);
+        } else if (test.contains("*")) {
+            if (test.startsWith("*:")) {
+                return new LocalQNameTest(test.substring(2));
+            } else if (test.endsWith("}*")) {
+                String uri = test.substring(2, test.length() - 2);
+                return new NamespaceQNameTest(NamespaceUri.of(uri));
+            } else {
+                return AnyQNameTest.getInstance();
+            }
+        } else {
+            return new SpecificQNameTest(StructuredQName.fromEQName40(test), config.getNamePool());
+        }
     }
 
     private static AlphaCodeTree makeTree(SequenceType sequenceType) {
@@ -998,8 +1046,18 @@ public class AlphaCode {
         AlphaCodeTree result = new AlphaCodeTree();
         result.principal = primary.getBasicAlphaCode();
         result.cardinality = "1";
-        if (primary instanceof AtomicType && !((AtomicType) primary).isBuiltInType()) {
-            result.name = ((AtomicType) primary).getEQName();
+        if (primary instanceof EnumerationUnionType enumType) {
+            result.principal = "ASE";
+            result.enumValues = new ArrayList<>();
+            for (ItemType et : enumType.getMemberTypes()) {
+                result.enumValues.add(((SingletonEnumType) et).getValue().toString());
+            }
+        } else if (primary instanceof SingletonEnumType sEnumType) {
+            result.principal = "ASE";
+            result.enumValues = new ArrayList<>(1);
+            result.enumValues.add(sEnumType.getValue().toString());
+        } else if (primary instanceof AtomicType at && !at.isBuiltInType()) {
+            result.name = at.getEQName();
         } else if (primary instanceof UnionType) {
             StructuredQName name = ((UnionType) primary).getTypeName();
             if (name.hasURI(NamespaceUri.SCHEMA)) {
@@ -1019,44 +1077,24 @@ public class AlphaCode {
             } else {
                 result.name = name.getEQName();
             }
-
-        } else if (primary instanceof NameTest) {
-            StructuredQName name = ((NameTest) primary).getMatchingNodeName();
-            result.name = name.getEQName();
+        } else if (primary instanceof ChoiceItemType) {
+            List<AlphaCodeTree> memberMaps = new ArrayList<>();
+            for (ItemType pt : ((ChoiceItemType) primary).getAlternatives()) {
+                memberMaps.add(makeTree(pt));
+            }
+            result.members = memberMaps;
         } else if (primary instanceof SchemaNodeTest) {
             StructuredQName name = ((SchemaNodeTest) primary).getNodeName();
             result.name = name.getEQName();
-        } else if (primary instanceof LocalNameTest) {
-            result.name = "*:" + ((LocalNameTest) primary).getLocalName();
-        } else if (primary instanceof NamespaceTest) {
-            result.name = "Q{" + ((NamespaceTest) primary).getNamespaceURI() + "}*";
-        } else if (primary instanceof CombinedNodeTest) {
-            final CombinedNodeTest combi = (CombinedNodeTest) primary;
-            String c = combi.getContentTypeForAlphaCode();
-            if (c != null) {
-                if (!c.startsWith("Q{" + NamespaceConstant.ANONYMOUS)) {  // bug 4969
-                    result.content = c;
-                }
-                result.name = combi.getMatchingNodeName().getEQName();
-                result.nillable = combi.isNillable();
-            } else {
-                result.vennOperator = combi.getOperator();
-                result.vennOperands = new AlphaCodeTree[2];
-                result.vennOperands[0] = makeTree(combi.getOperand(0));
-                result.vennOperands[1] = makeTree(combi.getOperand(1));
+        } else if (primary instanceof NamedXNodeType) {
+            QNameTest nt = ((NamedXNodeType) primary).getAllowedNodeNames();
+            if (nt != AnyQNameTest.getInstance()) {
+                result.name = ((NamedXNodeType) primary).getAllowedNodeNames().exportQNameTest();
             }
-        } else if (primary instanceof MultipleNodeKindTest) {
-            result.vennOperator = Token.UNION;
-            Set<PrimitiveUType> types = primary.getUType().decompose();
-            result.vennOperands = new AlphaCodeTree[types.size()];
-            int i = 0;
-            for (PrimitiveUType type : types) {
-                result.vennOperands[i++] = makeTree(type.toItemType());
-            }
-        } else if (primary instanceof ContentTypeTest) {
-            result.content = ((ContentTypeTest) primary).getContentType().getEQName();
-        } else if (primary instanceof DocumentNodeTest) {
-            ItemType content = ((DocumentNodeTest) primary).getElementTest();
+            result.content = ((NamedXNodeType) primary).getContentType().getEQName();
+            result.nillable = ((NamedXNodeType) primary).isNillable();
+        } else if (primary instanceof DocumentNodeType) {
+            ItemType content = ((DocumentNodeType) primary).getElementTest();
             result.elementType = makeTree(content);
         } else if (primary instanceof FunctionItemType) {
             if (primary instanceof ArrayItemType) {
@@ -1064,27 +1102,20 @@ public class AlphaCode {
                 if (memberType != SequenceType.ANY_SEQUENCE) {
                     result.valueType = makeTree(memberType);
                 }
-            } else if (primary instanceof RecordTest) {
-                result.extensibleTupleType = ((RecordTest) primary).isExtensible();
-                result.optionalFieldNames = new HashSet<>();
-                result.fieldNames = new ArrayList<>();
-                result.argTypes = new ArrayList<>();
-                for (String s : ((RecordTest) primary).getFieldNames()) {
-                    result.fieldNames.add(s);
-                    SequenceType fieldType = ((RecordTest) primary).getFieldType(s);
-                    if (fieldType.getPrimaryType() instanceof SelfReferenceRecordTest) {
-                        // we have a self-reference ("..")
-                        AlphaCodeTree selfRef = new AlphaCodeTree();
-                        selfRef.selfReference = result;
-                        selfRef.cardinality = fieldType.getCardinality() == StaticProperty.EXACTLY_ONE
-                                ? "1"
-                                : Cardinality.getOccurrenceIndicator(fieldType.getCardinality());
-                        result.argTypes.add(selfRef);
-                    } else {
-                        result.argTypes.add(makeTree(((RecordTest) primary).getFieldType(s)));
-                    }
-                    if (((RecordTest) primary).isOptionalField(s)) {
-                        result.optionalFieldNames.add(s);
+            } else if (primary instanceof RecordType rec) {
+                if (rec.getName() != null) {
+                    result.name = rec.getName().getEQName();
+                } else {
+                    result.optionalFieldNames = new HashSet<>();
+                    result.fieldNames = new ArrayList<>();
+                    result.argTypes = new ArrayList<>();
+                    for (String s : rec.getFieldNames()) {
+                        result.fieldNames.add(s);
+                        SequenceType fieldType = rec.getFieldType(s);
+                        result.argTypes.add(makeTree(fieldType));
+                        if (rec.isOptionalField(s)) {
+                            result.optionalFieldNames.add(s);
+                        }
                     }
                 }
             } else if (primary instanceof MapType) {
@@ -1104,12 +1135,22 @@ public class AlphaCode {
                 SequenceType[] argTypes = ((FunctionItemType) primary).getArgumentTypes();
                 if (argTypes != null) {
                     List<AlphaCodeTree> argMaps = new ArrayList<>();
-                    for (SequenceType at : argTypes) {
-                        argMaps.add(makeTree(at));
+                    for (SequenceType argType : argTypes) {
+                        argMaps.add(makeTree(argType));
                     }
                     result.argTypes = argMaps;
                 }
             }
+        } else if (primary instanceof SpecificJNodeType jt) {
+            if (jt.getValueType() != null) {
+                result.valueType = makeTree(jt.getValueType());
+            }
+            if (jt.getSelector() != null) {
+                result.keyType = makeTree(jt.getSelector().getItemType());
+                result.content = jt.getSelector().getStringValue();
+            }
+        } else if (primary instanceof RootJNodeType rjt) {
+            result.valueType = makeTree(rjt.getValueType());
         } else if (primary instanceof ExternalObjectType) {
             result.name = ((ExternalObjectType) primary).getName();
         }
@@ -1128,18 +1169,32 @@ public class AlphaCode {
         if (withCardinality) {
             sb.append(tree.cardinality);
         }
-        if (tree.selfReference != null) {
-            sb.append("..");
-            return;
-        }
         sb.append(tree.principal);
+
+        if (tree.principal.equals("ASE")) {
+            // enumeration type
+            sb.append(" s{");
+            boolean first = true;
+            for (String s : tree.enumValues) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append('|');
+                }
+                sb.append(escapeEnumValue(s));
+            }
+            sb.append('}');
+        }
         if (tree.name != null) {
-            sb.append(" n").append(abbreviateEQName(tree.name));
+            sb.append(" n").append(abbreviateEQName(tree.name.replace(' ', '|')));
         }
         if (tree.content != null) {
-            sb.append(" c").append(abbreviateEQName(tree.content));
-            if (tree.nillable) {
-                sb.append("?");
+            String display = abbreviateEQName(tree.content) + (tree.nillable ? "?" : "");
+            if (!display.equals("~anyType?")) {
+                sb.append(" c").append(abbreviateEQName(tree.content));
+                if (tree.nillable) {
+                    sb.append("?");
+                }
             }
         }
         if (tree.keyType != null) {
@@ -1190,8 +1245,8 @@ public class AlphaCode {
         }
         if (tree.vennOperands != null) {
             String operator =
-                    tree.vennOperator == Token.INTERSECT ? "i"
-                            : tree.vennOperator == Token.UNION ? "u"
+                    tree.vennOperator == OperatorSymbol.INTERSECT ? "i"
+                            : tree.vennOperator == OperatorSymbol.UNION ? "u"
                             : "d";
             sb.append(" ")
                     .append(operator)
@@ -1205,7 +1260,7 @@ public class AlphaCode {
             sb.append("]");
         }
         if (tree.fieldNames != null) {
-            sb.append(tree.extensibleTupleType ? " F[" : " f[");
+            sb.append(" f[");
             boolean first = true;
             for (String s : tree.fieldNames) {
                 if (!first) {
@@ -1225,6 +1280,7 @@ public class AlphaCode {
     /**
      * Escape a supplied name by prefixing any characters not allowed in an NCName
      * with a backslash
+     *
      * @param ncName a name (which may or may not be a valid NCName)
      * @return the supplied name unchanged if it is a valid NCName; otherwise, the
      * name with all invalid ASCII characters backslash-escaped. Invalid non-ASCII
@@ -1249,7 +1305,49 @@ public class AlphaCode {
     }
 
     /**
+     * Escape a supplied enumeration value
+     *
+     * @param value a string
+     * @return the string with special characters escaped.
+     */
+
+    private static String escapeEnumValue(String value) {
+        StringBuilder ub = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char cp = value.charAt(i);
+            switch (cp) {
+                case ' ':
+                    ub.append('\\').append('s');
+                    break;
+                case '\t':
+                    ub.append('\\').append('t');
+                    break;
+                case '\r':
+                    ub.append('\\').append('r');
+                    break;
+                case '\n':
+                    ub.append('\\').append('n');
+                    break;
+                case '|':
+                    ub.append('\\').append('|');
+                    break;
+                case '}':
+                    ub.append('\\').append('}');
+                    break;
+                case '\\':
+                    ub.append('\\').append('\\');
+                    break;
+                default:
+                    ub.append(cp);
+                    break;
+            }
+        }
+        return ub.toString();
+    }
+
+    /**
      * Convert an item type to an alphacode
+     *
      * @param type the item type to be converted
      * @return the corresponding alphacode. Note that this will have no occurrence indicator.
      */

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.functions;
 
+//import com.saxonica.functions.extfn.EXPathArchive.Archive;
+//import com.saxonica.functions.extfn.EXPathBinaryFunctionSet;
+//import com.saxonica.functions.extfn.EXPathFileFunctionSet;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.Version;
 import net.sf.saxon.expr.Callable;
@@ -49,7 +52,7 @@ public class SystemProperty extends SystemFunction implements Callable {
             try {
                 String name = ((StringLiteral) arguments[0]).stringify();
                 StructuredQName qName = StructuredQName.fromLexicalQName(name,
-                                                                         false, true,
+                                                                         false, StructuredQName.QUPL,
                                                                          getRetainedStaticContext());
                 if (qName.hasURI(NamespaceUri.XSLT)) {
                     String local = qName.getLocalPart();
@@ -83,7 +86,7 @@ public class SystemProperty extends SystemFunction implements Callable {
         String name = arguments[0].head().getStringValue();
         try {
             StructuredQName qName = StructuredQName.fromLexicalQName(name,
-                    false, true,
+                    false, StructuredQName.QUPL,
                     getRetainedStaticContext());
 
             return new StringValue(getProperty(
@@ -110,10 +113,11 @@ public class SystemProperty extends SystemFunction implements Callable {
     public static String getProperty(String uri, String local, RetainedStaticContext rsc) {
         Configuration config = rsc.getConfiguration();
         String edition = rsc.getPackageData().getTargetEdition();
+        boolean is40 = rsc.getPackageData().getHostLanguageVersion() == 40;
         if (uri.equals(NamespaceConstant.XSLT)) {
             switch (local) {
                 case "version":
-                    return "3.0";
+                    return is40 ? "4.0" : "3.0";
                 case "vendor":
                     return Version.getProductVendor();
                 case "vendor-url":
@@ -141,7 +145,7 @@ public class SystemProperty extends SystemFunction implements Callable {
                 case "supports-higher-order-functions":
                     return "yes";
                 case "xpath-version":
-                    return "3.1";
+                    return is40 ? "4.0" : "3.1";
                 case "xsd-version":
                     return rsc.getConfiguration().getXsdVersion() == Configuration.XSD10 ? "1.0" : "1.1";
             }

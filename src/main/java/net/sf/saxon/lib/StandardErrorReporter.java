@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,6 +18,7 @@ import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.QName;
 import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
@@ -50,7 +51,8 @@ public class StandardErrorReporter
     private int maxOrdinaryCharacter = 255;
     private int stackTraceDetail = 2;
     private final Set<String> warningsIssued = new HashSet<>();
-    protected transient Logger logger = new StandardLogger();
+    protected transient Logger logger = StandardLogger.makeLogger();
+    private XmlProcessingError firstError;
     private XmlProcessingError latestError;
     private boolean outputErrorCodes = true;
     private Set<StructuredQName> suppressedWarnings;
@@ -201,7 +203,7 @@ public class StandardErrorReporter
             suppressedWarnings = new HashSet<>();
         }
         if (code.startsWith("Q{")) {
-            suppressedWarnings.add(StructuredQName.fromEQName(code));
+            suppressedWarnings.add(StructuredQName.fromEQName40(code));
         } else {
             suppressedWarnings.add(new StructuredQName("err", NamespaceConstant.ERR, code));
         }
@@ -225,6 +227,9 @@ public class StandardErrorReporter
 
     @Override
     public void report(XmlProcessingError processingError) {
+        if (firstError == null) {
+            firstError = processingError;
+        }
         if (processingError != latestError) {
             latestError = processingError;
             if (processingError.isWarning()) {
@@ -253,7 +258,7 @@ public class StandardErrorReporter
 
     protected void warning(XmlProcessingError error) {
         if (logger == null) {
-            logger = new StandardLogger();
+            logger = StandardLogger.makeLogger();
         }
         String message = constructMessage(error, "", "Warning ");
         if (!warningsIssued.contains(message)) {
@@ -305,7 +310,7 @@ public class StandardErrorReporter
             err.setTerminationMessage("Too many errors reported");
         }
         if (logger == null) {
-            logger = new StandardLogger();
+            logger = StandardLogger.makeLogger();
         }
         String message;
 
@@ -416,7 +421,7 @@ public class StandardErrorReporter
                 // Typical XQuery case; no extra information available from the outer location
 
                 String innerLoc = lineInfo + columnInfo;
-
+                
                 if (outerLoc.getLineNumber() > 1) {
                     innerLoc += "(" + langText + "on line " + outerLoc.getLineNumber() + ") ";
                 }
@@ -512,7 +517,11 @@ public class StandardErrorReporter
      */
 
     public String getExpandedMessage(XmlProcessingError err) {
-        String message = formatErrorCode(err) + " " + err.getMessage();
+        String preamble = formatErrorCode(err);
+        if (!preamble.isEmpty()) {
+            preamble += " ";
+        }
+        String message = preamble + err.getMessage();
         message = formatNestedMessages(err, message);
         return message;
     }
@@ -539,16 +548,18 @@ public class StandardErrorReporter
             Throwable e = err.getCause();
             while (e != null) {
                 if (!(isSAXParseException(e))) {
-                    if (e instanceof RuntimeException) {
+                    if (e instanceof UncheckedXPathException) {
+                        sb.append('\n').append(e.getMessage());
+                    } else if (e instanceof RuntimeException) {
                         StringWriter sw = new StringWriter();
                         appendStackTrace(e, sw);
                         sb.append('\n').append(sw);
-                    } else if (!message.contains(e.getMessage())) {
+                    } else if (e.getMessage() == null || !message.contains(e.getMessage())) {
                         sb.append(". Caused by ").append(e.getClass().getName());
                     }
-                }
+                } 
                 String next = e.getMessage();
-                if (next != null) {
+                if (next != null && ! sb.toString().contains(next)) {
                     sb.append(": ").append(next);
                 }
                 e = e.getCause();
@@ -636,6 +647,10 @@ public class StandardErrorReporter
 
     public XmlProcessingError getLatestError() {
         return latestError;
+    }
+
+    public XmlProcessingError getFirstError() {
+        return firstError;
     }
 
 }

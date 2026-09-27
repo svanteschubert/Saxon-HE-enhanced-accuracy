@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.s9api.streams;
 
 import net.sf.saxon.s9api.*;
+import net.sf.saxon.tree.jiter.IterableUsingIteratorSupplier;
 
 import java.util.*;
 import java.util.function.*;
@@ -67,7 +68,7 @@ public class XdmStream<T extends XdmItem> implements Stream<T> {
      * Filter a stream of items, to create a new stream containing only those items
      * that satisfy a supplied condition.
      *
-     * <p>For example, {@code body.select(child("*")).filter(n -> n.getNodeName().getLocalName().startsWith("h"))}
+     * <p>For example, {@code body.select(child("*")).filter(n -&gt; n.getNodeName().getLocalName().startsWith("h"))}
      * returns a stream of all the child elements of <code>body</code> whose local name starts with "h".</p>
      * <p>Note: an alternative to filtering a stream is to use a {@link Step} that incorporates
      * a {@link Predicate}, for example {@code body.select(child("*").where(n -> n.getNodeName().getLocalName().startsWith("h")))}</p>
@@ -205,11 +206,78 @@ public class XdmStream<T extends XdmItem> implements Stream<T> {
      * @param mapper the mapping function
      * @param <U> the type of items returned by the mapping function
      * @return a new stream of items
+     * @since 9.9
      */
 
     public <U extends XdmItem> XdmStream<U> flatMapToXdm(Step<U> mapper) {
         return new XdmStream<>(base.flatMap(mapper));
     }
+
+    /**
+     * Create a new {@link XdmStream} by applying a mapping function (specifically, a {@link Step})
+     * to each item in the stream. The {@link Step} returns a sequence of items, which are inserted
+     * into the result sequence in place of the original item.
+     * <p>This method is similar to {@link #flatMap}, but differs in that it returns an {@link XdmStream},
+     * making additional methods available.</p>
+     * <p>Note: {@link XdmValue#select} is implemented using this method, and in practice it is
+     * usually clearer to use that method directly. For example {@code node.select(child("*")).flatMapToXdm(child(*))}
+     * can be written as {@code node.select(child("*").then(child("*"))}. Both expressions return a stream containing
+     * all the grandchildren elements of {@code node}. The same result can be achieved more concisely by writing
+     * {@code node.select(path("*", "*"))}</p>
+     * @param mapper the mapping function
+     * @param <U> the type of items returned by the mapping function
+     * @return a new stream of items
+     * @since 13. The method is introduced as a synonym of {@link #flatMapToXdm(Step)}
+     */
+
+    public <U extends XdmItem> XdmStream<U> select(Step<U> mapper) {
+        return new XdmStream<>(base.flatMap(mapper));
+    }
+
+    /**
+     * Select children of the nodes in this stream. This is a shortcut for
+     * <code>select(Steps.child(nodeName))</code>; it returns an <code>XdmStream</code>
+     * containing all the child elements of nodes in this <code>XdmStream</code> that have
+     * local name <code>nodeName</code>; or if <code>nodeName</code> is <code>"*"</code>,
+     * then all child elements regardless of their name.
+     *
+     * @param nodeName the local name of the required child elements, or <code>"*"</code>
+     *                 to select all element children
+     * @since 13
+     */
+
+    public XdmStream<XdmNode> select(String nodeName) {
+        return select(Steps.child(nodeName));
+    }
+
+    /**
+     * Select children of the nodes in this stream. This is a shortcut for
+     * <code>select(Steps.child(uri, localName))</code>; it returns an <code>XdmStream</code>
+     * containing all the child elements of nodes in this <code>XdmValue</code> that have
+     * local name <code>localName</code> and namespace URI <code>uri</code>.
+     *
+     * @param uri       the namespace URI of the child elements to be selected by the {@code Step}:
+     *                  supply a zero-length string to indicate the null namespace
+     * @param localName the local name of the child elements to be selected
+     * @since 13
+     */
+    public XdmStream<XdmNode> select(String uri, String localName) {
+        return select(Steps.child(uri, localName));
+    }
+
+    /**
+     * Select children of the nodes in this stream. This is a shortcut for
+     * <code>select(Steps.child(name))</code>; it returns an <code>XdmStream</code>
+     * containing all the child elements of nodes in this <code>XdmValue</code> that have
+     * the name <code>name</code>.
+     *
+     * @param name the name of the child elements to be selected
+     * @since 13
+     */
+    public XdmStream<XdmNode> select(QName name) {
+        return select(Steps.child(name));
+    }
+
 
     /**
      * Returns an {@code IntStream} consisting of the results of replacing each
@@ -632,6 +700,18 @@ public class XdmStream<T extends XdmItem> implements Stream<T> {
     }
 
     /**
+     * Return the contents of the stream as an <code>Iterable&lt;XdmItem&gt;</code>, allowing
+     * its use in a for-each loop. This is a terminal operation.
+     *
+     * @return the contents of the stream, as a <code>Tterable&lt;XdmItem&gt;</code>
+     * @since 13.0
+     */
+
+    public Iterable<T> asIterable() {
+        return new IterableUsingIteratorSupplier<>(this::iterator);
+    }
+
+    /**
      * Return the result of the stream as a {@code List<XdmNode>}. This is a terminal operation.
      * <p>Node: the method makes it convenient to process the contents of a stream using a for-each
      * loop, for example:</p>
@@ -868,7 +948,7 @@ public class XdmStream<T extends XdmItem> implements Stream<T> {
         });
         return new XdmStream<>(stoppable.filter(predicate.negate()));
     }
-
+    
 }
 
 

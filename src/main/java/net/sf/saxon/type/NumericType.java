@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2023 Saxonica Limited
+// Copyright (c) 2013-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.type;
 
+//import com.saxonica.ee.schema.UserSimpleType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.NamespaceConstant;
@@ -14,12 +15,10 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
-import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.transpile.CSharpReplaceMethod;
 import net.sf.saxon.value.*;
 
 import java.util.Arrays;
-import java.util.List;
 
 import static net.sf.saxon.type.SchemaValidationStatus.VALIDATED;
 
@@ -52,7 +51,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
         }
     }
 
-    @CSharpReplaceMethod(code="private NumericType() : base (Saxon.Ejava.util.Arrays.asList<Saxon.Hej.type.AtomicType>(Saxon.Hej.type.BuiltInAtomicType.DOUBLE, Saxon.Hej.type.BuiltInAtomicType.FLOAT, Saxon.Hej.type.BuiltInAtomicType.DECIMAL)) {}")
+    @CSharpReplaceMethod(code="private NumericType() : base (Saxon.Ejava.util.Arrays.asList<Saxon.Hej.type.ItemType>(Saxon.Hej.type.BuiltInAtomicType.DOUBLE, Saxon.Hej.type.BuiltInAtomicType.FLOAT, Saxon.Hej.type.BuiltInAtomicType.DECIMAL)) {}")
     private NumericType() {
         super(Arrays.asList(BuiltInAtomicType.DOUBLE, BuiltInAtomicType.FLOAT, BuiltInAtomicType.DECIMAL));
    }
@@ -94,17 +93,17 @@ public class NumericType extends LocalUnionType implements SimpleType {
         return false;
     }
 
-    /**
-     * Get the "plain" types in the transitive membership. Plain types are atomic types and union types that
-     * are defined directly in terms of other plain types, without adding any restriction facets.
-     *
-     * @return the atomic types and plain union types in the transitive membership of the union type.
-     */
-    @Override
-    @CSharpReplaceBody(code = "return new System.Collections.Generic.List<Saxon.Hej.type.PlainType>(getMemberTypes());")
-    public List<? extends PlainType> getPlainMemberTypes() {
-        return getMemberTypes();
-    }
+//    /**
+//     * Get the "plain" types in the transitive membership. Plain types are atomic types and union types that
+//     * are defined directly in terms of other plain types, without adding any restriction facets.
+//     *
+//     * @return the atomic types and plain union types in the transitive membership of the union type.
+//     */
+//    @Override
+//    @CSharpReplaceBody(code = "return new System.Collections.Generic.List<Saxon.Hej.type.PlainType>(getMemberTypes());")
+//    public List<? extends PlainType> getPlainMemberTypes() {
+//        return getMemberTypes();
+//    }
 
     /**
      * Ask whether a given atomic type is numeric, that is, whether it is a subtype
@@ -152,13 +151,12 @@ public class NumericType extends LocalUnionType implements SimpleType {
 
     /**
      * Test whether a given item conforms to this type
-
-     * @param item    The item to be tested
-     * @param th      The type hierarchy cache
+     *
+     * @param item The item to be tested
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) {
+    public boolean matches(Item item) {
         return item instanceof NumericValue;
     }
 
@@ -276,7 +274,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      */
     @Override
     public SchemaType getBuiltInBaseType() {
-        return AnySimpleType.getInstance();
+        return AnySimpleType.INSTANCE;
     }
 
     /**
@@ -510,7 +508,7 @@ public class NumericType extends LocalUnionType implements SimpleType {
      */
     @Override
     public SchemaType getBaseType() {
-        return AnySimpleType.getInstance();
+        return AnySimpleType.INSTANCE;
     }
 
     /**
@@ -555,11 +553,11 @@ public class NumericType extends LocalUnionType implements SimpleType {
      * @param expression the expression that delivers the content
      * @param kind       the node kind whose content is being delivered: {@link Type#ELEMENT},
      *                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
-     * @throws net.sf.saxon.trans.XPathException
-     *          if the expression will never deliver a value of the correct type
+     * @param schema
+     * @throws net.sf.saxon.trans.XPathException if the expression will never deliver a value of the correct type
      */
     @Override
-    public void analyzeContentExpression(Expression expression, int kind) throws XPathException {
+    public void analyzeContentExpression(Expression expression, int kind, Schema schema) throws XPathException {
         BuiltInAtomicType.analyzeContentExpression(this, expression, kind);
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,7 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.ExtensionFunctionCall;
 import net.sf.saxon.lib.ExtensionFunctionDefinition;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.AnyNodeTest;
+import net.sf.saxon.type.gnode.AnyXNodeType;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -52,7 +52,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
     }
 
     /**
-     * Get the qualified of the function being called
+     * Get the qualified name of the function being called
      *
      * @return the qualified name
      */
@@ -144,7 +144,9 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
                 return exp;
             } else {
                 ExpressionTool.copyLocationInfo(this, exp2);
-                return exp2.simplify().typeCheck(visitor, contextInfo).optimize(visitor, contextInfo);
+                return exp2.simplify()
+                        .typeCheck(visitor, contextInfo)
+                        .optimize(visitor, contextInfo);
             }
         }
         return exp;
@@ -178,7 +180,11 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return resultType.getPrimaryType();
+        if (function.getDefinition().trustResultType()) {
+            return resultType.getPrimaryType();
+        } else {
+            return AnyItemType.INSTANCE;
+        }
     }
 
     /**
@@ -191,7 +197,11 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
 
     @Override
     protected int computeCardinality() {
-        return resultType.getCardinality();
+        if (function.getDefinition().trustResultType()) {
+            return resultType.getCardinality();
+        } else {
+            return StaticProperty.ALLOWS_ZERO_OR_MORE;
+        }
     }
 
     /**
@@ -304,16 +314,16 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
                 result = new CardinalityCheckingIterator(result, card, role, getLocation());
             }
             final ItemType type = resultType.getPrimaryType();
-            if (type != AnyItemType.getInstance()) {
+            if (type != AnyItemType.INSTANCE) {
                 result = new ItemMappingIterator(result, ItemMapper.of(item -> {
-                     if (!type.matches(item, th)) {
+                     if (!type.matches(item)) {
                          String msg = role.get().composeErrorMessage(type, item, th);
                          throw new XPathException(msg, "XPTY0004").withLocation(getLocation());
                      }
                      return item;
                  }), true);
             }
-            if (th.relationship(type, AnyNodeTest.getInstance()) != Affinity.DISJOINT) {
+            if (th.relationship(type, AnyXNodeType.getInstance()) != Affinity.DISJOINT) {
                 result = new ItemMappingIterator(
                         result,
                         new ConfigurationCheckingFunction(context.getConfiguration()), true);
@@ -342,7 +352,7 @@ public class IntegratedFunctionCall extends FunctionCall implements Callable {
         }
         if (!definition.trustResultType()) {
             final ItemType type = resultType.getPrimaryType();
-            if (result == null ? !Cardinality.allowsZero(resultType.getCardinality()) : !type.matches(result, th)) {
+            if (result == null ? !Cardinality.allowsZero(resultType.getCardinality()) : !type.matches(result)) {
                 String msg = role.composeErrorMessage(type, result, th);
                 throw new XPathException(msg, "XPTY0004")
                     .withLocation(getLocation());

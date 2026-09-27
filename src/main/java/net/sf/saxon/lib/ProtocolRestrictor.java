@@ -7,7 +7,10 @@
 
 package net.sf.saxon.lib;
 
+import net.sf.saxon.trans.XPathException;
+
 import javax.xml.XMLConstants;
+import javax.xml.transform.Source;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,12 +69,22 @@ public class ProtocolRestrictor {
         }
     }
 
+    /**
+     * Test whether a particular URI is permitted by this protocol restrictor
+     * @param uri the candidate URI
+     * @return true if access to this URI is permitted
+     */
     public boolean test(URI uri) {
         return predicate.test(uri);
     }
 
     public String toString() {
         return originalRule;
+    }
+
+
+    public ResourceResolver asResourceResolver(ResourceResolver existing) {
+        return new RestrictedResourceResolver(this, existing);
     }
 
     // The following methods are extracted to enable the C# transpiler to recognise what it needs to do...
@@ -83,6 +96,27 @@ public class ProtocolRestrictor {
     private static String schemeSpecificPart(URI uri) {
         return uri.getSchemeSpecificPart();
     }
+
+    public static class RestrictedResourceResolver implements ResourceResolver {
+
+        private final ProtocolRestrictor protocolRestrictor;
+        private final ResourceResolver nextResolver;
+
+        public RestrictedResourceResolver(ProtocolRestrictor pr, ResourceResolver rr) {
+            this.protocolRestrictor = pr;
+            this.nextResolver = rr;
+        }
+
+        @Override
+        public Source resolve(ResourceRequest request) throws XPathException {
+            if (protocolRestrictor.test(URI.create(request.uri))) {
+                return nextResolver.resolve(request);
+            } else {
+                throw new XPathException("Access to URI " + request.uri + " has been prohibited");
+            }
+        }
+    }
+
 
 
 

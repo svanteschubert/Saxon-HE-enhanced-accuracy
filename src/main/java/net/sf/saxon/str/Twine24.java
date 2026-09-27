@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,8 +15,9 @@ import java.util.function.IntPredicate;
 
 
 /**
- * {@code Twine24} is Unicode string that accommodates any codepoint value up to 24 bits.
- * It never includes any surrogates. The length of the string is limited to 2^31-1 codepoints.
+ * A {@code Twine24} is a Unicode string that accommodates any codepoint value up to 24 bits.
+ * It never includes any surrogates. The length of the string is limited to 2^31-1 bytes, with
+ * a fixed allocation of 3 bytes per codepoint.
  */
 
 public class Twine24 extends UnicodeString {
@@ -47,6 +48,8 @@ public class Twine24 extends UnicodeString {
      *
      * @param codePoints the codepoints making up the string: must not contain any surrogates
      *                   (that is, codepoints higher than 65535 must be supplied as a single unit)
+     * @param used the number of codepoints within the array that are actually used; anything beyond is
+     *             ignored
      */
 
     public Twine24(int[] codePoints, int used) {
@@ -60,7 +63,7 @@ public class Twine24 extends UnicodeString {
     }
 
     /**
-     * Construct a {@code Twine} from an array of codepoints.
+     * Construct a {@code Twine24} from an array of codepoints.
      *
      * @param codePoints the codepoints making up the string: must not contain any surrogates
      *                   (that is, codepoints higher than 65535 must be supplied as a single unit)
@@ -70,6 +73,11 @@ public class Twine24 extends UnicodeString {
         this(codePoints, codePoints.length);
     }
 
+    /**
+     * Get the underlying byte array
+     * @return the underlying byte array, with each codepoint occupying three consecutive
+     * bytes (most significant first).
+     */
     public byte[] getByteArray() {
         return bytes;
     }
@@ -321,7 +329,7 @@ public class Twine24 extends UnicodeString {
     void copy24bit(byte[] target, int offset) {
         System.arraycopy(bytes, 0, target, offset, bytes.length);
     }
-
+    
 
     /**
      * Get the position of the first occurrence of the specified codepoint,

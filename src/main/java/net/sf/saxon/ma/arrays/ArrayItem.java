@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.ma.arrays;
 
+import net.sf.saxon.ma.MapOrArray;
 import net.sf.saxon.ma.Parcel;
 import net.sf.saxon.ma.zeno.ZenoChain;
 import net.sf.saxon.om.FunctionItem;
@@ -15,6 +16,7 @@ import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.tree.iter.SequenceIteratorOverJavaIterator;
 import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.z.IntSet;
 
@@ -29,7 +31,7 @@ import net.sf.saxon.z.IntSet;
  * are subsequently converted to an {@code ImmutableArrayItem}, then future evaluations of the same
  * expression will produce an {@code ImmutableArrayItem} directly.</p>
  */
-public abstract class ArrayItem implements FunctionItem {
+public abstract class ArrayItem extends MapOrArray implements FunctionItem {
 
     /**
      * Ask whether this function item is an array
@@ -63,6 +65,24 @@ public abstract class ArrayItem implements FunctionItem {
     public abstract GroundedValue get(int index);
 
     /**
+     * Get a member of the array at a specific offset, or an empty sequence
+     * if the supplied offset is out of range
+     *
+     * @param index the position of the member to retrieve (zero-based)
+     * @return the value at the given position, or an empty sequence
+     * if the index is out of range
+     */
+
+    public GroundedValue getIfPresent(int index) {
+        if (index >= 0 && index < arrayLength()) {
+            return get(index);
+        } else {
+            return EmptySequence.INSTANCE;
+        }
+    }
+
+
+    /**
      * Replace a member of the array
      *
      * @param index the position of the member to replace (zero-based)
@@ -88,7 +108,7 @@ public abstract class ArrayItem implements FunctionItem {
      *
      * @return true if and only if the size of the array is zero
      */
-
+    
     public boolean isEmpty() {
         return arrayLength() == 0;
     }
@@ -108,7 +128,7 @@ public abstract class ArrayItem implements FunctionItem {
     public SequenceIterator parcels() {
         return new SequenceIteratorOverJavaIterator<GroundedValue>(
                 members().iterator(),
-                member -> new Parcel(member));
+                (member, position) -> new Parcel(member));
     }
 
     /**
@@ -213,7 +233,7 @@ public abstract class ArrayItem implements FunctionItem {
     public final Genre getGenre() {
         return Genre.ARRAY;
     }
-
+    
 }
 
-// Copyright (c) 2014-2023 Saxonica Limited
+// Copyright (c) 2014-2026 Saxonica Limited

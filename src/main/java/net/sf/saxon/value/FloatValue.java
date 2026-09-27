@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,11 +11,14 @@ import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.AtomicSortComparer;
 import net.sf.saxon.expr.sort.DoubleSortComparer;
 import net.sf.saxon.expr.sort.XPathComparable;
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.functions.Round;
+import net.sf.saxon.ma.map.BigDecimalMapKey;
 import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
-import net.sf.saxon.type.AtomicType;
+import net.sf.saxon.transpile.CSharpReplaceException;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Converter;
 import net.sf.saxon.type.ValidationException;
@@ -68,7 +71,7 @@ public final class FloatValue extends NumericValue {
      *              value must conform to this type. The method does not check these conditions.
      */
 
-    public FloatValue(float value, AtomicType typeLabel) {
+    public FloatValue(float value, AtomicMetadata typeLabel) {
         super(typeLabel);
         this.value = value;
     }
@@ -76,13 +79,13 @@ public final class FloatValue extends NumericValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        return new FloatValue(value, typeLabel);
+    public AtomicValue withMetadata(AtomicMetadata metadata) {
+        return new FloatValue(value, metadata);
     }
 
     /**
@@ -119,10 +122,28 @@ public final class FloatValue extends NumericValue {
      *          if the value cannot be converted, for example if it is NaN or infinite
      */
     @Override
-    //@CSharpReplaceBody(code="return Singulink.Numerics.BigDecimal.Parse(value.ToString(System.Globalization.CultureInfo.InvariantCulture));")
+    @CSharpReplaceException(from = "java.lang.NumberFormatException", to = "System.ArgumentOutOfRangeException")
     public BigDecimal getDecimalValue() throws ValidationException {
         try {
             return BigDecimal.valueOf(value);
+        } catch (NumberFormatException e) {
+            throw new ValidationException(e);
+        }
+    }
+
+    /**
+     * Get the numeric value converted to a decimal. This method gets the exact value
+     * as needed for map keys and fn:compare, to give transitive comparison semantics
+     *
+     * @return a decimal representing this numeric value;
+     * @throws ValidationException if the value cannot be converted, for example if it is NaN or infinite
+     */
+    @Override
+    @CSharpReplaceException(from = "java.lang.NumberFormatException", to = "System.ArgumentOutOfRangeException")
+    public BigDecimal getExactDecimalValue() throws ValidationException {
+        try {
+            //noinspection UnpredictableBigDecimalConstructorCall
+            return new BigDecimal((double)value);
         } catch (NumberFormatException e) {
             throw new ValidationException(e);
         }
@@ -149,7 +170,11 @@ public final class FloatValue extends NumericValue {
 
     @Override
     public int hashCode() {
-        if (value > Integer.MIN_VALUE && value < Integer.MAX_VALUE) {
+        if (isNaN()) {
+            return AtomicSortComparer.COLLATION_KEY_NaN.hashCode();
+        } else if (Float.isInfinite(value)) {
+            return Double.valueOf(getDoubleValue()).hashCode();
+        } else if (isWholeNumber() && value > Integer.MIN_VALUE && value < Integer.MAX_VALUE) {
             return (int) value;
         } else {
             return Double.valueOf(getDoubleValue()).hashCode();
@@ -206,8 +231,7 @@ public final class FloatValue extends NumericValue {
 
     @Override
     public UnicodeString getCanonicalLexicalRepresentation() {
-        UnicodeBuilder fsb = new UnicodeBuilder(32);
-        return FloatingPointConverter.appendFloat(fsb, value, true);
+        return FloatingPointConverter.appendFloat(value, true);
     }
 
     /**
@@ -218,7 +242,7 @@ public final class FloatValue extends NumericValue {
      */
 
     public static UnicodeString floatToString(float value) {
-        return FloatingPointConverter.appendFloat(new UnicodeBuilder(), value, false);
+        return FloatingPointConverter.appendFloat(value, false);
     }
 
     /**
@@ -253,7 +277,6 @@ public final class FloatValue extends NumericValue {
      */
 
     @Override
-    @CSharpReplaceBody(code = "return new Saxon.Hej.value.FloatValue(Saxon.Impl.Helpers.Utils.roundFloat(value, scale));")
     public NumericValue round(int scale) {
         if (Float.isNaN(value)) {
             return this;
@@ -281,9 +304,9 @@ public final class FloatValue extends NumericValue {
      */
 
     @Override
-    public NumericValue roundHalfToEven(int scale) {
+    public NumericValue round(int scale, Round.RoundingRule roundingRule) {
         DoubleValue d = new DoubleValue(getDoubleValue());
-        d = (DoubleValue) d.roundHalfToEven(scale);
+        d = (DoubleValue) d.round(scale, roundingRule);
         return new FloatValue(d.getFloatValue());
     }
 
@@ -393,27 +416,64 @@ public final class FloatValue extends NumericValue {
         return value < otherFloat ? -1 : +1;
     }
 
+    @Override
+    public int transitiveCompareTo(NumericValue other) {
+        if (other instanceof FloatValue fv2) {
+            float f1 = getFloatValue();
+            float f2 = fv2.getFloatValue();
+            if (f1 == f2) {
+                return 0; // handles positive/negative zero comparison
+            }
+            return Float.compare(f1, f2);
+        } else if (other instanceof DoubleValue) {
+            double d1 = getDoubleValue();
+            double d2 = other.getDoubleValue();
+            if (d1 == d2) {
+                return 0; // handles positive/negative zero comparison
+            }
+            return Double.compare(d1, d2);
+        } else if (other instanceof Int64Value) {
+            try {
+                return compareTo(other.longValue());
+            } catch (XPathException e) {
+                throw new UncheckedXPathException(e);
+            }
+        } else {
+            return -other.transitiveCompareTo(this);
+        }
+    }
+
     /**
-     * Get a value whose equals() method follows the "same key" rules for comparing the keys of a map.
+     * Get a value whose {@code equals()} and {@code hashcode()} methods follows the "same key"
+     * rules for comparing the keys of a map. For numeric values, this is done as follows:
+     * <ul>
+     *     <li>For NaN, return {@code AtomicSortComparer.COLLATION_KEY_NaN;}</li>
+     *     <li>For +INF and -INF, call {@code java.lang.Double.hashcode()}</li>
+     *     <li>For any value that is numerically equal to some 32-bit signed integer, return
+     *         a {@link net.sf.saxon.ma.map.Int32MapKey}</li>
+     *     <li>For any other value, return a {@link net.sf.saxon.ma.map.BigDecimalMapKey}</li>
+     * </ul>
      *
-     * @return a value with the property that the equals() and hashCode() methods follow the rules for comparing
+     * @return a value with the property that the {@code equals()} and {@code hashcode()} methods follow the rules for comparing
      * keys in maps.
      */
 
     @Override
-    public AtomicMatchKey asMapKey() {
-        if (isNaN()) {
+    public AtomicMatchKey asMapKey(int specVersion) {
+        if (Float.isNaN(value)) {
             return AtomicSortComparer.COLLATION_KEY_NaN;
-        } else if (Double.isInfinite(value)) {
-            return new DoubleValue(value);
+        } else if (Float.isInfinite(value)) {
+            return this;
+        } else if (Math.floor(value) == value && value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
+            return new net.sf.saxon.ma.map.Int32MapKey((int) value);
         } else {
-            try {
-                return new BigDecimalValue(value);
-            } catch (ValidationException e) {
-                // We have already ruled out the values that fail (NaN and INF)
-                throw new AssertionError(e);
-            }
+            return new BigDecimalMapKey(fromFloat(value));
         }
+    }
+
+    @CSharpReplaceBody(code="return Saxon.Impl.Helpers.BigDecimalUtils.ExactValueOf(value);")
+    private static BigDecimal fromFloat(float value) {
+        return new BigDecimal(value);
     }
 
     /**

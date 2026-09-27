@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,15 @@ package net.sf.saxon.trans;
 
 import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.pattern.LocalNameTest;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.NamespaceTest;
-import net.sf.saxon.pattern.QNameTest;
+import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.pattern.qname.LocalQNameTest;
+import net.sf.saxon.pattern.qname.NamespaceQNameTest;
+import net.sf.saxon.pattern.qname.QNameTest;
+import net.sf.saxon.pattern.qname.SpecificQNameTest;
+
+/**
+ * A test for a specific kind/name/arity of component in a stylesheet (used in xsl:accept and xsl:expose)
+ */
 
 public class ComponentTest {
 
@@ -40,7 +45,7 @@ public class ComponentTest {
     }
 
     public boolean isPartialWildcard() {
-        return nameTest instanceof LocalNameTest || nameTest instanceof NamespaceTest;
+        return nameTest instanceof LocalQNameTest || nameTest instanceof NamespaceQNameTest;
     }
 
     public boolean matches(Actor component) {
@@ -54,11 +59,12 @@ public class ComponentTest {
     }
 
     public SymbolicName getSymbolicNameIfExplicit() {
-        if (nameTest instanceof NameTest) {
+        if (nameTest instanceof SpecificQNameTest) {
+            StructuredQName name = ((SpecificQNameTest)nameTest).getStructuredQName();
             if (componentKind == StandardNames.XSL_FUNCTION) {
-                return new SymbolicName.F(((NameTest)nameTest).getMatchingNodeName(), arity);
+                return new SymbolicName.F(name, arity);
             } else {
-                return new SymbolicName(componentKind, ((NameTest) nameTest).getMatchingNodeName());
+                return new SymbolicName(componentKind, name);
             }
         } else {
             return null;

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,18 +7,26 @@
 
 package net.sf.saxon.functions;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
-import net.sf.saxon.ma.arrays.*;
+import net.sf.saxon.ma.arrays.ArrayFunctionSet;
+import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.arrays.ArrayItemType;
+import net.sf.saxon.ma.arrays.SquareArrayConstructor;
 import net.sf.saxon.ma.map.MapFunctionSet;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.value.SequenceExtent;
 import net.sf.saxon.value.SequenceType;
 
@@ -40,7 +48,7 @@ public class ApplyFn extends SystemFunction  {
 
     public ApplyFn() {
     }
-
+    
     /**
      * Get the return type, given knowledge of the actual arguments
      *
@@ -111,11 +119,20 @@ public class ApplyFn extends SystemFunction  {
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+        boolean is40 = getRetainedStaticContext().getPackageData().getHostLanguageVersion() >= 40;
         final FunctionItem function = (FunctionItem) arguments[0].head();
-        TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
+        Configuration config = context.getConfiguration();
+        CoercionRules coercionRules = CoercionRules.forVersion(
+                config,
+                getRetainedStaticContext().getPackageData().getHostLanguageVersion());
         FunctionItemType fit = function.getFunctionItemType();
 
         ArrayItem args = (ArrayItem) arguments[1].head();
+
+        if (is40 && function.getArity() != args.arrayLength()) {
+            // In 4.0, excess arguments are ignored
+            args = args.subArray(0, function.getArity());
+        }
 
         if (function.getArity() != args.arrayLength()) {
             String errorCode = "FOAP0001";
@@ -126,7 +143,7 @@ public class ApplyFn extends SystemFunction  {
         }
 
         Sequence[] argArray = new Sequence[args.arrayLength()];
-        if (fit == AnyFunctionType.ANY_FUNCTION) {
+        if (fit == AnyFunctionType.INSTANCE) {
             for (int i = 0; i < argArray.length; i++) {
                 argArray[i] = args.get(i);
             }
@@ -135,8 +152,8 @@ public class ApplyFn extends SystemFunction  {
                 SequenceType expected = fit.getArgumentTypes()[i];
                 final int pos = i;
                 Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, "fn:apply", pos + 1);
-                Sequence converted = th.applyFunctionConversionRules(
-                        args.get(i), expected, role, Loc.NONE);
+                Sequence converted = coercionRules.coerce(
+                        args.get(i), expected, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE);
                 argArray[i] = converted.materialize();
             }
         }
@@ -151,8 +168,6 @@ public class ApplyFn extends SystemFunction  {
             final GroundedValue argSequence = SequenceExtent.makeSequenceExtent(members);
             List<GroundedValue> singletonArg = new ArrayList<>(1);
             singletonArg.add(argSequence);
-        } else {
-
         }
 
 
@@ -164,8 +179,8 @@ public class ApplyFn extends SystemFunction  {
             // Check the result of the function
             Supplier<RoleDiagnostic> resultRole =
                     () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, "fn:apply", -1);
-            return th.applyFunctionConversionRules(
-                    rawResult, fit.getResultType(), resultRole, Loc.NONE);
+            return coercionRules.coerce(
+                    rawResult, fit.getResultType(), SequenceType.ANY_SEQUENCE, config, resultRole, Loc.NONE);
         }
     }
 

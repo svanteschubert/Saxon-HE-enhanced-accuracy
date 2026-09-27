@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -121,14 +121,15 @@ public interface ComplexType extends SchemaType {
      * if none exists and lax validation is permitted by the wildcard.
      *
      * @param elementName        Identifies the name of the child element within this content model
+     * @param schema
      * @param considerExtensions True if types derived from this type by extension are to be included in the search
      * @return the schema type associated with the child element particle with the given name.
-     *         If there is no such particle, return null.
+     * If there is no such particle, return null.
      * @throws MissingComponentException if the schema is incomplete
      */
 
     /*@Nullable*/
-    SchemaType getElementParticleType(int elementName, boolean considerExtensions) throws MissingComponentException;
+    SchemaType getElementParticleType(int elementName, Schema schema, boolean considerExtensions) throws MissingComponentException;
 
     /**
      * Find an element particle within this complex type definition having a given element name
@@ -139,13 +140,14 @@ public interface ComplexType extends SchemaType {
      * If there is no such particle, return {@link net.sf.saxon.expr.StaticProperty#EMPTY}.
      *
      * @param elementName        Identifies the name of the child element within this content model
+     * @param schema             The containing schema
      * @param considerExtensions True if types derived from this type by extension are to be included in the search
      * @return the cardinality associated with the child element particle with the given name.
-     *         If there is no such particle, return {@link net.sf.saxon.expr.StaticProperty#EMPTY}.
+     * If there is no such particle, return {@link net.sf.saxon.expr.StaticProperty#EMPTY}.
      * @throws MissingComponentException if the schema is incomplete
      */
 
-    int getElementParticleCardinality(int elementName, boolean considerExtensions) throws MissingComponentException;
+    int getElementParticleCardinality(int elementName, Schema schema, boolean considerExtensions) throws MissingComponentException;
 
     /**
      * Find an attribute use within this complex type definition having a given attribute name
@@ -156,12 +158,13 @@ public interface ComplexType extends SchemaType {
      * <p>If there are types derived from this type by extension, search those too.</p>
      *
      * @param attributeName Identifies the name of the required attribute within this content model
+     * @param schema
      * @return the schema type associated with the attribute use identified by the fingerprint.
-     *         If there is no such attribute use, return null.
+     * If there is no such attribute use, return null.
      */
 
     /*@Nullable*/
-    SimpleType getAttributeUseType(StructuredQName attributeName) throws SchemaException;
+    SimpleType getAttributeUseType(StructuredQName attributeName, Schema schema) throws SchemaException;
 
     /**
      * Find an attribute use within this complex type definition having a given attribute name
@@ -172,10 +175,11 @@ public interface ComplexType extends SchemaType {
      * <p>If there are types derived from this type by extension, search those too.</p>
      *
      * @param attributeName Identifies the name of the required attribute within this content model
+     * @param schema
      * @return the cardinality associated with the attribute use identified by the fingerprint.
      */
 
-    int getAttributeUseCardinality(StructuredQName attributeName) throws SchemaException;
+    int getAttributeUseCardinality(StructuredQName attributeName, Schema schema) throws SchemaException;
 
     /**
      * Return true if this type (or any known type derived from it by extension) allows the element
@@ -185,12 +189,14 @@ public interface ComplexType extends SchemaType {
      *         false indicates that only the standard attributes in the xsi namespace are permitted.
      */
 
-    boolean allowsAttributes() throws MissingComponentException;
+    boolean allowsAttributes(Schema schema) throws MissingComponentException;
 
     /**
      * Get a list of all the names of elements that can appear as children of an element having this
      * complex type, as integer fingerprints. If the list is unbounded (because of wildcards or the use
      * of xs:anyType), return null.
+     *
+     * @param schema
      * @param children        a set, initially empty, which on return will hold the names of all permitted
      *                        child elements; if the result contains the value -1, this indicates that it
      *                        is not possible to enumerate all the children, typically because of wildcards.
@@ -198,13 +204,14 @@ public interface ComplexType extends SchemaType {
      * @param ignoreWildcards true if wildcards should be ignored
      */
 
-    void gatherAllPermittedChildren(IntHashSet children, boolean ignoreWildcards) throws SchemaException;
+    void gatherAllPermittedChildren(Schema schema, IntHashSet children, boolean ignoreWildcards) throws SchemaException;
 
     /**
      * Get a list of all the names of elements that can appear as descendants of an element having this
      * complex type, as integer fingerprints. If the list is unbounded (because of wildcards or the use
      * of xs:anyType), include a -1 in the result.
      *
+     * @param schema
      * @param descendants a set, initially empty, which on return will hold the names of all permitted
      *                    descendant elements; if the result contains the value -1, this indicates that
      *                    it is not possible to enumerate all the descendants, typically because of
@@ -212,30 +219,32 @@ public interface ComplexType extends SchemaType {
      *                    be ignored.
      */
 
-    void gatherAllPermittedDescendants(IntHashSet descendants) throws SchemaException;
+    void gatherAllPermittedDescendants(Schema schema, IntHashSet descendants) throws SchemaException;
 
     /**
      * Assuming an element is a permitted descendant in the content model of this type, determine
      * the type of the element when it appears as a descendant. If it appears with more than one type,
      * return xs:anyType.
      *
+     * @param schema
      * @param fingerprint the name of the required descendant element
      * @return the type of the descendant element; null if the element cannot appear as a descendant;
-     *         anyType if it can appear with several different types
+     * anyType if it can appear with several different types
      */
 
     /*@Nullable*/
-    SchemaType getDescendantElementType(int fingerprint) throws SchemaException;
+    SchemaType getDescendantElementType(Schema schema, int fingerprint) throws SchemaException;
 
     /**
      * Assuming an element is a permitted descendant in the content model of this type, determine
      * the cardinality of the element when it appears as a descendant.
      *
+     * @param schema
      * @param elementFingerprint the name of the required descendant element
      * @return the cardinality of the descendant element within this complex type
      */
 
-    int getDescendantElementCardinality(int elementFingerprint) throws SchemaException;
+    int getDescendantElementCardinality(Schema schema, int elementFingerprint) throws SchemaException;
 
     /**
      * Ask whether this type (or any known type derived from it by extension) allows the element
@@ -244,7 +253,7 @@ public interface ComplexType extends SchemaType {
      * @return true if the content model of this type, or its extensions, contains an element wildcard
      */
 
-    boolean containsElementWildcard() throws MissingComponentException;
+    boolean containsElementWildcard(Schema schema) throws MissingComponentException;
 
     /**
      * Ask whether there are any assertions defined on this complex type
@@ -255,9 +264,11 @@ public interface ComplexType extends SchemaType {
     boolean hasAssertions();
 
     /**
-     * Decide what kind of layout to use when formatting an element of this type using the
-     * xdm-to-json function. The result is a layout name, such as "record", "list", "mixed", "sequence"
+     * Get the open content mode for this complex type
+     * @return the open content mode
      */
-    String getPreferredJsonLayout();
-}
 
+    OpenContentVariety getOpenContentMode();
+
+
+}

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,15 +14,14 @@ import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.om.FunctionItem;
-import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.s9api.streams.Step;
+import net.sf.saxon.str.StringTool;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.NumericValue;
 
@@ -49,6 +48,10 @@ public abstract class ItemType implements Predicate<XdmItem> {
 
     protected final net.sf.saxon.type.ItemType underlyingType;
 
+    /**
+     * Construct an item type based on an underlying type defined internally within Saxon
+     * @param underlyingType the underlying item type
+     */
     public ItemType(net.sf.saxon.type.ItemType underlyingType) {
         this.underlyingType = underlyingType;
     }
@@ -57,8 +60,16 @@ public abstract class ItemType implements Predicate<XdmItem> {
 
     static {
         defaultConversionRules.setStringToDoubleConverter(StringToDouble.getInstance());
-        defaultConversionRules.setNotationSet(null);
         defaultConversionRules.setURIChecker(StandardURIChecker.getInstance());
+    }
+
+    /**
+     * Ask whether this is an atomic type
+     * @return true if this is an atomic type
+     */
+
+    public boolean isAtomic() {
+        return getUnderlyingItemType().isAtomicType();
     }
 
     /**
@@ -144,7 +155,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the type function(*), that is, any function
      */
 
-    public static ItemType ANY_FUNCTION = new ItemType(AnyFunctionType.getInstance()) {
+    public static ItemType ANY_FUNCTION = new ItemType(AnyFunctionType.INSTANCE) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -162,7 +173,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the type node(), that is, any node
      */
 
-    public static final ItemType ANY_NODE = new ItemType(AnyNodeTest.getInstance()) {
+    public static final ItemType ANY_NODE = new ItemType(AnyXNodeType.getInstance()) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -181,7 +192,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the ATTRIBUTE node() type
      */
 
-    public static final ItemType ATTRIBUTE_NODE = new ItemType(NodeKindTest.ATTRIBUTE) {
+    public static final ItemType ATTRIBUTE_NODE = new ItemType(NodeKindType.ATTRIBUTE) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -201,7 +212,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the COMMENT node() type
      */
 
-    public static final ItemType COMMENT_NODE = new ItemType(NodeKindTest.COMMENT) {
+    public static final ItemType COMMENT_NODE = new ItemType(NodeKindType.COMMENT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -221,7 +232,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the TEXT node() type
      */
 
-    public static final ItemType TEXT_NODE = new ItemType(NodeKindTest.TEXT) {
+    public static final ItemType TEXT_NODE = new ItemType(NodeKindType.TEXT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -241,7 +252,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the ELEMENT node() type
      */
 
-    public static final ItemType ELEMENT_NODE = new ItemType(NodeKindTest.ELEMENT) {
+    public static final ItemType ELEMENT_NODE = new ItemType(NodeKindType.ELEMENT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -260,7 +271,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the DOCUMENT node() type
      */
 
-    public static final ItemType DOCUMENT_NODE = new ItemType(NodeKindTest.DOCUMENT) {
+    public static final ItemType DOCUMENT_NODE = new ItemType(NodeKindType.DOCUMENT) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -280,7 +291,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the NAMESPACE node() type
      */
 
-    public static final ItemType NAMESPACE_NODE = new ItemType(NodeKindTest.NAMESPACE) {
+    public static final ItemType NAMESPACE_NODE = new ItemType(NodeKindType.NAMESPACE) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -300,7 +311,7 @@ public abstract class ItemType implements Predicate<XdmItem> {
      * ItemType representing the PROCESSING_INSTRUCTION node() type
      */
 
-    public static final ItemType PROCESSING_INSTRUCTION_NODE = new ItemType(NodeKindTest.PROCESSING_INSTRUCTION) {
+    public static final ItemType PROCESSING_INSTRUCTION_NODE = new ItemType(NodeKindType.PROCESSING_INSTRUCTION) {
 
         @Override
         public boolean matches(XdmItem item) {
@@ -784,6 +795,52 @@ public abstract class ItemType implements Predicate<XdmItem> {
      */
 
     public abstract boolean matches(XdmItem item);
+
+    /**
+     * Get a built-in atomic type given its local name
+     * @param localName the local name of the type within the
+     *                  XSD namespace, for example "dateTime"
+     *                  to get the xs:dateTime type
+     * @return the requested type, or null if the name
+     * is not one of the built-in types
+     */
+
+    public static ItemType builtInAtomicType(String localName) {
+        int fp = StandardNames.getFingerprint(NamespaceUri.SCHEMA, localName);
+        if (fp == -1) {
+            return null;
+        }
+        SchemaType type = BuiltInType.getSchemaType(fp);
+        if (type instanceof BuiltInAtomicType) {
+            return ItemType.atomic((BuiltInAtomicType)type, defaultConversionRules);
+        }
+        return null;
+    }
+
+    /**
+     * Validate a string against this atomic type
+     * @param value the string to be validated
+     * @return the corresponding atomic value, if the supplied string was valid.
+     * @throws UnsupportedOperationException if this is not an atomic type
+     * @throws SaxonApiException if the supplied value is invalid against this atomic type
+     * @since 13.0
+     */
+
+    public XdmAtomicValue validateAtomic(String value) throws SaxonApiException {
+        if (!isAtomic()) {
+            throw new UnsupportedOperationException("Item type " + toString() + " is not atomic");
+        }
+        AtomicType aType = (AtomicType)getUnderlyingItemType();
+        StringConverter converter = aType.getStringConverter(getConversionRules());
+        UnicodeString str = StringTool.fromCharSequence(value);
+        ConversionResult result = converter.convertString(str);
+        try {
+            return new XdmAtomicValue(result.asAtomic());
+        } catch (ValidationException ve) {
+            throw new SaxonApiException(ve);
+        }
+
+    }
 
     /**
      * Determine whether this ItemType subsumes another ItemType. Specifically,

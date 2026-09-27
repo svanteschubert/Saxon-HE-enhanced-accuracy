@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,6 +19,7 @@ import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.AnyItemType;
+import net.sf.saxon.type.Subsumption;
 import net.sf.saxon.type.TypeHierarchy;
 import net.sf.saxon.value.SequenceType;
 
@@ -153,7 +154,7 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
         }
         GlobalVariable other = (GlobalVariable) component.getActor();
         TypeHierarchy th = component.getDeclaringPackage().getConfiguration().getTypeHierarchy();
-        Affinity relation = th.sequenceTypeRelationship(st1, other.getRequiredType());
+        Affinity relation = Subsumption.sequenceTypeRelationship(st1, other.getRequiredType());
         if (relation != Affinity.SAME_TYPE) {
             compileError(
                 "The declared type of the overriding variable $" + getVariableQName().getDisplayName() +
@@ -295,7 +296,8 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
                 Expression select = sourceBinding.getSelectExpression();
                 inst.setBody(select);
 
-                if (compilation.getCompilerInfo().getCodeInjector() != null) {
+                if (compilation.getCompilerInfo().getCodeInjector() != null && select != null) {
+                    // select==null happens when the variable is abstract: bug 6378
                     compilation.getCompilerInfo().getCodeInjector().process(inst);
                 }
             }
@@ -380,7 +382,7 @@ public class XSLGlobalVariable extends StyleElement implements StylesheetCompone
 
             exp2 = ExpressionTool.optimizeComponentBody(
                     exp2, getCompilation(), visitor,
-                    getConfiguration().makeContextItemStaticInfo(AnyItemType.getInstance(), true), false);
+                    getConfiguration().makeContextItemStaticInfo(AnyItemType.INSTANCE, Optionality.OPTIONAL), false);
 
             allocateLocalSlots(exp2);
             if (slotManager != null && slotManager.getNumberOfVariables() > 0) {

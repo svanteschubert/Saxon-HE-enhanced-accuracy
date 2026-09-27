@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,7 @@ import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.PrependSequenceIterator;
+import net.sf.saxon.tree.iter.PrependIterator;
 import net.sf.saxon.tree.util.Orphan;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
@@ -315,8 +315,8 @@ public class ForEach extends Instruction implements ContextSwitchingExpression {
             return Literal.makeEmptySequence();
         }
 
-        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(getSelect().getItemType(), false);
-        cit.setContextSettingExpression(getSelect());
+        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(selectType)
+                .withContextSetter(getSelect());
         actionOp.typeCheck(visitor, cit);
 
         if (!Cardinality.allowsMany(getSelect().getCardinality())) {
@@ -331,8 +331,8 @@ public class ForEach extends Instruction implements ContextSwitchingExpression {
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         selectOp.optimize(visitor, contextInfo);
 
-        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(getSelect().getItemType(), false);
-        cit.setContextSettingExpression(getSelect());
+        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(getSelect().getItemType())
+                .withContextSetter(getSelect());
         actionOp.optimize(visitor, cit);
 
         if (!visitor.isOptimizeForStreaming()) {
@@ -413,7 +413,7 @@ public class ForEach extends Instruction implements ContextSwitchingExpression {
         if (!(arith.getLhsExpression() instanceof ContextItemExpression)) {
             return false;
         }
-        if (!(arith.getOperator() == Token.PLUS || arith.getOperator() == Token.MINUS)) {
+        if (!(arith.getOperator() == OperatorSymbol.PLUS || arith.getOperator() == OperatorSymbol.MINUS)) {
             return false;
         }
         if (!(arith.getRhsExpression() instanceof Literal || arith.getRhsExpression() instanceof VariableReference)) {
@@ -435,32 +435,6 @@ public class ForEach extends Instruction implements ContextSwitchingExpression {
         setSelect(getSelect().unordered(retainAllNodes, forStreaming));
         setAction(getAction().unordered(retainAllNodes, forStreaming));
         return this;
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the set of nodes in the path map that are affected
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     *         expression is the first operand of a path expression or filter expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet target = getSelect().addToPathMap(pathMap, pathMapNodeSet);
-        return getAction().addToPathMap(pathMap, target);
     }
 
     /**
@@ -659,7 +633,7 @@ public class ForEach extends Instruction implements ContextSwitchingExpression {
                if (cxt.getCurrentIterator().position() == 1) {
                    return getAction().iterate(cxt);
                } else {
-                   return new PrependSequenceIterator(separator, getAction().iterate(cxt));
+                   return new PrependIterator(separator, getAction().iterate(cxt));
                }
             };
             return new ContextMappingIterator(mapper, c2);
@@ -773,7 +747,7 @@ public class ForEach extends Instruction implements ContextSwitchingExpression {
                         if (cxt.getCurrentIterator().position() == 1) {
                             return action.iterate(cxt);
                         } else {
-                            return new PrependSequenceIterator(separator, action.iterate(cxt));
+                            return new PrependIterator(separator, action.iterate(cxt));
                         }
                     };
                     XPathContextMinor c2 = context.newMinorContext();

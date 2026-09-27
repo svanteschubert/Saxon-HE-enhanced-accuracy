@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -177,15 +177,11 @@ public class NumberInstruction extends Expression {
 
     @Override
     protected int computeCardinality() {
-        switch (level) {
-            case SIMPLE:
-            case SINGLE:
-            case ANY:
-                return StaticProperty.ALLOWS_ZERO_OR_ONE;
-            case MULTI:
-            default:
-                return StaticProperty.ALLOWS_ZERO_OR_MORE;
-        }
+        return switch (level) {
+            case SIMPLE, SINGLE, ANY -> StaticProperty.ALLOWS_ZERO_OR_ONE;
+            case MULTI -> StaticProperty.ALLOWS_ZERO_OR_MORE;
+            default -> StaticProperty.ALLOWS_ZERO_OR_MORE;
+        };
     }
 
     /**
@@ -216,6 +212,7 @@ public class NumberInstruction extends Expression {
      * @throws XPathException if an error is discovered during this phase
      *                        (typically a type error)
      */
+    
     @Override
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         Expression e = super.optimize(visitor, contextInfo);
@@ -256,32 +253,28 @@ public class NumberInstruction extends Expression {
     private SequenceIterator getPlaceMarker(NodeInfo source, XPathContext context) throws XPathException {
         List<AtomicValue> numbers = new ArrayList<>(1);
         switch (level) {
-            case SIMPLE: {
+            case SIMPLE -> {
                 long value = Navigator.getNumberSimple(source, context);
                 if (value != 0) {
                     numbers.add(Int64Value.makeIntegerValue(value));
                 }
-                break;
             }
-            case SINGLE: {
+            case SINGLE -> {
                 long value = Navigator.getNumberSingle(source, getCount(), getFrom(), context);
                 if (value != 0) {
                     numbers.add(Int64Value.makeIntegerValue(value));
                 }
-                break;
             }
-            case ANY: {
+            case ANY -> {
                 long value = Navigator.getNumberAny(this, source, getCount(), getFrom(), context, hasVariablesInPatterns);
                 if (value != 0) {
                     numbers.add(Int64Value.makeIntegerValue(value));
                 }
-                break;
             }
-            case MULTI: {
+            case MULTI -> {
                 for (long n : Navigator.getNumberMulti(source, getCount(), getFrom(), context)) {
                     numbers.add(Int64Value.makeIntegerValue(n));
                 }
-                break;
             }
         }
 

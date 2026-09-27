@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.expr.instruct.UserFunctionParameter;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.FunctionStreamability;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.util.Navigator;
@@ -77,7 +78,7 @@ public class XSLLocalParam extends XSLGeneralVariable {
             sourceBinding.setProperty(SourceBinding.BindingProperty.PARAM, true);
             if (getParent() instanceof XSLFunction) {
                 sourceBinding.setProperty(SourceBinding.BindingProperty.REQUIRED, true);
-                if (getCompilation().getCompilerInfo().getXsltVersion() != 40) {
+                if (getCompilation().getCompilerInfo().getXsltVersion() < 40) {
                     permittedAttributes.remove(SourceBinding.BindingProperty.SELECT);
                     sourceBinding.setProperty(SourceBinding.BindingProperty.DISALLOWS_CONTENT, true);
                 }
@@ -111,7 +112,8 @@ public class XSLLocalParam extends XSLGeneralVariable {
                         if (defaultVal == null && !sourceBinding.hasProperty(SourceBinding.BindingProperty.REQUIRED)) {
                             defaultVal = new DefaultedArgumentExpression();
                         }
-                        ufp.setDefaultValueExpression(defaultVal);
+                        final Expression finalDefault = defaultVal;
+                        ufp.setDefaultValueExpression(() -> finalDefault);
                     }
                 } else {
                     if (!sourceBinding.hasProperty(SourceBinding.BindingProperty.REQUIRED)) {
@@ -161,7 +163,7 @@ public class XSLLocalParam extends XSLGeneralVariable {
         }
 
         // it must be a text node; allow it if all whitespace
-        SequenceTool.supply(iterateAxis(AxisInfo.PRECEDING_SIBLING), (ItemConsumer<? super Item>) node -> {
+        SequenceTool.supply(iteratePrecedingSiblingAxis(AnyGNode.TEST), (ItemConsumer<? super Item>) node -> {
             if (node instanceof XSLLocalParam) {
                 if (name.equals(((XSLLocalParam) node).sourceBinding.getVariableQName())) {
                     compileError("The name of the parameter (" + name + ") is not unique", "XTSE0580");
@@ -229,10 +231,6 @@ public class XSLLocalParam extends XSLGeneralVariable {
 
     @Override
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
-//        if (!"iterate".equals(getParent().getLocalPart()) &&
-//                sourceBinding.getReferences().size() == 0 && !sourceBinding.hasProperty(SourceBinding.REQUIRED)) {
-//            return null;
-//        }
         if (getParent() instanceof XSLFunction) {
             if (getCompilation().getCompilerInfo().getXsltVersion() >= 40 && !isRequiredParam()) {
                 sourceBinding.handleSequenceConstructor(exec, decl);
@@ -244,14 +242,15 @@ public class XSLLocalParam extends XSLGeneralVariable {
                     while (underlyingExpression instanceof ItemChecker || underlyingExpression instanceof CardinalityChecker) {
                         underlyingExpression = ((UnaryExpression)underlyingExpression).getBaseExpression();
                     }
-                    if (!(underlyingExpression instanceof Literal || underlyingExpression instanceof ContextItemExpression)) {
-                        compileError("The default value for a function parameter must be either a literal, or '.' (temporary Saxon restriction)");
-                    }
+//                    if (!(underlyingExpression instanceof Literal || underlyingExpression instanceof ContextItemExpression)) {
+//                        compileError("The default value for a function parameter must be either a literal, or '.' (temporary Saxon restriction)");
+//                    }
                 }
 
                 int pos = getParameterPosition();
+                final Expression finalSelect = selectExpression;
                 ((XSLFunction)getParent()).getCompiledFunction().getParameterDefinitions()[pos]
-                        .setDefaultValueExpression(selectExpression);
+                        .setDefaultValueExpression(() -> finalSelect);
             }
             return null;
         } else {
@@ -274,6 +273,7 @@ public class XSLLocalParam extends XSLGeneralVariable {
             sourceBinding.handleSequenceConstructor(exec, decl);
 
             LocalParam binding = new LocalParam();
+            binding.setLocation(allocateLocation());
             binding.setSelectExpression(sourceBinding.getSelectExpression());
             binding.setConversion(conversion);
             binding.setVariableQName(name);
@@ -298,7 +298,7 @@ public class XSLLocalParam extends XSLGeneralVariable {
     /**
      * Get the static type of the parameter. This is the declared type, because we cannot know
      * the actual value in advance.
-     * @return the declared type (or @code {item()*} if no type is declared)
+     * @return the declared type (or {@code item()*} if no type is declared)
      */
 
     public SequenceType getRequiredType() {

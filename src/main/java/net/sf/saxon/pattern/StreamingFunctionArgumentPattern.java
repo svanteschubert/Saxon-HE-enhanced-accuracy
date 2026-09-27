@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,6 +18,7 @@ import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
 
 /**
  * This is a special pattern that matches the node supplied as the first argument of a call to
@@ -42,7 +43,7 @@ public class StreamingFunctionArgumentPattern extends Pattern {
      */
     @Override
     public UType getUType() {
-        return UType.ANY_NODE;
+        return UType.XNODE;
     }
 
     /**
@@ -90,7 +91,7 @@ public class StreamingFunctionArgumentPattern extends Pattern {
 
     @Override
     public ItemType getItemType() {
-        return AnyNodeTest.getInstance();
+        return AnyXNodeType.getInstance();
     }
 
     @Override

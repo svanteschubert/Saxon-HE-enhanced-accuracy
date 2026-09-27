@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,13 +8,15 @@
 package net.sf.saxon.ma.arrays;
 
 import net.sf.saxon.expr.Atomizer;
+import net.sf.saxon.expr.Callable;
+import net.sf.saxon.expr.CallableDelegate;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.expr.sort.AtomicSortComparer;
+import net.sf.saxon.functions.SortBy;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.ma.Parcel;
 import net.sf.saxon.om.*;
-import net.sf.saxon.trans.NoDynamicContextException;
-import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.StringValue;
@@ -23,15 +25,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Implementation of the extension function array:sort(array, function) =&gt; array
+ * Implementation of the extension function array:sort(array, function) =&gt; array.
+ * The array:sort() function is implemented by wrapping each member of the array as
+ * a parcel, sorting the parcels using the same machinery as for fn:sort, and then
+ * unparceling the results.
  */
 public class ArraySort extends ArrayFunctionSet.ArrayGeneratingFunction {
-
-    private static class MemberToBeSorted{
-        public GroundedValue value;
-        public GroundedValue sortKey;
-        int originalPosition;
-    }
 
     /**
      * Create a call on this function. This method is called by the compiler when it identifies
@@ -41,98 +40,71 @@ public class ArraySort extends ArrayFunctionSet.ArrayGeneratingFunction {
      */
     @Override
     public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
+
         ArrayItem array = (ArrayItem) arguments[0].head();
-        final ArrayList<MemberToBeSorted> inputList = new ArrayList<>(array.arrayLength());
-        int i = 0;
-        StringCollator collation;
-        if (arguments.length == 1) {
-            collation = context.getConfiguration().getCollation(getRetainedStaticContext().getDefaultCollationName());
-        } else {
-            StringValue collName = (StringValue)arguments[1].head();
-            if (collName == null) {
-                collation = context.getConfiguration().getCollation(getRetainedStaticContext().getDefaultCollationName());
-            } else {
-                collation = context.getConfiguration().getCollation(collName.getStringValue(), getStaticBaseUriString());
+        SequenceIterator parcels = array.parcels();
+
+        String collationName = getRetainedStaticContext().getDefaultCollationName();
+        if (arguments.length > 1) {
+            StringValue collationNameItem = (StringValue) arguments[1].head();
+            if (collationNameItem != null) {
+                collationName = collationNameItem.getStringValue();
             }
         }
-        FunctionItem key = null;
-        if (arguments.length == 3){
-            key = (FunctionItem) arguments[2].head();
+        StringCollator collation = context.getConfiguration().getCollation(collationName);
+        int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+        AtomicComparer comparer = AtomicSortComparer.makeSortComparer(
+                collation, StandardNames.XS_ANY_ATOMIC_TYPE, version, context);
+        Callable key = null;
+        if (arguments.length > 2) {
+            FunctionItem suppliedKeyFn = (FunctionItem) arguments[2].head();
+            // preprocess Parcels by unparceling them before calling the supplied function
+            key = new CallableDelegate((cxt, args) ->
+                suppliedKeyFn.call(cxt, new Sequence[]{((Parcel)args[0].head()).getValue()}));
         }
-        for (GroundedValue seq: array.members()){
-            MemberToBeSorted member = new MemberToBeSorted();
-            member.value = seq;
-            member.originalPosition = i++;
-            if (key != null) {
-                member.sortKey = dynamicCall(key, context, new Sequence[]{seq}).materialize();
-            } else {
-                member.sortKey = atomize(seq);
-            }
-            inputList.add(member);
+        if (key == null) {
+            key = new CallableDelegate((cxt, args) -> Atomizer.atomize(((Parcel)args[0].head()).getValue()));
         }
-        final AtomicComparer atomicComparer =  AtomicSortComparer.makeSortComparer(
-                collation, StandardNames.XS_ANY_ATOMIC_TYPE, context);
-        try {
-            inputList.sort((a, b) -> {
-                int result = compareSortKeys(a.sortKey, b.sortKey, atomicComparer);
-                if (result == 0) {
-                    // TODO: unnecessary, we are now using a stable sort routine
-                    return a.originalPosition - b.originalPosition;
-                } else {
-                    return result;
-                }
-            });
-            //GenericSorter.quickSort(0, array.arrayLength(), sortable);
-        } catch (ClassCastException e) {
-            throw new XPathException("Non-comparable types found while sorting: " + e.getMessage())
-                    .withErrorCode("XPTY0004").asTypeError();
+        GroundedValue sortedParcels =
+                SortBy.sort(parcels, SortBy.listOfOne(key), SortBy.listOfOne(comparer), context);
+
+        List<GroundedValue> members = new ArrayList<>(expectedSize());
+        for (Item parcel : sortedParcels.asIterable()) {
+            members.add(((Parcel)parcel).getValue());
         }
-        List<GroundedValue> outputList = new ArrayList<>(array.arrayLength());
-        for (MemberToBeSorted member: inputList) {
-            outputList.add(member.value);
-        }
-        return makeArray(outputList);
+        return makeArray(members);
+
     }
 
+    /**
+     * Lexicographic sort: given two atomic sequences, compare them by comparing individual
+     * items until a pair of items is found that differs.
+     * @param a the first sequence (must be a sequence of atomic items)
+     * @param b the second sequence  (must be a sequence of atomic items)
+     * @param comparer comparer for individual items
+     * @return -1, 0, or +1 depending on the magnitude relationship
+     */
     public static int compareSortKeys(GroundedValue a, GroundedValue b, AtomicComparer comparer) {
         SequenceIterator iteratora = a.iterate();
         SequenceIterator iteratorb = b.iterate();
-        while (true){
-            AtomicValue firsta = (AtomicValue) iteratora.next();
-            AtomicValue firstb = (AtomicValue) iteratorb.next();
-            if (firsta == null){
-                if (firstb == null){
+        while (true) {
+            AtomicValue a0 = (AtomicValue) iteratora.next();
+            AtomicValue b0 = (AtomicValue) iteratorb.next();
+            if (a0 == null) {
+                if (b0 == null) {
                     return 0;
                 }
                 else {
                     return -1;
                 }
-            }
-            else if (firstb == null){
+            } else if (b0 == null) {
                 return +1;
-            }
-            else {
-                try {
-                    int first = comparer.compareAtomicValues(firsta, firstb);
-                    if (first == 0){
-                        continue;
-                    } else {
-                        return first;
-                    }
-                } catch (NoDynamicContextException e) {
-                    throw new AssertionError(e);
+            } else {
+                int first = comparer.compareAtomicValues(a0, b0);
+                if (first != 0) {
+                    return first;
                 }
             }
-        }
-    }
-
-    private static GroundedValue atomize(Sequence input) throws XPathException {
-        try {
-            SequenceIterator iterator = input.iterate();
-            SequenceIterator mapper = Atomizer.getAtomizingIterator(iterator, false);
-            return SequenceTool.toGroundedValue(mapper);
-        } catch (UncheckedXPathException e) {
-            throw e.getXPathException();
         }
     }
 }

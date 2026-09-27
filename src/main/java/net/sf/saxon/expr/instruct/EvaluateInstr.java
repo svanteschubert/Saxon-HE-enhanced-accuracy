@@ -18,9 +18,11 @@ import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.ma.map.HashTrieMap;
+import net.sf.saxon.ma.map.EmptyMap;
+import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.Latin1;
 import net.sf.saxon.style.PublicStylesheetFunctionLibrary;
 import net.sf.saxon.style.StylesheetFunctionLibrary;
 import net.sf.saxon.style.StylesheetPackage;
@@ -28,11 +30,11 @@ import net.sf.saxon.sxpath.IndependentContext;
 import net.sf.saxon.sxpath.XPathVariable;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.value.*;
 
 import java.util.*;
@@ -57,12 +59,11 @@ public final class EvaluateInstr extends Expression {
     private Operand namespaceContextOp;
     private Operand schemaAwareOp;
     private Operand optionsOp;
-    private Set<NamespaceUri> importedSchemaNamespaces = new HashSet<>();
     private WithParam[] actualParams;
     private Operand dynamicParamsOp;
     private NamespaceUri defaultXPathNamespace = null;
 
-
+    private final static StringValue SV_DEFAULT_COLLATION = new StringValue(Latin1.of("default-collation"));
     /**
      * Create an xsl:evaluate instruction
      *
@@ -122,19 +123,6 @@ public final class EvaluateInstr extends Expression {
         return true;
     }
 
-
-    /**
-     * Add an imported schema namespace
-     * @param ns the namespace to be imported ("" for the non-namespace)
-     */
-
-    public void importSchemaNamespace(NamespaceUri ns) {
-        if (importedSchemaNamespaces == null) {
-            importedSchemaNamespaces = new HashSet<>();
-        }
-        importedSchemaNamespaces.add(ns);
-    }
-
     /**
      * Type-check the expression
      */
@@ -142,7 +130,6 @@ public final class EvaluateInstr extends Expression {
     /*@NotNull*/
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
-        importedSchemaNamespaces = visitor.getStaticContext().getImportedSchemaNamespaces();
         typeCheckChildren(visitor, contextInfo);
 
         WithParam.typeCheck(getActualParams(), visitor, contextInfo);
@@ -172,31 +159,6 @@ public final class EvaluateInstr extends Expression {
     @Override
     protected int computeCardinality() {
         return requiredType.getCardinality();
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the set of nodes in the path map that are affected
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     *         expression is the first operand of a path expression or filter expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        throw new UnsupportedOperationException("Cannot do document projection when xsl:evaluate is used");
     }
 
     @Override
@@ -261,7 +223,6 @@ public final class EvaluateInstr extends Expression {
                                              getSchemaAwareExpr() == null ? null : getSchemaAwareExpr().copy(rebindings));
         ExpressionTool.copyLocationInfo(this, e2);
         e2.setRetainedStaticContext(getRetainedStaticContext());
-        e2.importedSchemaNamespaces = importedSchemaNamespaces;
         e2.setActualParams(WithParam.copy(e2, getActualParams(), rebindings));
         if (optionsOp != null) {
             e2.setOptionsExpression(optionsOp.getChildExpression().copy(rebindings));
@@ -289,17 +250,12 @@ public final class EvaluateInstr extends Expression {
         if (!SequenceType.ANY_SEQUENCE.equals(requiredType)) {
             out.emitAttribute("as", requiredType.toAlphaCode());
         }
-        if (importedSchemaNamespaces != null && !importedSchemaNamespaces.isEmpty()) {
-            StringBuilder buff = new StringBuilder(256);
-            for (NamespaceUri s : importedSchemaNamespaces) {
-                buff.append(s.isEmpty() ? "##" : s);
-                buff.append(' ');
-            }
-            buff.setLength(buff.length() - 1);
-            out.emitAttribute("schNS", buff.toString());
-        }
-        if(defaultXPathNamespace != null) {
+        if (defaultXPathNamespace != null) {
             out.emitAttribute("dxns", defaultXPathNamespace.toString());
+        }
+        String schemaRole = getRetainedStaticContext().getImportedSchemaRoleName();
+        if (!schemaRole.isEmpty()) {
+            out.emitAttribute("schemaRole", schemaRole);
         }
         out.setChildRole("xpath");
         getXpath().export(out);
@@ -432,6 +388,13 @@ public final class EvaluateInstr extends Expression {
         return new EvaluateInstrElaborator();
     }
 
+    private record CacheKey (
+            String exprText, String baseUri, boolean schemaAware, Optional<NodeInfo> namespaceContext) {}
+
+    private record CacheValue (
+            Expression expr, SlotManager slotManager, Collection<XPathVariable> variables) {}
+
+
     private static class EvaluateInstrElaborator extends PullElaborator {
 
         @Override
@@ -482,33 +445,39 @@ public final class EvaluateInstr extends Expression {
 
                 // Create a cache key so the compiled expression can be reused
 
-                StringBuilder fsb = new StringBuilder(exprText.length() + (baseUri == null ? 4 : baseUri.length()) + 40);
-                fsb.append(baseUri);
-                fsb.append("##");
-                fsb.append(schemaAwareAttr);
-                fsb.append("##");
-                fsb.append(exprText);
-                if (namespaceContextBase != null) {
-                    fsb.append("##");
-                    namespaceContextBase.generateId(fsb);
-                }
-                String cacheKey = fsb.toString();
+                Optional<NodeInfo> namespaceContext = Optional.ofNullable(namespaceContextBase);
+                CacheKey cacheKey = new CacheKey(exprText,
+                                                 baseUri,
+                                                 isSchemaAware,
+                                                 namespaceContext);
+
+//                StringBuilder fsb = new StringBuilder(exprText.length() + (baseUri == null ? 4 : baseUri.length()) + 40);
+//                fsb.append(baseUri);
+//                fsb.append("##");
+//                fsb.append(schemaAwareAttr);
+//                fsb.append("##");
+//                fsb.append(exprText);
+//                if (namespaceContextBase != null) {
+//                    fsb.append("##");
+//                    namespaceContextBase.generateId(fsb);
+//                }
+//                String cacheKey = fsb.toString();
                 Collection<XPathVariable> declaredVars = null;
 
                 Controller controller = context.getController();
-                LFUCache<String, Object[]> cache;
+                LFUCache<CacheKey, CacheValue> cache;
                 //noinspection SynchronizationOnLocalVariableOrMethodParameter
                 synchronized(controller) {
-                    cache = (LFUCache<String, Object[]>) controller.getUserData(instr.getLocation(), "xsl:evaluate");
+                    cache = (LFUCache<CacheKey, CacheValue>) controller.getUserData(instr.getLocation(), "xsl:evaluate");
                     if (cache == null) {
                         cache = new LFUCache<>(100);
                         controller.setUserData(instr.getLocation(), "xsl:evaluate", cache);
                     } else {
-                        Object[] o = cache.get(cacheKey);
+                        CacheValue o = cache.get(cacheKey);
                         if (o != null) {
-                            expr = (Expression) o[0];
-                            slotMap = (SlotManager) o[1];
-                            declaredVars = (Collection<XPathVariable>) o[2];
+                            expr = o.expr();
+                            slotMap = o.slotManager();
+                            declaredVars = o.variables();
                         }
                     }
                 }
@@ -526,7 +495,7 @@ public final class EvaluateInstr extends Expression {
 //                    if (version == 30) {
 //                        version = 31;
 //                    }
-                    MapItem options = (optionsEval == null ? new HashTrieMap() : (MapItem) optionsEval.eval(context));
+                    MapItem options = (optionsEval == null ? EmptyMap.INSTANCE_40 : (MapItem) optionsEval.eval(context));
 
                     IndependentContext env = new IndependentContext(config);
                     env.setWarningHandler((str, loc) -> {
@@ -543,6 +512,11 @@ public final class EvaluateInstr extends Expression {
                         env.setNamespaceResolver(instr.getRetainedStaticContext());
                         env.setDefaultElementNamespace(instr.getRetainedStaticContext().getDefaultElementNamespace());
                     }
+                    if (isSchemaAware) {
+                        Schema schema = instr.getRetainedStaticContext().getImportedSchema();
+                        env.setImportedSchema(schema);
+                        env.getPackageData().setImportedSchema("", schema);
+                    }
                     // Copy the function library list, except for XSLT-defined system functions and private user-written functions
                     FunctionLibraryList libraryList0 = ((StylesheetPackage) instr.getRetainedStaticContext().getPackageData()).getFunctionLibrary();
                     FunctionLibraryList libraryList1 = new FunctionLibraryList();
@@ -558,17 +532,8 @@ public final class EvaluateInstr extends Expression {
                     }
                     env.setFunctionLibrary(libraryList1);
                     env.setDecimalFormatManager(instr.getRetainedStaticContext().getDecimalFormatManager());
-                    //env.setXPathLanguageLevel(config.getConfigurationProperty(Feature.XPATH_VERSION_FOR_XSLT));
-                    if (isSchemaAware) {
-                        GroundedValue allowAny = options.get(StringValue.bmp("allow-any-namespace"));
-                        if (allowAny != null && allowAny.effectiveBooleanValue()) {
-                            env.setImportedSchemaNamespaces(config.getImportedNamespaces());
-                        } else {
-                            env.setImportedSchemaNamespaces(instr.importedSchemaNamespaces);
-                        }
-                    }
 
-                    GroundedValue defaultCollation = options.get(StringValue.bmp("default-collation"));
+                    GroundedValue defaultCollation = options.get(SV_DEFAULT_COLLATION);
                     if (defaultCollation != null) {
                         env.setDefaultCollationName(defaultCollation.head().getStringValue());
                     }
@@ -602,7 +567,7 @@ public final class EvaluateInstr extends Expression {
                     // Now compile the expression
 
                     try {
-                        expr = ExpressionTool.make(exprText, env, 0, Token.EOF, null);
+                        expr = ExpressionTool.make(exprText, env, 0, Tokenizer.END_OF_INPUT, null);
                     } catch (XPathException e) {
                         throw new XPathException("Static error in XPath expression supplied to xsl:evaluate: " +
                                                                         e.getMessage() + ". Expression: {" + exprText + "}")
@@ -621,9 +586,10 @@ public final class EvaluateInstr extends Expression {
                     expr = ExpressionTool.resolveCallsToCurrentFunction(expr);
                     ContextItemStaticInfo cit;
                     if (instr.getContextItemExpr() != null) {
+                        boolean allowsEmpty = Cardinality.allowsZero(instr.getContextItemExpr().getCardinality());
                         cit = config.makeContextItemStaticInfo(
                                 instr.getContextItemExpr().getItemType(),
-                                Cardinality.allowsZero(instr.getContextItemExpr().getCardinality()));
+                                allowsEmpty ? Optionality.OPTIONAL : Optionality.REQUIRED);
                     } else {
                         cit = ContextItemStaticInfo.ABSENT;
                     }
@@ -634,11 +600,11 @@ public final class EvaluateInstr extends Expression {
 
                     // Save the compiled expression in the cache for next time
 
-                    if (cacheKey != null) {
+                    //if (cacheKey != null) {
                         declaredVars = env.getDeclaredVariables();
-                        cache.put(cacheKey, new Object[]{expr, slotMap, declaredVars});
+                        cache.put(cacheKey, new CacheValue(expr, slotMap, declaredVars));
                         //System.err.println("Cache miss, size = " + cache.size());
-                    }
+                    //}
                 }
 
                 XPathContextMajor c2 = context.newContext();
@@ -663,13 +629,12 @@ public final class EvaluateInstr extends Expression {
                 }
 
                 if (dynamicParams != null) {
-                    AtomicIterator iter = dynamicParams.keys();
-                    QNameValue paramName;
-                    while ((paramName = (QNameValue) iter.next()) != null) {
+                    for (KeyValuePair kvp : dynamicParams.keyValuePairs()) {
+                        QNameValue paramName = (QNameValue)  kvp.key();
                         int slot = slotMap.getVariableMap().indexOf(paramName.getStructuredQName());
                         if (slot >= 0) {
                             // can be false if the with-params changes from one call to the next
-                            c2.setLocalVariable(slot, dynamicParams.get(paramName));
+                            c2.setLocalVariable(slot, kvp.value());
                         }
                     }
                 }

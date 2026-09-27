@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,11 @@
 
 package net.sf.saxon.str;
 
-import net.sf.saxon.serialize.UTF8Writer;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.z.IntIterator;
 
-import java.io.IOException;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.function.IntPredicate;
 
 /**
@@ -52,14 +50,36 @@ public class Slice8 extends UnicodeString {
         return 8;
     }
 
+    /**
+     * Get the underlying byte array (of which this is a slice)
+     * @return the underlying byte array
+     */
     public byte[] getByteArray() {
         return bytes;
     }
 
+    /**
+     * Copy the selected bytes to a new byte array
+     * @return a new byte array containing the selected bytes
+     */
+    public byte[] asByteArray() {
+        return Arrays.copyOfRange(bytes, start, end);
+    }
+
+    /**
+     * Get the start position of the slice in the underlying byte array
+     * @return the start position
+     */
     public int getStart() {
         return start;
     }
 
+    /**
+     * Get the end position of the slice in the underlying byte array,
+     * that is the position of the first excluded byte
+     *
+     * @return the end position of the range, exclusive
+     */
     public int getEnd() {
         return end;
     }
@@ -94,14 +114,6 @@ public class Slice8 extends UnicodeString {
             return EmptyUnicodeString.getInstance();
         } else {
             return new Slice8(bytes, requireInt(start) + this.start, requireInt(end) + this.start);
-        }
-    }
-
-    private void write(Writer writer, long start, long len) throws IOException {
-        if (writer instanceof UTF8Writer) {
-            ((UTF8Writer) writer).writeLatin1(bytes, this.start + requireInt(start), requireInt(len));
-        } else {
-            writer.write(substring(requireInt(start), requireInt(start + len)).toString());
         }
     }
 
@@ -186,21 +198,6 @@ public class Slice8 extends UnicodeString {
         }
         return cachedHash = h;
     }
-
-    /**
-     * Concatenate another string
-     *
-     * @param other the string to be appended to this one
-     * @return the result of the concatenation (neither input string is altered)
-     */
-//    @Override
-//    public UnicodeString concat(UnicodeString other) {
-//        if (other.getWidth() <= 8) {
-//            return ZenoString.concatSegments(this, other);
-//        } else {
-//            return super.concat(other);
-//        }
-//    }
 
     /**
      * Display as a string.

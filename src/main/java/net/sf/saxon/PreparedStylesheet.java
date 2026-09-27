@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.ResolveURI;
 import net.sf.saxon.lib.OutputURIResolver;
 import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.serialize.SerializationProperties;
@@ -219,7 +220,25 @@ public class PreparedStylesheet extends Executable {
     }
 
     public Component getComponent(SymbolicName name) {
-        return componentIndex.get(name);
+        Component c = componentIndex.get(name);
+        if (c != null) {
+            return c;
+        }
+        // When searching for a function, accept a function with higher arity provided
+        // the arity range is OK
+        if (name instanceof SymbolicName.F fnName) {
+            for (Map.Entry<SymbolicName, Component> entry : componentIndex.entrySet()) {
+                SymbolicName fn = entry.getKey();
+                if (fn.getComponentKind() == StandardNames.XSL_FUNCTION
+                        && fn.getComponentName().equals(fnName.getComponentName())) {
+                    UserFunction uf = (UserFunction)entry.getValue().getActor();
+                    if (uf.getArity() >= fnName.getArity() && uf.getMinimumArity() <= fnName.getArity()) {
+                        return entry.getValue();
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**

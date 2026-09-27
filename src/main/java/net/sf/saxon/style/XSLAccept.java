@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,8 +10,9 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StandardNames;
-import net.sf.saxon.pattern.NameTest;
-import net.sf.saxon.pattern.QNameTest;
+import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.pattern.qname.QNameTest;
+import net.sf.saxon.pattern.qname.SpecificQNameTest;
 import net.sf.saxon.trans.*;
 
 /**
@@ -44,18 +45,19 @@ public class XSLAccept extends XSLAcceptExpose {
         if (pack != null) {
             for (ComponentTest test : getExplicitComponentTests()) {
                 QNameTest nameTest = test.getQNameTest();
-                if (nameTest instanceof NameTest) {
+                if (nameTest instanceof SpecificQNameTest) {
                     int kind = test.getComponentKind();
+                    StructuredQName name = ((SpecificQNameTest)nameTest).getStructuredQName();
                     SymbolicName sName = kind == StandardNames.XSL_FUNCTION ?
-                        new SymbolicName.F(((NameTest) nameTest).getMatchingNodeName(), test.getArity()) :
-                        new SymbolicName(kind, ((NameTest) nameTest).getMatchingNodeName());
+                        new SymbolicName.F(name, test.getArity()) :
+                        new SymbolicName(kind, name);
                     Component comp = pack.getComponent(sName);
                     boolean found = false;
                     if (comp == null) {
                         if (kind == StandardNames.XSL_FUNCTION && test.getArity() == -1) {
                             // This will match any function of the required name, regardless of arity
                             for (int i = 0; i <= pack.getMaxFunctionArity(); i++) {
-                                sName = new SymbolicName.F(((NameTest) nameTest).getMatchingNodeName(), i);
+                                sName = new SymbolicName.F(name, i);
                                 comp = pack.getComponent(sName);
                                 if (comp != null) {
                                     checkCompatibility(sName, comp.getVisibility(), getVisibility());
@@ -77,33 +79,6 @@ public class XSLAccept extends XSLAcceptExpose {
     }
 
 
-//    /**
-//     * Accept a component from a used package, modifying its visibility if necessary
-//     *
-//     * @param component the component to be accepted; as a side-effect of this method, the
-//     *                  visibility of the component may change
-//     * @throws XPathException if the requested visibility is incompatible with the declared
-//     *                        visibility
-//     */
-//    public void acceptComponent(Component component) throws XPathException {
-//        for (ComponentTest test : getExplicitComponentTests()) {
-//            if (test.matches(component.getActor())) {
-//                // we have already checked that the visibility is compatible
-//                component.setVisibility(getVisibility(), VisibilityProvenance.ACCEPTED);
-//                return;
-//            }
-//        }
-//        for (ComponentTest test : getWildcardComponentTests()) {
-//            if (test.matches(component.getActor())) {
-//                if (isCompatible(component.getVisibility(), getVisibility())) {
-//                    // set the visibility if it is compatible
-//                    component.setVisibility(getVisibility(), VisibilityProvenance.ACCEPTED);
-//                    return;
-//                }
-//            }
-//        }
-//    }
-
     protected void checkCompatibility(SymbolicName name, Visibility declared, Visibility exposed) {
         if (!isCompatible(declared, exposed)) {
             String code = "XTSE3040";
@@ -113,22 +88,14 @@ public class XSLAccept extends XSLAcceptExpose {
     }
 
     public static boolean isCompatible(Visibility declared, Visibility exposed) {
-//        if (declared == null || declared == exposed) {
-//            return true;
-//        }
-        switch (declared) {
-            case PUBLIC:
-                return exposed == Visibility.PUBLIC || exposed == Visibility.PRIVATE ||
-                        exposed == Visibility.FINAL || exposed == Visibility.HIDDEN;
-            case ABSTRACT:
-                return exposed == Visibility.ABSTRACT || exposed == Visibility.HIDDEN;
-            case FINAL:
-                return exposed == Visibility.PRIVATE ||
-                        exposed == Visibility.FINAL || exposed == Visibility.HIDDEN;
-            case UNDEFINED:
-                return true;
-            default:
-                return false;
-        }
+        return switch (declared) {
+            case PUBLIC -> exposed == Visibility.PUBLIC || exposed == Visibility.PRIVATE ||
+                    exposed == Visibility.FINAL || exposed == Visibility.HIDDEN;
+            case ABSTRACT -> exposed == Visibility.ABSTRACT || exposed == Visibility.HIDDEN;
+            case FINAL -> exposed == Visibility.PRIVATE ||
+                    exposed == Visibility.FINAL || exposed == Visibility.HIDDEN;
+            case UNDEFINED -> true;
+            default -> false;
+        };
     }
 }

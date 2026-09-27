@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,8 +8,9 @@
 package net.sf.saxon.expr;
 
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.OperatorInfo;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.expr.parser.Token;
 
 /**
  * The class GeneralComparison20 specializes GeneralComparison for the case where
@@ -26,7 +27,7 @@ public class GeneralComparison20 extends GeneralComparison {
      * @param op the operator, as a token returned by the Tokenizer (e.g. Token.LT)
      * @param p1 the right-hand operand
      */
-    public GeneralComparison20(Expression p0, int op, Expression p1) {
+    public GeneralComparison20(Expression p0, OperatorSymbol op, Expression p1) {
         super(p0, op, p1);
     }
 
@@ -52,7 +53,7 @@ public class GeneralComparison20 extends GeneralComparison {
 
     @Override
     protected GeneralComparison getInverseComparison() {
-        GeneralComparison20 gc = new GeneralComparison20(getRhsExpression(), Token.inverse(operator), getLhsExpression());
+        GeneralComparison20 gc = new GeneralComparison20(getRhsExpression(), OperatorInfo.inverse(operator), getLhsExpression());
         gc.setRetainedStaticContext(getRetainedStaticContext());
         return gc;
     }

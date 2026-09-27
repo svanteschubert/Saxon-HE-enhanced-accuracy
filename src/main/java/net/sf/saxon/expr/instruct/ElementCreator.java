@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,8 +13,9 @@ import net.sf.saxon.lib.Validation;
 import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.NodeName;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.type.gnode.NodeKindType;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -62,15 +63,6 @@ public abstract class ElementCreator extends ParentNodeConstructor {
 
         public abstract String getSystemId(XPathContext context) throws XPathException;
 
-        /**
-         * Callback to process the content expression, generating attributes, children and descendants
-         * (but not namespaces) of the new element node
-         * @param out the output destination
-         * @param context evaluation context
-         * @throws XPathException if processing fails
-         */
-
-        public abstract void processContent(Outputter out, XPathContext context) throws XPathException;
     }
 
 
@@ -112,7 +104,7 @@ public abstract class ElementCreator extends ParentNodeConstructor {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return NodeKindTest.ELEMENT;
+        return NodeKindType.ELEMENT;
     }
 
     @Override
@@ -190,7 +182,7 @@ public abstract class ElementCreator extends ParentNodeConstructor {
     public void suppressValidation(int parentValidationMode) {
         if (getValidationAction() == parentValidationMode && getSchemaType() == null) {
             // TODO: is this safe? e.g. if the child has validation=strict but matches a skip wildcard in the parent
-            setValidationAction(Validation.PRESERVE, null);
+            setValidationAction(null, Validation.PRESERVE, null);
         }
     }
 
@@ -198,12 +190,11 @@ public abstract class ElementCreator extends ParentNodeConstructor {
      * Check statically whether the content of the element creates attributes or namespaces
      * after creating any child nodes
      *
-     * @param env the static context
      * @throws XPathException if the content is found to be incorrect
      */
 
     @Override
-    protected void checkContentSequence(StaticContext env) throws XPathException {
+    protected void checkContentSequence() throws XPathException {
         Operand[] components;
         if (getContentExpression() instanceof Block) {
             components = ((Block) getContentExpression()).getOperanda();
@@ -236,7 +227,7 @@ public abstract class ElementCreator extends ParentNodeConstructor {
                     // in an XQuery construct like <a>{@x}{@y}</b>
                     if (component instanceof ValueOf &&
                             ((ValueOf) component).getSelect() instanceof StringLiteral) {
-                        String value = ((StringLiteral) ((ValueOf) component).getSelect()).stringify();
+                        UnicodeString value = ((StringLiteral) ((ValueOf) component).getSelect()).getUnicodeString();
                         if (value.isEmpty()) {
                             // continue;  // not an error
                         } else {
@@ -264,13 +255,13 @@ public abstract class ElementCreator extends ParentNodeConstructor {
                     de.setLocator(component.getLocation());
                     throw de;
                 } else if ((foundChild || foundPossibleChild) && possibleNodeKinds == UType.ATTRIBUTE) {
-                    env.issueWarning(
+                    warning(
                             "Creating an attribute here will fail if previous instructions create any children",
-                            SaxonErrorCode.SXWN9030, component.getLocation());
+                            SaxonErrorCode.SXWN9030);
                 } else if ((foundChild || foundPossibleChild) && possibleNodeKinds == UType.NAMESPACE) {
-                    env.issueWarning(
+                    warning(
                             "Creating a namespace node here will fail if previous instructions create any children",
-                            SaxonErrorCode.SXWN9030, component.getLocation());
+                            SaxonErrorCode.SXWN9030);
                 }
             }
 
@@ -344,12 +335,18 @@ public abstract class ElementCreator extends ParentNodeConstructor {
         if (!bequeathNamespacesToChildren) {
             flags += "C";
         }
+        if (preservingTypes) {
+            flags += "V";
+        }
         return flags;
     }
 
     public void setInheritanceFlags(String flags) {
         inheritNamespacesFromParent = !flags.contains("P");
         bequeathNamespacesToChildren = !flags.contains("C");
+        if (flags.contains("V")) {
+            preservingTypes = true;
+        }
     }
 
     public ElementCreationDetails makeElementCreationDetails() {

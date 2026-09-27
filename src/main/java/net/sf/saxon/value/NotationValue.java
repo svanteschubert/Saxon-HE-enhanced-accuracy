@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 
@@ -41,13 +42,9 @@ public final class NotationValue extends QualifiedNameValue {
             throw new XPathException("Malformed local name in NOTATION: '" + localName + '\'', "FORG0001");
         }
         prefix = prefix == null ? "" : prefix;
-        if (check && uri.isEmpty() && prefix.length() != 0) {
+        if (check && uri.isEmpty() && !prefix.isEmpty()) {
             throw new XPathException("NOTATION has null namespace but non-empty prefix", "FOCA0002");
         }
-    }
-
-    public NotationValue(String prefix, String uri, String localName, boolean check) throws XPathException {
-        this(prefix, NamespaceUri.of(uri), localName, check);
     }
 
     /**
@@ -84,7 +81,7 @@ public final class NotationValue extends QualifiedNameValue {
      * @param typeLabel idenfies a subtype of xs:QName
      */
 
-    public NotationValue(/*@Nullable*/ StructuredQName qName, /*@Nullable*/ AtomicType typeLabel) {
+    public NotationValue(StructuredQName qName, AtomicMetadata typeLabel) {
         super(qName, typeLabel);
     }
 
@@ -92,14 +89,14 @@ public final class NotationValue extends QualifiedNameValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     /*@NotNull*/
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        return new NotationValue(getStructuredQName(), typeLabel);
+    public AtomicValue withMetadata(AtomicMetadata metadata) {
+        return new NotationValue(getStructuredQName(), metadata);
     }
 
     /**
@@ -133,7 +130,7 @@ public final class NotationValue extends QualifiedNameValue {
     }
 
     @Override
-    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) throws NoDynamicContextException {
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone, int specVersion) throws NoDynamicContextException {
         return null;
     }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Modified in 9.4 to remove namespace codes.</p>
  * <p>Modified in 9.7 to remove URI codes.</p>
  * <p>Modified in 9.8 to remove namecodes and all handling of prefixes.</p>
+ * <p>Modified in 13.0 to use an array for the map from integer fingerprints to QNames.</p>
  */
 
 public final class NamePool {
@@ -59,18 +60,22 @@ public final class NamePool {
 
     private static final int MAX_FINGERPRINT = FP_MASK;
 
+    // Offset of first user-allocated fingerprint
+
+    private static final int OFFSET = 1024;
+
     // A map from QNames to fingerprints
 
-    private final ConcurrentHashMap<StructuredQName, Integer> qNameToInteger = new ConcurrentHashMap<>(1000);
+    private final ConcurrentHashMap<StructuredQName, Integer> qNameToInteger = new ConcurrentHashMap<>(1024);
 
     // A map from fingerprints to QNames
 
-    private final ConcurrentHashMap<Integer, StructuredQName> integerToQName = new ConcurrentHashMap<>(1000);
+    private volatile StructuredQName[] integerToQName = new StructuredQName[1024];
 
     // Next fingerprint available to be allocated. Starts at 1024 as low-end fingerprints are statically allocated to system-defined
     // names
 
-    private final AtomicCounter unique = new AtomicCounter(1024);
+    private final AtomicCounter unique = new AtomicCounter(OFFSET);
 
     // A map containing suggested prefixes for particular URIs
 
@@ -103,7 +108,8 @@ public final class NamePool {
      *
      * @param nameCode a code identifying an expanded QName, e.g. of an element or attribute
      * @return a qName containing the URI and local name corresponding to the supplied name code.
-     * The prefix will be set to an empty string.
+     * The prefix will be set to an empty string. Return null if the fingerprint has not been
+     * allocated.
      */
 
     public StructuredQName getUnprefixedQName(int nameCode) {
@@ -111,7 +117,9 @@ public final class NamePool {
         if ((fp & USER_DEFINED_MASK) == 0) {
             return StandardNames.getUnprefixedQName(fp);
         }
-        return integerToQName.get(fp);
+        int index = fp - OFFSET;
+        StructuredQName[] localArray = integerToQName;
+        return (index >= 0 && index < localArray.length) ? localArray[index] : null;
     }
 
     /**
@@ -119,7 +127,7 @@ public final class NamePool {
      *
      * @param fingerprint a code identifying an expanded QName, e.g. of an element or attribute
      * @return a qName containing the URI and local name corresponding to the supplied fingerprint.
-     * There will be no prefix
+     * There will be no prefix. Return null if the fingerprint has not been allocated.
      */
 
     public StructuredQName getStructuredQName(int fingerprint) {
@@ -162,7 +170,7 @@ public final class NamePool {
      * The fingerprint omits information about the prefix, and is the same as the nameCode
      * for the same name with a prefix equal to "".
      */
-
+    
     public synchronized int allocateFingerprint(NamespaceUri uri, String local) {
         if (NamespaceUri.isReserved(uri) || NamespaceUri.SAXON.equals(uri)) {
             int fp = StandardNames.getFingerprint(uri, local);
@@ -171,6 +179,7 @@ public final class NamePool {
             }
         }
         StructuredQName qName = new StructuredQName("", uri, local);
+
         int existing = qNameToInteger.getOrDefault(qName, -1);
         if (existing >= 0) {
             return existing;
@@ -179,13 +188,25 @@ public final class NamePool {
         if (nextUnique > MAX_FINGERPRINT) {
             throw new NamePoolLimitException("Too many distinct names in NamePool");
         }
-        int next = (int)nextUnique;
+        int next = (int) nextUnique;
         Integer existing2 = qNameToInteger.putIfAbsent(qName, next);
         if (keyWasAbsent(existing2)) {
-            integerToQName.put(next, qName);
+            ensureCapacity(next - OFFSET);
+            integerToQName[next - OFFSET] = qName;
             return next;
         } else {
-            return existing;
+            return existing2;
+        }
+
+    }
+
+    private void ensureCapacity(int index) {
+        StructuredQName[] current = integerToQName;
+        if (index >= current.length) {
+            int newSize = Math.min(current.length * 2, MAX_FINGERPRINT);
+            StructuredQName[] newArray = new StructuredQName[newSize];
+            System.arraycopy(current, 0, newArray, 0, current.length);
+            integerToQName = newArray;
         }
     }
 
@@ -275,7 +296,7 @@ public final class NamePool {
                 throw new IllegalArgumentException("No closing '}' in Clark name");
             }
             namespace = NamespaceUri.of(expandedName.substring(1, closeBrace));
-            if (closeBrace == expandedName.length()) {
+            if (closeBrace == expandedName.length() - 1) {
                 throw new IllegalArgumentException("Missing local part in Clark name");
             }
             localName = expandedName.substring(closeBrace + 1);

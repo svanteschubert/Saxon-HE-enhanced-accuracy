@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,14 +14,18 @@ import net.sf.saxon.expr.instruct.Actor;
 import net.sf.saxon.expr.instruct.ApplyTemplates;
 import net.sf.saxon.expr.instruct.CallTemplate;
 import net.sf.saxon.expr.instruct.SlotManager;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.expr.sort.CodepointCollator;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTestPattern;
+import net.sf.saxon.pattern.ItemTypePattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.type.Converter;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.value.SequenceType;
@@ -154,7 +158,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
         match = makePattern(matchAtt, "match");
         if (match == null) {
             // error has been reported
-            match = new NodeTestPattern(ErrorType.getInstance());
+            match = new ItemTypePattern(ErrorType.getInstance());
         }
 
     }
@@ -203,7 +207,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
 
         // Do a further check that the use expression makes sense in the context of the match pattern
         if (use != null) {
-            use = use.typeCheck(makeExpressionVisitor(), config.makeContextItemStaticInfo(match.getItemType(), false));
+            use = use.typeCheck(makeExpressionVisitor(), config.makeContextItemStaticInfo(match.getItemType()));
         }
 
         if (collationName != null) {
@@ -284,7 +288,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
                         role, makeExpressionVisitor());
                 // Do a further check that the use expression makes sense in the context of the match pattern
                 assert match != null;
-                use = use.typeCheck(makeExpressionVisitor(), config.makeContextItemStaticInfo(match.getItemType(), false));
+                use = use.typeCheck(makeExpressionVisitor(), config.makeContextItemStaticInfo(match.getItemType()));
 
 
             } catch (XPathException err) {
@@ -300,7 +304,8 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
         if (xPath10ModeIsEnabled()) {
             if (!useType.equals(BuiltInAtomicType.STRING) && !useType.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
                 use = new AtomicSequenceConverter(use, BuiltInAtomicType.STRING);
-                ((AtomicSequenceConverter) use).allocateConverter(config, false);
+                Converter c = ((AtomicSequenceConverter) use).allocateConverter(config, false);
+                ((AtomicSequenceConverter) use).setConverter(c);
                 useType = BuiltInAtomicType.STRING;
             }
         }
@@ -349,7 +354,7 @@ public class XSLKey extends StyleElement implements StylesheetComponent {
     @Override
     public void optimize(ComponentDeclaration declaration) throws XPathException {
         ExpressionVisitor visitor = makeExpressionVisitor();
-        ContextItemStaticInfo contextItemType = getConfiguration().makeContextItemStaticInfo(match.getItemType(), false);
+        ContextItemStaticInfo contextItemType = getConfiguration().makeContextItemStaticInfo(match.getItemType());
         Expression useExp = keyDefinition.getUse();
         useExp = useExp.optimize(visitor, contextItemType);
         allocateLocalSlots(useExp);

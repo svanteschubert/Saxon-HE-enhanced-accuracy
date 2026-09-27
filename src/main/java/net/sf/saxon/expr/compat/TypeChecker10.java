@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,10 +12,7 @@ import net.sf.saxon.expr.AtomicSequenceConverter;
 import net.sf.saxon.expr.Atomizer;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.FirstItemExpression;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.RetainedStaticContext;
-import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.expr.parser.TypeChecker;
+import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -70,7 +67,7 @@ public class TypeChecker10 extends TypeChecker {
         if (req.getPrimaryType().equals(BuiltInAtomicType.STRING) &&
                 !Cardinality.allowsMany(req.getCardinality()) &&
                 !th.isSubType(supplied.getItemType(), BuiltInAtomicType.STRING)) {
-            final RetainedStaticContext rsc = supplied.getRetainedStaticContext();
+            final RetainedStaticContext rsc = new RetainedStaticContext(config);
             Expression fn = SystemFunction.makeCall("string", rsc, supplied);
             try {
                 return fn.typeCheck(visitor, config.getDefaultContextItemStaticInfo());
@@ -83,7 +80,7 @@ public class TypeChecker10 extends TypeChecker {
         if (reqItemType.equals(NumericType.getInstance()) || reqItemType.equals(BuiltInAtomicType.DOUBLE) &&
                 !Cardinality.allowsMany(req.getCardinality()) &&
                 !th.isSubType(supplied.getItemType(), BuiltInAtomicType.DOUBLE)) {
-            final RetainedStaticContext rsc = supplied.getRetainedStaticContext();
+            final RetainedStaticContext rsc = new RetainedStaticContext(config);
             Expression fn = SystemFunction.makeCall("number", rsc, supplied);
             try {
                 return fn.typeCheck(visitor, config.getDefaultContextItemStaticInfo());
@@ -96,12 +93,12 @@ public class TypeChecker10 extends TypeChecker {
     }
 
     @Override
-    public Expression makeArithmeticExpression(Expression lhs, int operator, Expression rhs) {
+    public Expression makeArithmeticExpression(Expression lhs, OperatorSymbol operator, Expression rhs) {
         return new ArithmeticExpression10(lhs, operator, rhs);
     }
 
     @Override
-    public Expression makeGeneralComparison(Expression lhs, int operator, Expression rhs) {
+    public Expression makeGeneralComparison(Expression lhs, OperatorSymbol operator, Expression rhs) {
         return new GeneralComparison10(lhs, operator, rhs);
     }
 

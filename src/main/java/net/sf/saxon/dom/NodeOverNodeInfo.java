@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,14 +8,15 @@
 package net.sf.saxon.dom;
 
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.sort.AtomicMatcher;
 import net.sf.saxon.expr.sort.CodepointCollator;
 import net.sf.saxon.expr.sort.GenericAtomicComparer;
-import net.sf.saxon.functions.DeepEqual;
+import net.sf.saxon.functions.SaxonDeepEqual;
 import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.Type;
 import org.w3c.dom.*;
@@ -250,7 +251,7 @@ public abstract class NodeOverNodeInfo implements Node {
 
     @Override
     public Node getParentNode() {
-        return wrap(node.getParent());
+        return wrap((NodeInfo)node.getParent());
     }
 
     /**
@@ -262,7 +263,7 @@ public abstract class NodeOverNodeInfo implements Node {
 
     @Override
     public Node getPreviousSibling() {
-        return wrap(node.iterateAxis(AxisInfo.PRECEDING_SIBLING).next());
+        return wrap((NodeInfo)node.iteratePrecedingSiblingAxis(AnyGNode.TEST).next());
     }
 
     /**
@@ -274,7 +275,7 @@ public abstract class NodeOverNodeInfo implements Node {
 
     @Override
     public Node getNextSibling() {
-        return wrap(node.iterateAxis(AxisInfo.FOLLOWING_SIBLING).next());
+        return wrap((NodeInfo)node.iterateFollowingSiblingAxis(AnyGNode.TEST).next());
     }
 
     /**
@@ -285,7 +286,7 @@ public abstract class NodeOverNodeInfo implements Node {
 
     @Override
     public Node getFirstChild() {
-        return wrap(node.iterateAxis(AxisInfo.CHILD).next());
+        return wrap((NodeInfo)node.iterateChildAxis(AnyGNode.TEST).next());
     }
 
     /**
@@ -296,10 +297,10 @@ public abstract class NodeOverNodeInfo implements Node {
 
     @Override
     public Node getLastChild() {
-        AxisIterator children = node.iterateAxis(AxisInfo.CHILD);
+        SequenceIterator children = node.iterateChildAxis(AnyGNode.TEST);
         NodeInfo last = null;
         while (true) {
-            NodeInfo next = children.next();
+            NodeInfo next = (NodeInfo)children.next();
             if (next == null) {
                 return wrap(last);
             } else {
@@ -644,9 +645,9 @@ public abstract class NodeOverNodeInfo implements Node {
         if (node.getNodeKind() == Type.DOCUMENT) {
             return null;
         } else if (node.getNodeKind() == Type.ELEMENT) {
-            AxisIterator iter = node.iterateAxis(AxisInfo.NAMESPACE);
+            SequenceIterator iter = node.iterateNamespaceAxis(AnyGNode.TEST);
             NodeInfo ns;
-            while ((ns = iter.next()) != null) {
+            while ((ns = (NodeInfo)iter.next()) != null) {
                 if (ns.getUnicodeStringValue().equals(namespaceURI)) {
                     return ns.getLocalPart();
                 }
@@ -683,9 +684,9 @@ public abstract class NodeOverNodeInfo implements Node {
         if (node.getNodeKind() == Type.DOCUMENT) {
             return null;
         } else if (node.getNodeKind() == Type.ELEMENT) {
-            AxisIterator iter = node.iterateAxis(AxisInfo.NAMESPACE);
+            SequenceIterator iter = node.iterateNamespaceAxis(AnyGNode.TEST);
             NodeInfo ns;
-            while ((ns = iter.next()) != null) {
+            while ((ns = (NodeInfo)iter.next()) != null) {
                 if (ns.getLocalPart().equals(prefix)) {
                     return ns.getStringValue();
                 }
@@ -710,16 +711,17 @@ public abstract class NodeOverNodeInfo implements Node {
         }
         try {
             XPathContext context = node.getConfiguration().getConversionContext();
-            return DeepEqual.deepEqual(
+            AtomicMatcher matcher = GenericAtomicComparer.getTransitiveAtomicMatcher(
+                    CodepointCollator.getInstance(), context.getImplicitTimezone());
+            return SaxonDeepEqual.deepEqual(
                 SingletonIterator.makeIterator(node),
                 SingletonIterator.makeIterator(((NodeOverNodeInfo) arg).node),
-                new GenericAtomicComparer(CodepointCollator.getInstance(),
-                    context),
+                matcher,
                 context,
-                DeepEqual.INCLUDE_PREFIXES |
-                    DeepEqual.INCLUDE_COMMENTS |
-                    DeepEqual.COMPARE_STRING_VALUES |
-                    DeepEqual.INCLUDE_PROCESSING_INSTRUCTIONS);
+                SaxonDeepEqual.INCLUDE_PREFIXES |
+                        SaxonDeepEqual.INCLUDE_COMMENTS |
+                        SaxonDeepEqual.COMPARE_STRING_VALUES |
+                        SaxonDeepEqual.INCLUDE_PROCESSING_INSTRUCTIONS);
         } catch (XPathException err) {
             // can't happen
             return false;

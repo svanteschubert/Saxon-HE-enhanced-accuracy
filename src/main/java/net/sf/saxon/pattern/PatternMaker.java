@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,8 @@ package net.sf.saxon.pattern;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.functions.Subsequence_2;
+import net.sf.saxon.functions.Subsequence_3;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.trans.XPathException;
 
@@ -42,12 +44,8 @@ public class PatternMaker {
 
     /*@NotNull*/
     public static Pattern fromExpression(Expression expression, Configuration config, boolean is30) throws XPathException {
-        Pattern result = expression.toPattern(config);
+        Pattern result = expression.toPattern(config, true);
         ExpressionTool.copyLocationInfo(expression, result);
-//        result.setOriginalText(expression.toString());
-//        result.setSystemId(expression.getSystemId());
-//        result.setLineNumber(expression.getLineNumber());
-        //result.setExecutable(expression.getExecutable());
         return result;
     }
 
@@ -68,6 +66,11 @@ public class PatternMaker {
             return getAxisForPathStep(((SlashExpression) step).getFirstStep());
         } else if (step instanceof ContextItemExpression) {
             return AxisInfo.SELF;
+        } else if (Literal.isEmptySequence(step)) {
+            // Can happen after a rewrite of a pattern that never matches anything
+            return AxisInfo.SELF;
+        } else if (step.isCallOn(Subsequence_2.class) || step.isCallOn(Subsequence_3.class)) {
+            return getAxisForPathStep(((SystemFunctionCall)step).getArg(0));
         } else {
             throw new XPathException("The path in a pattern must contain simple steps");
         }

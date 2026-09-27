@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -184,7 +184,6 @@ public class Predicates {
      * @return a predicate that returns true if and only if the supplied item is a node with the given
      * namespace URI and local name
      */
-
     public static Predicate<? super XdmNode> hasName(String uri, String localName) {
         NamespaceUri nsUri = NamespaceUri.of(uri);
         return item -> {
@@ -192,6 +191,21 @@ public class Predicates {
             return name != null &&
                     name.getLocalName().equals(localName) &&
                     name.getNamespaceUri().equals(nsUri);
+        };
+    }
+
+    /**
+     * Obtain a predicate that tests whether an item is a node with a given QName
+     *
+     * @param name      the required name
+     * @return a predicate that returns true if and only if the supplied item is a node with the given name
+     */
+    public static Predicate<? super XdmNode> hasName(QName name) {
+        return item -> {
+            QName nodeName = item.getNodeName();
+            return nodeName != null
+                    && nodeName.getNamespaceUri() == name.getNamespaceUri()
+                    && nodeName.getLocalName().equals(name.getLocalName());
         };
     }
 
@@ -244,9 +258,38 @@ public class Predicates {
      * @return a predicate that returns true if and only if the supplied item is an element having an attribute
      * with the given local name, in no namespace
      */
-
     public static Predicate<XdmNode> hasAttribute(String local) {
         return item -> item.attribute(local) != null;
+    }
+
+    /**
+     * Obtain a predicate that tests whether an item is an element node with a given attribute (whose
+     * name is in the specified namespace)
+     *
+     * @param uri the namespace URI
+     * @param local the required attribute name
+     * @return a predicate that returns true if and only if the supplied item is an element having an attribute
+     * with the given local name, in the given namespace
+     */
+    public static Predicate<XdmNode> hasAttribute(String uri, String local) {
+        return item -> {
+            QName name = new QName(NamespaceUri.of(uri), local);
+            return item.getAttributeValue(name) != null;
+        };
+    }
+
+    /**
+     * Obtain a predicate that tests whether an item is an element node with a given attribute (whose
+     * name is in the specified namespace)
+     *
+     * @param name the required attribute name
+     * @return a predicate that returns true if and only if the supplied item is an element having an attribute
+     * with the given name
+     */
+    public static Predicate<XdmNode> hasAttribute(QName name) {
+        return item -> {
+            return item.getAttributeValue(name) != null;
+        };
     }
 
     /**
@@ -261,6 +304,40 @@ public class Predicates {
 
     public static Predicate<XdmNode> attributeEq(String local, String value) {
         return item -> value.equals(item.attribute(local));
+    }
+
+    /**
+     * Obtain a predicate that tests whether an item is an element node with a given attribute (whose
+     * name is in the specified namespace) whose string value is equal to a given value
+     *
+     * @param uri the namespace URI
+     * @param local the required attribute name
+     * @param value the required attribute value
+     * @return a predicate that returns true if and only if the supplied item is an element having an attribute
+     * with the given local name, in the given namespace, whose string value is equal to the given value
+     */
+
+    public static Predicate<XdmNode> attributeEq(String uri, String local, String value) {
+        return item -> {
+            QName name = new QName(NamespaceUri.of(uri), local);
+            return value != null && value.equals(item.getAttributeValue(name));
+        };
+    }
+
+    /**
+     * Obtain a predicate that tests whether an item is an element node with a given attribute
+     * whose string value is equal to a given value
+     *
+     * @param name the required attribute name
+     * @param value the required attribute value
+     * @return a predicate that returns true if and only if the supplied item is an element having an attribute
+     * with the given name whose string value is equal to the given value
+     */
+
+    public static Predicate<XdmNode> attributeEq(QName name, String value) {
+        return item -> {
+            return value != null && value.equals(item.getAttributeValue(name));
+        };
     }
 
     /**
@@ -306,7 +383,7 @@ public class Predicates {
      * @return a predicate that is true if every item selected by the step matches the supplied condition
      */
 
-    public static <T extends XdmItem> Predicate<XdmItem> every(Step<T> step, Predicate<? super XdmItem> condition) {
+    public static <T extends XdmItem> Predicate<XdmItem> every(Step<T> step, Predicate<? super T> condition) {
         return item -> step.apply(item).allMatch(condition);
     }
 
@@ -317,12 +394,13 @@ public class Predicates {
      * @param value the atomic value to be compared with
      * @return a Predicate which returns true when applied to a value that is equal to the supplied
      * value under the "is-same-key" comparison rules. (These are the rules used to compare key values
-     * in an XDM map. The rules are chosen to be context-free, error-free, and transitive.)
+     * in an XDM map. The rules are chosen to be context-free, error-free, and transitive. The
+     * rules used are the XPath 4.0 rules.)
      */
 
     public static Predicate<XdmAtomicValue> eq(XdmAtomicValue value) {
-        AtomicMatchKey k2 = value.getUnderlyingValue().asMapKey();
-        return item -> item.getUnderlyingValue().asMapKey().equals(k2);
+        AtomicMatchKey k2 = value.getUnderlyingValue().asMapKey(40);
+        return item -> item.getUnderlyingValue().asMapKey(40).equals(k2);
     }
 
     /**

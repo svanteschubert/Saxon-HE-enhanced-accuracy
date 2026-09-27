@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,10 @@ package net.sf.saxon.functions;
 import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
-import net.sf.saxon.expr.sort.*;
+import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.EqualityComparer;
+import net.sf.saxon.expr.sort.GenericAtomicComparer;
+import net.sf.saxon.expr.sort.SimpleCollation;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.lib.SubstringMatcher;
@@ -112,10 +115,11 @@ public abstract class CollatingFunctionFixed extends SystemFunction implements S
             atomicComparer = EqualityComparer.getInstance();
             return;
         }
+        int specVersion = env.getXPathVersion();
 
         atomicComparer = GenericAtomicComparer.makeAtomicComparer(
                 (BuiltInAtomicType) type0.getBuiltInBaseType(), (BuiltInAtomicType) type1.getBuiltInBaseType(),
-                stringCollator, env.makeEarlyEvaluationContext());
+                stringCollator, specVersion, env.makeEarlyEvaluationContext());
 
     }
 
@@ -142,7 +146,8 @@ public abstract class CollatingFunctionFixed extends SystemFunction implements S
         if (atomicComparer != null) {
             return atomicComparer.provideContext(context);
         } else {
-            return new GenericAtomicComparer(getStringCollator(), context);
+            int specVersion = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+            return new GenericAtomicComparer(getStringCollator(), specVersion, context);
         }
     }
 

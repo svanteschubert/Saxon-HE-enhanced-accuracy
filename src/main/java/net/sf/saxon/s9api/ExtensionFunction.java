@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -41,7 +41,7 @@ public interface ExtensionFunction {
     /**
      * Declare the types of the arguments
      *
-     * @return an array of SequenceType objects, one for each argument to the function,
+     * @return an array of {@link SequenceType} objects, one for each argument to the function,
      *         representing the expected types of the arguments
      */
 
@@ -52,7 +52,8 @@ public interface ExtensionFunction {
      *
      * @param arguments the arguments, as supplied in the XPath function call. These will always be of
      *                  the declared types. Arguments are converted to the required types according to the standard XPath
-     *                  function conversion rules - for example, if the expected type is atomic and a node is supplied in the
+     *                  function conversion rules (renamed <i>coercion rules</i> in 4.0) - for example,
+     *                  if the expected type is atomic and a node is supplied in the
      *                  call, the node will be atomized
      * @return the result of the function. This must be an instance of the declared return type; if it is not,
      *         a dynamic error will be reported

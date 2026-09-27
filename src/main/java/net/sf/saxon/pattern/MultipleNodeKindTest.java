@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2023 Saxonica Limited
+// Copyright (c) 2013-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,18 @@
 
 package net.sf.saxon.pattern;
 
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.NodeName;
-import net.sf.saxon.tree.tiny.NodeVectorTree;
-
+import net.sf.saxon.Configuration;
+import net.sf.saxon.om.GNode;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.pattern.qname.AnyQNameTest;
+import net.sf.saxon.pattern.qname.QNameTest;
+import net.sf.saxon.transpile.CSharpInjectMembers;
+import net.sf.saxon.transpile.CSharpUsing;
 import net.sf.saxon.type.*;
-import net.sf.saxon.z.IntPredicateLambda;
-import net.sf.saxon.z.IntPredicateProxy;
 
 import java.util.LinkedList;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -23,9 +26,14 @@ import java.util.function.Function;
  * node kinds, for example element and document nodes, or attribute and namespace nodes
  */
 
-public final class MultipleNodeKindTest extends NodeTest {
+@CSharpUsing(code="Saxon.Hej.type")
+@CSharpInjectMembers
+public final class MultipleNodeKindTest implements NodeTest {
 
     public final static MultipleNodeKindTest PARENT_NODE =
+            new MultipleNodeKindTest(UType.DOCUMENT.union(UType.ELEMENT).union(UType.JNODE));
+
+    public final static MultipleNodeKindTest PARENT_XNODE =
             new MultipleNodeKindTest(UType.DOCUMENT.union(UType.ELEMENT));
 
     public final static MultipleNodeKindTest DOC_ELEM_ATTR =
@@ -63,6 +71,24 @@ public final class MultipleNodeKindTest extends NodeTest {
         if (UType.NAMESPACE.overlaps(u)) {
             nodeKindMask |= 1 << Type.NAMESPACE;
         }
+        if (UType.JNODE.overlaps(u)) {
+            nodeKindMask |= 1 << Type.JNODE;
+        }
+    }
+
+    /**
+     * Get an item type that all matching nodes must satisfy
+     *
+     * @return an item type
+     */
+    @Override
+    public ItemType getItemType() {
+        return ChoiceItemType.of(uType);
+    }
+
+    @Override
+    public NodeTest asXNodeTest(Configuration config) {
+        return this;
     }
 
     /**
@@ -76,36 +102,33 @@ public final class MultipleNodeKindTest extends NodeTest {
         return uType;
     }
 
-    /**
-     * Test whether this node test is satisfied by a given node. This method is only
-     * fully supported for a subset of NodeTests, because it doesn't provide all the information
-     * needed to evaluate all node tests. In particular (a) it can't be used to evaluate a node
-     * test of the form element(N,T) or schema-element(E) where it is necessary to know whether the
-     * node is nilled, and (b) it can't be used to evaluate a node test of the form
-     * document-node(element(X)). This in practice means that it is used (a) to evaluate the
-     * simple node tests found in the XPath 1.0 subset used in XML Schema, and (b) to evaluate
-     * node tests where the node kind is known to be an attribute.
-     *
-     * @param nodeKind   The kind of node to be matched
-     * @param name       identifies the expanded name of the node to be matched.
-     *                   The value should be null for a node with no name.
-     * @param annotation The actual content type of the node
-     */
     @Override
-    public boolean matches(int nodeKind, NodeName name, SchemaType annotation) {
-        return (nodeKindMask & (1<<nodeKind)) != 0;
+    public QNameTest getQNameTest() {
+        return AnyQNameTest.getInstance();
     }
 
+    /**
+     * Determine whether the content type (if present) is nillable
+     *
+     * @return true if the content test (when present) can match nodes that are nilled
+     */
     @Override
-    public IntPredicateProxy getMatcher(final NodeVectorTree tree) {
-        final byte[] nodeKindArray = tree.getNodeKindArray();
-        return IntPredicateLambda.of(nodeNr -> {
-            int nodeKind = nodeKindArray[nodeNr] & 0x0f;
-            if (nodeKind == Type.WHITESPACE_TEXT) {
-                nodeKind = Type.TEXT;
-            }
-            return (nodeKindMask & (1 << nodeKind)) != 0;
-        });
+    public boolean isNillable() {
+        return false;
+    }
+
+    /**
+     * Get extra diagnostic information about why a supplied item does not conform to this
+     * item type, if available. If extra information is returned, it should be in the form of a complete
+     * sentence, minus the closing full stop. No information should be returned for obvious cases.
+     *
+     * @param item the item that doesn't match this type
+     * @param th   the type hierarchy cache
+     * @return optionally, a message explaining why the item does not match the type
+     */
+    @Override
+    public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
+        return Optional.empty();
     }
 
     /**
@@ -117,7 +140,7 @@ public final class MultipleNodeKindTest extends NodeTest {
      */
 
     @Override
-    public boolean test(NodeInfo node) {
+    public boolean test(GNode node) {
         int nodeKind = node.getNodeKind();
         return (nodeKindMask & (1<<nodeKind)) != 0;
     }
@@ -148,27 +171,21 @@ public final class MultipleNodeKindTest extends NodeTest {
         }
         StringBuilder fsb = new StringBuilder(64);
         LinkedList<PrimitiveUType> types = new LinkedList<>(uType.decompose());
-        format(types, fsb, it -> ((NodeKindTest)it).toShortString());
+        format(types, fsb, Object::toString);
         return fsb.toString();
     }
 
-    @Override
-    public String toExportString() {
-        StringBuilder fsb = new StringBuilder(64);
-        LinkedList<PrimitiveUType> types = new LinkedList<>(uType.decompose());
-        format(types, fsb, ItemType::toExportString);
-        return fsb.toString();
-    }
+
 
     private void format(LinkedList<PrimitiveUType> list, StringBuilder fsb, Function<ItemType, String> show) {
         if (list.size() == 1) {
-            fsb.append(show.apply(list.getFirst().toItemType()));
+            fsb.append(show.apply(UType.toItemType(list.getFirst())));
         } else {
             boolean first = true;
             for (PrimitiveUType pu : list) {
                 fsb.append(first ? '(' : '|');
                 first = false;
-                fsb.append(show.apply(pu.toItemType()));
+                fsb.append(show.apply(UType.toItemType(pu)));
             }
             fsb.append(')');
         }

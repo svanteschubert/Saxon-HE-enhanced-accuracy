@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -31,8 +31,8 @@ public class ImmutableArrayItem extends AbstractArrayItem {
      * @param other the supplied <code>SimpleArrayItem</code>
      */
 
-    public ImmutableArrayItem(SimpleArrayItem other) {
-        this.vector = new ZenoChain<GroundedValue>().addAll(other.getMembers());
+    public ImmutableArrayItem(ArrayItem other) {
+        this.vector = new ZenoChain<GroundedValue>().addAll(other.members());
     }
 
     /**
@@ -64,7 +64,7 @@ public class ImmutableArrayItem extends AbstractArrayItem {
         }
         return new ImmutableArrayItem(content);
     }
-
+    
     /**
      * Get a member of the array
      *
@@ -178,7 +178,7 @@ public class ImmutableArrayItem extends AbstractArrayItem {
         if (other instanceof ImmutableArrayItem) {
             otherChain = ((ImmutableArrayItem) other).vector;
         } else {
-            otherChain = new ImmutableArrayItem((SimpleArrayItem) other).vector;
+            otherChain = new ImmutableArrayItem(other).vector;
         }
         ZenoChain<GroundedValue> v2 = vector.addAll(otherChain);
         return new ImmutableArrayItem(v2);
@@ -219,6 +219,6 @@ public class ImmutableArrayItem extends AbstractArrayItem {
         }
         return v2 == vector ? this : new ImmutableArrayItem(v2);
     }
-
+    
 }
 

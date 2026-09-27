@@ -80,7 +80,7 @@ public class WherePopulatedOutputter extends ProxyOutputter {
             pendingSchemaType = type;
             pendingLocationId = location.saveLocation();
             pendingProperties = properties;
-            pendingAttributes = EmptyAttributeMap.getInstance();
+            pendingAttributes = EmptyAttributeMap.INSTANCE;
             pendingNamespaces = NamespaceMap.emptyMap();
 
         } else {
@@ -170,9 +170,11 @@ public class WherePopulatedOutputter extends ProxyOutputter {
             if (pendingElemName == null) {
                 getNextOutputter().startDocument(pendingProperties);
             } else {
-                getNextOutputter().startElement(pendingElemName, pendingSchemaType,
-                                                pendingAttributes, pendingNamespaces,
-                                                pendingLocationId, pendingProperties);
+                // Bug #6577 (ensure namespace fixup happens)
+                spreadStartElement(pendingElemName, pendingSchemaType,
+                                   pendingAttributes, pendingNamespaces,
+                                   pendingLocationId, pendingProperties,
+                                   getNextOutputter());
             }
             pendingStartTag = false;
         }

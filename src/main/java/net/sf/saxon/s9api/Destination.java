@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,31 +24,31 @@ import java.util.function.Consumer;
  * a tree rooted at a single XDM document node, as defined in the W3C serialization specification
  * (even if the destination is not actually a serializer). A <b>raw destination</b> omits this step.
  * Examples of tree destinations are those designed to accept XML: {@link DOMDestination},
- * {@link SAXDestination}, {@link XdmDestination}, {@link SchemaValidator}.
+ * {@link SAXDestination}, {@link XdmDestination}, {@link SchemaValidator}.</p>
  * <p>
  * The {@link Serializer} acts as a tree destination when the output methods XML, HTML, XHTML, or TEXT
- * are used, but as a raw destination when the output method is JSON or ADAPTIVE.
+ * are used, but as a raw destination when the output method is JSON or ADAPTIVE.</p>
  * <p>
  * The interface {@code Destination} has some similarities with the JAXP
  * {@link javax.xml.transform.Result} class. It differs, however, in that implementations
  * of this interface can be written by users or third parties to define new kinds of
  * destination, and any such implementation can be supplied to the Saxon methods that
- * take a {@code Destination} as an argument.
+ * take a {@code Destination} as an argument. </p>
  * <p>
  * Implementing a new {@code Destination} will generally require access
  * to implementation-level classes and methods within the Saxon product. The only method that
  * needs to be supplied is {@link #getReceiver}, which returns an instance of
  * {@link Outputter}, and unless you use an existing implementation of
  * {@code Receiver}, you will need to handle internal Saxon concepts such as name codes
- * and name pools.
+ * and name pools.</p>
  * <p>
- * In general a Destination is not thread-safe (cannot be used from more than one thread),
- * and is not serially reusable. So a Destination should only be used once. A Destination
- * supplied to Saxon may be modified by Saxon.
+ * In general a {@code Destination} is not thread-safe (cannot be used from more than one thread),
+ * and is not serially reusable. So a {@code Destination} should only be used once. A {@code Destination}
+ * supplied to Saxon may be modified by Saxon.</p>
  * <p>
  * The {@link #close} method is called by the system when
- * it finishes writing the document, and this should cause all resources held by the Destination
- * to be released.
+ * it finishes writing the document, and this should cause all resources held by the {@code Destination}
+ * to be released.</p>
  */
 public interface Destination {
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -27,7 +27,7 @@ import java.util.Stack;
  * <p>A sequence of {@code Receiver} events is <b>regular</b> if the following conditions
  * are satisfied:</p>
  * <ol>
- *     <li>Calls to {@link Outputter#startElement(NodeName, SchemaType, Location, int)}, {@link #endElement()},
+ *     <li>Calls to {@link Outputter#startElement(NodeName, SchemaType, Location, int)}, {@link Receiver#endElement()},
  *     {@link Outputter#startDocument(int)}, and {@link #endDocument()} are properly paired and nested.</li>
  *     <li>Events must only occur in a state where they are permitted; the states and transitions
  *     between states are defined by the table below. The initial state is <b>initial</b>,
@@ -49,7 +49,7 @@ import java.util.Stack;
  *         <tr><td>content</td><td>{@link Receiver#characters(UnicodeString, Location, int)}, {@link Receiver#comment(UnicodeString, Location, int)},
  *         {@link Receiver#processingInstruction(String, UnicodeString, Location, int)}</td><td>content</td></tr>
  *         <tr><td>content</td><td>{@link Outputter#startElement(NodeName, SchemaType, Location, int)}</td><td>startTag</td></tr>
- *         <tr><td>content</td><td>{@link #endDocument()}, {@link #endElement()}</td><td>if the stack is empty, then content, otherwise open</td></tr>
+ *         <tr><td>content</td><td>{@link #endDocument()}, {@link Receiver#endElement()}</td><td>if the stack is empty, then content, otherwise open</td></tr>
  *         <tr><td>(any)</td><td>close</td><td>final</td></tr>
  *         <tr><td>final</td><td>close</td><td>final</td></tr>
  *     </tbody>
@@ -126,7 +126,7 @@ public class RegularSequenceChecker extends ProxyReceiver {
             state = map.get(event);
         } else {
             throw new IllegalStateException("Event " + event + " is not permitted in state " + state);
-        }
+        } 
     }
 
 

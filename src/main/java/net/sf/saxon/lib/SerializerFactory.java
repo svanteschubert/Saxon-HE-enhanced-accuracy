@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,6 +21,7 @@ import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BigDecimalValue;
 import net.sf.saxon.value.StringValue;
@@ -217,9 +218,9 @@ public class SerializerFactory {
 
             Source source = rr.resolve(config.getResourceResolver(), new DirectResourceResolver(config));
 
-            ParseOptions options = new ParseOptions()
-                    .withSchemaValidationMode(Validation.LAX)
-                    .withDTDValidationMode(Validation.SKIP);
+//            ParseOptions options = new ParseOptions()
+//                    .withSchemaValidationMode(Validation.LAX)
+//                    .withDTDValidationMode(Validation.SKIP);
             TreeInfo doc = config.buildDocumentTree(source);
             SerializationParamsHandler ph = new SerializationParamsHandler();
             ph.setSerializationParams(doc.getRootNode());
@@ -318,9 +319,17 @@ public class SerializerFactory {
                         je.setMustClose(expandedResult.isMustCloseAfterUse());
                     }
                     JSONSerializer js = new JSONSerializer(pipe, je, props);
-                    String sortOrder = props.getProperty(SaxonOutputKeys.PROPERTY_ORDER);
-                    if (sortOrder != null) {
-                        js.setPropertySorter(getPropertySorter(sortOrder));
+                    String canonical = props.getProperty(SaxonOutputKeys.CANONICAL);
+                    if ("yes".equals(canonical)) {
+                        if (!canonicalJsonIsSupported()) {
+                            throw new XPathException("Canonical JSON Serialization is not supported in SaxonCS");
+                        }
+                        js.setCanonicalPropertySorter();
+                    } else {
+                        String sortOrder = props.getProperty(SaxonOutputKeys.PROPERTY_ORDER);
+                        if (sortOrder != null) {
+                            js.setPropertySorter(getPropertySorter(sortOrder));
+                        }
                     }
                     CharacterMapExpander characterMapExpander = makeCharacterMapExpander(pipe, props, charMapIndex);
                     ProxyReceiver normalizer = makeUnicodeNormalizer(pipe, props);
@@ -383,6 +392,13 @@ public class SerializerFactory {
             return getReceiverForNonSerializedResult(result, props, pipe);
 
         }
+    }
+
+    @CSharpReplaceBody(code="return false;")
+    public static boolean canonicalJsonIsSupported() {
+        // For the time being, canonical JSON output is not supported on SaxonCS, because the transpiled version
+        // of the code for serializing xs:double values produces results that are way out of line.
+        return true;
     }
 
     private ProxyReceiver makeUnicodeNormalizer(PipelineConfiguration pipe, Properties props) throws XPathException {
@@ -780,7 +796,7 @@ public class SerializerFactory {
         }
         return out;
     }
-
+    
     /**
      * Create an UncommittedSerializer. This method exists so that it can be overridden in a subclass.
      *
@@ -1103,6 +1119,7 @@ public class SerializerFactory {
                 case SaxonOutputKeys.ALLOW_DUPLICATE_NAMES:
                 case SaxonOutputKeys.ESCAPE_URI_ATTRIBUTES:
                 case SaxonOutputKeys.INCLUDE_CONTENT_TYPE:
+                case SaxonOutputKeys.JSON_LINES:
                 case OutputKeys.INDENT:
                 case OutputKeys.OMIT_XML_DECLARATION:
 
@@ -1117,6 +1134,11 @@ public class SerializerFactory {
                     }
                     break;
                 case SaxonOutputKeys.BYTE_ORDER_MARK:
+                    if (value != null) {
+                        value = checkYesOrNo(key, value);
+                    }
+                    break;
+                case SaxonOutputKeys.CANONICAL:
                     if (value != null) {
                         value = checkYesOrNo(key, value);
                     }
@@ -1174,7 +1196,11 @@ public class SerializerFactory {
                     break;
                 case OutputKeys.STANDALONE:
                     if (value != null && !value.equals("omit")) {
-                        value = checkYesOrNo(key, value);
+                        try {
+                            value = checkYesOrNo(key, value);
+                        } catch (XPathException e) {
+                            throw new XPathException("Serialization parameter {standalone} must have the value yes|no, true|false, 1|0, or 'omit'", "SEPM0016");
+                        }
                     }
                     break;
                 case OutputKeys.VERSION:
@@ -1186,7 +1212,7 @@ public class SerializerFactory {
         } else if (key.startsWith("{http://saxon.sf.net/}")) {
             // Some Saxon serialization parameters are recognized in HE if they are used for internal purposes
             switch (key) {
-                case SaxonOutputKeys.STYLESHEET_VERSION:
+                case SaxonOutputKeys.SPEC_VERSION:
                     // return
                     break;
                 case SaxonOutputKeys.PARAMETER_DOCUMENT_BASE_URI:

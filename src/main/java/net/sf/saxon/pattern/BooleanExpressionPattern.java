@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.pattern;
 
+//import com.saxonica.ee.stream.Streamability;
+//import com.saxonica.ee.stream.Sweep;
+//import com.saxonica.ee.trans.ContextItemStaticInfoEE;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.elab.BooleanEvaluator;
 import net.sf.saxon.expr.instruct.SlotManager;
@@ -41,12 +44,16 @@ public class BooleanExpressionPattern extends Pattern implements PatternWithPred
 
     public BooleanExpressionPattern(Expression expression) {
         this.expressionOp = new Operand(this, expression, OperandRole.SINGLE_ATOMIC);
-        setPriority(1);
+        setPriority(1);   // see QT4 issue 2499
     }
 
     @Override
     public Expression getPredicate() {
         return expressionOp.getChildExpression();
+    }
+
+    public double getDefaultPriority() {
+        return super.getDefaultPriority();
     }
 
     /**
@@ -151,7 +158,7 @@ public class BooleanExpressionPattern extends Pattern implements PatternWithPred
                 return ioe.getRequiredItemType();
             }
         }
-        return AnyItemType.getInstance();
+        return AnyItemType.INSTANCE;
     }
 
     /**
@@ -162,7 +169,7 @@ public class BooleanExpressionPattern extends Pattern implements PatternWithPred
      */
 
     @Override
-    public int getFingerprint() {
+    public int getFingerprint(int nodeKind) {
         return -1;
     }
 
@@ -221,6 +228,6 @@ public class BooleanExpressionPattern extends Pattern implements PatternWithPred
         //}
         presenter.endElement();
     }
-
+    
 }
 

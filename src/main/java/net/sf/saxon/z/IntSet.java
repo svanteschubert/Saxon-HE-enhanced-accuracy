@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -98,6 +98,34 @@ public abstract class IntSet {
     abstract public IntIterator iterator();
 
     /**
+     * Test if this set equals another set
+     *
+     * @param other the other set
+     * @return true if the two sets contain the same integers
+     */
+
+    public boolean equals(IntSet other) {
+        if (this.size() != other.size()) {
+            return false;
+        }
+        return containsAll(other);
+    }
+
+    /**
+     * Compute a hash code
+     */
+
+    public int hashCode() {
+        int h = 0x55773322;
+        IntIterator it = iterator();
+        while (it.hasNext()) {
+            h ^= it.next();
+        }
+        return h;
+    }
+
+
+    /**
      * Test if this set is a superset of another set
      *
      * @param other the other set
@@ -169,6 +197,27 @@ public abstract class IntSet {
             }
         }
         return n;
+    }
+
+    /**
+     * Determine whether this set has a non-empty intersection with another set.
+     *
+     * @param other the second set
+     * @return true if the intersection is non-empty
+     */
+
+    public boolean intersects(IntSet other) {
+        if (this.isEmpty() || other.isEmpty()) {
+            return false;
+        }
+        IntIterator it = iterator();
+        while (it.hasNext()) {
+            int v = it.next();
+            if (other.contains(v)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

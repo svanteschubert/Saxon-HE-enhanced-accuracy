@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,10 +8,10 @@
 package net.sf.saxon.ma.map;
 
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.expr.sort.AtomicMatcher;
 import net.sf.saxon.functions.Count;
-import net.sf.saxon.functions.DeepEqual40;
+import net.sf.saxon.functions.DeepEqual;
 import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.NodeInfo;
@@ -126,18 +126,7 @@ public class RangeKey extends MapItem {
      */
     @Override
     public MapItem remove(AtomicValue key) {
-        return HashTrieMap.copy(this).remove(key);
-    }
-
-    /**
-     * Get the lowest common item type of the keys in the map
-     *
-     * @return the most specific type to which all the keys belong. If the map is
-     *         empty, return ErrorType.getInstance() (the type with no instances)
-     */
-    @Override
-    public UType getKeyUType() {
-        return UType.STRING;
+        return ExtensibleMap.copyOf(this).remove(key);
     }
 
     /**
@@ -150,8 +139,8 @@ public class RangeKey extends MapItem {
      * @return the new map containing the additional entry
      */
     @Override
-    public MapItem addEntry(AtomicValue key, GroundedValue value) {
-        return HashTrieMap.copy(this).addEntry(key, value);
+    public MapItem put(AtomicValue key, GroundedValue value) {
+        return ExtensibleMap.copyOf(this).put(key, value);
     }
 
     /**
@@ -159,16 +148,15 @@ public class RangeKey extends MapItem {
      *
      * @param keyType   the required keyType
      * @param valueType the required valueType
-     * @param th        the type hierarchy cache for the configuration
      * @return true if the map conforms to the required type
      */
     @Override
-    public boolean conforms(PlainType keyType, SequenceType valueType, TypeHierarchy th) {
+    public boolean conforms(PlainType keyType, SequenceType valueType) {
         AtomicIterator keyIter = keys();
         AtomicValue key;
         while ((key = keyIter.next()) != null) {
             GroundedValue value = get(key);
-            if (!valueType.matches(value, th)) {
+            if (!valueType.matches(value)) {
                 return false;
             }
         }
@@ -220,9 +208,8 @@ public class RangeKey extends MapItem {
      * @return true if the two function items are deep-equal
      */
     @Override
-    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags)  {
-        if (other instanceof RangeKey) {
-            RangeKey rk = (RangeKey) other;
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicMatcher comparer, int flags)  {
+        if (other instanceof RangeKey rk) {
             return min.equals(rk.min) && max.equals(rk.max) && index.equals(rk.index);
         } else {
             return false;
@@ -230,9 +217,8 @@ public class RangeKey extends MapItem {
     }
 
     @Override
-    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) {
-        if (other instanceof RangeKey) {
-            RangeKey rk = (RangeKey) other;
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual.DeepEqualOptions options) {
+        if (other instanceof RangeKey rk) {
             return min.equals(rk.min) && max.equals(rk.max) && index.equals(rk.index);
         } else {
             return false;
@@ -313,4 +299,4 @@ public class RangeKey extends MapItem {
     }
 }
 
-// Copyright (c) 2012-2021 Saxonica Limited
+// Copyright (c) 2012-2026 Saxonica Limited

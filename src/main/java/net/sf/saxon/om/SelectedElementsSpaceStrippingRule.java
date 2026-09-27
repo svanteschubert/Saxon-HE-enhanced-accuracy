@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,15 +11,21 @@ package net.sf.saxon.om;
 import net.sf.saxon.event.ProxyReceiver;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.Stripper;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.ItemTypePattern;
+import net.sf.saxon.pattern.Pattern;
+import net.sf.saxon.pattern.qname.AnyQNameTest;
+import net.sf.saxon.pattern.qname.QNameTest;
+import net.sf.saxon.pattern.qname.SpecificQNameTest;
 import net.sf.saxon.style.StylesheetModule;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.rules.Rule;
-
 import net.sf.saxon.type.AlphaCode;
+import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -85,7 +91,7 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
      * @throws XPathException if this rule is a conflicting duplicate
      */
 
-    public void addRule(NodeTest test, Stripper.StripRuleTarget action,
+    public void addRule(QNameTest test, Stripper.StripRuleTarget action,
                         StylesheetModule module, int lineNumber) throws XPathException {
 
         // for fast lookup, we maintain one list for each element name for patterns that can only
@@ -96,24 +102,27 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
         int precedence = module.getPrecedence();
         int minImportPrecedence = module.getMinImportPrecedence();
 
-        NodeTestPattern pattern = new NodeTestPattern(test);
+        // We wrap the QNameTest in a pattern, purely so that we can reuse the Rule object
+        ItemType type = new NamedXNodeType(Type.ELEMENT, test, module.getConfiguration());
+        ItemTypePattern pattern = new ItemTypePattern(type);
         addRule(pattern, action, precedence, minImportPrecedence);
     }
 
-    public void addRule(NodeTestPattern pattern, Stripper.StripRuleTarget action, int precedence, int minImportPrecedence)
+    public void addRule(Pattern pattern, Stripper.StripRuleTarget action, int precedence, int minImportPrecedence)
             throws XPathException {
-        NodeTest test = pattern.getNodeTest();
-        double priority = test.getDefaultPriority();
+        double priority = pattern.getDefaultPriority();
         Rule newRule = new Rule(pattern, action, precedence, minImportPrecedence, priority, sequence++, 0);
         int prio = priority == 0 ? 2 : priority == -0.25 ? 1 : 0;
         newRule.setRank((precedence << 18) + (prio << 16) + sequence);
-        if (test instanceof NodeKindTest) {
+        ItemType type = pattern.getItemType();
+        QNameTest test = type == NodeKindType.ELEMENT ? AnyQNameTest.getInstance() : ((NamedXNodeType)type).getAllowedNodeNames();
+        if (test instanceof AnyQNameTest) {
             newRule.setAlwaysMatches(true);
             anyElementRule = addRuleToList(newRule, anyElementRule, true);
-        } else if (test instanceof NameTest) {
+        } else if (test instanceof SpecificQNameTest) {
             newRule.setAlwaysMatches(true);
-            int fp = test.getFingerprint();
-            NamePool pool = ((NameTest) test).getNamePool();
+            int fp = ((SpecificQNameTest)test).getFingerprint();
+            NamePool pool = ((SpecificQNameTest) test).getNamePool();
             FingerprintedQName key = new FingerprintedQName(pool.getUnprefixedQName(fp), pool);
             Rule chain = namedElementRules.get(key);
             namedElementRules.put(key, addRuleToList(newRule, chain, true));
@@ -214,30 +223,28 @@ public class SelectedElementsSpaceStrippingRule implements SpaceStrippingRule {
                     // if we already have a match, and the precedence or priority of this
                     // rule is lower, quit the search
                     break;
-                } else if (rank == 0) {
-                    // this rule has the same precedence and priority as the matching rule already found
-                    if (head.isAlwaysMatches() ||
-                            ((NodeTest) head.getPattern().getItemType()).matches(Type.ELEMENT, nodeName, null)) {
-                        // reportAmbiguity(bestRule, head);
-                        // We no longer report the recoverable error XTRE0270, we always
-                        // take the recovery action.
-                        // choose whichever one comes last (assuming the error wasn't fatal)
-                        bestRule = head;
-                        break;
-                    } else {
-                        // keep searching other rules of the same precedence and priority
-                    }
                 } else {
-                    // this rule has higher rank than the matching rule already found
-                    if (head.isAlwaysMatches() ||
-                            ((NodeTest) head.getPattern().getItemType()).matches(Type.ELEMENT, nodeName, null)) {
+                    NamedXNodeType itemType = (NamedXNodeType) head.getPattern().getItemType();
+                    QNameTest test = itemType.getAllowedNodeNames();
+                    boolean matching = head.isAlwaysMatches() || test.matches(nodeName.getStructuredQName());
+                    if (matching) {
                         bestRule = head;
+                    }
+                    if (rank == 0) {
+                        // this rule has the same precedence and priority as the matching rule already found
+                        break;
                     }
                 }
-            } else if (head.isAlwaysMatches() ||
-                    ((NodeTest) head.getPattern().getItemType()).matches(Type.ELEMENT, nodeName, null)) {
+            } else if (head.isAlwaysMatches()) {
                 bestRule = head;
                 break;
+            } else {
+                NamedXNodeType itemType = (NamedXNodeType) head.getPattern().getItemType();
+                QNameTest test = itemType.getAllowedNodeNames();
+                if (test.matches(nodeName.getStructuredQName())) {
+                    bestRule = head;
+                    break;
+                }
             }
             head = head.getNext();
         }

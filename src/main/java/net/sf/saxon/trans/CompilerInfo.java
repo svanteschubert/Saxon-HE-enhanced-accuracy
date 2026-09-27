@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.instruct.GlobalParameterSet;
 import net.sf.saxon.expr.parser.CodeInjector;
 import net.sf.saxon.expr.parser.OptimizerOptions;
+import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.NamespaceUri;
@@ -18,9 +19,13 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.QueryLibrary;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
 import net.sf.saxon.trans.packages.PackageLibrary;
+import net.sf.saxon.type.Schema;
 
 import javax.xml.transform.ErrorListener;
 import javax.xml.transform.URIResolver;
+import javax.xml.transform.stream.StreamSource;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * This class exists to hold information associated with a specific XSLT compilation episode.
@@ -50,12 +55,16 @@ public class CompilerInfo {
     private boolean assertionsEnabled = false;
     private String targetEdition = "HE";
     private boolean relocatable = false;
+    private boolean compileForExport = false;
     private Iterable<QueryLibrary> queryLibraries;
     private OptimizerOptions optimizerOptions;
     private NamespaceUri defaultNamespaceForElementsAndTypes = NamespaceUri.NULL;
     private UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy
             = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
     private int languageVersion = 30;
+    private Map<String, Schema> preLoadedSchemata = new HashMap<>();
+
+    private FunctionLibrary stubFunctionLibrary = null;
 
     private OutputURIResolver outputURIResolver = StandardOutputResolver.getInstance();
 
@@ -109,6 +118,10 @@ public class CompilerInfo {
         defaultNamespaceForElementsAndTypes = info.defaultNamespaceForElementsAndTypes;
         unprefixedElementMatchingPolicy = info.unprefixedElementMatchingPolicy;
         languageVersion = info.languageVersion;
+        preLoadedSchemata = new HashMap<>(info.preLoadedSchemata);
+        stubFunctionLibrary = info.stubFunctionLibrary;
+        compileForExport = info.compileForExport;
+
 
         outputURIResolver = info.outputURIResolver;
     }
@@ -146,6 +159,7 @@ public class CompilerInfo {
     public boolean isJustInTimeCompilation() {
         return optimizerOptions.isSet(OptimizerOptions.JIT);
     }
+
 
     /**
      * Set the URI Resolver to be used in this compilation episode.
@@ -310,7 +324,7 @@ public class CompilerInfo {
 
     /**
      * Set the optimizer options to be used for compiling queries that use this static context.
-     * By default the optimizer options set in the {@link Configuration} are used.
+     * By default, the optimizer options set in the {@link Configuration} are used.
      *
      * @param options the optimizer options to be used
      */
@@ -332,7 +346,6 @@ public class CompilerInfo {
 
 
 
-
     /**
      * Get the URI Resolver being used in this compilation episode.
      *
@@ -343,7 +356,7 @@ public class CompilerInfo {
 
     public URIResolver getURIResolver() {
         if (resourceResolver instanceof ResourceResolverWrappingURIResolver) {
-            return ((ResourceResolverWrappingURIResolver)resourceResolver).getWrappedURIResolver();
+            return ((ResourceResolverWrappingURIResolver) resourceResolver).getWrappedURIResolver();
         } else {
             return null;
         }
@@ -351,6 +364,7 @@ public class CompilerInfo {
 
     /**
      * Get the ResourceResolver being used
+     *
      * @return the current ResourceResolver. Defaults to null.
      */
 
@@ -383,6 +397,7 @@ public class CompilerInfo {
     public void setOutputURIResolver(OutputURIResolver outputURIResolver) {
         this.outputURIResolver = outputURIResolver;
     }
+
 
     /**
      * Set the ErrorListener to be used during this compilation episode
@@ -417,6 +432,7 @@ public class CompilerInfo {
     /**
      * Set an error reporter: that is, a used-supplied object that is to receive
      * notification of static errors found in the stylesheet
+     *
      * @param reporter the object to be notified of static errors
      */
 
@@ -632,5 +648,69 @@ public class CompilerInfo {
         return queryLibraries;
     }
 
+    public void preLoadSchema(String role, Schema schema) {
+        preLoadedSchemata.put(role, schema);
+    }
+
+    public Schema getPreLoadedSchema(String role) {
+        return preLoadedSchemata.get(role);
+    }
+
+    public Map<String, Schema> getPreLoadedSchemata() {
+        return preLoadedSchemata;
+    }
+
+
+    /**
+     * Import a set of stub functions (names and signatures) from a JSON file.
+     * These functions will be added to the static context of the stylesheet, but any attempt to
+     * call the functions will fail with a dynamic error. The main purpose is to allow SaxonJS
+     * stylesheets to be compiled that at run-time will invoke external Javascript functions
+     * available on the target platform; this option will therefore normally be used when
+     * compiling with -nogo. If compiling from the Transform command line, the stub
+     * library can be specified using the option <code>-stublib:filename</code>.
+     *
+     * @param jsonSignatures The file containing JSON signatures. The format is
+     *                       described at {@link com.saxonica.ee.extfn.js.StubFunctionLibrary}.
+     * @throws XPathException if the JSON file is invalid
+     */
+    public void importStubFunctionLibrary(StreamSource jsonSignatures) throws XPathException {
+        stubFunctionLibrary = config.loadStubFunctionLibrary(jsonSignatures);
+    }
+
+    /**
+     * Get any function library that has been imported using {@link #importStubFunctionLibrary(StreamSource)}
+     *
+     * @return the imported stub function library, or null if none has been imported.
+     */
+
+    public FunctionLibrary getStubFunctionLibrary() {
+        return stubFunctionLibrary;
+    }
+
+    /**
+     * Say whether any stylesheet being compiled by this compiler should be compiled with export in mind;
+     * that is, whether a SEF file is to be created from the compiled package. It can be useful to set
+     * this flag to inhibit compile-time optimisations that are unhelpful when creating a SEF file. Notably,
+     * pre-evaluating functions like fn:invisible-xml may create function items that cannot be exported
+     * to a SEF file, and this flag inhibits such pre-evaluation.
+     *
+     * @param exportable true if stylesheets are to be compiled with export (to a SEF file) in mind.
+     */
+
+    public void setCompileForExport(boolean exportable) {
+        compileForExport = exportable;
+    }
+
+    /**
+     * Ask whether any stylesheet being compiled by this compiler will be compiled with export in mind;
+     * that is, whether {@link #setCompileForExport(boolean)} has been called.
+     *
+     * @return true if {@link #setCompileForExport(boolean)} has been called
+     */
+
+    public boolean isCompileForExport() {
+        return compileForExport;
+    }
 }
 

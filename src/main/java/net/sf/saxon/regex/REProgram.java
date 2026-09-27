@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -36,7 +36,8 @@ import net.sf.saxon.z.IntPredicateProxy;
 import java.util.List;
 
 /**
- * A class that holds compiled regular expressions.
+ * A class that holds compiled regular expressions. These are created using the
+ * {@link RECompiler}, and evaluated using the {@link REMatcher}.
  */
 
 public class REProgram {
@@ -47,19 +48,17 @@ public class REProgram {
     protected REFlags flags;
     protected UnicodeString prefix;              // Prefix string optimization
     protected IntPredicateProxy initialCharClass;
-    protected List<RegexPrecondition> preconditions = new java.util.ArrayList<RegexPrecondition>();
+    protected List<RegexPrecondition> preconditions = new java.util.ArrayList<>();
     protected int minimumLength = 0;
     protected int fixedLength = -1;
     protected int optimizationFlags;      // Optimization flags (REProgram.OPT_*)
-    protected int maxParens = -1;
+    protected int maxParens;
     protected int backtrackingLimit = -1;
 
     /**
-     * Constructs a program object from a character array
-     * @param operation Array with RE opcode instructions in it. The "next"
-     * @param parens       Count of parens in the program
-     *                     pointers within the operations must already have been converted to absolute
-     *                     offsets.
+     * Constructs a program object
+     * @param operation    The top-level operation, the root of an operation tree
+     * @param parens       Count of capturing parens in the program.
      * @param flags the regular expression flags
      */
     public REProgram(Operation operation, int parens, REFlags flags) {

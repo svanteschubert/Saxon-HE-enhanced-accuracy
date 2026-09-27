@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,13 +17,22 @@ import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.functions.Current;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.om.TreeInfo;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.trace.ExpressionPresenter;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.*;
+import net.sf.saxon.tree.iter.ConcatenatingIterator;
+import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.UType;
+import net.sf.saxon.type.gnode.NodeKindType;
 
 /**
  * A Pattern represents the result of parsing an XSLT pattern string. <p>
@@ -221,7 +230,8 @@ public abstract class Pattern extends PseudoExpression {
      * @return the next slot that is free to be allocated
      */
 
-    public int allocateSlots(SlotManager slotManager, int nextFree) {
+    public int
+    allocateSlots(SlotManager slotManager, int nextFree) {
         return nextFree;
     }
 
@@ -268,6 +278,9 @@ public abstract class Pattern extends PseudoExpression {
             return matches(item, context);
         } catch (XPathException.Circularity | XPathException.StackOverflow e) {
             throw e;
+        } catch (UncheckedXPathException ex) {
+            handleDynamicError(ex.getXPathException(), context);
+            return false;
         } catch (XPathException ex) {
             handleDynamicError(ex, context);
             return false;
@@ -321,43 +334,44 @@ public abstract class Pattern extends PseudoExpression {
             if (matchesItem(doc, context)) {
                 return SingletonIterator.makeIterator(doc);
             } else {
-                return EmptyIterator.ofNodes();
+                return EmptyIterator.INSTANCE;
             }
         } else if (UType.ATTRIBUTE.subsumes(uType)) {
-            AxisIterator allElements = doc.iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
+            SequenceIterator allElements = doc.iterateDescendantAxis(NodeKindType.ELEMENT);
             SequenceIterator allAttributes =
                     MappingIterator.map(allElements,
-                                        item -> ((NodeInfo) item).iterateAxis(AxisInfo.ATTRIBUTE));
+                                        item -> ((NodeInfo) item).iterateAttributeAxis(AnyGNode.TEST));
             return ItemMappingIterator.filter(allAttributes, item -> matchesItem(item, context));
         } else if (UType.NAMESPACE.subsumes(uType)) {
-            AxisIterator allElements = doc.iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
+            SequenceIterator allElements = doc.iterateDescendantAxis(NodeKindType.ELEMENT);
             SequenceIterator allNamespaces =
                     MappingIterator.map(allElements,
-                                        item -> ((NodeInfo) item).iterateAxis(AxisInfo.NAMESPACE));
+                                        item -> ((NodeInfo) item).iterateNamespaceAxis(AnyGNode.TEST));
             return ItemMappingIterator.filter(allNamespaces, item -> matchesItem(item, context));
 
         } else if (UType.CHILD_NODE_KINDS.subsumes(uType)) {
-            NodeTest nodeTest;
+            NodePredicate nodeTest;
             if (uType.equals(UType.ELEMENT)) {
-                nodeTest = NodeKindTest.ELEMENT; // common case, enables use of getAllElements()
+                nodeTest = NodeKindType.ELEMENT; // common case, enables use of getAllElements()
             } else {
-                nodeTest = new MultipleNodeKindTest(uType);
+                nodeTest = NodePredicateLambda.of(node -> uType.matches(node));
             }
-            AxisIterator allChildren = doc.iterateAxis(AxisInfo.DESCENDANT, nodeTest);
+            SequenceIterator allChildren = doc.iterateDescendantAxis(nodeTest);
             return ItemMappingIterator.filter(allChildren, item -> matchesItem(item, context));
         } else {
-            int axis = uType.subsumes(UType.DOCUMENT) ? AxisInfo.DESCENDANT_OR_SELF : AxisInfo.DESCENDANT;
-            AxisIterator allChildren = doc.iterateAxis(axis);
+            SequenceIterator allChildren = uType.subsumes(UType.DOCUMENT)
+                    ? doc.iterateDescendantOrSelfAxis(AnyGNode.TEST)
+                    : doc.iterateDescendantAxis(AnyGNode.TEST);
             SequenceIterator attributesOrSelf =
                     MappingIterator.map(allChildren, item -> {
-                        AxisIterator mapper = SingleNodeIterator.makeIterator((NodeInfo) item);
+                        SequenceIterator mapper = SingletonIterator.makeIterator(item);
                         if (uType.subsumes(UType.NAMESPACE)) {
-                            mapper = new ConcatenatingAxisIterator(mapper,
-                                                                   ((NodeInfo) item).iterateAxis(AxisInfo.NAMESPACE));
+                            mapper = new ConcatenatingIterator(mapper,
+                                                               ((NodeInfo) item).iterateNamespaceAxis(AnyGNode.TEST));
                         }
                         if (uType.subsumes(UType.ATTRIBUTE)) {
-                            mapper = new ConcatenatingAxisIterator(mapper,
-                                                                   ((NodeInfo) item).iterateAxis(AxisInfo.ATTRIBUTE));
+                            mapper = new ConcatenatingIterator(mapper,
+                                                               ((NodeInfo) item).iterateAttributeAxis(AnyGNode.TEST));
                         }
                         return mapper;
                     });
@@ -374,16 +388,17 @@ public abstract class Pattern extends PseudoExpression {
 
     public abstract UType getUType();
 
-
     /**
      * Determine the name fingerprint of nodes to which this pattern applies. Used for
      * optimisation.
-     *
+     * @param nodeKind The expected node kind. If the pattern matches nodes of this kind, return
+     *                 the fingerprint that the nodes must have. If it does not match nodes of this
+     *                 kind, return -1.
      * @return A fingerprint that the nodes must match, or -1 if it can match multiple fingerprints,
      * or it if matches atomic values
      */
 
-    public int getFingerprint() {
+    public int getFingerprint(int nodeKind) {
         return -1;
     }
 
@@ -409,7 +424,8 @@ public abstract class Pattern extends PseudoExpression {
 
     /**
      * Determine the default priority to use if this pattern appears as a match pattern
-     * for a template with no explicit priority attribute.
+     * for a template with no explicit priority attribute. Note that the default priority
+     * of a pattern 
      *
      * @return the default priority for the pattern
      */
@@ -462,11 +478,11 @@ public abstract class Pattern extends PseudoExpression {
      */
 
     public Pattern convertToTypedPattern(String val) throws XPathException {
-        return null;
+        return this;
     }
 
     @Override
-    public Pattern toPattern(Configuration config) {
+    public Pattern toPattern(Configuration config, boolean firstInPath) {
         return this;
     }
 
@@ -529,7 +545,7 @@ public abstract class Pattern extends PseudoExpression {
         return toString();
     }
 
-//    //#ifdefined STREAM
+//    //#if STREAM==true
 //
 //    @Override
 //    public PostureAndSweep getStreamability(ContextItemStaticInfo contextInfo, List<String> reasons) {

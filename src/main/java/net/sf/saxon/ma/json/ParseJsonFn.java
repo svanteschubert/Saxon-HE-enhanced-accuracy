@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,18 +7,19 @@
 
 package net.sf.saxon.ma.json;
 
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.OptionsParameter;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.BooleanValue;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
+import net.sf.saxon.z.IntIterator;
 
 import java.util.Map;
 
@@ -29,21 +30,21 @@ import java.util.Map;
  */
 public class ParseJsonFn extends JsonToXMLFn {
 
-    @CSharpModifiers(code={"public", "static", "new"})
-    public static OptionsParameter OPTION_DETAILS;
-    static {
+    public static OptionsParameter makeOptionsParameter(int version) {
         SpecificFunctionType fallbackType = new SpecificFunctionType(
-                new SequenceType[]{SequenceType.SINGLE_STRING}, SequenceType.SINGLE_STRING);
+                SequenceType.SINGLE_STRING, SequenceType.SINGLE_ATOMIC);
         SpecificFunctionType parserType = new SpecificFunctionType(
-                new SequenceType[]{SequenceType.SINGLE_STRING}, SequenceType.SINGLE_ATOMIC);
-        OptionsParameter parseJsonOptions = new OptionsParameter();
+                SequenceType.SINGLE_UNTYPED_ATOMIC, SequenceType.OPTIONAL_ITEM);
+        OptionsParameter parseJsonOptions = new OptionsParameter(version);
         parseJsonOptions.addAllowedOption("liberal", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         parseJsonOptions.addAllowedOption("duplicates", SequenceType.SINGLE_STRING, StringValue.bmp("use-first"));
         parseJsonOptions.setAllowedValues("duplicates", "FOJS0005", "reject", "use-first", "use-last");
         parseJsonOptions.addAllowedOption("escape", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
-        parseJsonOptions.addAllowedOption("fallback", SequenceType.makeSequenceType(fallbackType, StaticProperty.EXACTLY_ONE), null);
-        parseJsonOptions.addAllowedOption("number-parser", SequenceType.makeSequenceType(parserType, StaticProperty.EXACTLY_ONE), null);
-        OPTION_DETAILS = parseJsonOptions;
+        parseJsonOptions.addAllowedOption("fallback", SequenceType.one(fallbackType), null);
+        parseJsonOptions.addAllowedOption("null", SequenceType.ANY_SEQUENCE, EmptySequence.INSTANCE);
+        parseJsonOptions.addAllowedOption("number-parser", SequenceType.one(parserType), null);
+        parseJsonOptions.addAllowedOption("retain-order", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
+        return parseJsonOptions;
     }
 
 
@@ -57,12 +58,13 @@ public class ParseJsonFn extends JsonToXMLFn {
      * @throws XPathException if the syntax of the input is incorrect
      */
     @Override
-    protected Item eval(String input, MapItem options, XPathContext context) throws XPathException {
+    protected Item eval(UnicodeString input, MapItem options, XPathContext context) throws XPathException {
         Map<String, GroundedValue> checkedOptions = null;
         if (options != null) {
-            checkedOptions = getDetails().optionDetails.processSuppliedOptions(options, context);
+            int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+            checkedOptions = getDetails().optionDetails.processSuppliedOptions(options, context, version);
         }
-        return parse(input, checkedOptions, context);
+        return parse(input.codePoints(), checkedOptions, context);
     }
 
     /**
@@ -75,22 +77,28 @@ public class ParseJsonFn extends JsonToXMLFn {
      * @throws XPathException if the syntax of the input is incorrect
      */
 
-    public static Item parse(String input, Map<String, GroundedValue> options, XPathContext context) throws XPathException {
+    public static Item parse(IntIterator input, Map<String, GroundedValue> options, XPathContext context) throws XPathException {
         JsonParser parser = new JsonParser();
+        GroundedValue nullRepresentation = EmptySequence.INSTANCE;
         int flags = 0;
         if (options != null) {
             flags = JsonParser.getFlags(options, false, false);
+            GroundedValue nullOption = options.get("null");
+            if (nullOption != null) {
+                nullRepresentation = nullOption;
+            }
         }
-        JsonHandlerMap handler = new JsonHandlerMap(context, flags);
         if ((flags & JsonParser.DUPLICATES_RETAINED) != 0) {
             throw new XPathException("parse-json: duplicates=retain is not allowed", "FOJS0005");
         }
         if ((flags & JsonParser.DUPLICATES_SPECIFIED) == 0) {
             flags |= JsonParser.DUPLICATES_FIRST;
         }
+        JsonHandlerMap handler = new JsonHandlerMap(context, parser, flags);
         if (options != null) {
             handler.setFallbackFunction(options, context);
-            parser.setNumberParser(options, context);
+            handler.setNullRepresentation(nullRepresentation);
+            parser.setNumberParser(options);
         }
         parser.parse(input, flags, handler, context);
         return handler.getResult().head();
@@ -99,4 +107,4 @@ public class ParseJsonFn extends JsonToXMLFn {
 
 }
 
-// Copyright (c) 2011-2023 Saxonica Limited
+// Copyright (c) 2011-2026 Saxonica Limited

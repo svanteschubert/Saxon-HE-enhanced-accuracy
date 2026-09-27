@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,18 +10,18 @@ package net.sf.saxon.expr;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.elab.PullEvaluator;
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.RebindingMap;
+import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingIncident;
-import net.sf.saxon.type.AnyItemType;
+import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -87,6 +87,25 @@ public class ErrorExpression extends Expression {
 
     public String getErrorCodeLocalPart() {
         return exception.getErrorCode().getLocalName();
+    }
+
+    /**
+     * The type xs:error is a subtype of every other type, so static type checking should
+     * succeed regardless of the required type. Implementing this also bypasses the logic
+     * for function coercion which is only supposed to apply when the supplied item is a function
+     * item.
+     * @return true
+     */
+    @Override
+    public boolean implementsStaticTypeCheck() {
+        return true;
+    }
+
+    public Expression staticTypeCheck(SequenceType req,
+                                      boolean backwardsCompatible,
+                                      Supplier<RoleDiagnostic> roleSupplier, ExpressionVisitor visitor)
+            throws XPathException {
+        return this;
     }
 
     /**
@@ -169,7 +188,8 @@ public class ErrorExpression extends Expression {
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return AnyItemType.getInstance();
+        //return AnyItemType.INSTANCE;
+        return ErrorType.getInstance();
     }
 
     /**
@@ -232,7 +252,9 @@ public class ErrorExpression extends Expression {
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("error", this);
         destination.emitAttribute("message", exception.getMessage());
-        destination.emitAttribute("code", exception.getErrorCode().getLocalName());
+        if (exception.getErrorCode() != null) {
+            destination.emitAttribute("code", exception.getErrorCode().getLocalName());
+        }
         destination.emitAttribute("isTypeErr", exception.isTypeError()?"0":"1");
         destination.endElement();
     }
@@ -261,5 +283,5 @@ public class ErrorExpression extends Expression {
             };
         }
     }
-
+    
 }

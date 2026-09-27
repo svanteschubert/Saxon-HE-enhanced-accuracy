@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -89,7 +89,7 @@ public abstract class SequenceExtent implements GroundedValue {
     public static <T extends Item> GroundedValue makeSequenceExtent(/*@NotNull*/ List<T> input) {
         int len = input.size();
         if (len == 0) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else if (len == 1) {
             return input.get(0);
         } else {
@@ -281,7 +281,7 @@ public abstract class SequenceExtent implements GroundedValue {
             }
             int size = getLength();
             if (start > size) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             }
             int limit =  ((long)start + (long)length > size) ? size : start + length;
             return new SequenceExtent.Of<T>(items.subList(start, limit)).reduce();
@@ -313,7 +313,7 @@ public abstract class SequenceExtent implements GroundedValue {
         public GroundedValue reduce() {
             int len = getLength();
             if (len == 0) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             } else if (len == 1) {
                 return this.itemAt(0);
             } else {

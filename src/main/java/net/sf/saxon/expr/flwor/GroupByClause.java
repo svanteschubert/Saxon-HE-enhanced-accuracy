@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,21 +12,22 @@ import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.parser.RebindingMap;
-import net.sf.saxon.expr.sort.GenericAtomicComparer;
-import net.sf.saxon.functions.DeepEqual;
+import net.sf.saxon.expr.sort.AtomicMatchKey;
+import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceExtent;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 import static net.sf.saxon.expr.flwor.Clause.ClauseName.GROUP_BY;
 
@@ -38,7 +39,9 @@ public class GroupByClause extends Clause {
     Configuration config;
     LocalVariableBinding[] bindings;          // Variables bound in the output tuple stream.
     // There is one for each grouping variable, then one for each non-grouping variable
-    GenericAtomicComparer[] comparers;        // One comparer per grouping variable
+
+    StringCollator[] stringCollators;         // One per grouping variable
+//    GenericAtomicComparer[] comparers;        // One comparer per grouping variable
 
     Operand retainedTupleOp;
     Operand groupingTupleOp;
@@ -53,6 +56,10 @@ public class GroupByClause extends Clause {
 
     public GroupByClause(Configuration config) {
         this.config = config;
+    }
+
+    public void setStringCollators(StringCollator[] collators) {
+        this.stringCollators = collators;
     }
 
     @Override
@@ -76,7 +83,7 @@ public class GroupByClause extends Clause {
         for (int i = 0; i < bindings.length; i++) {
             g2.bindings[i] = bindings[i].copy();
         }
-        g2.comparers = comparers;
+        //g2.comparers = comparers;
         g2.initRetainedTupleExpression(flwor, (TupleExpression)getRetainedTupleExpression().copy(rebindings));
         g2.initGroupingTupleExpression(flwor, (TupleExpression)getGroupingTupleExpression().copy(rebindings));
         return g2;
@@ -197,9 +204,9 @@ public class GroupByClause extends Clause {
      * @param comparers the comparers for grouping keys.
      */
 
-    public void setComparers(GenericAtomicComparer[] comparers) {
-        this.comparers = comparers;
-    }
+//    public void setComparers(GenericAtomicComparer[] comparers) {
+//        this.comparers = comparers;
+//    }
 
     /**
      * Get a tuple stream that implements the functionality of this clause, taking its
@@ -265,14 +272,14 @@ public class GroupByClause extends Clause {
 
     /**
      * Inner class representing the contents of a tuple from the pre-grouping tuple stream;
-     * a set of such objects consitutes a group. The tuple from the input stream is represented
+     * a set of such objects constitutes a group. The tuple from the input stream is represented
      * as two Tuple objects, one holding the grouping key values and one holding everything else.
      */
 
-    public static class ObjectToBeGrouped {
-        public Tuple groupingValues;
-        public Tuple retainedValues;
-    }
+    public record ObjectToBeGrouped (
+            FlworTuple<AtomicValue> groupingValues,
+            FlworTuple<Sequence> retainedValues) {};
+
 
 
     /**
@@ -287,15 +294,18 @@ public class GroupByClause extends Clause {
 
     public void processGroup(List<ObjectToBeGrouped> group, XPathContext context) throws XPathException {
         LocalVariableBinding[] bindings = getRangeVariables();
-        Sequence[] groupingValues = group.get(0).groupingValues.getMembers();
+        Sequence[] groupingValues = group.get(0).groupingValues.getValues();
         for (int j = 0; j < groupingValues.length; j++) {
             Sequence v = groupingValues[j];
+            if (v == null) {
+                v = EmptySequence.INSTANCE;
+            }
             context.setLocalVariable(bindings[j].getLocalSlotNumber(), v);
         }
         for (int j = groupingValues.length; j < bindings.length; j++) {
             List<Item> concatenatedValue = new ArrayList<>();
             for (ObjectToBeGrouped otbg : group) {
-                Sequence val = otbg.retainedValues.getMembers()[j - groupingValues.length];
+                Sequence val = otbg.retainedValues.getValues()[j - groupingValues.length];
                 SequenceIterator si = val.iterate();
                 Item it;
                 while ((it = si.next()) != null) {
@@ -312,17 +322,11 @@ public class GroupByClause extends Clause {
      * Callback to get the comparison key for a tuple. Two tuples are equal if their comparison
      * keys compare equal using the equals() method.
      * @param t the tuple whose comparison key is required
-     * @param comparers array of comparers for comparing each component of the grouping key
      * @return a comparison key suitable for comparing with other tuples
      */
 
-    public TupleComparisonKey getComparisonKey(Tuple t, GenericAtomicComparer[] comparers) {
-        return new TupleComparisonKey(t.getMembers(), comparers);
-    }
-
-    @Override
-    public void addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        throw new UnsupportedOperationException("Cannot use document projection with group-by");
+    public TupleComparisonKey getComparisonKey(FlworTuple<AtomicValue> t, XPathContext context) {
+        return new TupleComparisonKey(t.getValues(), stringCollators, context.getImplicitTimezone());
     }
 
     /**
@@ -335,31 +339,35 @@ public class GroupByClause extends Clause {
         // Note: this is over-engineered. Each grouping value is required to be either a single atomic
         // value or an empty sequence.
 
-        private final Sequence[] groupingValues;
-        private final GenericAtomicComparer[] comparers;
+        private final AtomicValue[] groupingValues;
+        private final AtomicMatchKey[] matchKeys;
 
-        public TupleComparisonKey(Sequence[] groupingValues, GenericAtomicComparer[] comparers) {
+        public TupleComparisonKey(AtomicValue[] groupingValues, StringCollator[] collators, int implicitTimezone) {
             this.groupingValues = groupingValues;
-            this.comparers = comparers;
+            this.matchKeys = new AtomicMatchKey[groupingValues.length];
+            for (int i=0; i<groupingValues.length; i++) {
+                matchKeys[i] = groupingValues[i] == null ? null : groupingValues[i].getXPathMatchKey(collators[i], implicitTimezone, 40);
+            }
         }
 
         public int hashCode() {
             int h = 0x77557755 ^ groupingValues.length;
             for (int i = 0; i < groupingValues.length; i++) {
-                GenericAtomicComparer comparer = comparers[i];
-                int implicitTimezone = comparer.getContext().getImplicitTimezone();
-                try {
-                    SequenceIterator atoms = groupingValues[i].iterate();
-                    while (true) {
-                        AtomicValue val = (AtomicValue) atoms.next();
-                        if (val == null) {
-                            break;
-                        }
-                        h ^= i + val.getXPathMatchKey(comparer.getCollator(), implicitTimezone).hashCode();
-                    }
-                } catch (XPathException e) {
-                    // ignore any errors
+                if (matchKeys[i] == null) {
+                    h ^= 0x70f0f0f0;
+                } else {
+                    h ^= matchKeys[i].hashCode();
                 }
+//                GenericAtomicComparer comparer = comparers[i];
+//                int implicitTimezone = comparer.getContext().getImplicitTimezone();
+//                SequenceIterator atoms = groupingValues[i].iterate();
+//                while (true) {
+//                    AtomicValue val = (AtomicValue) atoms.next();
+//                    if (val == null) {
+//                        break;
+//                    }
+//                    h ^= i + val.getXPathMatchKey(comparer.getCollator(), implicitTimezone).hashCode();
+//                }
             }
             return h;
         }
@@ -372,16 +380,21 @@ public class GroupByClause extends Clause {
                 return false;
             }
             for (int i = 0; i < groupingValues.length; i++) {
-                try {
-                    if (!DeepEqual.deepEqual(
-                        groupingValues[i].iterate(),
-                        ((TupleComparisonKey) other).groupingValues[i].iterate(),
-                        comparers[i], comparers[i].getContext(), 0)) {
-                        return false;
-                    }
-                } catch (XPathException e) {
+                if (!Objects.equals(matchKeys[i], ((TupleComparisonKey) other).matchKeys[i])) {
+                    // Allows both to be null
                     return false;
                 }
+//                try {
+//                    if (!DeepEqual.deepEqual(
+//                        groupingValues[i].iterate(),
+//                        ((TupleComparisonKey) other).groupingValues[i].iterate(),
+//                        null, // TBA: was comparers[i],
+//                        comparers[i].getContext(), 0)) {
+//                        return false;
+//                    }
+//                } catch (XPathException e) {
+//                    return false;
+//                }
             }
             return true;
         }
@@ -389,4 +402,4 @@ public class GroupByClause extends Clause {
 
 }
 
-// Copyright (c) 2011-2023 Saxonica Limited
+// Copyright (c) 2011-2026 Saxonica Limited

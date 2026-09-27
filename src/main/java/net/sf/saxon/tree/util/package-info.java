@@ -1,13 +1,16 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * <p>This package provides a number of re-usable utility classes and methods used by more than one
- * tree model implementation.</p>
+ * <p>This package defines a number of utility and helper classes for implementing tree models.</p>
+ * <p>The {@link net.sf.saxon.tree.util.Navigator} class provides many utility methods, for example to implement various
+ * axes in terms of other axes, and to support numbering.</p>
+ * <p>The {@link net.sf.saxon.tree.util.Orphan} class is a general-purpose implementation of a node with no parent, no
+ * attributes, and no children.</p>
  */
 
 package net.sf.saxon.tree.util;

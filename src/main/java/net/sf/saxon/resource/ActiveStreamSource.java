@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
+import org.xml.sax.EntityResolver;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.XMLReader;
@@ -55,9 +56,11 @@ public class ActiveStreamSource extends StreamSource implements ActiveSource {
         is.setByteStream(getInputStream());
         boolean reuseParser = false;
         XMLReader parser = options.obtainXMLReader();
+        EntityResolver savedEntityResolver = null;
         if (parser == null) {
             parser = config.getSourceParser();
-            if (options.getEntityResolver() != null /*&& parser.getEntityResolver() == null*/) {
+            if (options.getEntityResolver() != null) {
+                savedEntityResolver = parser.getEntityResolver();
                 parser.setEntityResolver(options.getEntityResolver());
             }
             try {
@@ -72,6 +75,7 @@ public class ActiveStreamSource extends StreamSource implements ActiveSource {
         sax.setSystemId(url);
         sax.deliver(receiver, options);
         if (reuseParser) {
+            parser.setEntityResolver(savedEntityResolver);
             config.reuseSourceParser(parser);
         }
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,13 +8,12 @@
 package net.sf.saxon.om;
 
 import net.sf.saxon.expr.LastPositionFinder;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trans.UncheckedXPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.GroundedIterator;
 import net.sf.saxon.tree.iter.LookaheadIterator;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 import net.sf.saxon.value.SequenceExtent;
 
 /**
@@ -254,7 +253,7 @@ public class FocusTrackingIterator
      */
 
     public int getSiblingPosition(NodeInfo node, NodeTest nodeTest, int max) {
-        if (node instanceof SiblingCountingNode && nodeTest instanceof AnyNodeTest) {
+        if (node instanceof SiblingCountingNode && nodeTest == AnyGNodeType.getInstance()) {
             return ((SiblingCountingNode) node).getSiblingPosition();
         }
         if (siblingMemory == null) {
@@ -263,10 +262,10 @@ public class FocusTrackingIterator
             return siblingMemory.mostRecentPosition;
         }
         SiblingMemory s = siblingMemory;
-        AxisIterator prev = node.iterateAxis(AxisInfo.PRECEDING_SIBLING, nodeTest);
+        SequenceIterator prev = node.iteratePrecedingSiblingAxis(nodeTest);
         NodeInfo prior;
         int count = 1;
-        while ((prior = prev.next()) != null) {
+        while ((prior = (NodeInfo)prev.next()) != null) {
             if (prior.equals(s.mostRecentNode) && nodeTest.equals(s.mostRecentNodeTest)) {
                 int result = count + s.mostRecentPosition;
                 s.mostRecentNode = node;

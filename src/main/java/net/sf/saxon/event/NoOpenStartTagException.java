@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -39,11 +39,11 @@ public class NoOpenStartTagException extends XPathException {
         String errorCode;
         if (parentIsDocument) {
             String kind = nodeKind == Type.ATTRIBUTE ? "an attribute" : "a namespace";
-            message = "Cannot create " + kind + " node (" + name + ") whose parent is a document node";
+            message = "Cannot output " + kind + " node (" + name + ") whose parent is a document node";
             errorCode = hostLanguage == HostLanguage.XSLT ? "XTDE0420" : "XPTY0004";
         } else {
             String kind = nodeKind == Type.ATTRIBUTE ? "An attribute" : "A namespace";
-            message = kind + " node (" + name + ") cannot be created after a child of the containing element";
+            message = kind + " node (" + name + ") cannot be output after a child of the containing element";
             errorCode = hostLanguage == HostLanguage.XSLT ? "XTDE0410" : "XQTY0024";
         }
         if (startElementLocationId != null && startElementLocationId.getLineNumber() != -1) {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -167,13 +167,20 @@ public class DOMSender {
     private void sendElement(Element startNode) throws XPathException {
         List<Element> ancestors = new ArrayList<>();
         NamespaceMap inScopeNamespaces = NamespaceMap.emptyMap();
-        Node parent = startNode;
-        while (parent != null && parent.getNodeType() == Type.ELEMENT) {
-            ancestors.add((Element) parent);
-            parent = parent.getParentNode();
-        }
-        for (int i=ancestors.size()-1; i>=0; i--) {
-            inScopeNamespaces = inScopeNamespaces.applyDifferences(gatherNamespaces(ancestors.get(i)));
+
+        // Bug 6866 - if there are no local namespace declarations, reuse the parent namespace map
+        NamespaceDeltaMap delta = gatherNamespaces(startNode);
+        if (delta.isEmpty() && !namespaces.isEmpty()) {
+            inScopeNamespaces = namespaces.peek();
+        } else {
+            Node parent = startNode;
+            while (parent != null && parent.getNodeType() == Type.ELEMENT) {
+                ancestors.add((Element) parent);
+                parent = parent.getParentNode();
+            }
+            for (int i = ancestors.size() - 1; i >= 0; i--) {
+                inScopeNamespaces = inScopeNamespaces.applyDifferences(gatherNamespaces(ancestors.get(i)));
+            }
         }
 
         namespaces.push(inScopeNamespaces);
@@ -291,7 +298,7 @@ public class DOMSender {
         NodeName name = getNodeName(element.getTagName(), true);
         final Location loc = new Loc(systemId, -1, -1);
 
-        AttributeMap attributes = EmptyAttributeMap.getInstance();
+        AttributeMap attributes = EmptyAttributeMap.INSTANCE;
         NamedNodeMap atts = element.getAttributes();
         if (atts != null) {
             final int len = atts.getLength();
@@ -314,7 +321,7 @@ public class DOMSender {
                 }
             }
         }
-        receiver.startElement(name, Untyped.getInstance(), attributes, namespaces.peek(), loc, ReceiverOption.NONE);
+        receiver.startElement(name, Untyped.INSTANCE, attributes, namespaces.peek(), loc, ReceiverOption.NONE);
         walkNode(element);
         receiver.endElement();
     }

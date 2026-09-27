@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,10 @@
 
 package net.sf.saxon.expr.sort;
 
+//import com.saxonica.ee.stream.ManualGroupIterator;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.functions.DistinctValues;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
@@ -88,9 +88,6 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
         }
     }
 
-    public GroupByIterator() {
-    }
-
     /**
      * Build the grouping table forming groups of items with equal keys.
      * This form of grouping allows a member of the population to be present in zero
@@ -115,9 +112,9 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
                 }
                 AtomicMatchKey comparisonKey;
                 if (key.isNaN()) {
-                    comparisonKey = DistinctValues.NaN_MATCH_KEY;
+                    comparisonKey = AtomicSortComparer.COLLATION_KEY_NaN;
                 } else {
-                    comparisonKey = key.getXPathMatchKey(collator, implicitTimezone);
+                    comparisonKey = key.getXPathMatchKey(collator, implicitTimezone, 40);
                 }
                 List<Item> g = index.get(comparisonKey);
                 if (g == null) {
@@ -170,9 +167,9 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
                 compositeKey.add(key);
                 AtomicMatchKey comparisonKey;
                 if (key.isNaN()) {
-                    comparisonKey = DistinctValues.NaN_MATCH_KEY;
+                    comparisonKey = AtomicSortComparer.COLLATION_KEY_NaN;
                 } else {
-                    comparisonKey = key.getXPathMatchKey(collator, implicitTimezone);
+                    comparisonKey = key.getXPathMatchKey(collator, implicitTimezone, 31);
                 }
                 ckList.add(comparisonKey);
             }
@@ -202,7 +199,7 @@ public class GroupByIterator implements GroupIterator, LastPositionFinder, Looka
     public synchronized AtomicSequence getCurrentGroupingKey() {
         AtomicSequence val = groupKeys.get(position - 1);
         if (val == null) {
-            return EmptyAtomicSequence.getInstance();
+            return AtomicArray.EMPTY_ATOMIC_ARRAY;
         } else {
             return val;
         }

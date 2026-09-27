@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.om;
 
+import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.SingletonIterator;
@@ -129,7 +130,7 @@ public interface Item extends GroundedValue {
         if (start <= 0 && (start + length) > 0) {
             return this;
         } else {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
     }
 
@@ -175,6 +176,16 @@ public interface Item extends GroundedValue {
 
     default boolean isStreamed() {
         return false;
+    }
+
+    /**
+     * Get the item's label, if there is one. See the 4.0 version of the XDM model.
+     *
+     * @return the item's label (as a map) if it has one, or null otherwise
+     */
+
+    default MapItem getLabel() {
+        return null;
     }
 
 

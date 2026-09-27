@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -135,7 +135,7 @@ public class Average extends FoldingFunction {
         @Override
         public Sequence result() throws XPathException {
             if (atStart) {
-                return EmptySequence.getInstance();
+                return EmptySequence.INSTANCE;
             } else if (data instanceof NumericValue) {
                 return ArithmeticExpression.compute(data, Calculator.DIV, new Int64Value(count), context);
             } else {

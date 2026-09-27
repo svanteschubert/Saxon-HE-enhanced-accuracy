@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.type;
 
+//import com.saxonica.ee.schema.UserSimpleType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.MappingIterator;
 import net.sf.saxon.lib.ConversionRules;
@@ -132,7 +133,7 @@ public class BuiltInListType implements ListType {
     /*@NotNull*/
     @Override
     public SchemaType getBaseType() {
-        return AnySimpleType.getInstance();
+        return AnySimpleType.INSTANCE;
     }
 
     /**
@@ -308,7 +309,7 @@ public class BuiltInListType implements ListType {
 
     /*@NotNull*/
     public SchemaType getKnownBaseType() throws IllegalStateException {
-        return AnySimpleType.getInstance();
+        return AnySimpleType.INSTANCE;
     }
 
     /**
@@ -434,12 +435,12 @@ public class BuiltInListType implements ListType {
      * @param expression the expression that delivers the content
      * @param kind       the node kind whose content is being delivered: {@link Type#ELEMENT},
      *                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
-     * @throws net.sf.saxon.trans.XPathException
-     *          if the expression will never deliver a value of the correct type
+     * @param schema
+     * @throws net.sf.saxon.trans.XPathException if the expression will never deliver a value of the correct type
      */
 
     @Override
-    public void analyzeContentExpression(/*@NotNull*/ Expression expression, int kind) throws XPathException {
+    public void analyzeContentExpression(/*@NotNull*/ Expression expression, int kind, Schema schema) throws XPathException {
         BuiltInAtomicType.analyzeContentExpression(this, expression, kind);
     }
 

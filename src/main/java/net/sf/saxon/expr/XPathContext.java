@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.Controller;
 import net.sf.saxon.expr.instruct.ParameterSet;
 import net.sf.saxon.expr.sort.GroupIterator;
+import net.sf.saxon.expr.sort.MergeGroupingIterator;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.*;
@@ -321,7 +322,7 @@ public interface XPathContext {
      * @return the current merge group
      */
 
-    GroupIterator getCurrentMergeGroupIterator();
+    MergeGroupingIterator getCurrentMergeGroupIterator();
 
     /**
      * Get the current regex iterator. This supports the functionality of the regex-group()

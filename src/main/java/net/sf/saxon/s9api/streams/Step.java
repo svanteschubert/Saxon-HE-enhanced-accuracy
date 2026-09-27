@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -125,8 +125,8 @@ public abstract class Step<T extends XdmItem>
      * @param next the step which will be applied to the results of this step
      * @param <U> the static type of the result of the step
      * @return a new Step (that is, a function from one Stream of items to another) that
-     * performs this step and the next step in turn. The result is equivalent to the Java {code flatMap()}
-     * function or the XPath {code !} operator: there is no sorting of nodes into document order, and
+     * performs this step and the next step in turn. The result is equivalent to the Java {@code flatMap()}
+     * function or the XPath {@code !} operator: there is no sorting of nodes into document order, and
      * no elimination of duplicates.
      */
 

@@ -11,7 +11,10 @@ import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.functions.Fold;
 import net.sf.saxon.functions.FoldingFunction;
-import net.sf.saxon.om.*;
+import net.sf.saxon.om.FunctionItem;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.Item;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyFunctionType;
 import net.sf.saxon.type.AnyItemType;
@@ -35,25 +38,26 @@ public class FoldLeftFn extends FoldingFunction {
         private final FunctionItem function;
         private Sequence data;
         private int counter;
+        private Sequence[] argArray;
 
         public FoldLeftFold(XPathContext context, GroundedValue zero, FunctionItem function) {
             this.context = context;
             this.function = function;
             this.data = zero;
             this.counter = 0;
+            argArray = new Sequence[function.getArity()];
         }
 
         @Override
         public void processItem(Item item) throws XPathException {
-            Sequence[] args = new Sequence[2];
-            args[0] = data;
-            args[1] = item;
+            argArray[0] = data;
+            argArray[1] = item;
             // The result can be returned as a LazySequence. Since we are passing it to a user-defined
             // function which can read it repeatedly, we need at the very least to wrap it in a MemoSequence.
             // But wrapping MemoSequences too deeply can cause a StackOverflow when the unwrapping finally
             // takes place; so to avoid this, we periodically ground the value as a real in-memory concrete
             // sequence. We don't want to do this every time because it involves allocating memory.
-            Sequence result = dynamicCall(function, context, args);
+            Sequence result = dynamicCall(function, context, argArray);
             if (counter++ % 32 == 0) {
                 data = result.materialize();
             } else {
@@ -91,4 +95,4 @@ public class FoldLeftFn extends FoldingFunction {
     }
 }
 
-// Copyright (c) 2013-2023 Saxonica Limited
+// Copyright (c) 2013-2026 Saxonica Limited

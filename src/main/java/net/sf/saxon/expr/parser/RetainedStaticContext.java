@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,12 +15,15 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NamespaceResolver;
 import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.sxpath.IndependentContext;
 import net.sf.saxon.trans.DecimalFormatManager;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Iterator;
+import java.util.Map;
 
 /**
  * This class contains the part of the static context of expressions that (a) can change from one expression
@@ -34,11 +37,11 @@ public class RetainedStaticContext implements NamespaceResolver {
 
     private final Configuration config;
     private PackageData packageData;
+    private Schema importedSchema;
     private URI staticBaseUri;
     private String staticBaseUriString;
     private String defaultCollationName;
     private NamespaceResolver namespaces;  // Normally a NamespaceMap, except for the JAXP case
-    private NamespaceUri defaultFunctionNamespace = NamespaceUri.FN;
     private NamespaceUri defaultElementNamespace;
     private DecimalFormatManager decimalFormatManager;
     private boolean backwardsCompatibility;
@@ -46,14 +49,24 @@ public class RetainedStaticContext implements NamespaceResolver {
 
     public RetainedStaticContext(Configuration config) {
         this.config = config;
-        packageData = new PackageData(config);
-        namespaces = NamespaceMap.emptyMap();
-        defaultCollationName = NamespaceConstant.CODEPOINT_COLLATION_URI;
+        this.packageData = new PackageData(config);
+        this.namespaces = NamespaceMap.emptyMap();
+        this.defaultCollationName = NamespaceConstant.CODEPOINT_COLLATION_URI;
+        this.importedSchema = packageData.getImportedSchema("");
+    }
+
+    public RetainedStaticContext(Configuration config, PackageData pack) {
+        this.config = config;
+        this.packageData = pack;
+        this.namespaces = NamespaceMap.emptyMap();
+        this.defaultCollationName = NamespaceConstant.CODEPOINT_COLLATION_URI;
+        this.importedSchema = packageData.getImportedSchema("");
     }
 
     public RetainedStaticContext(StaticContext sc) {
         this.config = sc.getConfiguration();
         this.packageData = sc.getPackageData();
+        this.importedSchema = sc.getImportedSchema();
         if (sc.getStaticBaseURI() != null) {
             staticBaseUriString = sc.getStaticBaseURI();
             try {
@@ -65,7 +78,6 @@ public class RetainedStaticContext implements NamespaceResolver {
         this.defaultCollationName = sc.getDefaultCollationName();
         this.decimalFormatManager = sc.getDecimalFormatManager();
         this.defaultElementNamespace = sc.getDefaultElementNamespace();
-        defaultFunctionNamespace = sc.getDefaultFunctionNamespace();
         backwardsCompatibility = sc.isInBackwardsCompatibleMode();
         if (!Version.platform.JAXPStaticContextCheck(this, sc)) {
             namespaces = sc.getNamespaceResolver();
@@ -122,6 +134,15 @@ public class RetainedStaticContext implements NamespaceResolver {
     }
 
     /**
+     * Set the imported schema for this context
+     * @param schema the imported schema
+     */
+
+    public void setImportedSchema(Schema schema) {
+        this.importedSchema = schema;
+    }
+
+    /**
      * Get the static base URI as a URI.
      *
      * @return the static base URI as a URI if it is known and valid. Return null if the base URI is
@@ -171,26 +192,6 @@ public class RetainedStaticContext implements NamespaceResolver {
     }
 
     /**
-     * Get the default namespace for functions
-     *
-     * @return the default namespace for functions
-     */
-
-    public NamespaceUri getDefaultFunctionNamespace() {
-        return defaultFunctionNamespace;
-    }
-
-    /**
-     * Set the default namespace for functions
-     *
-     * @param defaultFunctionNamespace the default namespace for functions
-     */
-
-    public void setDefaultFunctionNamespace(NamespaceUri defaultFunctionNamespace) {
-        this.defaultFunctionNamespace = defaultFunctionNamespace;
-    }
-
-    /**
      * Get the default namespace for elements and types
      *
      * @return the default namespace for elements and types. Return "" if the default is "no namespace"
@@ -198,6 +199,33 @@ public class RetainedStaticContext implements NamespaceResolver {
 
     public NamespaceUri getDefaultElementNamespace() {
         return defaultElementNamespace == null ? NamespaceUri.NULL : defaultElementNamespace;
+    }
+
+    /**
+     * Get the imported schema (the in-scope schema declarations)
+     * @return the imported schema for this static context
+     */
+    public Schema getImportedSchema() {
+        return importedSchema;
+    }
+
+    /**
+     * Get the role name of the imported schema (for XSLT 4.0, which allows multiple schema imports)
+     * @return the schema role name
+     */
+
+    public String getImportedSchemaRoleName() {
+        if (importedSchema == getPackageData().getImportedSchema("")) {
+            // the most common case
+            return "";
+        }
+        Map<String, Schema> schemata = getPackageData().getImportedSchemata();
+        for (Map.Entry<String, Schema> entry : schemata.entrySet()) {
+            if (entry.getValue() == importedSchema) {
+                return entry.getKey();
+            }
+        }
+        throw new IllegalStateException("Imported schema not found");
     }
 
     /**
@@ -300,7 +328,6 @@ public class RetainedStaticContext implements NamespaceResolver {
             h ^= staticBaseUriString.hashCode();
         }
         h ^= defaultCollationName.hashCode();
-        h ^= defaultFunctionNamespace.hashCode();
         h ^= namespaces.hashCode();
         return h;
     }
@@ -313,8 +340,8 @@ public class RetainedStaticContext implements NamespaceResolver {
         RetainedStaticContext r = (RetainedStaticContext) other;
         return ExpressionTool.equalOrNull(staticBaseUriString, r.staticBaseUriString)
                 && defaultCollationName.equals(r.defaultCollationName)
-                && defaultFunctionNamespace.equals(r.defaultFunctionNamespace)
-                && namespaces.equals(r.namespaces);
+                && namespaces.equals(r.namespaces)
+                && importedSchema == r.getImportedSchema();
     }
 
     /**
@@ -331,6 +358,17 @@ public class RetainedStaticContext implements NamespaceResolver {
     public NamespaceMap getNamespaceMap() {
         // This fails for a JAXP static context, whose namespaces cannot be enumerated
         return NamespaceMap.fromNamespaceResolver(namespaces);
+    }
+
+    public IndependentContext reinstate() {
+        IndependentContext ic = new IndependentContext(getConfiguration());
+        ic.setDefaultCollationName(getDefaultCollationName());
+        ic.setBaseURI(getStaticBaseUriString());
+        ic.setDecimalFormatManager(getDecimalFormatManager());
+        ic.setNamespaceResolver(this);
+        ic.setPackageData(getPackageData());
+        ic.setImportedSchema(getImportedSchema());
+        return ic;
     }
 
 

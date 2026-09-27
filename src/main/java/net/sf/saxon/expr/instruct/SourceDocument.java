@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,7 +22,7 @@ import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.AllElementsSpaceStrippingRule;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SpaceStrippingRule;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.QuitParsingException;
@@ -130,7 +130,7 @@ public class SourceDocument extends Instruction {
         hrefOp.setChildExpression(tc.staticTypeCheck(
                 hrefOp.getChildExpression(), SequenceType.SINGLE_STRING, role, visitor));
         ContextItemStaticInfo newType =
-                getConfiguration().makeContextItemStaticInfo(NodeKindTest.DOCUMENT, false);
+                getConfiguration().makeContextItemStaticInfo(NodeKindType.DOCUMENT);
         newType.setContextPostureStriding();
         bodyOp.typeCheck(visitor, newType);
         return this;
@@ -155,7 +155,7 @@ public class SourceDocument extends Instruction {
     @Override
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
         ContextItemStaticInfo newType =
-                getConfiguration().makeContextItemStaticInfo(NodeKindTest.DOCUMENT, false);
+                getConfiguration().makeContextItemStaticInfo(NodeKindType.DOCUMENT);
         newType.setContextPostureStriding();
 
         hrefOp.optimize(visitor, contextItemType);
@@ -237,7 +237,7 @@ public class SourceDocument extends Instruction {
         String flags = "";
         if (parseOptions.getSpaceStrippingRule() == xsltStripSpace) {
             flags += "s";
-        } else if (parseOptions.getSpaceStrippingRule() == AllElementsSpaceStrippingRule.getInstance()) {
+        } else if (parseOptions.getSpaceStrippingRule() == AllElementsSpaceStrippingRule.INSTANCE) {
             flags += "S";
         }
         if (parseOptions.isLineNumbering()) {

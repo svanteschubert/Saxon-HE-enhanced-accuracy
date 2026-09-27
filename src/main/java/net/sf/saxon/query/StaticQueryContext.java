@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,10 +16,7 @@ import net.sf.saxon.expr.parser.CodeInjector;
 import net.sf.saxon.expr.parser.OptimizerOptions;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.lib.*;
-import net.sf.saxon.om.GroundedValue;
-import net.sf.saxon.om.NamePool;
-import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
@@ -27,15 +24,18 @@ import net.sf.saxon.trace.TraceCodeInjector;
 import net.sf.saxon.trace.XQueryTraceCodeInjector;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.value.SequenceType;
 
 import javax.xml.transform.ErrorListener;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
 
 /**
  * StaticQueryContext contains information used to build a StaticContext for use when processing XQuery
@@ -70,14 +70,14 @@ public class StaticQueryContext {
     private Configuration config;
     private NamePool namePool;
     private String baseURI;
-    private HashMap<String, NamespaceUri> userDeclaredNamespaces;
+    private NamespaceMap predeclaredNamespaces = NamespaceMap.STANDARD_QUERY_NAMESPACES;
     /*@Nullable*/ private Set<GlobalVariable> userDeclaredVariables;
     private boolean inheritNamespaces = true;
     private boolean preserveNamespaces = true;
     private int constructionMode = Validation.PRESERVE;
     private NamespaceUri defaultFunctionNamespace = NamespaceUri.FN;
     /*@Nullable*/ private NamespaceUri defaultElementNamespace = NamespaceUri.NULL;
-    private ItemType requiredContextItemType = AnyItemType.getInstance();
+    private SequenceType requiredContextValueType = SequenceType.SINGLE_ITEM;
     private boolean preserveSpace = false;
     private boolean defaultEmptyLeast = true;
     /*@Nullable*/ private ModuleURIResolver moduleURIResolver;
@@ -90,15 +90,8 @@ public class StaticQueryContext {
     private int languageVersion = 31;
     private UnprefixedElementMatchingPolicy unprefixedElementMatchingPolicy
             = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
+    private Schema preLoadedSchema = null;
 
-
-
-    /**
-     * Private constructor used when copying a context
-     */
-
-    protected StaticQueryContext() {
-    }
 
     /**
      * Create a StaticQueryContext using a given Configuration. This creates a StaticQueryContext for a main module
@@ -134,7 +127,7 @@ public class StaticQueryContext {
         if (initialize) {
             copyFrom(config.getDefaultStaticQueryContext());
         } else {
-            userDeclaredNamespaces = new HashMap<>();
+            predeclaredNamespaces = NamespaceMap.STANDARD_QUERY_NAMESPACES;
             userDeclaredVariables = new HashSet<>();
             optimizerOptions = config.getOptimizerOptions();
             clearNamespaces();
@@ -162,8 +155,8 @@ public class StaticQueryContext {
         namePool = c.namePool;
         baseURI = c.baseURI;
         moduleURIResolver = c.moduleURIResolver;
-        if (c.userDeclaredNamespaces != null) {
-            userDeclaredNamespaces = new HashMap<>(c.userDeclaredNamespaces);
+        if (c.predeclaredNamespaces != null) {
+            predeclaredNamespaces = c.predeclaredNamespaces;
         }
         if (c.userDeclaredVariables != null) {
             userDeclaredVariables = new HashSet<>(c.userDeclaredVariables);
@@ -173,7 +166,7 @@ public class StaticQueryContext {
         constructionMode = c.constructionMode;
         defaultElementNamespace = c.defaultElementNamespace;
         defaultFunctionNamespace = c.defaultFunctionNamespace;
-        requiredContextItemType = c.requiredContextItemType;
+        requiredContextValueType = c.requiredContextValueType;
         preserveSpace = c.preserveSpace;
         defaultEmptyLeast = c.defaultEmptyLeast;
         errorReporter = c.errorReporter;
@@ -191,13 +184,13 @@ public class StaticQueryContext {
      */
 
     public void reset() {
-        userDeclaredNamespaces = new HashMap<>(10);
+        predeclaredNamespaces = NamespaceMap.emptyMap();
         errorReporter = config.makeErrorReporter();
         constructionMode = getConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XQUERY) ?
                 Validation.PRESERVE : Validation.STRIP;
         preserveSpace = false;
         defaultEmptyLeast = true;
-        requiredContextItemType = AnyItemType.getInstance();
+        requiredContextValueType = SequenceType.SINGLE_ITEM;
         defaultFunctionNamespace = NamespaceUri.FN;
         defaultElementNamespace = NamespaceUri.NULL;
         moduleURIResolver = null;
@@ -328,7 +321,7 @@ public class StaticQueryContext {
      * accept an int (30 = "3.0") and to allow "3.1".  From 9.8.0.3 the supplied value was ignored
      * and the language version was always set to "3.1".  From 11.0 the value 40 was accepted.
      */
-
+    
     public void setLanguageVersion(int version) {
         if (version==10 || version==30 || version==31) {
             languageVersion = 31;
@@ -593,7 +586,7 @@ public class StaticQueryContext {
         char[] buffer = new char[4096];
         StringBuilder sb = new StringBuilder(4096);
         while (true) {
-            int n = source.read(buffer);
+            int n = source.read(buffer, 0, buffer.length);
             if (n > 0) {
                 sb.append(buffer, 0, n);
             } else {
@@ -707,7 +700,9 @@ public class StaticQueryContext {
 
     /**
      * Declare a namespace whose prefix can be used in expressions. This is
-     * equivalent to declaring a prefix in the Query prolog.
+     * equivalent to declaring a prefix in the Query prolog. It is not necessary
+     * to declare the standard namespaces that are present in every XQuery module
+     * by definition.
      * Any namespace declared in the Query prolog overrides a namespace declared using
      * this API.
      *
@@ -739,9 +734,9 @@ public class StaticQueryContext {
             defaultElementNamespace = uri;
         }
         if (uri.isEmpty()) {
-            userDeclaredNamespaces.remove(prefix);
+            predeclaredNamespaces = predeclaredNamespaces.remove(prefix);
         } else {
-            userDeclaredNamespaces.put(prefix, uri);
+            predeclaredNamespaces = predeclaredNamespaces.put(prefix, uri);
         }
 
     }
@@ -753,18 +748,20 @@ public class StaticQueryContext {
      */
 
     public void clearNamespaces() {
-        userDeclaredNamespaces.clear();
-        declareNamespace("xml", NamespaceUri.XML);
-        declareNamespace("xs", NamespaceUri.SCHEMA);
-        declareNamespace("xsi", NamespaceUri.SCHEMA_INSTANCE);
-        declareNamespace("fn", NamespaceUri.FN);
-        declareNamespace("math", NamespaceUri.MATH);
-        declareNamespace("map", NamespaceUri.MAP_FUNCTIONS);
-        declareNamespace("array", NamespaceUri.ARRAY_FUNCTIONS);
-        declareNamespace("local", NamespaceUri.LOCAL);
-        declareNamespace("err", NamespaceUri.ERR);
-        declareNamespace("saxon", NamespaceUri.SAXON);
-        declareNamespace("", NamespaceUri.NULL);
+        predeclaredNamespaces = NamespaceMap.STANDARD_QUERY_NAMESPACES;
+//        declareNamespace("xml", NamespaceUri.XML);
+//        declareNamespace("xs", NamespaceUri.SCHEMA);
+//        declareNamespace("xsi", NamespaceUri.SCHEMA_INSTANCE);
+//        declareNamespace("fn", NamespaceUri.FN);
+//        declareNamespace("math", NamespaceUri.MATH);
+//        declareNamespace("map", NamespaceUri.MAP_FUNCTIONS);
+//        declareNamespace("array", NamespaceUri.ARRAY_FUNCTIONS);
+//        declareNamespace("local", NamespaceUri.LOCAL);
+//        declareNamespace("err", NamespaceUri.ERR);
+//        declareNamespace("output", NamespaceUri.OUTPUT);
+//        declareNamespace("xq", NamespaceUri.XQUERY);
+//        declareNamespace("saxon", NamespaceUri.SAXON);
+//        declareNamespace("", NamespaceUri.NULL);
 
     }
 
@@ -774,8 +771,8 @@ public class StaticQueryContext {
      * @return the user-declared namespaces
      */
 
-    protected HashMap<String, NamespaceUri> getUserDeclaredNamespaces() {
-        return userDeclaredNamespaces;
+    protected NamespaceMap getPredeclaredNamespaces() {
+        return predeclaredNamespaces;
     }
 
     /**
@@ -787,7 +784,7 @@ public class StaticQueryContext {
      */
 
     public Iterator<String> iterateDeclaredPrefixes() {
-        return userDeclaredNamespaces.keySet().iterator();
+        return predeclaredNamespaces.iteratePrefixes();
     }
 
     /**
@@ -800,7 +797,7 @@ public class StaticQueryContext {
      */
 
     public NamespaceUri getNamespaceForPrefix(String prefix) {
-        return userDeclaredNamespaces.get(prefix);
+        return predeclaredNamespaces.getNamespaceUri(prefix);
     }
 
     /**
@@ -895,7 +892,7 @@ public class StaticQueryContext {
         if (value == null && !external) {
             throw new NullPointerException("No initial value for declared variable");
         }
-        if (value != null && !type.matches(value, getConfiguration().getTypeHierarchy())) {
+        if (value != null && !type.matches(value)) {
             throw new XPathException("Value of declared variable does not match its type");
         }
         GlobalVariable var = external ? new GlobalParam() : new GlobalVariable();
@@ -1017,7 +1014,19 @@ public class StaticQueryContext {
      */
 
     public void setRequiredContextItemType(ItemType type) {
-        requiredContextItemType = type;
+        requiredContextValueType = SequenceType.one(type);
+    }
+
+    /**
+     * Declare the static type of the context value. If this type is declared, and if a context value
+     * is supplied when the query is invoked, then the context value must conform to this type (no
+     * type conversion will take place to force it into this type).
+     *
+     * @param type the required type of the context item
+     */
+
+    public void setRequiredContextValueType(SequenceType type) {
+        requiredContextValueType = type;
     }
 
     /**
@@ -1028,7 +1037,18 @@ public class StaticQueryContext {
      */
 
     public ItemType getRequiredContextItemType() {
-        return requiredContextItemType;
+        return requiredContextValueType.getPrimaryType();
+    }
+
+    /**
+     * Get the required type of the context value. If no type has been explicitly declared for the context
+     * value, an type representing the type item() is returned.
+     *
+     * @return the required type of the context value
+     */
+
+    public SequenceType getRequiredContextValueType() {
+        return requiredContextValueType;
     }
 
     /**
@@ -1197,6 +1217,14 @@ public class StaticQueryContext {
 
     public boolean isUpdatingEnabled() {
         return updating;
+    }
+
+    public void preLoadSchema(Schema schema) {
+        preLoadedSchema = schema;
+    }
+
+    public Schema getPreLoadedSchema() {
+        return preLoadedSchema;
     }
 
 }

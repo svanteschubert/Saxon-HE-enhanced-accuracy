@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,15 +20,15 @@ import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.om.TreeInfo;
 import net.sf.saxon.pattern.BasePatternWithPredicate;
-import net.sf.saxon.pattern.MultipleNodeKindTest;
-import net.sf.saxon.pattern.NodeTestPattern;
+import net.sf.saxon.pattern.ItemTypePattern;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.sxpath.IndependentContext;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.type.BuiltInAtomicType;
+import net.sf.saxon.type.ChoiceItemType;
 import net.sf.saxon.type.Converter;
-import net.sf.saxon.type.UType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.NumericValue;
@@ -124,7 +124,7 @@ public class KeyManager {
         final StructuredQName qName = StandardNames.getStructuredQName(StandardNames.XS_IDREFS);
         if (keyDefinitions.get(qName) == null) {
             BasePatternWithPredicate pp = new BasePatternWithPredicate(
-                    new NodeTestPattern(new MultipleNodeKindTest(UType.ELEMENT_OR_ATTRIBUTE)),
+                    new ItemTypePattern(ChoiceItemType.of(NodeKindType.ELEMENT, NodeKindType.ATTRIBUTE)),
                     IntegratedFunctionLibrary.makeFunctionCall(new IsIdRef(), new Expression[]{})
             );
             try {
@@ -285,7 +285,7 @@ public class KeyManager {
             XPathContext context) throws XPathException {
 
         if (soughtValue == null) {
-            return EmptyIterator.ofNodes();
+            return EmptyIterator.INSTANCE;
         }
         if (keySet.isBackwardsCompatible()) {
             // if backwards compatibility is in force, treat all values as strings
@@ -343,7 +343,7 @@ public class KeyManager {
      */
 
     public KeyIndex obtainIndex(KeyDefinitionSet keySet, TreeInfo doc, XPathContext context) throws XPathException {
-        if (keySet.isReusable()) {
+        if (keySet.isReusable()) { 
             return obtainSharedIndex(keySet, doc, context);
         } else {
             return obtainLocalIndex(keySet, doc, context);
@@ -389,7 +389,7 @@ public class KeyManager {
             }
             // Now we build the index (which isn't synchronized because it doesn't write to any shared data)
             buildIndex(index, keySet, doc, context);
-            // On completion we synchronize again, and decide whether to use this index, or one that was
+            // On completion, we synchronize again, and decide whether to use this index, or one that was
             // completed earlier by a different thread.
             synchronized(this) {
                 index.setStatus(BUILT);

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,13 +17,14 @@ import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.CompilerInfo;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.type.Schema;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
 /**
- * An XsltPackage object represents the result of compiling an XSLT 3.0 package, as
+ * An {@code XsltPackage} object represents the result of compiling an XSLT 3.0 package, as
  * represented by an XML document containing an <code>xsl:package</code> element.
  *
  * @since 9.6
@@ -41,9 +42,9 @@ public class XsltPackage {
     }
 
     /**
-     * Get the processor under which this package was created
+     * Get the {@link Processor} under which this package was created
      *
-     * @return the corresponding Processor
+     * @return the corresponding {@code Processor}
      */
 
     public Processor getProcessor() {
@@ -114,11 +115,30 @@ public class XsltPackage {
             PreparedStylesheet pss = new PreparedStylesheet(compilation);
             stylesheetPackage.updatePreparedStylesheet(pss);
             pss.addPackage(stylesheetPackage);
-            return new XsltExecutable(getProcessor(), pss);
+            return new XsltExecutable(getProcessor(), pss, info.getXsltVersion());
         } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
     }
+
+    /**
+     * Get the schema used as the static context of this package in the stylesheet. This will typically
+     * include schema components preloaded using {@link XsltCompiler#useSchema(String, XsdSchema)}, plus schema components
+     * loaded using <code>xsl:import-schema</code> declarations within the stylesheet itself.
+     *
+     * <p>This schema can usefully be used for validating source documents that are to be supplied as input to
+     * the stylesheet.</p>
+     *
+     * @param role the role-name of the schema: supply null or "" for the default/unnamed role
+     * @return the schema used by this package
+     * @since 13.0
+     */
+
+    public XsdSchema getImportedSchema(String role) {
+        Schema schema = stylesheetPackage.getImportedSchema(role);
+        return compiler.getProcessor().newXsdCompiler().wrapInternalSchema(schema);
+    }
+
 
     /**
      * Save this compiled package to filestore.
@@ -142,8 +162,7 @@ public class XsltPackage {
      * Save this compiled package to filestore for a particular target environment
      *
      * @param file the file to which the compiled package should be saved
-     * @param target the target environment. The only value currently recognized is "JS",
-     *               which exports the package for running under SaxonJS 2.
+     * @param target the target environment (for example "EE" or "JS")
      * @throws SaxonApiException if the compiled package cannot be saved to the specified
      *                           location, or if the package was compiled with just-in-time
      *                           compilation enabled.

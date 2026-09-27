@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -84,17 +84,7 @@ public class StandardCollectionFinder
             throw new XPathException(e);
         }
 
-        String protocols = (String) context.getConfiguration().getConfigurationProperty(Feature.ALLOWED_PROTOCOLS);
-        boolean allow = "all".equals(protocols);
-        if (!allow) {
-            for (String protocol : protocols.split("\\s+")) {
-                if (resolvedURI.getScheme().equalsIgnoreCase(protocol)) {
-                    allow = true;
-                    break;
-                }
-            }
-        }
-
+        boolean allow = context.getConfiguration().getProtocolRestrictor().test(resolvedURI);
         if (!allow) {
             throw new XPathException("URI scheme '" + resolvedURI.getScheme() + "' has been disallowed");
         }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,12 +11,14 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Builder;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpSuppressWarnings;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.iter.NodeListIterator;
+import net.sf.saxon.tree.iter.ListIterator;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.AnyType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
@@ -55,7 +57,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
     private SystemIdMap systemIdMap = new SystemIdMap();
     private boolean imaginary;
     private Durability durability;
-    private SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.getInstance();
+    private SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.INSTANCE;
 
 
     /**
@@ -100,14 +102,26 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
     }
 
     /**
-     * Ask whether the tree is mutable. This is true only if {@link #setMutable(boolean) has been called
-     * supplying the value {@code true}}
+     * Ask whether the tree is mutable. This is true only if {@link #setMutable(boolean)} has been called
+     * supplying the value {@code true}
      * @return true if and only if the tree has been marked as mutable
      */
 
     @Override
     public boolean isMutable() {
         return durability == Durability.MUTABLE;
+    }
+
+    /**
+     * Ask whether element and attribute nodes in this tree use fingerprints to represent
+     * node names
+     *
+     * @return true if element and attribute nodes in this tree maintain a fingerprint
+     * accessible using the {@link NodeInfo#getFingerprint()} method.
+     */
+    @Override
+    public boolean isFingerprinted() {
+        return true;
     }
 
     /**
@@ -181,7 +195,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
      */
     @Override
     public boolean isTyped() {
-        return documentElement != null && documentElement.getSchemaType() != Untyped.getInstance();
+        return documentElement != null && documentElement.getSchemaType() != Untyped.INSTANCE;
     }
 
     /**
@@ -216,6 +230,39 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
     public void graftLocationMap(/*@NotNull*/ DocumentImpl original) {
         systemIdMap = original.systemIdMap;
         lineNumberMap = original.lineNumberMap;
+    }
+
+    /**
+     * Get an iterator over the descendant axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantAxis(NodePredicate predicate) {
+        if (predicate instanceof NamedXNodePredicate) {
+            NamedXNodePredicate fpTest = (NamedXNodePredicate) predicate;
+            int fp = fpTest.getRequiredFingerprint();
+            if (fp != -1 && fpTest.getNodeKind() == Type.ELEMENT) {
+                // optimised search of descendant axis
+                SequenceIterator all = getAllElements(fp);
+                if (fpTest.isFingerprintSufficient()) {
+                    return all;
+                } else {
+                    return Navigator.filter(all, predicate);
+                }
+            }
+        }
+        return super.iterateDescendantAxis(predicate);
+    }
+
+    @Override
+    public synchronized void compact(int size) {
+        super.compact(size);
+        if (lineNumberMap != null) {
+            lineNumberMap.condense();
+        }
     }
 
     /**
@@ -480,14 +527,14 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
      */
 
     /*@NotNull*/
-    AxisIterator getAllElements(int fingerprint) {
+    SequenceIterator getAllElements(int fingerprint) {
         if (elementList == null) {
-            elementList = new IntHashMap<>(500);
+            elementList = new IntHashMap<>(20);
         }
         IntHashMap<List<NodeInfo>> eList = elementList;
         List<NodeInfo> list = eList.get(fingerprint);
         if (list == null) {
-            list = new ArrayList<>(500);
+            list = new ArrayList<>();
             NodeImpl next = getNextInDocument(this);
             while (next != null) {
                 if (next.getNodeKind() == Type.ELEMENT &&
@@ -498,7 +545,7 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
             }
             eList.put(fingerprint, list);
         }
-        return new NodeListIterator(list);
+        return new ListIterator.Of<>(list);
     }
 
     /**
@@ -592,8 +639,8 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
         }
         assert idTable != null;
         NodeInfo node = idTable.get(id);
-        if (node != null && getParent && node.isId() && node.getUnicodeStringValue().equals(id)) {
-            node = node.getParent();
+        if (node != null && getParent && node.isId() && node.getStringValue().equals(id)) {
+            node = (NodeInfo)node.getParent();
         }
         return node;
     }
@@ -676,10 +723,10 @@ public final class DocumentImpl extends ParentNodeImpl implements TreeInfo, Muta
 
     @Override
     public SchemaType getSchemaType() {
-        if (documentElement == null || documentElement.getSchemaType() == Untyped.getInstance()) {
-            return Untyped.getInstance();
+        if (documentElement == null || documentElement.getSchemaType() == Untyped.INSTANCE) {
+            return Untyped.INSTANCE;
         } else {
-            return AnyType.getInstance();
+            return AnyType.INSTANCE;
         }
     }
 

@@ -14,7 +14,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.SimpleType;
 
-public class ProxyOutputter extends Outputter {
+public class ProxyOutputter extends AbstractOutputter {
 
     private final Outputter next;
 

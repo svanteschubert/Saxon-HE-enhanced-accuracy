@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -35,8 +35,7 @@ public class UnionPattern extends VennPattern {
 
     public UnionPattern(Pattern p1, Pattern p2) {
         super(p1, p2);
-        // default is to take the priority from the component patterns
-        setPriority(Double.NaN);
+        setPriority(Double.max(p1.getDefaultPriority(), p2.getDefaultPriority()));
     }
 
     /**
@@ -104,6 +103,8 @@ public class UnionPattern extends VennPattern {
         if (p1 == np1 && p2 == np2) {
             return this;
         } else {
+            np1.setRetainedStaticContext(p1.getRetainedStaticContext());
+            np2.setRetainedStaticContext(p2.getRetainedStaticContext());
             return new UnionPattern(np1, np2);
         }
     }
@@ -156,6 +157,7 @@ public class UnionPattern extends VennPattern {
     @Override
     public Pattern copy(RebindingMap rebindings) {
         UnionPattern n = new UnionPattern(p1.copy(rebindings), p2.copy(rebindings));
+        n.setPriority(getDefaultPriority());
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
         return n;

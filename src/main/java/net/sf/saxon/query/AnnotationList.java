@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,12 +18,15 @@ import java.util.*;
 
 /**
  * An immutable list of function or variable annotations, or of annotation assertions
+ * A non-empty annotation list is always bound to a specific configuration, so that a user-registered
+ * {@link FunctionAnnotationHandler} can be used to interpret the semantics of the annotation.
  */
 
 public class AnnotationList implements Iterable<Annotation> {
 
 
     private final List<Annotation> list;
+    private Configuration config;
 
     /**
      * An empty annotation list
@@ -40,8 +43,17 @@ public class AnnotationList implements Iterable<Annotation> {
      * @return a singleton annotation list
      */
 
-    public static AnnotationList singleton(Annotation ann) {
-        return new AnnotationList(Collections.singletonList(ann));
+    public static AnnotationList singleton(Annotation ann, Configuration config) {
+        return new AnnotationList(Collections.singletonList(ann)).withConfiguration(config);
+    }
+
+    public AnnotationList withConfiguration(Configuration config) {
+        this.config = config;
+        return this;
+    }
+
+    public Configuration getConfiguration() {
+        return config;
     }
 
 
@@ -58,7 +70,7 @@ public class AnnotationList implements Iterable<Annotation> {
         for (Map.Entry<NamespaceUri, List<Annotation>> entry : map.entrySet()) {
             FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(entry.getKey());
             if (handler != null) {
-                handler.check(new AnnotationList(entry.getValue()), where);
+                handler.check(new AnnotationList(entry.getValue()).withConfiguration(config), where);
             }
         }
     }
@@ -92,7 +104,7 @@ public class AnnotationList implements Iterable<Annotation> {
                 out.add(ann);
             }
         }
-        return new AnnotationList(out);
+        return new AnnotationList(out).withConfiguration(config);
     }
 
 

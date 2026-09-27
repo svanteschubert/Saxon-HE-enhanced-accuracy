@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,13 +22,13 @@ import net.sf.saxon.value.StringValue;
  */
 public class SwitchCaseComparer extends GenericAtomicComparer {
 
-    protected SwitchCaseComparer(StringCollator collator, XPathContext context) {
-        super(collator, context);
+    protected SwitchCaseComparer(StringCollator collator, int specVersion, XPathContext context) {
+        super(collator, specVersion, context);
     }
 
     @Override
     public SwitchCaseComparer provideContext(XPathContext context) {
-        return new SwitchCaseComparer(getStringCollator(), context);
+        return new SwitchCaseComparer(getStringCollator(), specVersion, context);
     }
 
     /**
@@ -55,8 +55,8 @@ public class SwitchCaseComparer extends GenericAtomicComparer {
             return true;
         } else {
             int implicitTimezone = getContext().getImplicitTimezone();
-            Object ac = a.getXPathMatchKey(getStringCollator(), implicitTimezone);
-            Object bc = b.getXPathMatchKey(getStringCollator(), implicitTimezone);
+            Object ac = a.getXPathMatchKey(getStringCollator(), implicitTimezone, specVersion);
+            Object bc = b.getXPathMatchKey(getStringCollator(), implicitTimezone, specVersion);
             return ac.equals(bc);
         }
     }
@@ -75,7 +75,7 @@ public class SwitchCaseComparer extends GenericAtomicComparer {
     }
 }
 
-// Copyright (c) 2010-2023 Saxonica Limited
+// Copyright (c) 2010-2026 Saxonica Limited
 
 
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,15 +7,20 @@
 
 package net.sf.saxon.ma.arrays;
 
+//import com.saxonica.functions.qt4.Slice;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.elab.Pingable;
+import net.sf.saxon.functions.DeepEqual;
 import net.sf.saxon.functions.Fold;
 import net.sf.saxon.functions.FoldingFunction;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
 import net.sf.saxon.ma.Parcel;
+import net.sf.saxon.ma.map.*;
 import net.sf.saxon.ma.zeno.ZenoSequence;
 import net.sf.saxon.om.*;
+import net.sf.saxon.str.Twine8;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AnyItemType;
@@ -29,6 +34,7 @@ import net.sf.saxon.z.IntSet;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+
 
 /**
  * Function signatures (and pointers to implementations) of the functions defined in XPath 3.1
@@ -47,72 +53,123 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
         return version >= 40 ? instance40 : instance31;
     }
 
+    public final static UnicodeString valueRecordKey = new Twine8("value");
+    public final static Shape VALUE_RECORD = new Shape(valueRecordKey);
+
     private void init(int version) {
 
 
-        register("append", 2, e -> e.populate( ArrayAppend::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, AnyItemType.getInstance(), STAR | NAV, null));
+        register("append", 2, e -> {
+            return e.populate(ArrayAppend::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
+                    .arg(1, AnyItemType.getInstance(), STAR | NAV, null);
+        });
 
 
-        ItemType filterFunctionType = new SpecificFunctionType(
-                new SequenceType[]{SequenceType.ANY_SEQUENCE},
+        SpecificFunctionType filterFunctionType31 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE,
                 SequenceType.SINGLE_BOOLEAN);
+
+        SpecificFunctionType filterFunctionType40 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE, SequenceType.SINGLE_INTEGER,
+                SequenceType.OPTIONAL_BOOLEAN).withAcceptReducedArity();
+
+        final SpecificFunctionType filterFunctionType = version >= 40 ? filterFunctionType40 : filterFunctionType31;
 
         register("filter", 2, e -> e.populate( ArrayFilter::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, filterFunctionType, ONE | INS, null));
 
-        register("flatten", 1, e -> e.populate( ArrayFlatten::new, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, AnyItemType.getInstance(), STAR | ABS, null));
+        register("flatten", 1, e -> {
+            return e.populate(ArrayFlatten::new, AnyItemType.getInstance(), STAR, 0)
+                    .arg(0, AnyItemType.getInstance(), STAR | ABS, null);
+        });
 
-        ItemType foldFunctionType = new SpecificFunctionType(
-                new SequenceType[]{SequenceType.ANY_SEQUENCE, SequenceType.ANY_SEQUENCE},
+        SpecificFunctionType foldFunctionType31 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE, SequenceType.ANY_SEQUENCE,
                 SequenceType.ANY_SEQUENCE);
 
-        register("fold-left", 3, e -> e.populate( ArrayFoldLeft::new, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, AnyItemType.getInstance(), STAR | NAV, null)
-                .arg(2, foldFunctionType, ONE | INS, null));
+        SpecificFunctionType foldFunctionType40 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE, SequenceType.ANY_SEQUENCE,
+                SequenceType.ANY_SEQUENCE).withAcceptReducedArity();
 
-        register("fold-right", 3, e -> e.populate( ArrayFoldRight::new, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, AnyItemType.getInstance(), STAR | NAV, null)
-                .arg(2, foldFunctionType, ONE | INS, null));
+        SpecificFunctionType foldFunctionType = version >= 40 ? foldFunctionType40 : foldFunctionType31;
+
+        register("fold-left", 3, e -> {
+            return e.populate(ArrayFoldLeft::new, AnyItemType.getInstance(), STAR, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
+                    .arg(1, AnyItemType.getInstance(), STAR | NAV, null)
+                    .arg(2, foldFunctionType, ONE | INS, null);
+        });
 
 
-        ItemType forEachFunctionType = new SpecificFunctionType(
-                new SequenceType[]{SequenceType.ANY_SEQUENCE},
+        register("fold-right", 3, e -> {
+            return e.populate(ArrayFoldRight::new, AnyItemType.getInstance(), STAR, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
+                    .arg(1, AnyItemType.getInstance(), STAR | NAV, null)
+                    .arg(2, foldFunctionType, ONE | INS, null);
+        });
+
+
+        SpecificFunctionType forEachFunctionType31 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE,
                 SequenceType.ANY_SEQUENCE);
+
+        SpecificFunctionType forEachFunctionType40 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE, SequenceType.SINGLE_INTEGER,
+                SequenceType.ANY_SEQUENCE).withAcceptReducedArity();
+
+        SpecificFunctionType forEachFunctionType = version >= 40 ? forEachFunctionType40 : forEachFunctionType31;
 
         register("for-each", 2, e -> e.populate( ArrayForEach::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, forEachFunctionType, ONE | INS, null));
 
+        SpecificFunctionType forEachPairFunctionType31 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE,
+                SequenceType.ANY_SEQUENCE,
+                SequenceType.ANY_SEQUENCE);
+
+        SpecificFunctionType forEachPairFunctionType40 = new SpecificFunctionType(
+                SequenceType.ANY_SEQUENCE, SequenceType.ANY_SEQUENCE, SequenceType.SINGLE_INTEGER,
+                SequenceType.ANY_SEQUENCE).withAcceptReducedArity();
+
+        SpecificFunctionType forEachPairFunctionType = version >= 40
+                ? forEachPairFunctionType40
+                : forEachPairFunctionType31;
+
         register("for-each-pair", 3, e -> e.populate( ArrayForEachPair::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
                 .arg(1, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(2, foldFunctionType, ONE | INS, null));
+                .arg(2, forEachPairFunctionType, ONE | INS, null));
 
-        register("get", 2, e -> e.populate( ArrayGet::new, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null));
+        register("get", 2, e -> {
+            return e.populate(ArrayGet::new, AnyItemType.INSTANCE, STAR, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
+                    .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null);
+        });
 
-        register("head", 1, e -> e.populate( ArrayHead::new, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
+        register("head", 1, e -> {
+            return e.populate(ArrayHead::new, AnyItemType.INSTANCE, STAR, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
+        });
 
-        register("insert-before", 3, e -> e.populate( ArrayInsertBefore::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null)
-                .arg(2, AnyItemType.getInstance(), STAR | NAV, null));
+        register("insert-before", 3, e -> {
+            return e.populate( ArrayInsertBefore::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
+                    .arg(1, BuiltInAtomicType.INTEGER, ONE | ABS, null)
+                    .arg(2, AnyItemType.INSTANCE, STAR | NAV, null);
+        });
 
         register("join", 1, e -> e.populate( ArrayJoin::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, STAR | INS, null));
 
-        register("put", 3, e -> e.populate( ArrayPut::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
-                .arg(1, BuiltInAtomicType.INTEGER, ONE | INS, null)
-                .arg(2, AnyItemType.getInstance(), STAR | NAV, null));
+        register("put", 3, e -> {
+            return e.populate( ArrayPut::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
+                    .arg(1, BuiltInAtomicType.INTEGER, ONE | INS, null)
+                    .arg(2, AnyItemType.INSTANCE, STAR | NAV, null);
+        });
 
         register("remove", 2, e -> e.populate( ArrayRemove::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null)
@@ -125,7 +182,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
                 .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
 
         ItemType sortFunctionType = new SpecificFunctionType(
-                new SequenceType[]{SequenceType.ANY_SEQUENCE},
+                SequenceType.ANY_SEQUENCE,
                 SequenceType.ATOMIC_SEQUENCE);
 
         register("sort", 1, e -> e.populate( ArraySort::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
@@ -156,11 +213,15 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
 
         // TODO: the following functions should be private
 
-        register("_to-sequence", 1, e -> e.populate(ArrayToSequence::new, AnyItemType.getInstance(), STAR, 0)
-                .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null));
+        register("_to-sequence", 1, e -> {
+            return e.populate(ArrayToSequence::new, AnyItemType.INSTANCE, STAR, 0)
+                    .arg(0, ArrayItemType.ANY_ARRAY_TYPE, ONE | INS, null);
+        });
 
-        register("_from-sequence", 1, e -> e.populate(ArrayFromSequence::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
-                .arg(0, AnyItemType.getInstance(), STAR | INS, null));
+        register("_from-sequence", 1, e -> {
+            return e.populate(ArrayFromSequence::new, ArrayItemType.ANY_ARRAY_TYPE, ONE, 0)
+                    .arg(0, AnyItemType.INSTANCE, STAR | INS, null);
+        });
 
 
     }
@@ -270,17 +331,37 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
 
         @Override
         public ArrayItem call(XPathContext context, Sequence[] arguments) throws XPathException {
-
             ArrayItem array = (ArrayItem) arguments[0].head();
             assert array != null;
             FunctionItem fn = (FunctionItem) arguments[1].head();
             List<GroundedValue> list = new ArrayList<>(expectedSize());
-            for (GroundedValue gv : array.members()) {
-                if (((BooleanValue) dynamicCall(fn, context, new Sequence[]{gv}).head()).getBooleanValue()) {
-                    list.add(gv);
+            switch (fn.getArity()) {
+                case 0: {
+                    BooleanValue truth = ((BooleanValue) dynamicCall(fn, context).head());
+                    return (truth != null && truth.getBooleanValue()) ? array : SimpleArrayItem.EMPTY_ARRAY;
                 }
+                case 1: {
+                    for (GroundedValue gv : array.members()) {
+                        BooleanValue truth = ((BooleanValue) dynamicCall(fn, context, gv).head());
+                        if (truth != null && truth.getBooleanValue()) {
+                            list.add(gv);
+                        }
+                    }
+                    return makeArray(list);
+                }
+                case 2:
+                    int position = 0;
+                    for (GroundedValue gv : array.members()) {
+                        BooleanValue truth = ((BooleanValue) dynamicCall(fn, context, gv, new Int64Value(++position)).head());
+                        if (truth != null && truth.getBooleanValue()) {
+                            list.add(gv);
+                        }
+                    }
+                    return makeArray(list);
+                default:
+                    throw new XPathException("Wrong arity for array:filter callback function");
             }
-            return makeArray(list);
+
         }
     }
 
@@ -289,7 +370,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
      */
     public static class ArrayFlatten extends SystemFunction {
 
-        private void flatten(Sequence arg, List<Item> out) {
+        private static void flatten(Sequence arg, List<Item> out) {
             SequenceTool.supply(arg.iterate(), (ItemConsumer<? super Item>) item -> {
                 if (item instanceof ArrayItem) {
                     for (GroundedValue member : ((ArrayItem) item).members()) {
@@ -321,13 +402,22 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             int arraySize = array.arrayLength();
             Sequence zero = arguments[1];
             FunctionItem fn = (FunctionItem) arguments[2].head();
-            int i;
-            for (i=0; i < arraySize; i++) {
-                zero = dynamicCall(fn, context, new Sequence[]{zero, array.get(i)});
+
+            int arity = fn.getArity();
+            Sequence[] args = new Sequence[arity];
+            for (int i = 0; i < arraySize; i++) {
+                if (arity > 0) {
+                    args[0] = zero;
+                    if (arity > 1) {
+                        args[1] = array.get(i);
+                    }
+                }
+                zero = dynamicCall(fn, context, args);
             }
             return zero;
         }
     }
+
 
     /**
      * Implementation of the function array:fold-left(array, item()*, function) =&gt; array
@@ -340,27 +430,21 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             assert array != null;
             Sequence zero = arguments[1];
             FunctionItem fn = (FunctionItem) arguments[2].head();
-            int i;
-            for (i = array.arrayLength() - 1; i >= 0; i--) {
-                zero = dynamicCall(fn, context, new Sequence[]{array.get(i), zero});
+
+
+            int arity = fn.getArity();
+            Sequence[] args = new Sequence[arity];
+            for (int i = array.arrayLength() - 1; i >= 0; i--) {
+                if (arity > 0) {
+                    args[0] = array.get(i);
+                    if (arity > 1) {
+                        args[1] = zero;
+                    }
+                }
+                zero = dynamicCall(fn, context, args);
             }
             return zero;
         }
-    }
-
-    /**
-     * Implementation of the proposed 4.0 function array:exists(array)
-     */
-    public static class ArrayExists extends SystemFunction {
-
-        @Override
-        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            ArrayItem array = (ArrayItem) arguments[0].head();
-            assert array != null;
-            int len = array.arrayLength();
-            return BooleanValue.get(len > 0);
-        }
-
     }
 
     /**
@@ -406,9 +490,18 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             ArrayItem array = (ArrayItem) arguments[0].head();
             assert array != null;
             FunctionItem fn = (FunctionItem) arguments[1].head();
+            int arity = fn.getArity();
+            Sequence[] args = new Sequence[arity];
             List<GroundedValue> list = new ArrayList<>(expectedSize());
+            int position = 0;
             for (GroundedValue gv : array.members()) {
-                list.add(dynamicCall(fn, context, new GroundedValue[]{gv}).materialize());
+                if (arity > 0) {
+                    args[0] = gv;
+                    if (arity > 1) {
+                        args[1] = new Int64Value(++position);
+                    }
+                }
+                list.add(dynamicCall(fn, context, args).materialize());
             }
             return makeArray(list);
         }
@@ -427,10 +520,21 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             ArrayItem array2 = (ArrayItem) arguments[1].head();
             assert array2 != null;
             FunctionItem fn = (FunctionItem) arguments[2].head();
+            int arity = fn.getArity();
+            Sequence[] args = new Sequence[arity];
             List<GroundedValue> list = new ArrayList<>(expectedSize());
             int i;
             for (i=0; i < array1.arrayLength() && i < array2.arrayLength(); i++) {
-                list.add(dynamicCall(fn, context, new Sequence[]{array1.get(i), array2.get(i)}).materialize());
+                if (arity > 0) {
+                    args[0] = array1.get(i);
+                    if (arity > 1) {
+                        args[1] = array2.get(i);
+                        if (arity > 2) {
+                            args[2] = new Int64Value(i+1);
+                        }
+                    }
+                }
+                list.add(dynamicCall(fn, context, args).materialize());
             }
             return makeArray(list);
         }
@@ -450,8 +554,7 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             } else {
                 int i = index.asSubscript();
                 if (i <= 0 || i > array.arrayLength()) {
-                    FunctionItem fn = (FunctionItem) arguments[2].head();
-                    return dynamicCall(fn, context, index);
+                    return arguments[2];
                 } else {
                     return array.get(i - 1);
                 }
@@ -557,24 +660,6 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
 
     }
 
-    /**
-     * Implementation of the function array:replace(array, position, action) =&gt; array
-     */
-    public static class ArrayReplace extends SystemFunction {
-
-        @Override
-        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            ArrayItem array = (ArrayItem) arguments[0].head();
-            IntegerValue index = (IntegerValue) arguments[1].head();
-            int pos = checkSubscript(index, array.arrayLength()) - 1;
-            GroundedValue oldVal = array.get(pos);
-            FunctionItem fn = (FunctionItem) arguments[2].head();
-            GroundedValue newVal = dynamicCall(fn, context, oldVal).materialize();
-            return array.put(pos, newVal);
-        }
-
-    }
-
 
     /**
      * Implementation of the function array:reverse(array, xs:integer, xs:integer) =&gt; array
@@ -664,6 +749,15 @@ public class ArrayFunctionSet extends BuiltInFunctionSet {
             return array.remove(0);
         }
     }
+
+    public static GroundedValue arrayMembers(ArrayItem input) {
+        List<MapItem> parcels = new ArrayList<>(input.arrayLength());
+        for (GroundedValue member : input.members()) {
+            parcels.add(new ShapedMap(VALUE_RECORD, member));
+        }
+        return SequenceExtent.makeSequenceExtent(parcels);
+    }
+
 
     /**
      * Implementation of the function array:_to-sequence(array) =&gt; item()* which

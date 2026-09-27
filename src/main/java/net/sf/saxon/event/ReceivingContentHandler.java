@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -92,7 +92,7 @@ public class ReceivingContentHandler
     private boolean afterStartTag = true;
 
     /**
-     * A local cache is used to avoid allocating namecodes for the same name more than once.
+     * A local cache is used to avoid allocating fingerprints for the same name more than once.
      * This reduces contention on the NamePool. This is a two-level hashmap: the first level
      * has the namespace URI as its key, and returns a HashMap which maps lexical QNames to integer
      * namecodes.
@@ -170,12 +170,12 @@ public class ReceivingContentHandler
     public void setPipelineConfiguration(PipelineConfiguration pipe) {
         this.pipe = pipe;
         Configuration config = pipe.getConfiguration();
-        ignoreIgnorable = pipe.getParseOptions().getSpaceStrippingRule() != NoElementsSpaceStrippingRule.getInstance();
+        ignoreIgnorable = pipe.getParseOptions().getSpaceStrippingRule() != NoElementsSpaceStrippingRule.INSTANCE;
         retainDTDAttributeTypes = config.getBooleanProperty(Feature.RETAIN_DTD_ATTRIBUTE_TYPES);
         if (!pipe.getParseOptions().isExpandAttributeDefaults()) {
             defaultedAttributesAction = -1;
         } else if (config.getBooleanProperty(Feature.MARK_DEFAULTED_ATTRIBUTES)) {
-            defaultedAttributesAction = +1;
+            defaultedAttributesAction = 1;
         }
         allowDisableOutputEscaping = config.getConfigurationProperty(Feature.USE_PI_DISABLE_OUTPUT_ESCAPING);
         lineNumbering = pipe.getParseOptions().isLineNumbering();
@@ -256,6 +256,33 @@ public class ReceivingContentHandler
         }
     }
 
+    // Commented out - requires Java 14
+//    /**
+//     * Receives notification of the XML declaration.
+//     *
+//     * @param version    the version string as in the input document, null if not
+//     *                   specified
+//     * @param encoding   the encoding string as in the input document, null if not
+//     *                   specified
+//     * @param standalone the standalone string as in the input document, null if
+//     *                   not specified
+//     * @throws SAXException if the application wants to report an error or
+//     *                      interrupt the parsing process
+//     * @implSpec The default implementation in the SAX API is to do nothing.
+//     * @since 14
+//     */
+//
+//    //@Override
+//    public void declaration(String version, String encoding, String standalone) throws SAXException {
+//        resetLocation();
+//    }
+
+    private void resetLocation() {
+//        if (receiver instanceof LineNumberRetainer) {
+//            ((LineNumberRetainer) receiver).resetLocation(localLocator);
+//        }
+    }
+
     /**
      * Receive notification of the end of a document
      */
@@ -288,6 +315,7 @@ public class ReceivingContentHandler
         if (!lineNumbering) {
             lastTextNodeLocator = localLocator;
         }
+        getPipelineConfiguration().setComponent("LocalLocator", localLocator);
     }
 
     /**
@@ -371,19 +399,20 @@ public class ReceivingContentHandler
             flush(true);
 
             int options = ReceiverOption.NAMESPACE_OK | ReceiverOption.ALL_NAMESPACES;
+            if (localLocator.levelInEntity == 0) {
+                options |= ReceiverOption.TOP_IN_ENTITY;
+            }
             NodeName elementName = getNodeName(uri, localname, rawname);
 
             AttributeMap attributes;
 
             if (atts.getLength() == 0) {
-                attributes = EmptyAttributeMap.getInstance();
-            }
-            else
-            {
+                attributes = EmptyAttributeMap.INSTANCE;
+            } else {
                 attributes = makeAttributeMap(atts, localLocator);
             }
 
-            receiver.startElement(elementName, Untyped.getInstance(),
+            receiver.startElement(elementName, Untyped.INSTANCE,
                                   attributes, currentNamespaceMap,
                                   localLocator, options);
 
@@ -458,43 +487,22 @@ public class ReceivingContentHandler
             String type = atts.getType(a);
             SimpleType typeCode = BuiltInAtomicType.UNTYPED_ATOMIC;
             if (retainDTDAttributeTypes) {
-                switch (type) {
-                    case "CDATA":
-                        // common case, no action
-                        break;
-                    case "ID":
-                        typeCode = BuiltInAtomicType.ID;
-                        break;
-                    case "IDREF":
-                        typeCode = BuiltInAtomicType.IDREF;
-                        break;
-                    case "IDREFS":
-                        typeCode = BuiltInListType.IDREFS;
-                        break;
-                    case "NMTOKEN":
-                        typeCode = BuiltInAtomicType.NMTOKEN;
-                        break;
-                    case "NMTOKENS":
-                        typeCode = BuiltInListType.NMTOKENS;
-                        break;
-                    case "ENTITY":
-                        typeCode = BuiltInAtomicType.ENTITY;
-                        break;
-                    case "ENTITIES":
-                        typeCode = BuiltInListType.ENTITIES;
-                        break;
-                }
+                typeCode = switch (type) {
+                    case "CDATA" -> BuiltInAtomicType.UNTYPED_ATOMIC;
+                    case "ID" -> BuiltInAtomicType.ID;
+                    case "IDREF" -> BuiltInAtomicType.IDREF;
+                    case "IDREFS" -> BuiltInListType.IDREFS;
+                    case "NMTOKEN" -> BuiltInAtomicType.NMTOKEN;
+                    case "NMTOKENS" -> BuiltInListType.NMTOKENS;
+                    case "ENTITY" -> BuiltInAtomicType.ENTITY;
+                    case "ENTITIES" -> BuiltInListType.ENTITIES;
+                    default -> throw new IllegalStateException("Unexpected value: " + type);
+                };
             } else {
                 switch (type) {
-                    case "ID":
-                        properties |= ReceiverOption.IS_ID;
-                        break;
-                    case "IDREF":
-                        properties |= ReceiverOption.IS_IDREF;
-                        break;
-                    case "IDREFS":
-                        properties |= ReceiverOption.IS_IDREF;
-                        break;
+                    case "ID" -> properties |= ReceiverOption.IS_ID;
+                    case "IDREF" -> properties |= ReceiverOption.IS_IDREF;
+                    case "IDREFS" -> properties |= ReceiverOption.IS_IDREF;
                 }
             }
             list.add(new AttributeInfo(attCode, typeCode, value, location, properties));
@@ -527,7 +535,7 @@ public class ReceivingContentHandler
             throw new SAXException("Parser configuration problem: namespace reporting is not enabled");
         }
 
-        // Following code maintains a local cache to remember all the elemen/attribute names that have been
+        // Following code maintains a local cache to remember all the element/attribute names that have been
         // allocated, which reduces contention on the NamePool. It also avoids parsing the lexical QName
         // when the same name is used repeatedly. We also get a tiny improvement by avoiding the first hash
         // table lookup for names in the null namespace.
@@ -748,6 +756,7 @@ public class ReceivingContentHandler
     @Override
     public void endEntity(String name) {
         localLocator.levelInEntity = elementDepthWithinEntity.pop();
+        resetLocation();
     }
 
     @Override

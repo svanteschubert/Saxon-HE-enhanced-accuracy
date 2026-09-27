@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -35,7 +35,7 @@ public class ResolveQName extends SystemFunction {
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue lex = (AtomicValue) arguments[0].head();
         if (lex == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else {
             return resolveQName(lex.getStringValue(), (NodeInfo) arguments[1].head());
         }
@@ -54,7 +54,7 @@ public class ResolveQName extends SystemFunction {
     /*@Nullable*/
     public static QNameValue resolveQName(String lexicalQName, NodeInfo element) throws XPathException {
         NamespaceResolver resolver = element.getAllNamespaces();
-        StructuredQName qName = StructuredQName.fromLexicalQName(lexicalQName, true, false, resolver);
+        StructuredQName qName = StructuredQName.fromLexicalQName(lexicalQName, true, 0, resolver);
         return new QNameValue(qName, BuiltInAtomicType.QNAME);
     }
 

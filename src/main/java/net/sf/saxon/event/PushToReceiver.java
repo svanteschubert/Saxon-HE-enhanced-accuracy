@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -27,11 +27,9 @@ import net.sf.saxon.type.Untyped;
 public class PushToReceiver implements Push {
 
     private final ComplexContentOutputter cco;
-    private final Configuration config;
 
     public PushToReceiver(Receiver cco) {
         this.cco = new ComplexContentOutputter(new RegularSequenceChecker(cco, false));
-        config = cco.getPipelineConfiguration().getConfiguration();
     }
 
     @Override
@@ -46,7 +44,7 @@ public class PushToReceiver implements Push {
 
     private abstract class ContainerImpl implements Container {
 
-        private ComplexContentOutputter cco;
+        private final ComplexContentOutputter cco;
         private String defaultNamespace;
         private ElemImpl elementAwaitingClosure;
         private boolean closed;
@@ -68,7 +66,7 @@ public class PushToReceiver implements Push {
                 implicitClose();
                 final FingerprintedQName fp = new FingerprintedQName(
                         name.getStructuredQName(), getConfiguration().getNamePool());
-                getOutputter().startElement(fp, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
+                getOutputter().startElement(fp, Untyped.INSTANCE, Loc.NONE, ReceiverOption.NONE);
             } catch (XPathException e) {
                 throw new SaxonApiException(e);
             }
@@ -82,7 +80,7 @@ public class PushToReceiver implements Push {
                 final NodeName fp = defaultNamespace.isEmpty()
                         ? new NoNamespaceName(name)
                         : new FingerprintedQName("", NamespaceUri.of(defaultNamespace), name);
-                cco.startElement(fp, Untyped.getInstance(), Loc.NONE, ReceiverOption.NONE);
+                cco.startElement(fp, Untyped.INSTANCE, Loc.NONE, ReceiverOption.NONE);
             } catch (XPathException e) {
                 throw new SaxonApiException(e);
             }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,12 +16,6 @@ import net.sf.saxon.type.ItemType;
 public class XSLMergeKey extends XSLSortOrMergeKey {
 
 
-    @Override
-//    protected boolean seesAvuncularVariables() {
-//        return false;
-//    }
-
-
     protected void prepareAttributes() {
 
         super.prepareAttributes();
@@ -31,19 +25,6 @@ public class XSLMergeKey extends XSLSortOrMergeKey {
         }
 
     }
-
-    /**
-     * Bind a variable used in this element to the compiled form of the XSLVariable element in which it is
-     * declared
-     *
-     * @param qName The name of the variable
-     * @return the XSLVariableDeclaration (that is, an xsl:variable or xsl:param instruction) for the variable,
-     *         or null if no declaration of the variable can be found
-     */
-
-//    public SourceBinding bindVariable(StructuredQName qName) {
-//        return ((StyleElement) this.getParent()).bindVariable(qName);
-//    }
 
     /**
      * Determine the type of item returned by this instruction (only relevant if

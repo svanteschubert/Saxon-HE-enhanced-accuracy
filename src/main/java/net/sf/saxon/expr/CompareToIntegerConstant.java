@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.elab.BooleanElaborator;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.expr.sort.AtomicComparer;
@@ -45,12 +46,12 @@ public class CompareToIntegerConstant extends CompareToConstant {
      * @param operand   the operand to be compared with an integer constant. This must
      *                  have a static type of NUMERIC, and a cardinality of EXACTLY ONE
      * @param operator  the comparison operator,
-     *                  one of {@link Token#FEQ}, {@link Token#FNE}, {@link Token#FGE},
-     *                  {@link Token#FGT}, {@link Token#FLE}, {@link Token#FLT}
+     *                  one of {@link OperatorSymbol#FEQ}, {@link OperatorSymbol#FNE}, {@link OperatorSymbol#FGE},
+     *                  {@link OperatorSymbol#FGT}, {@link OperatorSymbol#FLE}, {@link OperatorSymbol#FLT}
      * @param comparand the integer constant
      */
 
-    public CompareToIntegerConstant(Expression operand, int operator, long comparand) {
+    public CompareToIntegerConstant(Expression operand, OperatorSymbol operator, long comparand) {
         super(operand);
         this.operator = operator;
         this.comparand = comparand;
@@ -132,7 +133,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
     public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
         NumericValue n = (NumericValue) getLhsExpression().evaluateItem(context);
         if (n.isNaN()) {
-            return operator == Token.FNE;
+            return operator == OperatorSymbol.FNE;
         }
         int c = n.compareTo(comparand);
         return interpretComparisonResult(operator, c);
@@ -163,7 +164,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
     @Override
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("compareToInt", this);
-        destination.emitAttribute("op", Token.tokens[operator]);
+        destination.emitAttribute("op", operator.toString());
         destination.emitAttribute("val", comparand + "");
         getLhsExpression().export(destination);
         destination.endElement();
@@ -180,7 +181,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
     @Override
     public String toString() {
         return ExpressionTool.parenthesize(getLhsExpression()) + " " +
-                Token.tokens[operator] + " " + comparand;
+                operator.toString() + " " + comparand;
     }
 
     /**
@@ -190,7 +191,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
      */
     @Override
     public String toShortString() {
-        return getLhsExpression().toShortString() + " " + Token.tokens[operator] + " " + comparand;
+        return getLhsExpression().toShortString() + " " + operator + " " + comparand;
     }
 
     /**
@@ -233,7 +234,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
             CompareToIntegerConstant expression = (CompareToIntegerConstant) getExpression();
             Expression arg = expression.getBaseExpression();
             ItemEvaluator argEval = arg.makeElaborator().elaborateForItem();
-            int operator = expression.getComparisonOperator();
+            OperatorSymbol operator = expression.getComparisonOperator();
             long comparand = expression.getComparand();
 
             TypeHierarchy th = getConfiguration().getTypeHierarchy();
@@ -258,7 +259,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
                 return context -> {
                     double val = ((NumericValue) argEval.eval(context)).getDoubleValue();
                     if (Double.isNaN(val)) {
-                        return operator == Token.FNE;
+                        return operator == OperatorSymbol.FNE;
                     }
                     return interpretComparisonResult(operator, Double.compare(val, constant));
                 };
@@ -278,7 +279,7 @@ public class CompareToIntegerConstant extends CompareToConstant {
             return context -> {
                 NumericValue num = ((NumericValue) argEval.eval(context));
                 if (num.isNaN()) {
-                    return operator == Token.FNE;
+                    return operator == OperatorSymbol.FNE;
                 }
                 int c = num.compareTo(comparand);
                 return interpretComparisonResult(operator, c);

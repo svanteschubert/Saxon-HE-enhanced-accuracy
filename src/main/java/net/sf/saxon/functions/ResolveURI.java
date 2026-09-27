@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -43,7 +43,7 @@ public class ResolveURI extends SystemFunction {
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         AtomicValue arg0 = (AtomicValue) arguments[0].head();
         if (arg0 == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         String relative = arg0.getStringValue();
         String base;
@@ -240,12 +240,14 @@ public class ResolveURI extends SystemFunction {
             }
         }
 
-        if (relativeURI.startsWith("classpath:")) {
+        if (relativeURI.startsWith("classpath:") || relativeURI.startsWith("data:")) {
             // Resolving a classpath: URI involves searching the classpath.
             // There's no sense in which it makes sense to attempt to make one absolute
             // against some base URI. They're effectively absolute already.
             // (If we don't do this, passing them to java.net.URL causes an exception
             // anyway.)
+            //
+            // Similarly, a data: URI is absolute even though java.net.URL doesn't recognize that.
             return new URI(relativeURI);
         }
 
@@ -353,17 +355,10 @@ public class ResolveURI extends SystemFunction {
      * @return the input string with each space replaced by %20
      */
 
-    /*@NotNull*/
-    public static String escapeSpaces(/*@NotNull*/ String s) {
+    public static String escapeSpaces(String s) {
         // It's not entirely clear why we have to escape spaces by hand, and not other special characters;
         // it's just that tests with a variety of filenames show that this approach seems to work.
-        int i = s.indexOf(' ');
-        if (i < 0) {
-            return s;
-        }
-        return (i == 0 ? "" : s.substring(0, i))
-                + "%20"
-                + (i == s.length() - 1 ? "" : escapeSpaces(s.substring(i + 1)));
+        return s.replace(" ", "%20");
     }
 
     /**
@@ -373,8 +368,7 @@ public class ResolveURI extends SystemFunction {
      * @return the input URI with each %20 replaced by space
      */
 
-    /*@NotNull*/
-    public static String unescapeSpaces(/*@NotNull*/ String uri) {
+    public static String unescapeSpaces(String uri) {
         return uri.replace("%20", " ");
     }
 

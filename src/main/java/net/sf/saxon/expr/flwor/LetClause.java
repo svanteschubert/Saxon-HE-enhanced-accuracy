@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -38,7 +38,7 @@ public class LetClause extends Clause {
 
     public SequenceEvaluator getEvaluator() {
         if (variableEvaluator == null) {
-            variableEvaluator = new LearningEvaluator(
+            variableEvaluator = LearningEvaluator.makeLearningEvaluator(
                     getSequence(), getSequence().makeElaborator().lazily(true, false));
         }
         return variableEvaluator;
@@ -177,37 +177,6 @@ public class LetClause extends Clause {
 //     * @param properties additional static properties of the variable's initializer
 //     * @param visitor an ExpressionVisitor
 //     */
-
-//    public void refineVariableType(
-//            ItemType type, int cardinality, Value constantValue, int properties, ExpressionVisitor visitor) {
-//        Executable exec = visitor.getExecutable();
-//        if (exec == null) {
-//            // happens during use-when evaluation
-//            return;
-//        }
-//        TypeHierarchy th = exec.getConfiguration().getTypeHierarchy();
-//        ItemType oldItemType = rangeVariable.getRequiredType().getPrimaryType();
-//        ItemType newItemType = oldItemType;
-//        if (th.isSubType(type, oldItemType)) {
-//            newItemType = type;
-//        }
-//        if (oldItemType instanceof NodeTest && type instanceof AtomicType) {
-//            // happens when all references are flattened
-//            newItemType = type;
-//        }
-//        int newcard = cardinality & rangeVariable.getRequiredType().getCardinality();
-//        if (newcard==0) {
-//            // this will probably lead to a type error later
-//            newcard = rangeVariable.getRequiredType().getCardinality();
-//        }
-//        SequenceType seqType = SequenceType.makeSequenceType(newItemType, newcard);
-//        //setStaticType(seqType, constantValue, properties);
-//    }
-    @Override
-    public void addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet varPath = getSequence().addToPathMap(pathMap, pathMapNodeSet);
-        pathMap.registerPathForVariable(rangeVariable, varPath);
-    }
 
     /**
      * Diagnostic print of expression structure. The abstract expression tree

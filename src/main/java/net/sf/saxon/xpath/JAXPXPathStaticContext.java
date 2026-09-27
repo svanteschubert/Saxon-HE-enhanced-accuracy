@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,7 +26,6 @@ import javax.xml.xpath.XPathFunctionResolver;
 import javax.xml.xpath.XPathVariableResolver;
 import java.util.Arrays;
 import java.util.Iterator;
-import java.util.Set;
 
 /**
  * A JAXPXPathStaticContext provides a context for parsing an XPath expression
@@ -215,35 +214,6 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
     }
 
     /**
-     * Determine whether a Schema for a given target namespace has been imported. Note that the
-     * in-scope element declarations, attribute declarations and schema types are the types registered
-     * with the (schema-aware) configuration, provided that their namespace URI is registered
-     * in the static context as being an imported schema namespace. (A consequence of this is that
-     * within a Configuration, there can only be one schema for any given namespace, including the
-     * null namespace).
-     *
-     * @param namespace the target namespace in question
-     * @return true if schema components for the given namespace have been imported into the
-     *         schema-aware configuration
-     */
-
-    @Override
-    public boolean isImportedSchema(NamespaceUri namespace) {
-        return getConfiguration().isSchemaAvailable(namespace);
-    }
-
-    /**
-     * Get the set of imported schemas
-     *
-     * @return a Set, the set of URIs representing the names of imported schemas
-     */
-
-    @Override
-    public Set<NamespaceUri> getImportedSchemaNamespaces() {
-        return getConfiguration().getImportedNamespaces();
-    }
-
-    /**
      * Define a minimal namespace context for use when no user-defined namespace context has been
      * registered
      */
@@ -294,7 +264,7 @@ public class JAXPXPathStaticContext extends AbstractStaticContext
          */
         /*@NotNull*/
         @Override
-        public Iterator getPrefixes(String namespaceURI) {
+        public Iterator<String> getPrefixes(String namespaceURI) {
             throw new UnsupportedOperationException();
         }
 

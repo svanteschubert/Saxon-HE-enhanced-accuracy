@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2023 Saxonica Limited
+// Copyright (c) 2023-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,7 @@ package net.sf.saxon.transpile;
  * that is generated.
  */
 
-public class CSharp {
+public final class CSharp {
 
     /**
      * CSharp.emitCode("goto label") causes the converter to include
@@ -43,6 +43,10 @@ public class CSharp {
     /**
      * CSharp.staticRef is an identity function that signals to the
      * CSharp transpiler that the argument expression is a static method reference.
+     *
+     * <p>Typically used in a construct such as {@code CSharp.staticRef(Literal::makeEmptySequence)}.
+     * This is needed to enable the transpiler to decide what C# code to generate. It is assumed
+     * that in Java, the indirection will be optimised away.</p>
      *
      * @param methodReference must be supplied in the form of a method reference ClassName::method
      * @param <T>             the class of the argument

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,14 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.elab.ItemEvaluator;
+import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.elab.ItemElaborator;
-import net.sf.saxon.expr.*;
+import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.StringValue;
-import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.z.IntIterator;
 import net.sf.saxon.z.IntToIntHashMap;
 import net.sf.saxon.z.IntToIntMap;
@@ -70,17 +70,17 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
         }
 
 
-        UnicodeBuilder sb = new UnicodeBuilder(sv0.length32());
+        TwineBuilder tb = TwineBuilder.make(sv0.length32());
         long s2len = sv2.length();
         IntIterator iter = sv0.codePoints();
         while (iter.hasNext()) {
             int c = iter.next();
             long j = sv1.getContent().indexOf(c, 0);
             if (j < s2len) {
-                sb.append(j < 0 ? c : sv2.getContent().codePointAt(j));
+                tb = tb.append(j < 0 ? c : sv2.getContent().codePointAt(j));
             }
         }
-        return new StringValue(sb.toUnicodeString());
+        return new StringValue(tb.toUnicodeString());
     }
 
     /**
@@ -119,7 +119,7 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
      */
 
     public static StringValue translateUsingMap(StringValue in, IntToIntMap map) {
-        UnicodeBuilder builder = new UnicodeBuilder(in.length32());
+        TwineBuilder tb = TwineBuilder.make(in.length32());
         IntIterator iter = in.codePoints();
         while (iter.hasNext()) {
             int c = iter.next();
@@ -129,11 +129,11 @@ public class Translate extends SystemFunction implements Callable, StatefulSyste
                 newchar = c;
             }
             if (newchar != -1) {
-                builder.append(newchar);
+                tb = tb.append(newchar);
             }
             // else no action, delete the character
         }
-        return new StringValue(builder.toUnicodeString());
+        return new StringValue(tb.toUnicodeString());
     }
 
     /**

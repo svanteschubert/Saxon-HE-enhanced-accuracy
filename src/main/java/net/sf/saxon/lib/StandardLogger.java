@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,14 +7,8 @@
 
 package net.sf.saxon.lib;
 
-import net.sf.saxon.functions.AccessorFn;
-import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.value.DayTimeDurationValue;
-import net.sf.saxon.value.NumericValue;
-
 import javax.xml.transform.stream.StreamResult;
 import java.io.*;
-import java.math.BigDecimal;
 
 /**
  * The default Logger used by Saxon on the Java platform. All messages are written by default
@@ -31,6 +25,10 @@ public class StandardLogger extends Logger {
      * Create a Logger that wraps the System.err output stream
      */
 
+    public static Logger makeLogger() {
+        return new StandardLogger();
+    }
+
     public StandardLogger() {
     }
 
@@ -41,8 +39,12 @@ public class StandardLogger extends Logger {
      * @param stream the stream to which the Logger's output should be written
      */
 
-    public StandardLogger(PrintStream stream) {
-        setPrintStream(stream);
+    public static Logger makeLogger(PrintStream stream) {
+        return new StandardLogger(stream);
+    }
+
+    private StandardLogger(PrintStream stream) {
+        this.writer = new PrintWriter(stream);
     }
 
     /**
@@ -52,7 +54,11 @@ public class StandardLogger extends Logger {
      * @param writer the writer to which the Logger's output should be written
      */
 
-    public StandardLogger(Writer writer) {
+    public static Logger makeLogger(Writer writer) {
+        return new StandardLogger(writer);
+    }
+
+    private StandardLogger(Writer writer) {
         setPrintWriter(new PrintWriter(writer));
     }
 
@@ -64,8 +70,12 @@ public class StandardLogger extends Logger {
      * @throws FileNotFoundException if the file is not accessible
      */
 
-    public StandardLogger(File fileName) throws FileNotFoundException {
-        setPrintStream(new PrintStream(fileName));
+    public static Logger makeLogger(File fileName) throws FileNotFoundException {
+        return new StandardLogger(fileName);
+    }
+
+    private StandardLogger(File fileName) throws FileNotFoundException {
+        this.writer = new PrintWriter(new PrintStream(fileName));
         mustClose = true;
     }
 

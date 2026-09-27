@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -43,7 +43,7 @@ public abstract class Instruction extends Expression /*implements TailCallReturn
 
     public Instruction() {
     }
-
+    
     /**
      * An implementation of Expression must provide at least one of the methods evaluateItem(), iterate(), or process().
      * This method indicates which of these methods is preferred. For instructions this is the process() method.

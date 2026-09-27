@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,8 @@ import javax.xml.transform.SourceLocator;
 
 /**
  * Saxon interface to represent a location, typically the location of an expression within a query
- * or stylesheet. The interface combines the two JAXP interfaces SourceLocator and Locator.
+ * or stylesheet. The interface combines the two JAXP interfaces {@link SourceLocator} and
+ * {@link Locator}.
  */
 
 public interface Location extends SourceLocator
@@ -22,14 +23,15 @@ public interface Location extends SourceLocator
     //Inherited methods from SourceLocator are implicit in C#
 
     /**
-     * Get the system ID. This should be the system identifier of an XML external entity; if a stylesheet module
+     * Get the system ID, used to identify a containing resource.
+     * <p>For XSLT, This should be the system identifier of an XML external entity; if a stylesheet module
      * comprises multiple external entities, the distinction should be retained. This means, for example, that
      * an instruction in a stylesheet can have a different system identifier from its parent instruction. However,
      * SAX parsers only provide location information at the element level, so when part of an XPath expression
-     * is in a different external entity from other parts of the same expression, this distinction is lost.
+     * is in a different external entity from other parts of the same expression, this distinction is lost.</p>
      *
      * <p>The system identifier of a node is in general not the same as its base URI. The base URI is affected
-     * by xml:base attributes; the system identifier is not.</p>
+     * by <code>xml:base</code> attributes; the system identifier is not.</p>
      *
      * @return the system ID, or null if the information is not available.
      */
@@ -38,9 +40,9 @@ public interface Location extends SourceLocator
     String getSystemId();
 
     /**
-     * Get the Public ID
+     * Get the Public ID of the containing resource, if known
      *
-     * @return usually null
+     * @return the Public ID if known: usually null
      */
 
     @Override
@@ -69,7 +71,7 @@ public interface Location extends SourceLocator
 
 
     /**
-     * Get an immutable copy of this Location object. By default Location objects may be mutable, so they
+     * Get an immutable copy of this Location object. By default, Location objects may be mutable, so they
      * should not be saved for later use. The result of this operation holds the same location information,
      * but in an immutable form.
      * @return an immutable copy (which may be the original object, if it is already immutable)

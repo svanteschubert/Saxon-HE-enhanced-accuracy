@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.expr;
 
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
@@ -23,7 +24,7 @@ import net.sf.saxon.value.BooleanValue;
 
 public abstract class CompareToConstant extends UnaryExpression implements ComparisonExpression {
 
-    protected int operator;
+    protected OperatorSymbol operator;
 
     public CompareToConstant(Expression p0) {
         super(p0);
@@ -55,11 +56,11 @@ public abstract class CompareToConstant extends UnaryExpression implements Compa
     /**
      * Get the comparison operator
      *
-     * @return one of {@link Token#FEQ}, {@link Token#FNE}, {@link Token#FGE},
-     *         {@link Token#FGT}, {@link Token#FLE}, {@link Token#FLT}
+     * @return one of {@link OperatorSymbol#FEQ}, {@link OperatorSymbol#FNE}, {@link OperatorSymbol#FGE},
+     *         {@link OperatorSymbol#FGT}, {@link OperatorSymbol#FLE}, {@link OperatorSymbol#FLT}
      */
 
-    public int getComparisonOperator() {
+    public OperatorSymbol getComparisonOperator() {
         return operator;
     }
 
@@ -152,7 +153,7 @@ public abstract class CompareToConstant extends UnaryExpression implements Compa
      */
 
     @Override
-    public int getSingletonOperator() {
+    public OperatorSymbol getSingletonOperator() {
         return operator;
     }
 
@@ -170,24 +171,24 @@ public abstract class CompareToConstant extends UnaryExpression implements Compa
 
     /**
      * Interpret the result of the comparison
-     * @param operator the operator for example {@link Token#FEQ} or {@link Token#FLE}
+     * @param operator the operator for example {@link OperatorSymbol#FEQ} or {@link OperatorSymbol#FLE}
      * @param c -1, 0, or +1, depending on how the operands compare
      * @return true or false depending on the operator in use
      */
 
-    public static boolean interpretComparisonResult(int operator, int c) {
+    public static boolean interpretComparisonResult(OperatorSymbol operator, int c) {
         switch (operator) {
-            case Token.FEQ:
+            case FEQ:
                 return c == 0;
-            case Token.FNE:
+            case FNE:
                 return c != 0;
-            case Token.FGT:
+            case FGT:
                 return c > 0;
-            case Token.FLT:
+            case FLT:
                 return c < 0;
-            case Token.FGE:
+            case FGE:
                 return c >= 0;
-            case Token.FLE:
+            case FLE:
                 return c <= 0;
             default:
                 throw new UnsupportedOperationException("Unknown operator " + operator);

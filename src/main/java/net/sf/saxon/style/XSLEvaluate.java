@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,11 @@ package net.sf.saxon.style;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.instruct.Choose;
+import net.sf.saxon.expr.instruct.EvaluateInstr;
+import net.sf.saxon.expr.instruct.WithParam;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.expr.parser.TypeChecker;
 import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.lib.Feature;
@@ -228,11 +230,11 @@ public class XSLEvaluate extends StyleElement {
 
             role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:evaluate/with-params", 0, "XTTE3170");
             withParams = tc.staticTypeCheck(withParams,
-                                            SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE), role, visitor);
+                                            SequenceType.one(MapType.ANY_MAP_TYPE), role, visitor);
 
             role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:evaluate/saxon:options", 0);
             options = tc.staticTypeCheck(options,
-                                         SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE), role, visitor);
+                                         SequenceType.one(MapType.ANY_MAP_TYPE), role, visitor);
 
         } catch (XPathException err) {
             compileError(err);
@@ -279,7 +281,7 @@ public class XSLEvaluate extends StyleElement {
             validationError = new XmlProcessingIncident("xsl:evaluate is not available in this configuration", "XTDE3175");
             return fallbackProcessing(exec, decl, this);
         } else {
-            Expression evaluateExpr = getConfiguration().makeEvaluateInstruction(this, decl);
+            Expression evaluateExpr = makeEvaluateInstruction(decl);
             if (evaluateExpr instanceof ErrorExpression) {
                 return evaluateExpr;
             }
@@ -291,7 +293,7 @@ public class XSLEvaluate extends StyleElement {
                 Expression sysProp = SystemFunction.makeCall("system-property",
                                                         makeRetainedStaticContext(),
                                                         new StringLiteral("Q{" + NamespaceConstant.XSLT + "}supports-dynamic-evaluation"));
-                conditions[0] = new ValueComparison(sysProp, Token.FEQ, new StringLiteral("no"));
+                conditions[0] = new ValueComparison(sysProp, OperatorSymbol.FEQ, new StringLiteral("no"));
                 conditions[1] = Literal.makeLiteral(BooleanValue.TRUE);
                 Expression[] actions = new Expression[2];
                 List<Expression> fallbackExpressions = new ArrayList<>();
@@ -305,6 +307,32 @@ public class XSLEvaluate extends StyleElement {
                 return evaluateExpr;
             }
         }
+    }
+
+    /**
+     * Make an instruction to implement xsl:evaluate
+     *
+     * @param decl   the corresponding component declaration
+     * @return the compiled instruction
+     * @throws XPathException if static errors are found
+     */
+
+    public Expression makeEvaluateInstruction(ComponentDeclaration decl) throws XPathException {
+        Expression xpath = getTargetExpression();
+        SequenceType requiredType = getRequiredType();
+        Expression contextItem = getContextItemExpression();
+        Expression baseUri = getBaseUriExpression();
+        Expression namespaceContext = getNamespaceContextExpression();
+        Expression schemaAware = getSchemaAwareExpression();
+        Expression withParams = getWithParamsExpression();
+        EvaluateInstr inst = new EvaluateInstr(xpath, requiredType, contextItem, baseUri, namespaceContext, schemaAware);
+        inst.setRetainedStaticContext(makeRetainedStaticContext());
+        WithParam[] params = getWithParamInstructions(inst, getCompilation(), decl, false);
+        inst.setActualParams(params);
+        inst.setDynamicParams(withParams);
+        inst.setDefaultXPathNamespace(getDefaultXPathNamespace());
+        inst.setOptionsExpression(getOptionsExpression());
+        return inst;
     }
 
 

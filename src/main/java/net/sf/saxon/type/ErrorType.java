@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,13 +7,17 @@
 
 package net.sf.saxon.type;
 
+//import com.saxonica.ee.schema.UserSimpleType;
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.coercion.CoercionPlan;
+import net.sf.saxon.type.gnode.GNodeType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
@@ -30,7 +34,7 @@ import static net.sf.saxon.type.SchemaValidationStatus.VALIDATED;
  * This class has a singleton instance which represents the XML Schema 1.1 built-in type xs:error.
  */
 
-public final class ErrorType extends NodeTest implements AtomicType, UnionType, PlainType {
+public final class ErrorType extends GNodeType implements AtomicType, UnionType, PlainType {
 
     /*@NotNull*/ private static final ErrorType theInstance = new ErrorType();
 
@@ -45,6 +49,11 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
         return Genre.ANY;
     }
 
+    @Override
+    public NodeTest asXNodeTest(Configuration config) {
+        return this;
+    }
+
     /**
      * Get the corresponding {@link net.sf.saxon.type.UType}. A UType is a union of primitive item
      * types.
@@ -55,6 +64,25 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
     public UType getUType() {
         return UType.VOID;
     }
+//
+//    @Override
+//    public QNameTest getQNameTest() {
+//        return NoQNameTest.getInstance();
+//    }
+
+
+    /**
+     * Test whether a given item conforms to this type
+     *
+     * @param item The item to be tested
+     * @return true if the item is an instance of this type; false otherwise
+     */
+    @Override
+    public boolean matches(Item item) {
+        return false;
+    }
+
+
 
     /**
      * Get the local name of this type
@@ -101,6 +129,11 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
 
     @Override
     public List<? extends PlainType> getPlainMemberTypes() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public Iterable<? extends ItemType> getAlternatives() {
         return Collections.emptyList();
     }
 
@@ -168,7 +201,7 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
     /*@NotNull*/
     @Override
     public SchemaType getBaseType() {
-        return AnySimpleType.getInstance();
+        return AnySimpleType.INSTANCE;
     }
 
     /**
@@ -216,14 +249,14 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
         return StandardNames.XS_ERROR;
     }
 
-    /**
-     * Get the name of the nodes matched by this nodetest, if it matches a specific name.
-     * Return null if the node test matches nodes of more than one name
-     */
-    @Override
-    public StructuredQName getMatchingNodeName() {
-        return StandardNames.getStructuredQName(StandardNames.XS_ERROR);
-    }
+//    /**
+//     * Get the name of the nodes matched by this nodetest, if it matches a specific name.
+//     * Return null if the node test matches nodes of more than one name
+//     */
+//    @Override
+//    public StructuredQName getMatchingNodeName() {
+//        return StandardNames.getStructuredQName(StandardNames.XS_ERROR);
+//    }
 
     /**
      * Get the name of the type as a StructuredQName
@@ -296,22 +329,37 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
 
     @Override
     public void checkTypeDerivationIsOK(/*@NotNull*/ SchemaType type, int block) throws SchemaException {
-        if (type == this || type == AnySimpleType.getInstance()) {
+        if (type == this || type == AnySimpleType.INSTANCE) {
             return;
         }
         throw new SchemaException("Type xs:error is not validly derived from " + type.getDescription());
     }
 
     /**
-     * Test whether this Simple Type is an atomic type
+     * Get the coercion plan for use when this type is the required type for (say) coercion
+     * of arguments in a function call
      *
-     * @return false, this is not (necessarily) an atomic type
+     * @param version the XPath language version (40 or 31)
      */
-
     @Override
-    public boolean isAtomicType() {
-        return false;
+    public CoercionPlan getCoercionPlan(int version) {
+        return null;
     }
+
+    /**
+     * Get an alphabetic code representing the type, or at any rate, the nearest built-in type
+     * from which this type is derived. The codes are designed so that for any two built-in types
+     * A and B, alphaCode(A) is a prefix of alphaCode(B) if and only if A is a supertype of B.
+     *
+     * @return the alphacode for the nearest containing built-in type. For example: for xs:string
+     * return "AS", for xs:boolean "AB", for node() "N", for element() "NE", for map(*) "FM", for
+     * array(*) "FA".
+     */
+    @Override
+    public String getBasicAlphaCode() {
+        return "X";
+    }
+
 
     /**
      * Ask whether this type is an ID type. This is defined to be any simple type
@@ -501,11 +549,12 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
      *
      * @param expression the expression that delivers the content
      * @param kind       the node kind whose content is being delivered: {@link Type#ELEMENT},
-*                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
+     *                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
+     * @param schema
      */
 
     @Override
-    public void analyzeContentExpression(Expression expression, int kind) throws XPathException {
+    public void analyzeContentExpression(Expression expression, int kind, Schema schema) throws XPathException {
         throw new XPathException("No expression can ever return a value of type xs:error");
     }
 
@@ -537,20 +586,20 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
         return input;
     }
 
-    @Override
-    public boolean isPlainType() {
-        return true;
-    }
+//    @Override
+//    public boolean isPlainType() {
+//        return true;
+//    }
 
-    @Override
-    public boolean matches(Item item, TypeHierarchy th) {
-        return false;
-    }
+//    @Override
+//    public boolean matches(Item item, TypeHierarchy th) {
+//        return false;
+//    }
 
-    @Override
-    public boolean matches(int nodeKind, NodeName name, SchemaType annotation) {
-        return false;
-    }
+//    @Override
+//    public boolean matches(int nodeKind, NodeName name, SchemaType annotation) {
+//        return false;
+//    }
 
     @Override
     public AtomicType getPrimitiveItemType() {
@@ -693,6 +742,21 @@ public final class ErrorType extends NodeTest implements AtomicType, UnionType, 
     @Override
     public Optional<String> explainMismatch(Item item, TypeHierarchy th) {
         return Optional.of("Evaluation of the supplied expression will always fail");
+    }
+
+    @Override
+    public AtomicType getType() {
+        return this;
+    }
+
+    /**
+     * Determine whether the content type (if present) is nillable
+     *
+     * @return true if the content test (when present) can match nodes that are nilled
+     */
+    @Override
+    public boolean isNillable() {
+        return false;
     }
 
 

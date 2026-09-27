@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.value;
 
 import net.sf.saxon.str.*;
 import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.AtomicType;
 import net.sf.saxon.type.BuiltInAtomicType;
 
@@ -57,7 +58,7 @@ public final class AnyURIValue extends StringValue {
      *              to the definition of this type.
      */
 
-    public AnyURIValue(UnicodeString value, AtomicType type) {
+    public AnyURIValue(UnicodeString value, AtomicMetadata type) {
         super(value == null ? "" : Whitespace.collapseWhitespace(value).toString(), type);
     }
 
@@ -65,14 +66,14 @@ public final class AnyURIValue extends StringValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     /*@NotNull*/
     @Override
-    public AnyURIValue copyAsSubType(AtomicType typeLabel) {
-        return new AnyURIValue(this.getUnicodeStringValue(), typeLabel);
+    public AnyURIValue withMetadata(AtomicMetadata metadata) {
+        return new AnyURIValue(this.getUnicodeStringValue(), metadata);
     }
 
     public StringValue convertToString() {

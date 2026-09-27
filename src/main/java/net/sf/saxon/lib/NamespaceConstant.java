@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -249,6 +249,12 @@ public class NamespaceConstant {
      */
 
     public static final String HTML5_CASE_BLIND_COLLATION_URI = "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive";
+
+    /**
+     * URI identifying the Unicode case-blind collation
+     */
+
+    public static final String UNICODE_CASE_BLIND_COLLATION_URI = "http://www.w3.org/2005/xpath-functions/collation/unicode-case-insensitive";
 
     /**
      * URI for the names of generated variables

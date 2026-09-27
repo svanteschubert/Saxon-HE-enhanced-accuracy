@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -42,27 +42,27 @@ public class FormatDate extends SystemFunction implements Callable {
     static final String[] knownCalendars = {"AD", "AH", "AME", "AM", "AP", "AS", "BE", "CB", "CE", "CL", "CS", "EE", "FE", "ISO", "JE",
             "KE", "KY", "ME", "MS", "NS", "OS", "RS", "SE", "SH", "SS", "TE", "VE", "VS"};
 
-    private final static UnicodeString STR_0 = BMPString.of("0");
-    private final static UnicodeString STR_01 = BMPString.of("01");
-    private final static UnicodeString STR_1 = BMPString.of("1");
-    private final static UnicodeString STR_f = BMPString.of("f");
-    private final static UnicodeString STR_F = BMPString.of("F");
-    private final static UnicodeString STR_i = BMPString.of("i");
-    private final static UnicodeString STR_I = BMPString.of("I");
-    private final static UnicodeString STR_J = BMPString.of("J");
-    private final static UnicodeString STR_M = BMPString.of("M");
-    private final static UnicodeString STR_N = BMPString.of("N");
-    private final static UnicodeString STR_Nn = BMPString.of("Nn");
-    private final static UnicodeString STR_n = BMPString.of("n");
-    private final static UnicodeString STR_P = BMPString.of("P");
-    private final static UnicodeString STR_s = BMPString.of("s");
-    private final static UnicodeString STR_Y = BMPString.of("Y");
-    private final static UnicodeString STR_Z = BMPString.of("Z");
+    private final static UnicodeString STR_0 = StringConstants.ZERO;
+    private final static UnicodeString STR_01 = Latin1.of("01");
+    private final static UnicodeString STR_1 = StringConstants.ONE;
+    private final static UnicodeString STR_f = new UnicodeChar('f');
+    private final static UnicodeString STR_F = new UnicodeChar('F');
+    private final static UnicodeString STR_i = new UnicodeChar('i');
+    private final static UnicodeString STR_I = new UnicodeChar('I');
+    private final static UnicodeString STR_J = new UnicodeChar('J');
+    private final static UnicodeString STR_M = new UnicodeChar('M');
+    private final static UnicodeString STR_N = new UnicodeChar('N');
+    private final static UnicodeString STR_Nn = Latin1.of("Nn");
+    private final static UnicodeString STR_n = new UnicodeChar('n');
+    private final static UnicodeString STR_P = new UnicodeChar('P');
+    private final static UnicodeString STR_s = new UnicodeChar('s');
+    private final static UnicodeString STR_Y = new UnicodeChar('Y');
+    private final static UnicodeString STR_Z = new UnicodeChar('Z');
 
     private String adjustCalendar(String calendarVal, String result, XPathContext context) throws XPathException {
         StructuredQName cal;
         try {
-            cal = StructuredQName.fromLexicalQName((calendarVal), false, true, getRetainedStaticContext());
+            cal = StructuredQName.fromLexicalQName((calendarVal), false, StructuredQName.QUPL, getRetainedStaticContext());
         } catch (XPathException e) {
             throw new XPathException("Invalid calendar name. " + e.getMessage())
                     .withErrorCode("FOFD1340")
@@ -130,7 +130,8 @@ public class FormatDate extends SystemFunction implements Callable {
             sb.append("[Language: en]");
         }
         if (numberer.defaultedLocale() != null) {
-            sb.append("[Language: " + numberer.defaultedLocale().getLanguage() + "]");
+            sb.append("[Language: ").append(numberer.defaultedLocale().getLanguage())
+                    .append("]");
         }
 
 
@@ -284,9 +285,8 @@ public class FormatDate extends SystemFunction implements Callable {
                             .withErrorCode("FOFD1350")
                             .withXPathContext(context);
                 } else {
-                    Int64Value hour = (Int64Value) value.getComponent(AccessorFn.Component.HOURS);
-                    assert hour != null;
-                    return formatNumber(component, (int) hour.longValue(), format, defaultFormat, numberer, context);
+                    TimeValue time = (value instanceof TimeValue ? ((TimeValue) value) : ((DateTimeValue)value).toTimeValue());
+                    return formatNumber(component, time.getHour(), format, defaultFormat, numberer, context);
                 }
             case 'h':       // hour in half-day (12 hour clock)
                 if (ignoreTime) {
@@ -294,9 +294,8 @@ public class FormatDate extends SystemFunction implements Callable {
                             .withErrorCode("FOFD1350")
                             .withXPathContext(context);
                 } else {
-                    Int64Value hour = (Int64Value) value.getComponent(AccessorFn.Component.HOURS);
-                    assert hour != null;
-                    int hr = (int) hour.longValue();
+                    TimeValue time = (value instanceof TimeValue ? ((TimeValue) value) : ((DateTimeValue) value).toTimeValue());
+                    int hr = time.getHour();
                     if (hr > 12) {
                         hr = hr - 12;
                     }
@@ -311,9 +310,8 @@ public class FormatDate extends SystemFunction implements Callable {
                             .withErrorCode("FOFD1350")
                             .withXPathContext(context);
                 } else {
-                    Int64Value minutes = (Int64Value) value.getComponent(AccessorFn.Component.MINUTES);
-                    assert minutes != null;
-                    return formatNumber(component, (int) minutes.longValue(), format, defaultFormat, numberer, context);
+                    TimeValue time = (value instanceof TimeValue ? ((TimeValue) value) : ((DateTimeValue) value).toTimeValue());
+                    return formatNumber(component, time.getMinute(), format, defaultFormat, numberer, context);
                 }
             case 's':       // seconds
                 if (ignoreTime) {
@@ -321,9 +319,8 @@ public class FormatDate extends SystemFunction implements Callable {
                             .withErrorCode("FOFD1350")
                             .withXPathContext(context);
                 } else {
-                    IntegerValue seconds = (IntegerValue) value.getComponent(AccessorFn.Component.WHOLE_SECONDS);
-                    assert seconds != null;
-                    return formatNumber(component, (int) seconds.longValue(), format, defaultFormat, numberer, context);
+                    TimeValue time = (value instanceof TimeValue ? ((TimeValue) value) : ((DateTimeValue) value).toTimeValue());
+                    return formatNumber(component, time.getSecond().intValue(), format, defaultFormat, numberer, context);
                 }
             case 'f':       // fractional seconds
                 // ignore the format
@@ -332,9 +329,10 @@ public class FormatDate extends SystemFunction implements Callable {
                             .withErrorCode("FOFD1350")
                             .withXPathContext(context);
                 } else {
-                    Int64Value micros = (Int64Value) value.getComponent(AccessorFn.Component.MICROSECONDS);
-                    assert micros != null;
-                    return formatNumber(component, (int)micros.longValue(), format, defaultFormat, numberer, context);
+                    TimeValue time = (value instanceof TimeValue ? ((TimeValue) value) : ((DateTimeValue) value).toTimeValue());
+                    BigDecimal subSeconds = time.getSecond().divideAndRemainder(BigDecimal.ONE)[1];
+                    int micros = subSeconds.multiply(BigDecimal.valueOf(1_000_000)).intValue();
+                    return formatNumber(component, micros, format, defaultFormat, numberer, context);
                 }
             case 'z':
             case 'Z':
@@ -349,10 +347,10 @@ public class FormatDate extends SystemFunction implements Callable {
                     int year = now.getYear();
                     int tzoffset = value.getTimezoneInMinutes();
                     DateTimeValue baseDate =
-                            new DateTimeValue(year, (byte)1, (byte)1, (byte)0, (byte)0, (byte)0, 0, tzoffset, false);
+                            new DateTimeValue(year, 1, 1, 0, 0, BigDecimal.ZERO, tzoffset);
                     Optional<Boolean> b = NamedTimeZone.inSummerTime(baseDate, country);
                     if (b.isPresent() && b.get()) {
-                        baseDate = new DateTimeValue(year, (byte) 7, (byte) 1, (byte) 0, (byte) 0, (byte) 0, 0, tzoffset, false);
+                        baseDate = new DateTimeValue(year, 7, 1, 0, 0, BigDecimal.ZERO, tzoffset);
                     }
                     dtv = DateTimeValue.makeDateTimeValue(baseDate.toDateValue(), (TimeValue)value);
                 } else {
@@ -479,14 +477,14 @@ public class FormatDate extends SystemFunction implements Callable {
             //max = Integer.MAX_VALUE;
 
             String roman = numberer.format(value, primary, null, letterValue, "", ordinal);
-            UnicodeBuilder s = new UnicodeBuilder(32);
-            s.append(roman);
+            TwineBuilder tb = TwineBuilder.make(32);
+            tb = tb.append(roman);
             int len = StringTool.getStringLength(roman);
             while (len < min) {
-                s.append(' ');
+                tb = tb.append(' ');
                 len++;
             }
-            return s.toUnicodeString();
+            return tb.toUnicodeString();
         } else if (!widths.isEmpty()) {
             int[] range = getWidths(widths);
             min = Math.max(min, range[0]);
@@ -498,12 +496,12 @@ public class FormatDate extends SystemFunction implements Callable {
             if (defaultFormat) {
                 // if format was defaulted, the explicit widths override the implicit format
                 if (StringTool.lastCodePoint(primary) == '1' && min != primary.length()) {
-                    UnicodeBuilder sb = new UnicodeBuilder(min + 1);
+                    TwineBuilder tb = TwineBuilder.make(min + 1);
                     for (int i = 1; i < min; i++) {
-                        sb.append('0');
+                        tb = tb.append('0');
                     }
-                    sb.append('1');
-                    primary = sb.toUnicodeString();
+                    tb = tb.append('1');
+                    primary = tb.toUnicodeString();
                 }
             }
         }
@@ -555,11 +553,12 @@ public class FormatDate extends SystemFunction implements Callable {
             while (str.length() < min) {
                 str = str.concat(STR_0);
             }
-            if (str.length() > min)
-            while (str.length() > min && str.codePointAt(str.length() - 1) == '0') {
-                str = str.prefix(str.length() - 1);
+            if (str.length() > min) {
+                while (str.length() > min && str.codePointAt(str.length() - 1) == '0') {
+                    str = str.prefix(str.length() - 1);
+                }
             }
-            // for non standard decimal digit family
+            // for non-standard decimal digit family
             int zeroDigit = Alphanumeric.getDigitFamily(format.codePointAt(0));
             if (zeroDigit >= 0 && zeroDigit != '0') {
                 int[] digits = new int[10];
@@ -618,11 +617,11 @@ public class FormatDate extends SystemFunction implements Callable {
     }
 
     private static UnicodeString reverse(UnicodeString in) {
-        UnicodeBuilder builder = new UnicodeBuilder(in.length32());
+        TwineBuilder tb = TwineBuilder.make(in.length32());
         for (long i = in.length() - 1; i >= 0; i--) {
-            builder.append(in.codePointAt(i));
+            tb = tb.append(in.codePointAt(i));
         }
-        return builder.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     private static int[] getWidths(UnicodeString widths) throws XPathException {
@@ -761,7 +760,7 @@ public class FormatDate extends SystemFunction implements Callable {
             }
 
             return StringTool.fromCodePoints(buffer, used);
-        } else if (format.equals(BMPString.of("Z"))) {
+        } else if (format.equals(STR_Z)) {
             // military timezone formatting
             int hour = tz / 60;
             int minute = tz % 60;
@@ -801,9 +800,8 @@ public class FormatDate extends SystemFunction implements Callable {
                 return NamedTimeZone.getOlsonTimeZoneName(value, country);
             }
         }
-        UnicodeBuilder sbz = new UnicodeBuilder(16);
-        value.appendTimezone(sbz);
-        return sbz.toString();
+        TwineBuilder sbz = TwineBuilder.make(16);
+        return value.appendTimezone(sbz).toString();
     }
 
 
@@ -811,7 +809,7 @@ public class FormatDate extends SystemFunction implements Callable {
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         CalendarValue value = (CalendarValue) arguments[0].head();
         if (value == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         String format = arguments[1].head().getStringValue();
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -155,7 +155,7 @@ public abstract class ExtensionFunctionCall implements Callable {
      *         <p>If the result is a single item, it can be returned directly, since single items all implement <code>Sequence</code>.
      *         For example a string can be returned as an instance of {@link StringValue}, and a boolean as an instance
      *         of {@link net.sf.saxon.value.BooleanValue}.
-     *         If the result is an empty sequence, the method should return {@link net.sf.saxon.value.EmptySequence#getInstance()}</p>
+     *         If the result is an empty sequence, the method should return {@link net.sf.saxon.value.EmptySequence#INSTANCE}</p>
      * @throws XPathException if a dynamic error occurs during evaluation of the function. The Saxon run-time
      *                        code will add information about the error location.
      */

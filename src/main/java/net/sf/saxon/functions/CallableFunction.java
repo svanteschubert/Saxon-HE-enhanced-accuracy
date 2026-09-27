@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,19 +7,18 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.Callable;
+import net.sf.saxon.expr.CallableDelegate;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.AnnotationList;
-import net.sf.saxon.query.XQueryFunctionLibrary;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SymbolicName;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.AnyFunctionType;
 import net.sf.saxon.type.FunctionItemType;
+import net.sf.saxon.type.SpecificFunctionType;
 
 /**
  * A function item that wraps a Callable
@@ -27,33 +26,40 @@ import net.sf.saxon.type.FunctionItemType;
 
 public class CallableFunction extends AbstractFunction {
 
-    private Callable callable;
+    private final CallableDelegate.Lambda callable;
     private final SymbolicName.F name;
-    private FunctionItemType type;
+    private final FunctionItemType type;
     private AnnotationList annotations;
+    private String description;
+    private String tag;
 
-    public CallableFunction(SymbolicName.F name, Callable callable, FunctionItemType type) {
+    public CallableFunction(SymbolicName.F name, CallableDelegate.Lambda callable, FunctionItemType type) {
         this.name = name;
         this.callable = callable;
         this.type = type;
     }
 
-    public CallableFunction(int arity, Callable callable, FunctionItemType type) {
-        this.name = new SymbolicName.F(NamespaceUri.ANONYMOUS.qName("anon"), arity);
+    public CallableFunction(CallableDelegate.Lambda callable, SpecificFunctionType type) {
+        this.name = new SymbolicName.F(NamespaceUri.ANONYMOUS.qName("anon"), type.getArity());
         this.callable = callable;
         this.type = type;
     }
 
-    public Callable getCallable() {
-        return callable;
+    public CallableFunction withDescription(String description) {
+        this.description = description;
+        return this;
     }
 
-    public void setCallable(Callable callable) {
-        this.callable = callable;
-    }
-
-    public void setType(FunctionItemType type) {
-        this.type = type;
+    /**
+     * Set a tag identifying this callable function. A CallableFunction must be tagged if it is
+     * to be exported into a SEF file, and the tag must be known to the package loader so that
+     * import can succeed.
+     * @param tag the identifier for this callable function
+     * @return this same callable function, modified to add the supplied tag.
+     */
+    public CallableFunction withTag(String tag) {
+        this.tag = tag;
+        return this;
     }
 
     /**
@@ -63,13 +69,6 @@ public class CallableFunction extends AbstractFunction {
      */
     @Override
     public FunctionItemType getFunctionItemType() {
-        if (type == AnyFunctionType.getInstance() && callable instanceof XQueryFunctionLibrary.UnresolvedCallable) {
-            UserFunction uf = ((XQueryFunctionLibrary.UnresolvedCallable) callable).getFunction();
-            if (uf != null) {
-                // the previously unresolved function reference is now resolved
-                type = uf.getFunctionItemType();
-            }
-        }
         return type;
     }
 
@@ -92,7 +91,13 @@ public class CallableFunction extends AbstractFunction {
      */
     @Override
     public String getDescription() {
-        return callable.toString();
+        if (description != null) {
+            return description;
+        }
+        if (getFunctionName() != null) {
+            return "function " + getFunctionName();
+        }
+        return "anonymous function of type " + getFunctionItemType();
     }
 
     /**
@@ -125,7 +130,11 @@ public class CallableFunction extends AbstractFunction {
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] args) throws XPathException {
-        return callable.call(context, args);
+        try {
+            return callable.call(context, args);
+        } catch (UncheckedXPathException e) {
+            throw e.getXPathException();
+        }
     }
 
 
@@ -136,6 +145,13 @@ public class CallableFunction extends AbstractFunction {
      */
     @Override
     public void export(ExpressionPresenter out) {
-        throw new UnsupportedOperationException("A CallableFunction is a transient value that cannot be exported");
+        if (tag != null) {
+            out.startElement("callable");
+            out.emitAttribute("tag", tag);
+            out.endElement();
+        } else {
+            throw new UnsupportedOperationException("An untagged CallableFunction is a transient value that cannot be exported. " +
+                    "It may be possible to fix this by calling XsltCompiler.setCompileForExport(true).");
+        }
     }
 }

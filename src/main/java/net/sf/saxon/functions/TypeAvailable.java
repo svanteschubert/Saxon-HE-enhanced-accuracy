@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,6 +18,7 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.JavaExternalObjectType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.BooleanValue;
 
@@ -35,7 +36,7 @@ public class TypeAvailable extends SystemFunction {
                 qName = new StructuredQName("", defaultNS, lexicalName);
             } else {
                 qName = StructuredQName.fromLexicalQName(lexicalName,
-                        false, true,
+                        false, StructuredQName.QUPL,
                         getRetainedStaticContext());
             }
         } catch (XPathException e) {
@@ -52,7 +53,8 @@ public class TypeAvailable extends SystemFunction {
                 return false;
             }
         } else {
-            SchemaType type = config.getSchemaType(qName);
+            Schema schema = getRetainedStaticContext().getImportedSchema();
+            SchemaType type = schema.getSchemaType(qName);
             if (type == null) {
                 return false;
             }

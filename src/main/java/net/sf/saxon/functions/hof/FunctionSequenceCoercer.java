@@ -21,6 +21,7 @@ import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.FunctionItemType;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.type.TypeHierarchy;
@@ -41,6 +42,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     private final SpecificFunctionType requiredItemType;
     private final Supplier<RoleDiagnostic> roleSupplier;
     private final boolean allow40;
+    private final boolean acceptReducedArity;
 
     /**
      * Constructor
@@ -50,11 +52,12 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
      */
 
     public FunctionSequenceCoercer(Expression sequence, SpecificFunctionType requiredItemType,
-                                   Supplier<RoleDiagnostic> role, boolean allow40) {
+                                   Supplier<RoleDiagnostic> role, boolean allow40, boolean acceptReducedArity) {
         super(sequence);
         this.requiredItemType = requiredItemType;
         this.roleSupplier = role;
         this.allow40 = allow40;
+        this.acceptReducedArity = acceptReducedArity;
         ExpressionTool.copyLocationInfo(sequence, this);
     }
 
@@ -93,7 +96,13 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
         getOperand().typeCheck(visitor, contextInfo);
         final TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
-        if (th.isSubType(getBaseExpression().getItemType(), requiredItemType)) {
+        // We can't dispense with function coercion just because the supplied function is an instance
+        // of the required type, because it might not perform enough checking of arguments: see test VarDecl066.
+        // We can only dispense with it if the argument checking and result checking is at least
+        // as strict as the required type. For now, do coercion unless the type signatures are identical
+
+        //if (th.isSubType(getBaseExpression().getItemType(), requiredItemType)) {
+        if (th.relationship(getBaseExpression().getItemType(), requiredItemType) == Affinity.SAME_TYPE) {
             return getBaseExpression();
         } else {
             return this;
@@ -123,7 +132,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     @Override
     public Expression copy(RebindingMap rebindings) {
         FunctionSequenceCoercer fsc2 = new FunctionSequenceCoercer(
-                getBaseExpression().copy(rebindings), requiredItemType, roleSupplier, allow40);
+                getBaseExpression().copy(rebindings), requiredItemType, roleSupplier, allow40, acceptReducedArity);
         ExpressionTool.copyLocationInfo(this, fsc2);
         return fsc2;
     }
@@ -219,10 +228,11 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     @Override
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("fnCoercer", this);
-        SequenceType st = SequenceType.makeSequenceType(requiredItemType, StaticProperty.EXACTLY_ONE);
+        SequenceType st = SequenceType.one(requiredItemType);
         destination.emitAttribute("to", st.toAlphaCode());
         destination.emitAttribute("diag", roleSupplier.get().save());
-        if (allow40) {
+        String flags = "" + (allow40 ? "4" : "") + (acceptReducedArity ? "r" : "");
+        if (!flags.isEmpty()) {
             destination.emitAttribute("flags", "4");
         }
         getBaseExpression().export(destination);
@@ -239,7 +249,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
         return new FunctionSequenceCoercerElaborator();
     }
 
-    private static void checkAnnotations(FunctionItem item, FunctionItemType requiredItemType, Configuration config) throws XPathException {
+    public static void checkAnnotations(FunctionItem item, FunctionItemType requiredItemType, Configuration config) throws XPathException {
         for (Annotation ann : requiredItemType.getAnnotationAssertions()) {
             FunctionAnnotationHandler handler = config.getFunctionAnnotationHandler(ann.getAnnotationQName().getNamespaceUri());
             if (handler != null && !handler.satisfiesAssertion(ann, item.getAnnotations())) {
@@ -255,12 +265,15 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
         private final Configuration config;
         private final Location locator;
         private final boolean allow40;
+        private final boolean acceptReducedArity;
 
-        public Coercer(SpecificFunctionType requiredItemType, Configuration config, Location locator, boolean allow40) {
+        public Coercer(SpecificFunctionType requiredItemType, Configuration config,
+                       Location locator, boolean allow40, boolean acceptReducedArity) {
             this.requiredItemType = requiredItemType;
             this.config = config;
             this.locator = locator;
             this.allow40 = allow40;
+            this.acceptReducedArity = acceptReducedArity;
         }
 
         public FunctionItem mapItem(Item item) throws XPathException {
@@ -270,7 +283,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
             }
             try {
                 checkAnnotations((FunctionItem)item, requiredItemType, config);
-                return new CoercedFunction((FunctionItem)item, requiredItemType, allow40);
+                return new CoercedFunction((FunctionItem)item, requiredItemType, allow40, acceptReducedArity);
             } catch (XPathException err) {
                 throw err.maybeWithLocation(locator);
             }
@@ -286,7 +299,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
             FunctionSequenceCoercer expr = (FunctionSequenceCoercer) getExpression();
             PullEvaluator base = expr.getBaseExpression().makeElaborator().elaborateForPull();
             Coercer coercer = new Coercer(
-                    expr.requiredItemType, expr.getConfiguration(), expr.getLocation(), expr.allow40);
+                    expr.requiredItemType, expr.getConfiguration(), expr.getLocation(), expr.allow40, expr.acceptReducedArity);
             return context -> new ItemMappingIterator(base.iterate(context), coercer, true);
         }
 
@@ -295,7 +308,7 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
             FunctionSequenceCoercer expr = (FunctionSequenceCoercer) getExpression();
             ItemEvaluator base = expr.getBaseExpression().makeElaborator().elaborateForItem();
             Coercer coercer = new Coercer(
-                    expr.requiredItemType, expr.getConfiguration(), expr.getLocation(), expr.allow40);
+                    expr.requiredItemType, expr.getConfiguration(), expr.getLocation(), expr.allow40, expr.acceptReducedArity);
             return context -> {
                 Item item = base.eval(context);
                 if (item == null) {
@@ -307,4 +320,4 @@ public final class FunctionSequenceCoercer extends UnaryExpression {
     }
 }
 
-// Copyright (c) 2009-2023 Saxonica Limited
+// Copyright (c) 2009-2026 Saxonica Limited

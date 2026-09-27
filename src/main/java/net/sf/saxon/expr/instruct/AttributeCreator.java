@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,16 +7,16 @@
 
 package net.sf.saxon.expr.instruct;
 
-import net.sf.saxon.Configuration;
-import net.sf.saxon.Controller;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.Validation;
-import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.om.NameOfNode;
+import net.sf.saxon.om.NodeName;
+import net.sf.saxon.om.StandardNames;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
@@ -169,7 +169,7 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        return NodeKindTest.ATTRIBUTE;
+        return NodeKindType.ATTRIBUTE;
     }
 
     /**
@@ -221,7 +221,7 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
             ann = schemaType;
             // test whether the value actually conforms to the given type
             ValidationFailure err = schemaType.validateContent(
-                    value, DummyNamespaceResolver.getInstance(), context.getConfiguration().getConversionRules());
+                    value, DummyNamespaceResolver.INSTANCE, context.getConfiguration().getConversionRules());
             if (err != null) {
                 ValidationFailure ve = new ValidationFailure(
                         "Attribute value " + Err.wrap(value, Err.VALUE) +
@@ -235,8 +235,8 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
         } else if (validationAction == Validation.STRICT ||
                 validationAction == Validation.LAX) {
             try {
-                Configuration config = context.getConfiguration();
-                ann = config.validateAttribute(attName.getStructuredQName(), value, validationAction);
+                Schema schema = getRetainedStaticContext().getImportedSchema();
+                ann = schema.validateAttribute(attName.getStructuredQName(), value, validationAction);
             } catch (ValidationException e) {
                 throw XPathException.makeXPathException(e)
                         .maybeWithErrorCode(validationAction == Validation.STRICT ? "XTTE1510" : "XTTE1515")
@@ -265,7 +265,7 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
         int validationAction = getValidationAction();
         if (schemaType != null) {
             ValidationFailure err = schemaType.validateContent(
-                    orphan.getUnicodeStringValue(), DummyNamespaceResolver.getInstance(), rules);
+                    orphan.getUnicodeStringValue(), DummyNamespaceResolver.INSTANCE, rules);
             if (err != null) {
                 err.setMessage("Attribute value " + Err.wrap(orphan.getUnicodeStringValue(), Err.VALUE) +
                                        " does not the match the required type " +
@@ -281,9 +281,8 @@ public abstract class AttributeCreator extends SimpleNodeConstructor implements 
             }
         } else if (validationAction == Validation.STRICT || validationAction == Validation.LAX) {
             try {
-                final Controller controller = context.getController();
-                assert controller != null;
-                SimpleType ann = controller.getConfiguration().validateAttribute(
+                Schema schema = getRetainedStaticContext().getImportedSchema();
+                SimpleType ann = schema.validateAttribute(
                         NameOfNode.makeName(orphan).getStructuredQName(), orphan.getUnicodeStringValue(), validationAction);
                 orphan.setTypeAnnotation(ann);
             } catch (ValidationException e) {

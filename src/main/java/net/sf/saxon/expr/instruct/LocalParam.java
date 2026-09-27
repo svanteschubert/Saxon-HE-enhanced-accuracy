@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,11 +13,11 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.StandardNames;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.function.Supplier;
@@ -50,8 +50,17 @@ public final class LocalParam extends Instruction implements LocalBinding {
     private int slotNumber = -999;
     private int referenceCount = 10;
 
+    public LocalParam() {}
 
-
+    /**
+     * Set the location on an expression.
+     *
+     * @param id the location
+     */
+    @Override
+    public void setLocation(Location id) {
+        super.setLocation(id);
+    }
 
     /**
      * Set the expression to which this variable is bound
@@ -156,23 +165,6 @@ public final class LocalParam extends Instruction implements LocalBinding {
         referenceCount = refCount;
     }
 
-//    /**
-//     * Get the evaluation mode of the variable
-//     *
-//     * @return the evaluation mode (a constant in {@link ExpressionTool}
-//     */
-//
-//    public int getEvaluationMode() {
-//        if (evaluationMode == ExpressionTool.UNDECIDED) {
-//            if (referenceCount == FilterExpression.FILTERED) {
-//                evaluationMode = ExpressionTool.MAKE_INDEXED_VARIABLE;
-//            } else {
-//                evaluationMode = ExpressionTool.lazyEvaluationMode(getSelectExpression());
-//            }
-//        }
-//        return evaluationMode;
-//    }
-
     /**
      * Get the cardinality of the result of this instruction. An xsl:variable instruction returns nothing, so the
      * type is empty.
@@ -247,20 +239,6 @@ public final class LocalParam extends Instruction implements LocalBinding {
         return this;
     }
 
-
-    public void computeEvaluationMode() {
-//        if (getSelectExpression() != null) {
-//            if (referenceCount == FilterExpression.FILTERED) {
-//                final Optimizer optimizer = getConfiguration().obtainOptimizer();
-//                PullEvaluator pullEval = Elaborator.makeElaborator(getSelectExpression()).elaborateForPull();
-//                evaluator =  context -> optimizer.makeIndexedValue(pullEval.iterate(context));
-//            } else {
-//                evaluator = Elaborator.makeElaborator(getSelectExpression()).lazily(referenceCount > 1);
-//            }
-//        }
-    }
-
-
     /**
      * Copy an expression. This makes a deep copy.
      * @param rebindings a mutable list of (old binding, new binding) pairs
@@ -272,11 +250,11 @@ public final class LocalParam extends Instruction implements LocalBinding {
     @Override
     public LocalParam copy(RebindingMap rebindings) {
         LocalParam p2 = new LocalParam();
+        ExpressionTool.copyLocationInfo(this, p2);
         if (conversionOp != null) {
             assert getConversion() != null;
             p2.setConversion(getConversion().copy(rebindings));
         }
-//        p2.conversionEvaluator = conversionEvaluator;
         p2.properties = properties;
         if (selectOp != null) {
             assert getSelectExpression() != null;
@@ -313,41 +291,6 @@ public final class LocalParam extends Instruction implements LocalBinding {
             select = visitor.getConfiguration().getTypeChecker(false).staticTypeCheck(select, requiredType, role, visitor);
         }
     }
-//
-//    /**
-//     * Evaluate the variable. That is,
-//     * get the value of the select expression if present or the content
-//     * of the element otherwise, either as a tree or as a sequence
-//     *
-//     * @param context the XPath dynamic context
-//     * @return the result of evaluating the variable
-//     * @throws net.sf.saxon.trans.XPathException
-//     *          if evaluation of the select expression fails
-//     *          with a dynamic error
-//     */
-
-//    public Sequence getSelectValue(XPathContext context) throws XPathException {
-//        Expression select = getSelectExpression();
-//        if (select == null) {
-//            throw new AssertionError("Internal error: No select expression");
-//            // The value of the variable is a sequence of nodes and/or atomic values
-//        } else if (select instanceof Literal) {
-//            // fast path for common case
-//            return ((Literal)select).getGroundedValue();
-//        } else {
-//            // There is a select attribute: do a lazy evaluation of the expression,
-//            // which will already contain any code to force conversion to the required type.
-//            int savedOutputState = context.getTemporaryOutputState();
-//            context.setTemporaryOutputState(StandardNames.XSL_WITH_PARAM);
-//            Sequence result;
-//            if (evaluator == null) {
-//                evaluator = Elaborator.makeElaborator(select).lazily(true);
-//            }
-//            result = evaluator.evaluate(context);
-//            context.setTemporaryOutputState(savedOutputState);
-//            return result;
-//        }
-//    }
 
     /**
      * Get the slot number allocated to this variable
@@ -448,16 +391,6 @@ public final class LocalParam extends Instruction implements LocalBinding {
     @Override
     public Iterable<Operand> operands() {
         return operandSparseList(selectOp, conversionOp);
-    }
-
-    /**
-     * If the variable is bound to an integer, get the minimum and maximum possible values.
-     * Return null if unknown or not applicable
-     */
-
-    @Override
-    public IntegerValue[] getIntegerBoundsForVariable() {
-        return null;
     }
 
     /**
@@ -656,7 +589,7 @@ public final class LocalParam extends Instruction implements LocalBinding {
                 selectEvaluator = new IndexedVariableEvaluator(pullEval);
             } else {
                 Expression select = expr.getSelectExpression();
-                selectEvaluator = new LearningEvaluator(
+                selectEvaluator = LearningEvaluator.makeLearningEvaluator(
                         select, select.makeElaborator().lazily(true, false));
                 //selectEvaluator = select.makeElaborator().lazily(true);
             }

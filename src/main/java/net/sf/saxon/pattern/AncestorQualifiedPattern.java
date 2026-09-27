@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.ItemType;
@@ -154,7 +155,8 @@ public final class AncestorQualifiedPattern extends Pattern {
                     step = new AxisExpression(AxisInfo.CHILD, (NodeTest) type);
                 }
                 ExpressionTool.copyLocationInfo(this, step);
-                Expression exp = step.typeCheck(visitor, visitor.getConfiguration().makeContextItemStaticInfo(upperPattern.getItemType(), false));
+                Expression exp = step.typeCheck(visitor,
+                                                visitor.getConfiguration().makeContextItemStaticInfo(upperPattern.getItemType()));
                 refinedItemType = exp.getItemType();
             }
         }
@@ -257,11 +259,11 @@ public final class AncestorQualifiedPattern extends Pattern {
                 return upperPattern.matchesBeneathAnchor(node, anchor, context);
 
             case AxisInfo.PARENT:
-                NodeInfo par = node.getParent();
+                NodeInfo par = (NodeInfo)node.getParent();
                 return par != null && upperPattern.matchesBeneathAnchor(par, anchor, context);
 
             case AxisInfo.ANCESTOR: {
-                NodeInfo anc = node.getParent();
+                NodeInfo anc = (NodeInfo)node.getParent();
                 return hasMatchingAncestor(anchor, anc, context);
             }
             case AxisInfo.ANCESTOR_OR_SELF: {
@@ -281,7 +283,7 @@ public final class AncestorQualifiedPattern extends Pattern {
             if (anc.equals(anchor)) {
                 return false;
             }
-            anc = anc.getParent();
+            anc = (NodeInfo)anc.getParent();
         }
         return false;
     }
@@ -304,8 +306,8 @@ public final class AncestorQualifiedPattern extends Pattern {
      */
 
     @Override
-    public int getFingerprint() {
-        return basePattern.getFingerprint();
+    public int getFingerprint(int nodeKind) {
+        return basePattern.getFingerprint(nodeKind);
     }
 
     /**
@@ -406,7 +408,6 @@ public final class AncestorQualifiedPattern extends Pattern {
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());
         n.testUpperPatternFirst = testUpperPatternFirst;
-
         return n;
     }
 

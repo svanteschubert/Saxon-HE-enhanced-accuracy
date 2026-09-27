@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -23,10 +23,15 @@ import net.sf.saxon.trans.XPathException;
  * <p>The implementations of these interfaces are organized into a different hierarchy: on the one side,
  * built-in types such as AnyType, AnySimpleType, and the built-in atomic types and list types; on the other
  * side, user-defined types defined in a schema.</p>
+ * <p>From Saxon 13, some of the information associated with a schema type may vary from one schema to
+ * another. For example, a particular schema type (as defined in a particular schema document) may
+ * have other schema types derived from it by restriction or extension, but the set of derived types
+ * may vary from one schema to another. Information about the derived types therefore requires
+ * knowing not only the schema type, but also the {@link Schema}.</p>
  */
 
 public interface SchemaType extends SchemaComponent {
-
+    
     /**
      * Get the local name of this type
      *
@@ -169,10 +174,11 @@ public interface SchemaType extends SchemaComponent {
      * @param expression the expression that delivers the content
      * @param kind       the node kind whose content is being delivered: {@link Type#ELEMENT},
      *                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
+     * @param schema     the schema to which this schema type belongs
      * @throws XPathException if the expression will never deliver a value of the correct type
      */
 
-    void analyzeContentExpression(Expression expression, int kind) throws XPathException;
+    void analyzeContentExpression(Expression expression, int kind, Schema schema) throws XPathException;
 
     /**
      * Get the typed value of a node that is annotated with this schema type.

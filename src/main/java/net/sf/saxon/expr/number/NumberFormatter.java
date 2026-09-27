@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -73,7 +73,7 @@ public class NumberFormatter {
                 UnicodeString tok = uFormat.substring(t, i);
                 formatTokens.add(tok);
                 if (first) {
-                    punctuationTokens.add(BMPString.of("."));
+                    punctuationTokens.add(StringConstants.DOT);
                     startsWithPunctuation = false;
                     first = false;
                 }
@@ -94,7 +94,7 @@ public class NumberFormatter {
         }
 
         if (formatTokens.isEmpty()) {
-            formatTokens.add(BMPString.of("1"));
+            formatTokens.add(StringConstants.ONE);
             if (punctuationTokens.size() == 1) {
                 punctuationTokens.add(punctuationTokens.get(0));
             }
@@ -137,12 +137,12 @@ public class NumberFormatter {
     public UnicodeString format(List<Object> numbers, int groupSize, String groupSeparator,
                                 String letterValue, String ordinal, /*@NotNull*/ Numberer numberer) {
 
-        UnicodeBuilder sb = new UnicodeBuilder(32);
+        TwineBuilder tb = TwineBuilder.make(32);
         int num = 0;
         int tok = 0;
         // output first punctuation token
         if (startsWithPunctuation) {
-            sb.accept(punctuationTokens.get(tok));
+            tb = tb.append(punctuationTokens.get(tok));
         }
         // output the list of numbers
         while (num < numbers.size()) {
@@ -150,9 +150,9 @@ public class NumberFormatter {
                 if (tok == 0 && startsWithPunctuation) {
                     // The first punctuation token isn't a separator if it appears before the first
                     // formatting token. Such a punctuation token is used only once, at the start.
-                    sb.append(".");
+                    tb = tb.append(".");
                 } else {
-                    sb.accept(punctuationTokens.get(tok));
+                    tb = tb.append(punctuationTokens.get(tok));
                 }
             }
             Object o = numbers.get(num++);
@@ -167,10 +167,10 @@ public class NumberFormatter {
                 s = rgf.format(o.toString());
                 s = translateDigits(s, formatTokens.get(tok));
             } else {
-                // Not sure this can happen
+                // Not sure whether this can happen
                 s = o.toString();
             }
-            sb.append(s);
+            tb = tb.append(s);
             tok++;
             if (tok == formatTokens.size()) {
                 tok--;
@@ -178,9 +178,9 @@ public class NumberFormatter {
         }
         // output the final punctuation token
         if (punctuationTokens.size() > formatTokens.size()) {
-            sb.accept(punctuationTokens.get(punctuationTokens.size() - 1));
+            tb = tb.append(punctuationTokens.get(punctuationTokens.size() - 1));
         }
-        return sb.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     private String translateDigits(String in, UnicodeString picture) {

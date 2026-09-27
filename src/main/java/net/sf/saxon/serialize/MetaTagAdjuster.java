@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -151,12 +151,17 @@ public class MetaTagAdjuster extends ProxyReceiver {
             String headPrefix = elemName.getPrefix();
             NamespaceUri headURI = elemName.getNamespaceUri();
             FingerprintedQName metaCode = new FingerprintedQName(headPrefix, headURI, "meta");
-            AttributeMap atts = EmptyAttributeMap.getInstance();
-            atts = atts.put(new AttributeInfo(new NoNamespaceName("http-equiv"),
-                              BuiltInAtomicType.UNTYPED_ATOMIC, "Content-Type", Loc.NONE, ReceiverOption.NONE));
-            atts = atts.put(new AttributeInfo(new NoNamespaceName("content"),
-                              BuiltInAtomicType.UNTYPED_ATOMIC, mediaType + "; charset=" + encoding, Loc.NONE, ReceiverOption.NONE));
-            nextReceiver.startElement(metaCode, Untyped.getInstance(), atts, namespaces, location, ReceiverOption.NONE);
+            AttributeMap atts = EmptyAttributeMap.INSTANCE;
+            if (htmlVersion == 5) {
+                atts = atts.put(new AttributeInfo(new NoNamespaceName("charset"),
+                                                  BuiltInAtomicType.UNTYPED_ATOMIC, encoding, Loc.NONE, ReceiverOption.NONE));
+            } else {
+                atts = atts.put(new AttributeInfo(new NoNamespaceName("http-equiv"),
+                                                  BuiltInAtomicType.UNTYPED_ATOMIC, "Content-Type", Loc.NONE, ReceiverOption.NONE));
+                atts = atts.put(new AttributeInfo(new NoNamespaceName("content"),
+                                                  BuiltInAtomicType.UNTYPED_ATOMIC, mediaType + "; charset=" + encoding, Loc.NONE, ReceiverOption.NONE));
+            }
+            nextReceiver.startElement(metaCode, Untyped.INSTANCE, atts, namespaces, location, ReceiverOption.NONE);
             droppingMetaTags = level;
             seekingHead = false;
             nextReceiver.endElement();

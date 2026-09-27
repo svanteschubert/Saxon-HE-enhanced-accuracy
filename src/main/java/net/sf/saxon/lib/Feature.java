@@ -4,7 +4,7 @@
 // License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can
 // obtain one at http://mozilla.org/MPL/2.0/.
-// This Source Code Form is "Incompatible With Secondary Licenses",
+// This Source Code Form is "Incompatible With Secondary Licenses", 
 // as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////
 
@@ -54,7 +54,7 @@ public class Feature<T> {
     *                configuration option before doing so.</p>
     *            <p>If the value of the property is false, then it will also be set to false on any new
     *            Configuration created using the <code>fn:transform()</code> function.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> ALLOW_EXTERNAL_FUNCTIONS = new Feature<Boolean>(1, "http://saxon.sf.net/feature/allow-external-functions");
@@ -70,7 +70,7 @@ public class Feature<T> {
     *            <p>Setting the value to false also disables asynchronous processing of
     *                    <code>xsl:result-document</code> instructions.</p>
     *            <p>The default value is true if Saxon-EE is in use, false otherwise.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> ALLOW_MULTITHREADING = new Feature<Boolean>(2, "http://saxon.sf.net/feature/allow-multithreading");
@@ -92,7 +92,7 @@ public class Feature<T> {
     *                for compatibility with xt and xalan, but it causes problems because it leads to
     *                unnecessary attempts to load spurious classes when the user did not intend the URI
     *                to represent a dynamically-loaded Java class.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> ALLOW_OLD_JAVA_URI_FORMAT = new Feature<Boolean>(3, "http://saxon.sf.net/feature/allow-old-java-uri-format");
@@ -105,9 +105,9 @@ public class Feature<T> {
     *                In some cases these extensions are experimental and may not be carried forward to future
     *            Saxon releases.</p>
     *            <p>Syntax extensions in Saxon 10 include the use of type aliases (<code>type(...)</code> where
-    *                an item type is expected, and <code>declare type NAME = item-type</code> in the XQuery Prolog);
+    *                an item type is expected, and <code>declare type NAME = item-type</code> in the XQuery Prolog); 
     *                and simple inline functions (for example <code>.{. + 1}</code>).</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> ALLOW_SYNTAX_EXTENSIONS = new Feature<Boolean>(4, "http://saxon.sf.net/feature/allowSyntaxExtensions");
@@ -123,7 +123,7 @@ public class Feature<T> {
     *                collapsed into a single text node.</p>
     *            <p>If the value is true, then comments and processing instructions are visible to the
     *                XPath assertion.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> ASSERTIONS_CAN_SEE_COMMENTS = new Feature<Boolean>(5, "http://saxon.sf.net/feature/assertionsCanSeeComments");
@@ -135,7 +135,7 @@ public class Feature<T> {
     *                found in the query or stylesheet, returning an object of class
     *                    {@link net.sf.saxon.lib.StringCollator} that implements the requested
     *                collation.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.CollationURIResolver> COLLATION_URI_RESOLVER = new Feature<net.sf.saxon.lib.CollationURIResolver>(6, "http://saxon.sf.net/feature/collation-uri-resolver");
@@ -145,7 +145,7 @@ public class Feature<T> {
     /**
     *            <p>The supplied class is instantiated and the resulting instance is used as the value of
     *                the {@link net.sf.saxon.lib.Feature#COLLATION_URI_RESOLVER} property.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> COLLATION_URI_RESOLVER_CLASS = new Feature<String>(7, "http://saxon.sf.net/feature/collation-uri-resolver-class");
@@ -160,7 +160,7 @@ public class Feature<T> {
     *                sequence of {@link net.sf.saxon.lib.Resource} objects
     *                (which are then resolved in the same way as URIs passed to the <code>doc()</code>
     *                function), or it may return an item (typically a node but can handle JSON documents).</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.CollectionFinder> COLLECTION_FINDER = new Feature<net.sf.saxon.lib.CollectionFinder>(8, "http://saxon.sf.net/feature/collection-finder");
@@ -170,7 +170,7 @@ public class Feature<T> {
     /**
     *            <p>The supplied class is instantiated and the resulting instance is used as the value of
     *                the {@link net.sf.saxon.lib.Feature#COLLECTION_FINDER} property.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> COLLECTION_FINDER_CLASS = new Feature<String>(9, "http://saxon.sf.net/feature/collection-finder-class");
@@ -184,7 +184,7 @@ public class Feature<T> {
     *                compiled that makes calls to a {@link net.sf.saxon.lib.TraceListener}, but this
     *                has no effect unless a <code>TraceListener</code> is registered at execution
     *                time.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> COMPILE_WITH_TRACING = new Feature<Boolean>(12, "http://saxon.sf.net/feature/compile-with-tracing");
@@ -200,7 +200,7 @@ public class Feature<T> {
     *                so setting this attribute will cancel all others that have been set. Also, if two
     *                factories share the same <code>Configuration</code>, then setting an attribute on
     *                one affects all the others.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.Configuration> CONFIGURATION = new Feature<net.sf.saxon.Configuration>(13, "http://saxon.sf.net/feature/configuration");
@@ -218,7 +218,7 @@ public class Feature<T> {
     *                    name="http://saxon.sf.net/feature/configuration-file"
     *                    value="c:/saxon/config.xml"/&gt; &lt;/factory&gt;</code>
     *            </p>
-    *
+    *        
     **/
 
     public final static Feature<String> CONFIGURATION_FILE = new Feature<String>(14, "http://saxon.sf.net/feature/configuration-file");
@@ -227,7 +227,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> DEBUG_BYTE_CODE = new Feature<Boolean>(15, "http://saxon.sf.net/feature/debugByteCode");
@@ -236,7 +236,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> DEBUG_BYTE_CODE_DIR = new Feature<String>(16, "http://saxon.sf.net/feature/debugByteCodeDir");
@@ -254,7 +254,7 @@ public class Feature<T> {
     *                declaration in the query prolog, or via a setter method in class
     *                    {@link net.sf.saxon.query.StaticQueryContext}.</p>
     *            <p>If no value is specified, the Unicode codepoint collation is used.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> DEFAULT_COLLATION = new Feature<String>(17, "http://saxon.sf.net/feature/defaultCollation");
@@ -265,7 +265,7 @@ public class Feature<T> {
     *            <p>This determines the collection that is used when the <code>fn:collection()</code>
     *                function is called with no arguments; the effect is the same as if it were called
     *                passing the URI that is the value of this configuration property.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> DEFAULT_COLLECTION = new Feature<String>(18, "http://saxon.sf.net/feature/defaultCollection");
@@ -277,7 +277,7 @@ public class Feature<T> {
     *                functions if no country code is supplied explicitly. If no value is given for this
     *                property, the default is taken from the Java Locale, which in turn typically depends
     *                on settings for the current user in the operating system.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> DEFAULT_COUNTRY = new Feature<String>(19, "http://saxon.sf.net/feature/defaultCountry");
@@ -290,7 +290,7 @@ public class Feature<T> {
     *                explicitly. If no value is given for this property, the default is taken from the
     *                Java Locale, which in turn typically depends on settings for the current user in the
     *                operating system.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> DEFAULT_LANGUAGE = new Feature<String>(20, "http://saxon.sf.net/feature/defaultLanguage");
@@ -313,7 +313,7 @@ public class Feature<T> {
     *            <p>Use of this feature is not conformant with W3C specifications. Use of the setting "N", however, can be useful
     *            when schemas have been written with the Microsoft schema processor in mind, since this uses the Microsoft regular
     *            expression dialect rather than the W3C dialect.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> DEFAULT_REGEX_ENGINE = new Feature<String>(21, "http://saxon.sf.net/feature/defaultRegexEngine");
@@ -322,18 +322,18 @@ public class Feature<T> {
 
     /**
     *            <p>This option disables the <code>xsl:evaluate</code> instruction.</p>
-    *            <p>If set at stylesheet compile time, the feature is statically disabled. If set at
+    *            <p>If set at stylesheet compile time, the feature is statically disabled. If set at 
     *                run-time it is dynamically disabled. (These terms are defined in the XSLT 3.0 spec.)
     *                By default, the feature is enabled.</p>
     *            <p><i>The XSLT 3.0 specification requires conformant processors to provide a way of
-    *                disabling <code>xsl:evaluate</code>. This shouldn't be taken as meaning that
+    *                disabling <code>xsl:evaluate</code>. This shouldn't be taken as meaning that 
     *                <code>xsl:evaluate</code> poses particular security risks. The main reason for disabling it
-    *                is if you want to carry out static analysis or inspection of stylesheet code to see what
+    *                is if you want to carry out static analysis or inspection of stylesheet code to see what 
     *                features it uses. But if you're doing such inspection, it's not difficult to check that
     *                <code>xsl:evaluate</code> is only being used to execute trusted code. Note also that
     *                <code>fn:transform()</code> can similarly be used to execute dynamically-constructed code,
     *                and there is no switch to disable that function.</i></p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> DISABLE_XSL_EVALUATE = new Feature<Boolean>(22, "http://saxon.sf.net/feature/disableXslEvaluate");
@@ -342,7 +342,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> DISPLAY_BYTE_CODE = new Feature<Boolean>(23, "http://saxon.sf.net/feature/displayByteCode");
@@ -356,7 +356,7 @@ public class Feature<T> {
     *                or schema documents) are parsed. The option can be overridden for individual
     *                documents by setting the {@link net.sf.saxon.lib.ParseOptions} for that
     *                individual document, for example from a <code>URIResolver</code>.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> DTD_VALIDATION = new Feature<Boolean>(24, "http://saxon.sf.net/feature/validation");
@@ -371,7 +371,7 @@ public class Feature<T> {
     *                or schema documents) are parsed. The option can be overridden for individual
     *                documents by setting the {@link net.sf.saxon.lib.ParseOptions} for that
     *                individual document, for example from a <code>URIResolver</code>.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> DTD_VALIDATION_RECOVERABLE = new Feature<Boolean>(25, "http://saxon.sf.net/feature/dtd-validation-recoverable");
@@ -384,7 +384,7 @@ public class Feature<T> {
     *            <p>Note that this only applies to situations where Saxon would normally save a <code>Closure</code>
     *            object as the result of an expression. It does not prevent Saxon from using pipelined evaluation of
     *            intermediate expressions using iterators.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> EAGER_EVALUATION = new Feature<Boolean>(26, "http://saxon.sf.net/feature/eagerEvaluation");
@@ -404,7 +404,7 @@ public class Feature<T> {
     *                avoid the need to fetch them from the web.</p>
     *            <p>The property can be set to a zero-length string, which resets the property to its default setting.</p>
     *
-    *
+    *        
     **/
 
     public final static Feature<String> ENTITY_RESOLVER_CLASS = new Feature<String>(27, "http://saxon.sf.net/feature/entityResolverClass");
@@ -420,7 +420,7 @@ public class Feature<T> {
     *                    <code>available-environment-variables()</code> or
     *                    <code>environment-variable()</code> are called. Saxon essentially delegates the
     *                evaluation of the function to the external resolver.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.EnvironmentVariableResolver> ENVIRONMENT_VARIABLE_RESOLVER = new Feature<net.sf.saxon.lib.EnvironmentVariableResolver>(28, "http://saxon.sf.net/feature/environmentVariableResolver");
@@ -436,7 +436,7 @@ public class Feature<T> {
     *                    <code>available-environment-variables()</code> or
     *                    <code>environment-variable()</code> are called. Saxon essentially delegates the
     *                evaluation of the function to the external resolver.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> ENVIRONMENT_VARIABLE_RESOLVER_CLASS = new Feature<String>(29, "http://saxon.sf.net/feature/environmentVariableResolverClass");
@@ -451,7 +451,7 @@ public class Feature<T> {
     *                in future so that a new instance is created for each compilation or evaluation.</p>
     *            <p>Finer control can be obtained by setting the <code>ErrorListener</code> for a
     *                specific XSLT or XQuery compilation or evaluation.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> ERROR_LISTENER_CLASS = new Feature<String>(30, "http://saxon.sf.net/feature/errorListenerClass");
@@ -468,7 +468,7 @@ public class Feature<T> {
     *                this behavior. In the case of DTD-defined defaults this only works if the XML parser
     *                reports whether each attribute was specified in the source or generated by expanding
     *                a default value. Not all XML parsers report this information.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> EXPAND_ATTRIBUTE_DEFAULTS = new Feature<Boolean>(31, "http://saxon.sf.net/feature/expandAttributeDefaults");
@@ -482,7 +482,7 @@ public class Feature<T> {
     *            <p>The default value is <b>false</b>, to align with the standard. The setting
     *                    <b>false</b> is recommended when external 'sweep-up' features aren't
     *                available.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> EXPATH_FILE_DELETE_TEMPORARY_FILES = new Feature<Boolean>(32, "http://saxon.sf.net/feature/expathFileDeleteTemporaryFiles");
@@ -491,7 +491,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> GENERATE_BYTE_CODE = new Feature<Boolean>(33, "http://saxon.sf.net/feature/generateByteCode");
@@ -513,7 +513,7 @@ public class Feature<T> {
     *                option overrides this. This is especially useful if the input format is not in fact
     *                XML, but some other format converted to a SAX event stream by means of a custom
     *                parser.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> IGNORE_SAX_SOURCE_PARSER = new Feature<Boolean>(34, "http://saxon.sf.net/feature/ignoreSAXSourceParser");
@@ -528,7 +528,7 @@ public class Feature<T> {
     *            <p>This option is not conformant with the XSD specification, which requires explicit <code>xs:import</code> declarations
     *            for all cross-namespace component references. However, some "industry-standard" schemas are known to violate this rule,
     *            and setting this option allows such schemas to be loaded by Saxon.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> IMPLICIT_SCHEMA_IMPORTS = new Feature<Boolean>(35, "http://saxon.sf.net/feature/implicitSchemaImports");
@@ -537,7 +537,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 9.8.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> LAZY_CONSTRUCTION_MODE = new Feature<Boolean>(36, "http://saxon.sf.net/feature/lazyConstructionMode");
@@ -547,12 +547,12 @@ public class Feature<T> {
     /**
     *            <p><code>LICENSE_FILE_LOCATION</code> holds the filename in which the Saxon license file
     *                is held.</p>
-    *            <p>This is the full file name, for example <code>c:/saxon/license/license.lic</code>.
+    *            <p>This is the full file name, for example <code>c:/saxon/license/license.lic</code>. 
     *                Setting this property causes Saxon to
     *                immediately read the specified file and register the license data, assuming it can
     *                be found at this location. The property is not recognized for reading, and it is not
     *                recognized for writing except in Saxon-PE and Saxon-EE.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> LICENSE_FILE_LOCATION = new Feature<String>(37, "http://saxon.sf.net/feature/licenseFileLocation");
@@ -571,7 +571,7 @@ public class Feature<T> {
     *            number, and column number) is retained when the node is copied. This has the side effect
     *            that the base URI of a node is also copied, which in some cases runs contrary to the
     *            XSLT or XQuery specification.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> LINE_NUMBERING = new Feature<Boolean>(38, "http://saxon.sf.net/feature/linenumbering");
@@ -586,7 +586,7 @@ public class Feature<T> {
     *            <p>Note: information about defaulted attributes is retained automatically where the attribute is processed
     *            using Saxon's schema processor; but in the case where the information comes from an external XML parser, it
     *            is retained only if this option is set.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> MARK_DEFAULTED_ATTRIBUTES = new Feature<Boolean>(39, "http://saxon.sf.net/feature/markDefaultedAttributes");
@@ -595,7 +595,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> MAX_COMPILED_CLASSES = new Feature<Integer>(40, "http://saxon.sf.net/feature/maxCompiledClasses");
@@ -604,7 +604,7 @@ public class Feature<T> {
 
     /**
     *            <p>From Saxon 11.1, this option has no effect.</p>
-    *
+    *        
     **/
 
     public final static Feature<Object> MESSAGE_EMITTER_CLASS = new Feature<Object>(41, "http://saxon.sf.net/feature/messageEmitterClass");
@@ -615,7 +615,7 @@ public class Feature<T> {
     *            <p>Affects XQuery only. An instance of a user-written class implementing Saxon's
     *                    {@link net.sf.saxon.lib.ModuleURIResolver} interface. This is used to
     *                process any URIs used in <code>import module</code> directives in XQuery.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.ModuleURIResolver> MODULE_URI_RESOLVER = new Feature<net.sf.saxon.lib.ModuleURIResolver>(42, "http://saxon.sf.net/feature/moduleURIResolver");
@@ -626,7 +626,7 @@ public class Feature<T> {
     *            <p>Affects XQuery only. The name of a user-written class implementing Saxon's
     *                    {@link net.sf.saxon.lib.ModuleURIResolver} interface. This is used to
     *                process any URIs used in <code>import module</code> directives in XQuery.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> MODULE_URI_RESOLVER_CLASS = new Feature<String>(43, "http://saxon.sf.net/feature/moduleURIResolverClass");
@@ -635,7 +635,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> MONITOR_HOT_SPOT_BYTE_CODE = new Feature<Boolean>(44, "http://saxon.sf.net/feature/monitorHotSpotByteCode");
@@ -661,7 +661,7 @@ public class Feature<T> {
     *                particular namespace go via a "home" schema document for that namespace, where the
     *                home schema document contains <code>xs:include</code> declarations for all the
     *                schema documents defining components in that namespace.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> MULTIPLE_SCHEMA_IMPORTS = new Feature<Boolean>(45, "http://saxon.sf.net/feature/multipleSchemaImports");
@@ -681,7 +681,7 @@ public class Feature<T> {
     *                but it is under user control if you build the source tree yourself.</p>
     *            <p>This option can be used to make two <code>Configuration</code> objects share a
     *                    <code>NamePool</code> even though they differ in other respects.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.om.NamePool> NAME_POOL = new Feature<net.sf.saxon.om.NamePool>(46, "http://saxon.sf.net/feature/namePool");
@@ -701,7 +701,7 @@ public class Feature<T> {
     *            <p>Setting these values too high may cause an <code>OutOfMemoryException</code> since
     *                the size of the finite state machine constructed by Saxon increases linearly with
     *                the values of <code>minOccurs</code> and <code>maxOccurs</code>.</p>
-    *
+    *        
     **/
 
     public final static Feature<Object> OCCURRENCE_LIMITS = new Feature<Object>(47, "http://saxon.sf.net/feature/occurrenceLimits");
@@ -738,7 +738,7 @@ public class Feature<T> {
     *            <p><i>Note that disabling optimizations may prevent streamed execution. This is because
     *            there are cases where streamed execution is only possible because the optimizer is able to detect
     *            that sorting nodes into document order is unnecessary.</i></p>
-    *
+    *        
     **/
 
     public final static Feature<Object> OPTIMIZATION_LEVEL = new Feature<Object>(48, "http://saxon.sf.net/feature/optimizationLevel");
@@ -749,7 +749,7 @@ public class Feature<T> {
     *            <p>The supplied <code>OutputURIResolver</code> will be used to resolve URIs of secondary
     *                result documents selected in the <code>href</code> attribute of the XSLT
     *                    <code>xsl:result-document</code> instruction.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.OutputURIResolver> OUTPUT_URI_RESOLVER = new Feature<net.sf.saxon.lib.OutputURIResolver>(49, "http://saxon.sf.net/feature/outputURIResolver");
@@ -761,7 +761,7 @@ public class Feature<T> {
     *                    <code>OutputURIResolver</code> will be used to resolve URIs of secondary result
     *                documents selected in the <code>href</code> attribute of the XSLT
     *                    <code>xsl:result-document</code> instruction.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> OUTPUT_URI_RESOLVER_CLASS = new Feature<String>(50, "http://saxon.sf.net/feature/outputURIResolverClass");
@@ -774,7 +774,7 @@ public class Feature<T> {
     *                the resulting document will be stored as part of the Saxon
     *                {@link net.sf.saxon.Configuration} and shared by all queries and
     *                transformations running within that <code>Configuration</code>.</p>
-    *            <p>This is useful for reference documents that have stable content and are used by many different
+    *            <p>This is useful for reference documents that have stable content and are used by many different 
     *                queries and transformations. The default is false, which means each query or transformation
     *                will reload the document from disk.</p>
     *            <p>In XSLT 3.0 a better way of having external documents pre-loaded at stylesheet
@@ -785,7 +785,7 @@ public class Feature<T> {
     *            <p>When URIs are pre-evaluated, neither the <code>ResourceResolver</code> associated
     *                with the relevant <code>Compiler</code>, nor the relevant run-time <code>ResourceResolver</code>
     *                are used to resolve the URI. Only the Configuration-level <code>ResourceResolver</code> is used.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> PRE_EVALUATE_DOC_FUNCTION = new Feature<Boolean>(51, "http://saxon.sf.net/feature/preEvaluateDocFunction");
@@ -796,7 +796,7 @@ public class Feature<T> {
     *            <p>True if the <code>doc()</code> or <code>document()</code> are to recognize query parameters included in the
     *                URI (for example, <code>?validation=strict</code>). The
     *                default is false.</p>
-    *
+    * 
     *            <p>The allowed parameters are: <code>validation=strict|lax|strip</code> to perform schema
     *                validation (see {@code Validation of
     *                    source documents}); <code>strip-space=yes|ignorable|no</code> to control whitespace
@@ -805,7 +805,7 @@ public class Feature<T> {
     *                determine the name of the parser (XMLReader) to be used (see {@code Controlling parsing of source
     *                    documents}); and <code>xinclude=yes|no</code> to control whether XInclude
     *                processing takes place, assuming the XML parser supports it (see {@code XInclude processing}).</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> RECOGNIZE_URI_QUERY_PARAMETERS = new Feature<Boolean>(53, "http://saxon.sf.net/feature/recognize-uri-query-parameters");
@@ -816,7 +816,7 @@ public class Feature<T> {
     *            <p>At one time this property controlled how recoverable errors were handled
     *            (fatal error, warning, or ignored). XSLT 3.0 has eliminated all recoverable errors from the
     *            specification, so the property is deprecated from Saxon 10.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> RECOVERY_POLICY = new Feature<Integer>(54, "http://saxon.sf.net/feature/recoveryPolicy");
@@ -827,7 +827,7 @@ public class Feature<T> {
     *            <p>At one time this property controlled how recoverable errors were handled
     *                (fatal error, warning, or ignored). XSLT 3.0 has eliminated all recoverable errors from the
     *                specification, so the property is deprecated from Saxon 10.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> RECOVERY_POLICY_NAME = new Feature<String>(55, "http://saxon.sf.net/feature/recoveryPolicyName");
@@ -851,7 +851,7 @@ public class Feature<T> {
     *                the attribute <code>saxon:asynchronous="no"</code> in the stylesheet. Suppressing
     *                multithreading may be desirable in a stylesheet that calls extension functions with
     *                side-effects.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> RESULT_DOCUMENT_THREADS = new Feature<Integer>(56, "http://saxon.sf.net/feature/resultDocumentThreads");
@@ -865,7 +865,7 @@ public class Feature<T> {
     *                type annotation of xs:NMTOKENS. </p>
     *            <p>This option is retained for backwards compatibility (at some time in the past, it was
     *                the default), but is deprecated.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> RETAIN_DTD_ATTRIBUTE_TYPES = new Feature<Boolean>(57, "http://saxon.sf.net/feature/retain-dtd-attribute-types");
@@ -878,7 +878,7 @@ public class Feature<T> {
     *                    <code>import schema</code> in XQuery, references from one schema document to
     *                another using <code>xs:include</code> or <code>xs:import</code>, and references from
     *                an instance document to a schema using <code>xsi:schemaLocation</code>.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.SchemaURIResolver> SCHEMA_URI_RESOLVER = new Feature<net.sf.saxon.lib.SchemaURIResolver>(58, "http://saxon.sf.net/feature/schemaURIResolver");
@@ -889,7 +889,7 @@ public class Feature<T> {
     *            <p>The name of a class that implements the interface <code>SchemaURIResolver</code>;
     *                this class will be instantiated and the resulting instance will be used as the value
     *                of the {@link net.sf.saxon.lib.Feature#SCHEMA_URI_RESOLVER} property.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> SCHEMA_URI_RESOLVER_CLASS = new Feature<String>(59, "http://saxon.sf.net/feature/schemaURIResolverClass");
@@ -899,7 +899,7 @@ public class Feature<T> {
     /**
     *            <p>Indicates whether and how schema validation should be applied to source
     *                documents.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> SCHEMA_VALIDATION = new Feature<Integer>(60, "http://saxon.sf.net/feature/schema-validation");
@@ -909,7 +909,7 @@ public class Feature<T> {
     /**
     *            <p>Indicates whether and how schema validation should be applied to source
     *                documents.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> SCHEMA_VALIDATION_MODE = new Feature<String>(61, "http://saxon.sf.net/feature/schema-validation-mode");
@@ -922,7 +922,7 @@ public class Feature<T> {
     *            <p>By subclassing the standard <code>SerializerFactory</code> it is possible to customize
     *                many aspects of the output produced by the Serializer, or to introduce new
     *                serialization methods and parameters.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> SERIALIZER_FACTORY_CLASS = new Feature<String>(62, "http://saxon.sf.net/feature/serializerFactoryClass");
@@ -945,7 +945,7 @@ public class Feature<T> {
     *                configuration option has no effect when running transformations from an Ant script,
     *                since the Ant <code>xslt</code> task always supplies the input in the form of a
     *                    <code>SAXSource</code>.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> SOURCE_PARSER_CLASS = new Feature<String>(63, "http://saxon.sf.net/feature/sourceParserClass");
@@ -959,7 +959,7 @@ public class Feature<T> {
     *                convert it to a kind of <code>Source</code> that Saxon does recognize. This allows
     *                new kinds of input to be supplied as input to Saxon's query, transformation, and
     *                validation engines.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> SOURCE_RESOLVER_CLASS = new Feature<String>(64, "http://saxon.sf.net/feature/sourceResolverClass");
@@ -977,7 +977,7 @@ public class Feature<T> {
     *                conformance with the W3C specifications.</p>
     *            <p>It is also possible to indicate that a collection is stable by means of the
     *                    <code>CollectionFinder</code> API.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> STABLE_COLLECTION_URI = new Feature<Boolean>(65, "http://saxon.sf.net/feature/stableCollectionUri");
@@ -993,7 +993,7 @@ public class Feature<T> {
     *            <p>Setting this option may be expensive because it requires that the file contents be
     *                saved in memory; it is rarely necessary in practice, but is required for strict
     *                conformance with the W3C specifications.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> STABLE_UNPARSED_TEXT = new Feature<Boolean>(66, "http://saxon.sf.net/feature/stableUnparsedText");
@@ -1006,12 +1006,21 @@ public class Feature<T> {
     *                stream (System.err). This is the fallback destination for various tracing and
     *                diagnostic output. In some cases a more specific mechanism exists to select the
     *                destination for particular kinds of output.</p>
+    *            <p>Saxon generally writes such messages via the {@link net.sf.saxon.lib.Logger} object
+    *               registered with the <code>Configuration</code> object. The default <code>Logger</code>
+    *               writes to the standard error output by default, but this can be changed by setting
+    *               this feature. For finer control (for example, sending different messages to different
+    *            destinations, or suppressing some entirely) it is possible to register a user-defined
+    *            <code>Logger</code> with the <code>Configuration</code>. Saxon also supplies a <code>Logger</code>
+    *            implementation {@link net.sf.saxon.lib.SystemLogger} which directs output to 
+    *            the standard JDK <code>java.util.logging.Logger</code> framework. In such cases this
+    *            feature will have no effect.</p>
     *            <p>Note that if the <code>Configuration</code> is used in more than one processing
     *                thread, the messages from different threads will be interleaved in the output file.
     *                A more selective approach is to use a different <code>ErrorListener</code> in
     *                different processing threads, and arrange for each <code>ErrorListener</code> to
     *                write to its own logging destination.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> STANDARD_ERROR_OUTPUT_FILE = new Feature<String>(67, "http://saxon.sf.net/feature/standardErrorOutputFile");
@@ -1037,7 +1046,7 @@ public class Feature<T> {
     *                control what happens when code is deemed non-streamable; it provides a choice
     *                between throwing a static (compile-time) error, and falling back to a non-streaming
     *                implementation.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> STREAMABILITY = new Feature<String>(68, "http://saxon.sf.net/feature/streamability");
@@ -1061,7 +1070,7 @@ public class Feature<T> {
     *                streamability rules at the earliest possible stage of processing; it then performs
     *                its normal type checking and optimization phases, before doing a second stage of
     *                streamability analysis to construct a streamed execution plan.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> STRICT_STREAMABILITY = new Feature<Boolean>(69, "http://saxon.sf.net/feature/strictStreamability");
@@ -1075,7 +1084,7 @@ public class Feature<T> {
     *                    <code>streamable="yes"</code>, and streamable accumulators) will be executed in
     *                non-streaming mode if the code is not actually streamable. A compile-time warning
     *                will always be given when the fallback option is taken.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> STREAMING_FALLBACK = new Feature<Boolean>(70, "http://saxon.sf.net/feature/streamingFallback");
@@ -1089,7 +1098,7 @@ public class Feature<T> {
     *            <p>The default is "ignorable". This whitespace stripping is additional to
     *                any stripping done as a result of the <code>xsl:strip-space</code> declaration in an
     *                XSLT stylesheet.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> STRIP_WHITESPACE = new Feature<String>(71, "http://saxon.sf.net/feature/strip-whitespace");
@@ -1106,7 +1115,7 @@ public class Feature<T> {
     *                parse stylesheet documents (that is, the principal stylesheet module plus any
     *                secondary source documents read using <code>xsl:include</code> or
     *                    <code>xsl:import</code>) and also schema documents.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> STYLE_PARSER_CLASS = new Feature<String>(72, "http://saxon.sf.net/feature/styleParserClass");
@@ -1117,7 +1126,7 @@ public class Feature<T> {
     *            <p>This is set to true to suppress the warning otherwise issued by command-line
     *                interfaces indicating that an evaluation license is in use and is due to expire in a
     *                set number of days.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> SUPPRESS_EVALUATION_EXPIRY_WARNING = new Feature<Boolean>(73, "http://saxon.sf.net/feature/suppressEvaluationExpiryWarning");
@@ -1128,7 +1137,7 @@ public class Feature<T> {
     *            <p>Suppresses all warnings issued by the XPath and XQuery parsers.</p>
     *            <p>Examples of warnings that are suppressed are the warning produced when keywords such
     *                as <code>true</code> and <code>return</code> are interpreted as element names.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> SUPPRESS_XPATH_WARNINGS = new Feature<Boolean>(74, "http://saxon.sf.net/feature/suppressXPathWarnings");
@@ -1139,7 +1148,7 @@ public class Feature<T> {
     *            <p>This is set to true to suppress the warning when there is no commonality between the
     *                namespaces used in stylesheet match patterns and the namespaces used in the source
     *                document.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> SUPPRESS_XSLT_NAMESPACE_CHECK = new Feature<Boolean>(75, "http://saxon.sf.net/feature/suppressXsltNamespaceCheck");
@@ -1148,7 +1157,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> THRESHOLD_FOR_COMPILING_TYPES = new Feature<Integer>(76, "http://saxon.sf.net/feature/thresholdForCompilingTypes");
@@ -1157,12 +1166,28 @@ public class Feature<T> {
 
     /**
     *            <p>This is set to true to cause basic timing and tracing information to be output to the
+    *                registered {@link net.sf.saxon.lib.Logger}, which by default writes to the
     *                standard error output stream.</p>
     *            <p>The name of the feature is poorly chosen, since much
     *                of the information that is output has nothing to do with timing, for example the
     *                names of output files for <code>xsl:result-document</code> are traced, as are the
     *                names of schema documents loaded.</p>
-    *
+    *            <p>The <code>-t</code> command line option enables this configuration feature, and also
+    *               outputs additional information such as product version information, and stylesheet/query
+    *               compilation time and execution time.</p>
+    *            <p>Messages output when this feature is enabled include:</p>
+    *            <ul>
+    *                <li><p>Identifying external resources that are loaded;</p></li>
+    *                <li><p>Information about the Saxon license file;</p></li>
+    *                <li><p>Indicating when files are processed in streaming mode;</p></li>
+    *                <li><p>Enabling JDBC diagnostics when the SQL extensions are used;</p></li>
+    *                <li><p>Reporting details of any parser loaded using JAXP;</p></li>
+    *                <li><p>Statistics for documents loaded using the <code>DocumentBuilder</code>;</p></li>
+    *                <li><p>Identifying documents written using <code>xsl:result-document</code>;</p></li>
+    *                <li><p>Tracing execution of <code>fn:transform()</code>;</p></li>
+    *                <li><p>Tracing calls on the standard <code>URIResolver</code>.</p></li>
+    *            </ul>
+    *        
     **/
 
     public final static Feature<Boolean> TIMING = new Feature<Boolean>(77, "http://saxon.sf.net/feature/timing");
@@ -1170,11 +1195,16 @@ public class Feature<T> {
 
 
     /**
-    *            <p>If this option is set, Saxon will output (to the standard error output) progress
-    *                information about its attempts to locate and disambiguate references to reflexive
-    *                Java extension functions. This is useful for diagnostics if the XQuery or XSLT
-    *                compiler is failing to locate user-written extension functions.</p>
-    *
+    *            <p>If this option is set, Saxon will output progress
+    *                information about its attempts to locate and disambiguate references to functions.
+    *                This is intended primarily to assist with problems loading external/extension
+    *                functions, but it actually traces all functions other than those in reserved
+    *                namespaces (including user-written functions in XSLT or XQuery).</p>
+    *            <p>The output messages are sent to the <code>Logger</code> registered with
+    *            the Saxon <code>Configuration</code>. By default this writes to the standard error output,
+    *                but this may be redirected using the
+    *                {@link net.sf.saxon.lib.Feature#STANDARD_ERROR_OUTPUT_FILE} property.</p>
+    *        
     **/
 
     public final static Feature<Boolean> TRACE_EXTERNAL_FUNCTIONS = new Feature<Boolean>(78, "http://saxon.sf.net/feature/trace-external-functions");
@@ -1190,7 +1220,7 @@ public class Feature<T> {
     *                use the feature {@link net.sf.saxon.lib.Feature#TRACE_LISTENER_CLASS}
     *                instead. Alternatively, it is possible to set a <code>TraceListener</code> for an
     *                individual query or transformation.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.TraceListener> TRACE_LISTENER = new Feature<net.sf.saxon.lib.TraceListener>(79, "http://saxon.sf.net/feature/traceListener");
@@ -1204,7 +1234,7 @@ public class Feature<T> {
     *                purposes.</p>
     *            <p>Setting a <code>TraceListener</code> automatically sets the
     *                    {@link net.sf.saxon.lib.Feature#COMPILE_WITH_TRACING} option.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> TRACE_LISTENER_CLASS = new Feature<String>(80, "http://saxon.sf.net/feature/traceListenerClass");
@@ -1216,7 +1246,7 @@ public class Feature<T> {
     *                this file will be supplied to the trace listener to use as the output destination.
     *                If the option is not supplied, trace listener output is sent to the standard error
     *                stream.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> TRACE_LISTENER_OUTPUT_FILE = new Feature<String>(81, "http://saxon.sf.net/feature/traceListenerOutputFile");
@@ -1229,7 +1259,11 @@ public class Feature<T> {
     *                information is mainly useful for internal system debugging, but it is also possible
     *                to digest it to analyze the ways in which the expression has been optimized for the
     *                purpose of performance analysis and tuning.</p>
-    *
+    *            <p>This option produces the same trace information as the <code>-explain</code>
+    *            command line option, but without the final display of the expression tree. That display
+    *            can be achieved by calling the <code>explain()</code> method of the <code>XsltExecutable</code>
+    *            or <code>XQueryExecutable</code> objects.</p>
+    *        
     **/
 
     public final static Feature<Boolean> TRACE_OPTIMIZER_DECISIONS = new Feature<Boolean>(82, "http://saxon.sf.net/feature/trace-optimizer-decisions");
@@ -1241,7 +1275,7 @@ public class Feature<T> {
     *                    <code>TINY_TREE</code>.</p>
     *            <p>For running XQuery Update, use the linked tree, because it is the only implementation
     *                that is updateable.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> TREE_MODEL = new Feature<Integer>(83, "http://saxon.sf.net/feature/treeModel");
@@ -1253,7 +1287,7 @@ public class Feature<T> {
     *                    <code>tinyTree</code>.</p>
     *            <p>For running XQuery Update, use the linked tree, because it is the only implementation
     *                that is updateable.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> TREE_MODEL_NAME = new Feature<String>(84, "http://saxon.sf.net/feature/treeModelName");
@@ -1262,10 +1296,10 @@ public class Feature<T> {
 
     /**
     *            <p>The supplied <code>UnparsedTextURIResolver</code> will be used to resolve
-    *                (dereference) all URIs specifed in calls to the <code>unparsed-text()</code>,
+    *                (dereference) all URIs specified in calls to the <code>unparsed-text()</code>,
     *                    <code>unparsed-text-lines()</code>, and <code>unparsed-text-available()</code>
     *                functions.</p>
-    *
+    *        
     **/
 
     public final static Feature<net.sf.saxon.lib.UnparsedTextURIResolver> UNPARSED_TEXT_URI_RESOLVER = new Feature<net.sf.saxon.lib.UnparsedTextURIResolver>(85, "http://saxon.sf.net/feature/unparsedTextURIResolver");
@@ -1274,10 +1308,10 @@ public class Feature<T> {
 
     /**
     *            <p>An instance of the specified <code>UnparsedTextURIResolver</code> class will be
-    *                created, and used to resolve (dereference) all URIs specifed in calls to the
+    *                created, and used to resolve (dereference) all URIs specified in calls to the
     *                    <code>unparsed-text()</code>, <code>unparsed-text-lines()</code>, and
     *                    <code>unparsed-text-available()</code> functions.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> UNPARSED_TEXT_URI_RESOLVER_CLASS = new Feature<String>(86, "http://saxon.sf.net/feature/unparsedTextURIResolverClass");
@@ -1286,11 +1320,11 @@ public class Feature<T> {
 
     /**
     *            <p>An instance of the specified <code>URIResolver</code> class will be created, and used
-    *                to resolve (dereference) all URIs specifed in calls to the <code>doc()</code> and
+    *                to resolve (dereference) all URIs specified in calls to the <code>doc()</code> and
     *                    <code>document()</code> functions, as well as URIs used in
     *                    <code>xsl:include</code> and <code>xsl:import</code> and location hints for
     *                XQuery modules and XSD schema documents.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> URI_RESOLVER_CLASS = new Feature<String>(87, "http://saxon.sf.net/feature/uriResolverClass");
@@ -1304,7 +1338,7 @@ public class Feature<T> {
     *                and <code>Result.PI_ENABLE_OUTPUT_ESCAPING</code> in the input stream as
     *                instructions to disable or to re-enable output escaping. The default value is
     *                    <b>false</b>.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> USE_PI_DISABLE_OUTPUT_ESCAPING = new Feature<Boolean>(88, "http://saxon.sf.net/feature/use-pi-disable-output-escaping");
@@ -1318,7 +1352,7 @@ public class Feature<T> {
     *                other than string, untypedAtomic, or anyURI. The default value is true. Setting this
     *                value to false can reduce memory requirements at the cost of requiring recomputation
     *                of typed values on each access.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> USE_TYPED_VALUE_CACHE = new Feature<Boolean>(89, "http://saxon.sf.net/feature/use-typed-value-cache");
@@ -1331,7 +1365,7 @@ public class Feature<T> {
     *                document to locate a schema for validation.</p>
     *            <p>Note, these attribute are only consulted if validation is requested; the presence of
     *                one of these attributes never by itself triggers validation.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> USE_XSI_SCHEMA_LOCATION = new Feature<Boolean>(90, "http://saxon.sf.net/feature/useXsiSchemaLocation");
@@ -1343,7 +1377,7 @@ public class Feature<T> {
     *                documents should result in comments being inserted into the result tree. The
     *                command-line flag <code>-outval:recover</code> sets both this option and the
     *                    {@link net.sf.saxon.lib.Feature#VALIDATION_WARNINGS} option.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> VALIDATION_COMMENTS = new Feature<Boolean>(91, "http://saxon.sf.net/feature/validation-comments");
@@ -1369,7 +1403,7 @@ public class Feature<T> {
     *                the option is set and a validation error occurs in a final output file, the output
     *                file is still written and the process terminates as if successful.</p>
     *            <p>The detailed interpretation of this option changed in Saxon 9.5.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> VALIDATION_WARNINGS = new Feature<Boolean>(92, "http://saxon.sf.net/feature/validation-warnings");
@@ -1382,8 +1416,8 @@ public class Feature<T> {
     *                specifies <code>version="1.0"</code>.</p>
     *            <p>From Saxon 9.8, the warning is no longer output (since XSLT 3.0 does not require
     *                it), so this option is ignored.</p>
-    *
-    *
+    *            
+    *        
     **/
 
     public final static Feature<Boolean> VERSION_WARNING = new Feature<Boolean>(93, "http://saxon.sf.net/feature/version-warning");
@@ -1397,13 +1431,13 @@ public class Feature<T> {
     *                not support XInclude processing, setting this option results in a parsing failure.</p>
     *            <p>The effect of the option is to set a flag to request XInclude expansion in the
     *                default parse options held at Configuration level. These options are used on most occasions
-    *                that an XML document is parsed (including parsing of XSD schema documents), but with one
+    *                that an XML document is parsed (including parsing of XSD schema documents), but with one 
     *                notable exception: XSLT stylesheet documents. XInclude directives are never expanded in
     *                stylesheet modules, except of course when they are processed using APIs (such as the
-    *                <code>DocumentBuilder</code>, or a call on <code>fn:document("")</code>) that treat
+    *                <code>DocumentBuilder</code>, or a call on <code>fn:document("")</code>) that treat 
     *                them as generic XML documents.
     *                The default options can be overridden in many APIs by custom parsing options.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XINCLUDE = new Feature<Boolean>(94, "http://saxon.sf.net/feature/xinclude-aware");
@@ -1421,7 +1455,7 @@ public class Feature<T> {
     *                documents to be constructed. </p>
     *            <p>The default is 1.0.</p>
     *            <p>SaxonCS uses the <code>System.Xml</code> parser, which does not support XML 1.1.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XML_VERSION = new Feature<String>(95, "http://saxon.sf.net/feature/xml-version");
@@ -1436,7 +1470,7 @@ public class Feature<T> {
     *                can be set by setting the value of the Configuration property:
     *                    <code>http://saxon.sf.net/feature/parserFeature?uri=http%3A//xml.org/sax/features/external-parameter-entities</code>
     *                to true.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XML_PARSER_FEATURE = new Feature<Boolean>(96, "http://saxon.sf.net/feature/parserFeature?uri=");
@@ -1451,7 +1485,7 @@ public class Feature<T> {
     *                then this can be set using the value of the Configuration property:
     *                    <code>http://saxon.sf.net/feature/parserProperty?uri=http%3A//apache.org/xml/properties/schema/external-schemaLocation</code>
     *                to the required value.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XML_PARSER_PROPERTY = new Feature<Boolean>(97, "http://saxon.sf.net/feature/parserProperty?uri=");
@@ -1460,7 +1494,7 @@ public class Feature<T> {
 
     /**
     *            <p>Determines whether XQuery Update syntax is accepted.</p>
-    *            <p>If true, update syntax is accepted, if false, it is not accepted. Setting the value to
+    *            <p>If true, update syntax is accepted, if false, it is not accepted. Setting the value to 
     *                true does not mean that the query has to use update syntax, only that it may do so.</p>
     *            <p>From Saxon 9.6, XQuery Update syntax and XQuery 3.0 syntax can be mixed, although
     *                this combination is not defined by any W3C specification at the time of writing.</p>
@@ -1470,7 +1504,7 @@ public class Feature<T> {
     *                indicates that updates are allowed, but the updates are not written back to
     *                filestore. This does not correspond to any option in the Java API, where writing an
     *                updated document back to filestore only happens if explicitly requested.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XQUERY_ALLOW_UPDATE = new Feature<Boolean>(98, "http://saxon.sf.net/feature/xqueryAllowUpdate");
@@ -1482,7 +1516,7 @@ public class Feature<T> {
     *                context (overridable in the query prolog).</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XQUERY_CONSTRUCTION_MODE = new Feature<String>(99, "http://saxon.sf.net/feature/xqueryConstructionMode");
@@ -1494,7 +1528,7 @@ public class Feature<T> {
     *                qualified by a namespace prefix.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Object> XQUERY_DEFAULT_ELEMENT_NAMESPACE = new Feature<Object>(100, "http://saxon.sf.net/feature/xqueryDefaultElementNamespace");
@@ -1506,7 +1540,7 @@ public class Feature<T> {
     *                by a namespace prefix.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Object> XQUERY_DEFAULT_FUNCTION_NAMESPACE = new Feature<Object>(101, "http://saxon.sf.net/feature/xqueryDefaultFunctionNamespace");
@@ -1519,7 +1553,7 @@ public class Feature<T> {
     *                false, it comes last.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XQUERY_EMPTY_LEAST = new Feature<Boolean>(102, "http://saxon.sf.net/feature/xqueryEmptyLeast");
@@ -1531,7 +1565,7 @@ public class Feature<T> {
     *                property in the XQuery static context.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XQUERY_INHERIT_NAMESPACES = new Feature<Boolean>(103, "http://saxon.sf.net/feature/xqueryInheritNamespaces");
@@ -1545,7 +1579,7 @@ public class Feature<T> {
     *                as a reference to the existing module. If the value is true, the system first checks
     *                whether the supplied "location hints" match the known location of the existing
     *                module, and the existing module is used only if there is a match.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XQUERY_MULTIPLE_MODULE_IMPORTS = new Feature<Boolean>(104, "http://saxon.sf.net/feature/xqueryMultipleModuleImports");
@@ -1557,7 +1591,7 @@ public class Feature<T> {
     *                constructors) should be retained or not.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XQUERY_PRESERVE_BOUNDARY_SPACE = new Feature<Boolean>(105, "http://saxon.sf.net/feature/xqueryPreserveBoundarySpace");
@@ -1569,7 +1603,7 @@ public class Feature<T> {
     *                element copy operations.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XQUERY_PRESERVE_NAMESPACES = new Feature<Boolean>(106, "http://saxon.sf.net/feature/xqueryPreserveNamespaces");
@@ -1580,7 +1614,7 @@ public class Feature<T> {
     *            <p>This property defines the default expected context item type for a query.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XQUERY_REQUIRED_CONTEXT_ITEM_TYPE = new Feature<String>(107, "http://saxon.sf.net/feature/xqueryRequiredContextItemType");
@@ -1596,7 +1630,7 @@ public class Feature<T> {
     *                schema-defined type.</p>
     *            <p>This option can be set for a particular XQuery compilation. When the option is set at
     *                the <code>Configuration</code> level, it acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XQUERY_SCHEMA_AWARE = new Feature<Boolean>(108, "http://saxon.sf.net/feature/xquerySchemaAware");
@@ -1611,7 +1645,7 @@ public class Feature<T> {
     *            <p>In the absence of this property, the global <code>ErrorListener</code> specified as
     *                the value of the {@link net.sf.saxon.lib.Feature#ERROR_LISTENER_CLASS}
     *                property is used.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XQUERY_STATIC_ERROR_LISTENER_CLASS = new Feature<String>(109, "http://saxon.sf.net/feature/xqueryStaticErrorListenerClass");
@@ -1625,8 +1659,8 @@ public class Feature<T> {
     *                processor is always used by default. So setting this property to a value less than 3.1 is no longer
     *                allowed. The value "4.0" enables experimental syntax extensions that are under discussion
     *                in the XML community, and subject to change.</p>
-    *
-    *
+    *            
+    *        
     **/
 
     public final static Feature<String> XQUERY_VERSION = new Feature<String>(110, "http://saxon.sf.net/feature/xqueryVersion");
@@ -1640,7 +1674,7 @@ public class Feature<T> {
     *                selected, XSD 1.1 features will be rejected, with the exception of the version
     *                control attributes that allow sections of the schema to be marked as requiring XSD
     *                1.0 or XSD 1.1.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XSD_VERSION = new Feature<String>(111, "http://saxon.sf.net/feature/xsd-version");
@@ -1659,7 +1693,7 @@ public class Feature<T> {
     *                still be disabled at run-time (for all packages) by setting an option on the
     *                    <code>Xslt30Transformer</code>. But if assertions were disabled at compile time,
     *                enabling them at run-time has no effect.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XSLT_ENABLE_ASSERTIONS = new Feature<Boolean>(112, "http://saxon.sf.net/feature/enableAssertions");
@@ -1672,7 +1706,7 @@ public class Feature<T> {
     *            <p>This option can be set for a particular XSLT transformation. When the option is set
     *                at the <code>Configuration</code> (or on a <code>TransformerFactory</code>), it acts
     *                as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XSLT_INITIAL_MODE = new Feature<String>(113, "http://saxon.sf.net/feature/initialMode");
@@ -1688,15 +1722,15 @@ public class Feature<T> {
     *            <p>Specifically, if the transformation is performed using the <code>transform()</code>
     *                method of class <code>net.sf.saxon.s9api.XsltTransformer</code>, then the transformation
     *                will proceed by calling the relevant named template, rather than by applying templates
-    *                to the supplied source node. It will also affect other APIs built on top of the
+    *                to the supplied source node. It will also affect other APIs built on top of the 
     *                <code>XsltTransformer</code>, notably the JAXP transformation interface, which in turn
     *                is used by many higher-level interfaces such as Ant. Indeed, the main purpose of this
-    *                configuration option is to allow named-template stylesheet invocation using the JAXP
+    *                configuration option is to allow named-template stylesheet invocation using the JAXP 
     *                interface, which was designed without this feature in mind.</p>
     *            <p>This configuration option is ignored when using an <code>net.sf.saxon.s9api.Xslt30Transformer</code>,
     *                or other interfaces built on top of an <code>Xslt30Transformer</code>, for example the
     *                <code>net.sf.saxon.Transform</code> command line interface.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XSLT_INITIAL_TEMPLATE = new Feature<String>(114, "http://saxon.sf.net/feature/initialTemplate");
@@ -1713,7 +1747,7 @@ public class Feature<T> {
     *            <p>This option can be set for a particular XSLT compilation. When the option is set at
     *                the <code>Configuration</code> level (or on a <code>TransformerFactory</code>), it
     *                acts as a default.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> XSLT_SCHEMA_AWARE = new Feature<Boolean>(115, "http://saxon.sf.net/feature/xsltSchemaAware");
@@ -1730,7 +1764,7 @@ public class Feature<T> {
     *            <p>In the absence of this property, the global <code>ErrorListener</code> specified as
     *                the value of the {@link net.sf.saxon.lib.Feature#ERROR_LISTENER_CLASS}
     *                property is used.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XSLT_STATIC_ERROR_LISTENER_CLASS = new Feature<String>(116, "http://saxon.sf.net/feature/stylesheetErrorListener");
@@ -1748,7 +1782,7 @@ public class Feature<T> {
     *            <p>In the absence of this property, the global <code>URIResolver</code> specified as the
     *                value of the {@link net.sf.saxon.lib.Feature#URI_RESOLVER_CLASS} property
     *                is used.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> XSLT_STATIC_URI_RESOLVER_CLASS = new Feature<String>(117, "http://saxon.sf.net/feature/stylesheetURIResolver");
@@ -1761,8 +1795,8 @@ public class Feature<T> {
     *                property to a value less than 3.0 has no effect.</p>
     *            <p>The value 4.0 enables experimental syntax extensions, under discussion in the XML
     *            community, which are subject to change.</p>
-    *
-    *
+    *            
+    *        
     **/
 
     public final static Feature<String> XSLT_VERSION = new Feature<String>(118, "http://saxon.sf.net/feature/xsltVersion");
@@ -1781,7 +1815,7 @@ public class Feature<T> {
     *                by <code>/</code> characters), because the presence of <code>/</code> forces the inner loop to terminate. By contrast,
     *                <code>(/.*)+</code> matches the same input, but in many different ways, which could lead to excessive backtracking
     *            to no useful purpose.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> REGEX_BACKTRACKING_LIMIT = new Feature<Integer>(119, "http://saxon.sf.net/feature/regexBacktrackingLimit");
@@ -1791,8 +1825,8 @@ public class Feature<T> {
     /**
     *            <p>The XSD 1.1 specification states that XPath version 2.0 is used for expressions appearing in assertions and type
     *                alternatives. This option allows XPath 3.0 or 3.1 to be used instead.</p>
-    *            <p>The recognized values are the integers 20, 30, and 31 representing versions 2.0, 3.0, and 3.1 respectively.</p>
-    *
+    *            <p>The recognized values are the integers 20, 30, and 31 representing versions 2.0, 3.0, and 3.1 respectively.</p>           
+    *        
     **/
 
     public final static Feature<Integer> XPATH_VERSION_FOR_XSD = new Feature<Integer>(120, "http://saxon.sf.net/feature/xpathVersionForXsd");
@@ -1805,7 +1839,7 @@ public class Feature<T> {
     *                optional, but it is the default in Saxon. This option allows a different XPath language level to be selected.</p>
     *            <p>The integer values 20, 30, and 31 denote XPath 2.0, 3.0, and 3.1 respectively, while the value 305 denotes XPath 3.0
     *                with the extensions defined in the XSLT 3.0 specification.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> XPATH_VERSION_FOR_XSLT = new Feature<Integer>(121, "http://saxon.sf.net/feature/xpathVersionForXslt");
@@ -1818,7 +1852,7 @@ public class Feature<T> {
     *            <p>The value is (roughly) the number of nodes in the expression tree representing the function body. This
     *                includes both explicit subexpressions, and subexpressions added by Saxon itself to perform implicit
     *                operations such as type checking or conversion of function arguments. The default value is 100.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> THRESHOLD_FOR_FUNCTION_INLINING = new Feature<Integer>(122, "http://saxon.sf.net/feature/thresholdForFunctionInlining");
@@ -1827,7 +1861,7 @@ public class Feature<T> {
 
     /**
     *            <p>Obsolete and ignored from Saxon 12.0.</p>
-    *
+    *        
     **/
 
     public final static Feature<Integer> THRESHOLD_FOR_HOTSPOT_BYTE_CODE = new Feature<Integer>(123, "http://saxon.sf.net/feature/thresholdForHotspotByteCode");
@@ -1835,16 +1869,15 @@ public class Feature<T> {
 
 
     /**
-    *            <p>The value is a comma-separated list of permitted protocols. A protocol is the
-    *                scheme portion of a URI, or in the case of the JAR protocol, "jar"
+    *            <p>The value is a comma-separated list of permitted protocols. A protocol is the 
+    *                scheme portion of a URI, or in the case of the JAR protocol, "jar" 
     *                plus the scheme portion separated by colon. The value "all" gives access
     *                to all protocols (which is the default). The value "" (empty string) disallows
-    *                all external resource access. (The format is thus the same as for
+    *                all external resource access. (The format is thus the same as for 
     *                <code>XMLConstants.ACCESS_EXTERNAL_SCHEMA</code> and similar attributes.)
     *            </p>
-    *            <p>The value constrains access by Saxon (but not by underlying software, such
-    *                as the XML parser) to resources including the following:</p>
-    *
+    *            <p>The value constrains access by Saxon to resources including the following:</p>
+    *            
     *            <ul>
     *                <li>Stylesheet modules</li>
     *                <li>Schema documents</li>
@@ -1857,8 +1890,13 @@ public class Feature<T> {
     *                    those in the EXPath file library (but it does not affect user-supplied
     *                    extension functions).</li>
     *            </ul>
+    *            
+    *            <p>The restriction is passed on to an underlying XML parser in cases where Saxon is in control
+    *            of the parsing (for example, by setting an <code>EntityResolver</code> in Java, or an <code>XmlResolver</code>
+    *            on .NET). Saxon will not generally change the settings of a user-supplied XML parser (for example 
+    *            a parser supplied as an <code>XmlReader</code> within a <code>SAXSource</code>).</p>
     *            <p>The constraint applies to the URI used to request
-    *                the resource; the constraint is applied by the standard URI resolvers, but if
+    *                the resource; the constraint is applied by the standard URI resolvers, but if 
     *                user-supplied resolvers are used (such as a <code>URIResolver</code>), they can decide
     *                whether to apply the restrictions or not.</p>
     *            <p>The constraint applies to URIs used as locations or location hints, not to URIs used as names. So
@@ -1869,7 +1907,12 @@ public class Feature<T> {
     *                all schemes/protocols, or a comma-separated list of scheme names such as <code>"http"</code>, <code>"file"</code>, <code>"ftp"</code>.
     *                For a JAR file scheme, use the format <code>"jar:<i>scheme</i>"</code>, for example <code>"jar:file"</code>. A zero-length
     *                string disallows all schemes.</p>
-    *
+    *            <p>Setting this property for a Saxon Configuration causes the existing configuration-level <code>ResourceResolver</code>
+    *            to be front-ended with a preprocessing filter that checks the URI, and then passes it on to the existing resolver
+    *            if OK. In consequence, setting the property multiple times is cumulative; a URI is allowed only if it permitted
+    *            by all the filters that have been applied. Conversely, setting a new <code>ResourceResolver</code> at
+    *            configuration level cancels all the filters that have been previously applied.</p>
+    *        
     **/
 
     public final static Feature<Object> ALLOWED_PROTOCOLS = new Feature<Object>(124, "http://saxon.sf.net/feature/allowedProtocols");
@@ -1887,7 +1930,7 @@ public class Feature<T> {
     *               line numbers are not available for the source stylesheet. This might happen, for example, if the
     *               source stylesheet is preprocessed before compilation, or if it is retrieved from an XML database.</p>
     *            <p>Links to source nodes are not retained in an exported SEF file, regardless of this setting.</p>
-    *
+    *        
     **/
 
     public final static Feature<Boolean> RETAIN_NODE_FOR_DIAGNOSTICS = new Feature<Boolean>(125, "http://saxon.sf.net/feature/retainNodeForDiagnostics");
@@ -1911,7 +1954,7 @@ public class Feature<T> {
     *      components: for example if an attribute declaration refers to a type that has
     *      not been defined, then <code>xs:error</code> is substituted, making any instance
     *      of the attribute invalid.</p>
-    *
+    *      
     **/
 
     public final static Feature<Boolean> ALLOW_UNRESOLVED_SCHEMA_COMPONENTS = new Feature<Boolean>(126, "http://saxon.sf.net/feature/allowUnresolvedSchemaComponents");
@@ -1929,8 +1972,8 @@ public class Feature<T> {
     *            this pattern, then the URI will be treated as a reference to a ZIP file
     *            (and will therefore fail if the URI does not resolve to a resource that can
     *            be opened as a ZIP file).</p>
-    *
-    *
+    *            
+    *        
     **/
 
     public final static Feature<String> ZIP_URI_PATTERN = new Feature<String>(127, "http://saxon.sf.net/feature/zipUriPattern");
@@ -1942,7 +1985,7 @@ public class Feature<T> {
     *            resolve URIs. The default implementation uses XML Catalog files.
     *            The Saxon resource resolver is used by the entity resolver, URI resolver,
     *            unparsed text resolver, and other resolvers that resolve URIs to resources.</p>
-    *
+    *        
     **/
 
     public final static Feature<Object> RESOURCE_RESOLVER = new Feature<Object>(128, "http://saxon.sf.net/feature/saxon-resource-resolver");
@@ -1952,11 +1995,32 @@ public class Feature<T> {
     /**
     *            <p>The supplied class is instantiated and the resulting instance is used as the value of
     *                the {@link net.sf.saxon.lib.Feature#RESOURCE_RESOLVER} property.</p>
-    *
+    *        
     **/
 
     public final static Feature<String> RESOURCE_RESOLVER_CLASS = new Feature<String>(129, "http://saxon.sf.net/feature/saxon-resource-resolver-class");
 // AUTO-GENERATED FROM FeatureKeys.xml - DO NOT EDIT THIS FILE
 
 
+    /**
+    *            <p>Certain expressions that were legal in prior releases are classified 
+    *               as "implausible" in XPath 4.0. An example is <code>@code/text()</code>,
+    *               which will never select anything because attributes never have text nodes.</p>
+    *            <p>Typically, in the past, Saxon has given a warning for such constructs.</p>
+    *            <p>If 4.0 is enabled, then by default Saxon rejects implausible expressions as a static
+    *               error. Setting this option reduces this to a warning. If the warning is ignored,
+    *               the expression will in most cases return an empty sequence.</p>
+    *            <p>A common example of an implausible expression is calling a function that expects
+    *               say <code>xs:integer*</code> with a value of type <code>xs:string*</code>. This
+    *               is not strictly an error because the call could succeed if the actual value passed
+    *               is an empty sequence; but it is classified as implausible because it is unlikely
+    *               that this is what the developer intended.</p>
+    *        
+    **/
+
+    public final static Feature<Boolean> ALLOW_IMPLAUSIBLE_EXPRESSIONS = new Feature<Boolean>(130, "http://saxon.sf.net/feature/allowImplausibleExpressions");
+// AUTO-GENERATED FROM FeatureKeys.xml - DO NOT EDIT THIS FILE
+
+            
 }
+        

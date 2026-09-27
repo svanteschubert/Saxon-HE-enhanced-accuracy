@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,6 +9,7 @@ package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.Outputter;
+import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.expr.Component;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.XPathContext;
@@ -216,9 +217,16 @@ public class NextMatch extends ApplyNextMatchingTemplate {
 
                 Item currentItem = context.getCurrentIterator().current();
 
+                XPathContextMajor c1 = context.newContext();
+                c1.setCurrentMode(modeComponent);
+                c1.setOrigin(expr);
+                c1.setCurrentComponent(modeComponent);
+                PipelineConfiguration pipe = output.getPipelineConfiguration();
+                pipe.setXPathContext(c1);
+
                 Rule rule;
                 try {
-                    rule = mode.getNextMatchRule(currentItem, currentRule, context);
+                    rule = mode.getNextMatchRule(currentItem, currentRule, c1);
                 } catch (XPathException e) {
                     throw e.withLocation(this.getExpression().getLocation());
                 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,16 +11,18 @@ import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.SystemFunctionCall;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.GroupIterator;
+import net.sf.saxon.expr.sort.MergeGroupingIterator;
 import net.sf.saxon.expr.sort.MergeInstr;
-import net.sf.saxon.om.Sequence;
-import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.om.SequenceTool;
+import net.sf.saxon.om.*;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.tree.iter.ListIterator;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
- * Implements the XSLT function current-grouping-key()
+ * Implements the XSLT function current-merge-key()
  */
 
 public class CurrentMergeKey extends SystemFunction implements Callable {
@@ -28,7 +30,7 @@ public class CurrentMergeKey extends SystemFunction implements Callable {
     private MergeInstr controllingInstruction = null; // may be unknown, when current group has dynamic scope
 
     /**
-     * Set the containing xsl:for-each-group instruction, if there is one
+     * Set the containing xsl:merge instruction, if there is one
      *
      * @param instruction the (innermost) containing xsl:for-each-group instruction
      */
@@ -73,11 +75,18 @@ public class CurrentMergeKey extends SystemFunction implements Callable {
     /*@NotNull*/
     //@Override
     public SequenceIterator iterate(XPathContext c) throws XPathException {
-        GroupIterator gi = c.getCurrentMergeGroupIterator();
+        MergeGroupingIterator gi = c.getCurrentMergeGroupIterator();
         if (gi == null) {
             throw new XPathException("There is no current merge key", "XTDE3510");
         }
-        return gi.getCurrentGroupingKey().iterate();
+        List<Item> items = new ArrayList<>();
+        List<GroundedValue> compositeKey = gi.getCompositeMergeKey();
+        for (GroundedValue val : compositeKey) {
+            for (Item item : val.asIterable()) {
+                items.add(item);
+            }
+        }
+        return new ListIterator.Of<>(items);
 
     }
 

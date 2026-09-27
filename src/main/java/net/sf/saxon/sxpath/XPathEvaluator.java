@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,6 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
-import net.sf.saxon.functions.registry.XPath31FunctionSet;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.trans.XPathException;
@@ -34,7 +33,7 @@ import net.sf.saxon.type.Type;
 
 public class XPathEvaluator {
 
-    private XPathStaticContext staticContext;
+    private IndependentContext staticContext;
 
     /**
      * Construct an XPathEvaluator with a specified configuration.
@@ -70,7 +69,7 @@ public class XPathEvaluator {
      *                <p>Setting a new static context clears any variables and namespaces that have previously been declared.</p>
      */
 
-    public void setStaticContext(XPathStaticContext context) {
+    public void setStaticContext(IndependentContext context) {
         staticContext = context;
     }
 
@@ -82,7 +81,7 @@ public class XPathEvaluator {
      * @return the static context object
      */
 
-    public XPathStaticContext getStaticContext() {
+    public IndependentContext getStaticContext() {
         return staticContext;
     }
 
@@ -99,17 +98,19 @@ public class XPathEvaluator {
         Configuration config = getConfiguration();
         Executable exec = new Executable(config);
 
-        exec.setTopLevelPackage(staticContext.getPackageData());
+        PackageData pack = staticContext.getPackageData();
+        exec.setTopLevelPackage(pack);
         exec.setSchemaAware(staticContext.getPackageData().isSchemaAware());
         exec.setHostLanguage(HostLanguage.XPATH);
+        int version = pack.getHostLanguageVersion();
 
         // Make the function library that's available at run-time (e.g. for saxon:evaluate() and function-lookup()).
         // This includes all user-defined functions regardless of which module they are in
 
         FunctionLibrary userlib = exec.getFunctionLibrary();
         FunctionLibraryList lib = new FunctionLibraryList();
-        lib.addFunctionLibrary(XPath31FunctionSet.getInstance());
-        lib.addFunctionLibrary(config.getBuiltInExtensionLibraryList(31));
+        lib.addFunctionLibrary(config.getXPathFunctionSet(version));
+        lib.addFunctionLibrary(config.getBuiltInExtensionLibraryList(version));
         lib.addFunctionLibrary(new ConstructorFunctionLibrary(config));
         lib.addFunctionLibrary(config.getIntegratedFunctionLibrary());
         config.addExtensionBinders(lib);
@@ -119,20 +120,23 @@ public class XPathEvaluator {
         exec.setFunctionLibrary(lib);
 
         Optimizer opt = config.obtainOptimizer();
-        Expression exp = ExpressionTool.make(expression, staticContext, 0, -1, null);
+        Expression exp = ExpressionTool.make(expression, staticContext, 0, Tokenizer.END_OF_INPUT, null);
         RetainedStaticContext rsc = staticContext.makeRetainedStaticContext();
         exp.setRetainedStaticContext(rsc);
         ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
         ItemType contextItemType = staticContext.getRequiredContextItemType();
-        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(contextItemType, true);
+        ContextItemStaticInfo cit = config.makeContextItemStaticInfo(contextItemType, Optionality.OPTIONAL);
         cit.setParentless(staticContext.isContextItemParentless());
         exp = exp.typeCheck(visitor, cit);
+        exp.setRetainedStaticContext(rsc);
         if (opt.isOptionSet(OptimizerOptions.MISCELLANEOUS)) {
             exp = exp.optimize(visitor, cit);
+            exp.setRetainedStaticContext(rsc);
         }
         if (opt.isOptionSet(OptimizerOptions.LOOP_LIFTING)) {
             exp.setParentExpression(null);
             exp = LoopLifter.process(exp, visitor, cit);
+            exp.setRetainedStaticContext(rsc);
         }
         exp = postProcess(exp, visitor, cit);
         exp.setRetainedStaticContext(rsc);
@@ -174,7 +178,7 @@ public class XPathEvaluator {
         Executable exec = new Executable(config);
         Pattern pat = Pattern.make(pattern, staticContext, new PackageData(config));
         ExpressionVisitor visitor = ExpressionVisitor.make(staticContext);
-        pat.typeCheck(visitor, config.makeContextItemStaticInfo(Type.NODE_TYPE, true));
+        pat.typeCheck(visitor, config.makeContextItemStaticInfo(Type.XNODE_TYPE, Optionality.OPTIONAL));
         SlotManager map = staticContext.getStackFrameMap();
         int slots = map.getNumberOfVariables();
         slots = pat.allocateSlots(map, slots);

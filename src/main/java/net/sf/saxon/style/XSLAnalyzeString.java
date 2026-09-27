@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.regex.RegularExpression;
-import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.UnicodeChar;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -106,12 +106,17 @@ public class XSLAnalyzeString extends StyleElement {
 
         if (regex instanceof StringLiteral && flags instanceof StringLiteral) {
             try {
-                final UnicodeString regex = ((StringLiteral) this.regex).getString();
+                final UnicodeString regex = ((StringLiteral) this.regex).getUnicodeString();
                 final String flagstr = ((StringLiteral) flags).stringify();
+
+                String regexDialect = getEffectiveVersion() >= 30 ? "XP31" : "XP20";
+                if (getCompilation().getCompilerInfo().getXsltVersion() >= 40) {
+                    regexDialect = "XP40";
+                }
 
                 List<String> warnings = new ArrayList<>();
                 pattern = getConfiguration().compileRegularExpression(
-                        regex, flagstr, getEffectiveVersion() >= 30 ? "XP30" : "XP20", warnings);
+                        regex, flagstr, regexDialect, warnings);
                 for (String w : warnings) {
                     issueWarning(w, SaxonErrorCode.SXWN9022);
                 }
@@ -140,7 +145,7 @@ public class XSLAnalyzeString extends StyleElement {
 
     private void setDummyRegex() {
         try {
-            pattern = getConfiguration().compileRegularExpression(BMPString.of("x"), "", "XP20", null);
+            pattern = getConfiguration().compileRegularExpression(new UnicodeChar('x'), "", "XP20", null);
         } catch (XPathException err) {
             throw new IllegalStateException();
         }
@@ -200,7 +205,7 @@ public class XSLAnalyzeString extends StyleElement {
                 nonMatchingBlock = nonMatching.compileSequenceConstructor(exec, decl, false);
             }
         }
-
+        ExpressionContext env = getStaticContext();
         try {
             return new AnalyzeString(select,
                                      regex,

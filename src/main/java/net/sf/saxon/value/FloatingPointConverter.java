@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,7 +7,7 @@
 
 package net.sf.saxon.value;
 
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.str.UnicodeString;
 
 import java.math.BigInteger;
@@ -77,109 +77,98 @@ public class FloatingPointConverter {
     /**
      * Format an integer, appending the string representation of the integer to a string buffer
      *
-     * @param s the string buffer
+     * @param tb the string buffer
      * @param i the integer to be formatted
-     * @return the supplied string buffer, containing the appended integer
+     * @return the buffer to be used for subsequent operations
      */
 
-    public static UnicodeBuilder appendInt(UnicodeBuilder s, int i) {
+    public static TwineBuilder appendInt(TwineBuilder tb, int i) {
         // TODO: this elaborate machinery is only being used to output the exponent of a floating point number,
         //  which never has more than 3 digits...
         if (i < 0) {
             if (i == Integer.MIN_VALUE) {
                 //cannot make this positive due to integer overflow
-                s.append("-2147483648");
-                return s;
+                return tb.append("-2147483648");
             }
-            s.append('-');
+            tb = tb.append('-');
             i = -i;
         }
         int c;
         if (i < 10) {
             //one digit
-            s.append(charForDigit[i]);
-            return s;
+            return tb.append(charForDigit[i]);
         } else if (i < 100) {
             //two digits
-            s.append(charForDigit[i / 10]);
-            s.append(charForDigit[i % 10]);
-            return s;
+            return tb.append(charForDigit[i / 10])
+                    .append(charForDigit[i % 10]);
         } else if (i < 1000) {
             //three digits
-            s.append(charForDigit[i / 100]);
-            s.append(charForDigit[(c = i % 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 100])
+                    .append(charForDigit[(c = i % 100) / 10])
+                    .append(charForDigit[c % 10]);
         } else if (i < 10000) {
             //four digits
-            s.append(charForDigit[i / 1000]);
-            s.append(charForDigit[(c = i % 1000) / 100]);
-            s.append(charForDigit[(c %= 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 1000])
+                    .append(charForDigit[(c = i % 1000) / 100])
+                    .append(charForDigit[(c %= 100) / 10])
+                    .append(charForDigit[c % 10]);
         } else if (i < 100000) {
             //five digits
-            s.append(charForDigit[i / 10000]);
-            s.append(charForDigit[(c = i % 10000) / 1000]);
-            s.append(charForDigit[(c %= 1000) / 100]);
-            s.append(charForDigit[(c %= 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 10000])
+                    .append(charForDigit[(c = i % 10000) / 1000])
+                    .append(charForDigit[(c %= 1000) / 100])
+                    .append(charForDigit[(c %= 100) / 10])
+                    .append(charForDigit[c % 10]);
         } else if (i < 1000000) {
             //six digits
-            s.append(charForDigit[i / 100000]);
-            s.append(charForDigit[(c = i % 100000) / 10000]);
-            s.append(charForDigit[(c %= 10000) / 1000]);
-            s.append(charForDigit[(c %= 1000) / 100]);
-            s.append(charForDigit[(c %= 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 100000])
+                    .append(charForDigit[(c = i % 100000) / 10000])
+                    .append(charForDigit[(c %= 10000) / 1000])
+                    .append(charForDigit[(c %= 1000) / 100])
+                    .append(charForDigit[(c %= 100) / 10])
+                    .append(charForDigit[c % 10]);
         } else if (i < 10000000) {
             //seven digits
-            s.append(charForDigit[i / 1000000]);
-            s.append(charForDigit[(c = i % 1000000) / 100000]);
-            s.append(charForDigit[(c %= 100000) / 10000]);
-            s.append(charForDigit[(c %= 10000) / 1000]);
-            s.append(charForDigit[(c %= 1000) / 100]);
-            s.append(charForDigit[(c %= 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 1000000])
+                    .append(charForDigit[(c = i % 1000000) / 100000])
+                    .append(charForDigit[(c %= 100000) / 10000])
+                    .append(charForDigit[(c %= 10000) / 1000])
+                    .append(charForDigit[(c %= 1000) / 100])
+                    .append(charForDigit[(c %= 100) / 10])
+                    .append(charForDigit[c % 10]);
         } else if (i < 100000000) {
             //eight digits
-            s.append(charForDigit[i / 10000000]);
-            s.append(charForDigit[(c = i % 10000000) / 1000000]);
-            s.append(charForDigit[(c %= 1000000) / 100000]);
-            s.append(charForDigit[(c %= 100000) / 10000]);
-            s.append(charForDigit[(c %= 10000) / 1000]);
-            s.append(charForDigit[(c %= 1000) / 100]);
-            s.append(charForDigit[(c %= 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 10000000])
+                    .append(charForDigit[(c = i % 10000000) / 1000000])
+                    .append(charForDigit[(c %= 1000000) / 100000])
+                    .append(charForDigit[(c %= 100000) / 10000])
+                    .append(charForDigit[(c %= 10000) / 1000])
+                    .append(charForDigit[(c %= 1000) / 100])
+                    .append(charForDigit[(c %= 100) / 10])
+                    .append(charForDigit[c % 10]);
         } else if (i < 1000000000) {
             //nine digits
-            s.append(charForDigit[i / 100000000]);
-            s.append(charForDigit[(c = i % 100000000) / 10000000]);
-            s.append(charForDigit[(c %= 10000000) / 1000000]);
-            s.append(charForDigit[(c %= 1000000) / 100000]);
-            s.append(charForDigit[(c %= 100000) / 10000]);
-            s.append(charForDigit[(c %= 10000) / 1000]);
-            s.append(charForDigit[(c %= 1000) / 100]);
-            s.append(charForDigit[(c %= 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 100000000])
+                    .append(charForDigit[(c = i % 100000000) / 10000000])
+                    .append(charForDigit[(c %= 10000000) / 1000000])
+                    .append(charForDigit[(c %= 1000000) / 100000])
+                    .append(charForDigit[(c %= 100000) / 10000])
+                    .append(charForDigit[(c %= 10000) / 1000])
+                    .append(charForDigit[(c %= 1000) / 100])
+                    .append(charForDigit[(c %= 100) / 10])
+                    .append(charForDigit[c % 10]);
         } else {
             //ten digits
-            s.append(charForDigit[i / 1000000000]);
-            s.append(charForDigit[(c = i % 1000000000) / 100000000]);
-            s.append(charForDigit[(c %= 100000000) / 10000000]);
-            s.append(charForDigit[(c %= 10000000) / 1000000]);
-            s.append(charForDigit[(c %= 1000000) / 100000]);
-            s.append(charForDigit[(c %= 100000) / 10000]);
-            s.append(charForDigit[(c %= 10000) / 1000]);
-            s.append(charForDigit[(c %= 1000) / 100]);
-            s.append(charForDigit[(c %= 100) / 10]);
-            s.append(charForDigit[c % 10]);
-            return s;
+            return tb.append(charForDigit[i / 1000000000])
+                    .append(charForDigit[(c = i % 1000000000) / 100000000])
+                    .append(charForDigit[(c %= 100000000) / 10000000])
+                    .append(charForDigit[(c %= 10000000) / 1000000])
+                    .append(charForDigit[(c %= 1000000) / 100000])
+                    .append(charForDigit[(c %= 100000) / 10000])
+                    .append(charForDigit[(c %= 10000) / 1000])
+                    .append(charForDigit[(c %= 1000) / 100])
+                    .append(charForDigit[(c %= 100) / 10])
+                    .append(charForDigit[c % 10]);
         }
     }
 
@@ -189,14 +178,15 @@ public class FloatingPointConverter {
      * In this range (a) XPath requires that the output should not be in exponential
      * notation, and (b) the arithmetic can be handled using longs rather than BigIntegers
      *
-     * @param sb the string buffer to which the formatted result is to be appended
+     * @param tb the string buffer to which the formatted result is to be appended
      * @param e  the exponent of the floating point number
      * @param f  the fraction part of the floating point number, such that the "real" value of the
      *           number is f * 2^(e-p), with p&gt;=0 and 0 lt f lt 2^p
      * @param p  the precision
+     * @return the buffer to be used for subsequent operations
      */
 
-    private static void fppfpp(UnicodeBuilder sb, int e, long f, int p) {
+    private static TwineBuilder fppfpp(TwineBuilder tb, int e, long f, int p) {
         long R = f << Math.max(e - p, 0);
         long S = 1L << Math.max(0, -(e - p));
         long Mminus = 1L << Math.max(e - p, 0);
@@ -224,10 +214,10 @@ public class FloatingPointConverter {
 
         for (int z = k; z < 0; z++) {
             if (initial) {
-                sb.append("0.");
+                tb = tb.append('0').append('.');
             }
             initial = false;
-            sb.append('0');
+            tb = tb.append('0');
         }
 
         // end simpleFixup
@@ -249,11 +239,11 @@ public class FloatingPointConverter {
             if (low || high) break;
             if (k == -1) {
                 if (initial) {
-                    sb.append('0');
+                    tb = tb.append('0');
                 }
-                sb.append('.');
+                tb = tb.append('.');
             }
-            sb.append(charForDigit[U]);
+            tb = tb.append(charForDigit[U]);
             initial = false;
         }
         if (high && (!low || 2 * R > S)) {
@@ -261,14 +251,15 @@ public class FloatingPointConverter {
         }
         if (k == -1) {
             if (initial) {
-                sb.append('0');
+                tb = tb.append('0');
             }
-            sb.append('.');
+            tb = tb.append('.');
         }
-        sb.append(charForDigit[U]);
+        tb = tb.append(charForDigit[U]);
         for (int z = 0; z < k; z++) {
-            sb.append('0');
+            tb = tb.append('0');
         }
+        return tb;
     }
 
     /**
@@ -276,14 +267,15 @@ public class FloatingPointConverter {
      * 0.000001 to 0.01. In this range XPath requires that the output should not be in exponential
      * notation, but the scale factors are large enough to exceed the capacity of long arithmetic.
      *
-     * @param sb the string buffer to which the formatted result is to be appended
+     * @param tb the string buffer to which the formatted result is to be appended
      * @param e  the exponent of the floating point number
      * @param f  the fraction part of the floating point number, such that the "real" value of the
      *           number is f * 2^(e-p), with p&gt;=0 and 0 lt f lt 2^p
      * @param p  the precision
+     * @return the buffer to be used for subsequent operations
      */
 
-    private static void fppfppBig(UnicodeBuilder sb, int e, long f, int p) {
+    private static TwineBuilder fppfppBig(TwineBuilder tb, int e, long f, int p) {
         //long R = f << Math.max(e-p, 0);
         BigInteger R = BigInteger.valueOf(f).shiftLeft(Math.max(e - p, 0));
 
@@ -319,10 +311,10 @@ public class FloatingPointConverter {
 
         for (int z = k; z < 0; z++) {
             if (initial) {
-                sb.append("0.");
+                tb = tb.append('0').append('.');
             }
             initial = false;
-            sb.append('0');
+            tb = tb.append('0');
         }
 
         // end simpleFixup
@@ -345,11 +337,11 @@ public class FloatingPointConverter {
             if (low || high) break;
             if (k == -1) {
                 if (initial) {
-                    sb.append('0');
+                    tb = tb.append('0');
                 }
-                sb.append('.');
+                tb = tb.append('.');
             }
-            sb.append(charForDigit[U]);
+            tb = tb.append(charForDigit[U]);
             initial = false;
         }
         if (high && (!low || R.shiftLeft(1).compareTo(S) > 0)) {
@@ -357,14 +349,15 @@ public class FloatingPointConverter {
         }
         if (k == -1) {
             if (initial) {
-                sb.append('0');
+                tb = tb.append('0');
             }
-            sb.append('.');
+            tb = tb.append('.');
         }
-        sb.append(charForDigit[U]);
+        tb = tb.append(charForDigit[U]);
         for (int z = 0; z < k; z++) {
-            sb.append('0');
+            tb = tb.append('0');
         }
+        return tb;
     }
 
 
@@ -373,14 +366,14 @@ public class FloatingPointConverter {
      * 0.000001 to 1000000. In this range XPath requires that the output should be in exponential
      * notation
      *
-     * @param sb the string buffer to which the formatted result is to be appended
+     * @param tb the string buffer to which the formatted result is to be appended
      * @param e  the exponent of the floating point number
      * @param f  the fraction part of the floating point number, such that the "real" value of the
      *           number is f * 2^(e-p), with p&gt;=0 and 0 lt f lt 2^p
      * @param p  the precision
      */
 
-    private static void fppfppExponential(UnicodeBuilder sb, int e, long f, int p) {
+    private static TwineBuilder fppfppExponential(TwineBuilder tb, int e, long f, int p) {
         //long R = f << Math.max(e-p, 0);
         BigInteger R = BigInteger.valueOf(f).shiftLeft(Math.max(e - p, 0));
 
@@ -434,9 +427,9 @@ public class FloatingPointConverter {
             high = R2.compareTo(S.shiftLeft(1).subtract(Mplus)) > 0;
             if (low || high) break;
 
-            sb.append(charForDigit[U]);
+            tb = tb.append(charForDigit[U]);
             if (initial) {
-                sb.append('.');
+                tb = tb.append('.');
                 doneDot = true;
             }
             initial = false;
@@ -444,13 +437,14 @@ public class FloatingPointConverter {
         if (high && (!low || R.shiftLeft(1).compareTo(S) > 0)) {
             U++;
         }
-        sb.append(charForDigit[U]);
+        tb = tb.append(charForDigit[U]);
 
         if (!doneDot) {
-            sb.append(".0");
+            tb = tb.append(".0");
         }
-        sb.append('E');
-        appendInt(sb, H);
+        tb = tb.append('E');
+        tb = appendInt(tb, H);
+        return tb;
 
     }
 
@@ -465,32 +459,32 @@ public class FloatingPointConverter {
 
     //@CSharpReplaceBody(code = "return net.sf.saxon.str.BMPString.of(d.ToString(System.Globalization.CultureInfo.InvariantCulture));") // for now...
     public static UnicodeString convertDouble(double d, boolean useExponential) {
-        UnicodeBuilder s = new UnicodeBuilder(32);
+        TwineBuilder tb = TwineBuilder.make(32);
         if (d == Double.NEGATIVE_INFINITY) {
-            s.appendLatin(NEGATIVE_INFINITY);
+            tb = tb.append(NEGATIVE_INFINITY);
         } else if (d == Double.POSITIVE_INFINITY) {
-            s.appendLatin(POSITIVE_INFINITY);
+            tb = tb.append(POSITIVE_INFINITY);
         } else if (Double.isNaN(d)) {
-            s.appendLatin(NaN);
+            tb = tb.append(NaN);
         } else if (d == 0.0) {
             if ((Double.doubleToLongBits(d) & DOUBLE_SIGN_MASK) != 0) {
-                s.append('-');
+                tb = tb.append('-');
             }
-            s.append('0');
+            tb = tb.append('0');
             if (useExponential) {
-                s.append(".0E0");
+                tb = tb.append(".0E0");
             }
         } else if (d == Double.MAX_VALUE) {
-            s.append("1.7976931348623157E308");
+            tb = tb.append("1.7976931348623157E308");
         } else if (d == -Double.MAX_VALUE) {
-            s.append("-1.7976931348623157E308");
+            tb = tb.append("-1.7976931348623157E308");
         } else if (d == Double.MIN_VALUE) {
-            s.append("4.9E-324");
+            tb = tb.append("4.9E-324");
         } else if (d == -Double.MIN_VALUE) {
-            s.append("-4.9E-324");
+            tb = tb.append("-4.9E-324");
         } else {
             if (d < 0) {
-                s.append('-');
+                tb = tb.append('-');
                 d = -d;
             }
             long bits = Double.doubleToLongBits(d);
@@ -499,57 +493,57 @@ public class FloatingPointConverter {
             int exp = (int) rawExp - doubleExpBias;
             if (rawExp == 0) {
                 // don't know how to handle this currently: hand it over to Java to deal with
-                s.append(Double.toString(d));
-                return s.toUnicodeString();
+                tb = tb.append(Double.toString(d));
+                return tb.toUnicodeString();
             }
             if (useExponential) {
-                fppfppExponential(s, exp, fraction, 52);
+                tb = fppfppExponential(tb, exp, fraction, 52);
             } else {
                 if (d <= 0.01) {
-                    fppfppBig(s, exp, fraction, 52);
+                    tb = fppfppBig(tb, exp, fraction, 52);
                 } else {
-                    fppfpp(s, exp, fraction, 52);
+                    tb = fppfpp(tb, exp, fraction, 52);
                 }
             }
         }
-        return s.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
     /**
      * Append a string representation of a float value to a string buffer
      *
-     * @param s                the string buffer to which the result will be appended
      * @param f                the float to be formatted
      * @param forceExponential forces exponential notation if set (if not set, exponential notation
      *                         is used only for values outside the range 1e-6 to 1e+6)
-     * @return the original string buffer, now containing the string representation of the supplied float
+     * @return the string representation of the supplied float
      */
 
     /*@NotNull*/
     //@CSharpReplaceBody(code="return s.append(f.ToString(System.Globalization.CultureInfo.InvariantCulture)).toUnicodeString();")  // for now...
-    public static UnicodeString appendFloat(UnicodeBuilder s, float f, boolean forceExponential) {
+    public static UnicodeString appendFloat(float f, boolean forceExponential) {
+        TwineBuilder tb = TwineBuilder.make(16);
         if (f == Float.NEGATIVE_INFINITY) {
-            s.append(NEGATIVE_INFINITY);
+            tb = tb.append(NEGATIVE_INFINITY);
         } else if (f == Float.POSITIVE_INFINITY) {
-            s.append(POSITIVE_INFINITY);
+            tb = tb.append(POSITIVE_INFINITY);
         } else if (Float.isNaN(f)) {
-            s.append(NaN);
+            tb = tb.append(NaN);
         } else if (f == 0.0) {
             if ((Float.floatToIntBits(f) & FLOAT_SIGN_MASK) != 0) {
-                s.append('-');
+                tb = tb.append('-');
             }
-            s.append('0');
+            tb = tb.append('0');
         } else if (f == Float.MAX_VALUE) {
-            s.appendLatin("3.4028235E38");
+            tb = tb.append("3.4028235E38");
         } else if (f == -Float.MAX_VALUE) {
-            s.appendLatin("-3.4028235E38");
+            tb = tb.append("-3.4028235E38");
         } else if (f == Float.MIN_VALUE) {
-            s.appendLatin("1.4E-45");
+            tb = tb.append("1.4E-45");
         } else if (f == -Float.MIN_VALUE) {
-            s.appendLatin("-1.4E-45");
+            tb = tb.append("-1.4E-45");
         } else {
             if (f < 0) {
-                s.append('-');
+                tb = tb.append('-');
                 f = -f;
             }
             int bits = Float.floatToIntBits(f);
@@ -559,16 +553,16 @@ public class FloatingPointConverter {
             int precision = 23;
             if (rawExp == 0) {
                 // don't know how to handle this currently: hand it over to Java to deal with
-                s.append(Float.toString(f));
-                return s.toUnicodeString();
+                tb = tb.append(Float.toString(f));
+                return tb.toUnicodeString();
             }
             if (forceExponential || (f >= 1000000 || f < 0.000001F)) {
-                fppfppExponential(s, exp, fraction, precision);
+                tb = fppfppExponential(tb, exp, fraction, precision);
             } else {
-                fppfpp(s, exp, fraction, precision);
+                tb = fppfpp(tb, exp, fraction, precision);
             }
         }
-        return s.toUnicodeString();
+        return tb.toUnicodeString();
     }
 
 

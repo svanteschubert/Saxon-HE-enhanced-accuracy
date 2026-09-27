@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -15,14 +15,14 @@ import net.sf.saxon.expr.elab.PullElaborator;
 import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.AxisInfo;
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.AnyNodeTest;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.type.gnode.AnyGNodeType;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
@@ -36,7 +36,7 @@ import java.util.function.Supplier;
  */
 public class DocumentSorter extends UnaryExpression {
 
-    private final Comparator<? super NodeInfo> comparer;
+    private final Comparator<? super GNode> comparer;
 
     public DocumentSorter(Expression base) {
         super(base);
@@ -76,7 +76,7 @@ public class DocumentSorter extends UnaryExpression {
         return "docOrder";
     }
 
-    public Comparator<? super NodeInfo> getComparer() {
+    public Comparator<? super GNode> getComparer() {
         return comparer;
     }
 
@@ -88,6 +88,9 @@ public class DocumentSorter extends UnaryExpression {
             // this can happen as a result of further simplification
             return operand;
         }
+        if (operand != getBaseExpression()) {
+            setBaseExpression(operand);
+        }
         return this;
     }
 
@@ -98,12 +101,12 @@ public class DocumentSorter extends UnaryExpression {
             return e2;
         }
         TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
-        if (th.relationship(getBaseExpression().getItemType(), AnyNodeTest.getInstance()) == Affinity.DISJOINT) {
+        if (th.relationship(getBaseExpression().getItemType(), AnyGNodeType.getInstance()) == Affinity.DISJOINT) {
             return getBaseExpression();
         }
         Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.MISC, "document-order sorter", 0);
         Expression operand = visitor.getConfiguration().getTypeChecker(false).staticTypeCheck(
-                getBaseExpression(), SequenceType.NODE_SEQUENCE, role, visitor);
+                getBaseExpression(), SequenceType.GNODE_SEQUENCE, role, visitor);
         setBaseExpression(operand);
         return this;
     }
@@ -247,14 +250,14 @@ public class DocumentSorter extends UnaryExpression {
     /**
      * Convert this expression to an equivalent XSLT pattern
      *
-     * @param config the Saxon configuration
+     * @param config      the Saxon configuration
+     * @param firstInPath
      * @return the equivalent pattern
-     * @throws net.sf.saxon.trans.XPathException
-     *          if conversion is not possible
+     * @throws net.sf.saxon.trans.XPathException if conversion is not possible
      */
     @Override
-    public Pattern toPattern(Configuration config) throws XPathException {
-        return getBaseExpression().toPattern(config);
+    public Pattern toPattern(Configuration config, boolean firstInPath) throws XPathException {
+        return getBaseExpression().toPattern(config, firstInPath);
     }
 
     /**
@@ -326,7 +329,7 @@ public class DocumentSorter extends UnaryExpression {
         public PullEvaluator elaborateForPull() {
             final DocumentSorter expr = (DocumentSorter) getExpression();
             final PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
-            final Comparator<? super NodeInfo> comparer = expr.getComparer();
+            final Comparator<? super GNode> comparer = expr.getComparer();
 
             return context -> new DocumentOrderIterator(baseEval.iterate(context), comparer);
         }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -30,12 +30,12 @@ public abstract class StandardNames {
     private static final int XS_NS = 4;
     private static final int XSI_NS = 5;
 
-    public static final int DFLT = 0;             //   0
-    public static final int XSL = 128;            // 128
-    public static final int SAXON = 128 * 2;      // 256
-    public static final int XML = 128 * 3;        // 384
-    public static final int XS = 128 * 4;         // 512
-    public static final int XSI = 128 * 5;        // 640
+    private static final int DFLT = 0;             //   0
+    private static final int XSL = 128;            // 128
+    private static final int SAXON = 128 * 2;      // 256
+    private static final int XML = 128 * 3;        // 384
+    private static final int XS = 128 * 4;         // 512
+    private static final int XSI = 128 * 5;        // 640
 
     public static final int XSL_ACCEPT = XSL;
     public static final int XSL_ACCUMULATOR = XSL + 1;
@@ -101,14 +101,16 @@ public abstract class StandardNames {
     public static final int XSL_OUTPUT_CHARACTER = XSL + 65;
     public static final int XSL_PACKAGE = XSL + 66;
     public static final int XSL_PARAM = XSL + 67;
-    public static final int XSL_PERFORM_SORT = XSL + 70;
-    public static final int XSL_PRESERVE_SPACE = XSL + 71;
-    public static final int XSL_PROCESSING_INSTRUCTION = XSL + 72;
+    public static final int XSL_PERFORM_SORT = XSL + 68;
+    public static final int XSL_PRESERVE_SPACE = XSL + 70;
+    public static final int XSL_PROCESSING_INSTRUCTION = XSL + 71;
+    public static final int XSL_RECORD = XSL + 72;
     public static final int XSL_RESULT_DOCUMENT = XSL + 73;
-    public static final int XSL_SEQUENCE = XSL + 74;
-    public static final int XSL_SORT = XSL + 75;
-    public static final int XSL_SOURCE_DOCUMENT = XSL + 76;
-    public static final int XSL_STRIP_SPACE = XSL + 77;
+    public static final int XSL_SELECT = XSL + 74;
+    public static final int XSL_SEQUENCE = XSL + 75;
+    public static final int XSL_SORT = XSL + 76;
+    public static final int XSL_SOURCE_DOCUMENT = XSL + 77;
+    public static final int XSL_STRIP_SPACE = XSL + 78;
     public static final int XSL_STYLESHEET = XSL + 80;
     public static final int XSL_SWITCH = XSL + 81;
     public static final int XSL_TEMPLATE = XSL + 82;
@@ -131,12 +133,13 @@ public abstract class StandardNames {
     public static final int XSL_EXPAND_TEXT = XSL + 104;
     public static final int XSL_EXTENSION_ELEMENT_PREFIXES = XSL + 105;
     public static final int XSL_INHERIT_NAMESPACES = XSL + 106;
-    public static final int XSL_TYPE = XSL + 107;
-    public static final int XSL_USE_ATTRIBUTE_SETS = XSL + 108;
-    public static final int XSL_USE_WHEN = XSL + 109;
-    public static final int XSL_VALIDATION = XSL + 110;
-    public static final int XSL_VERSION = XSL + 111;
-    public static final int XSL_XPATH_DEFAULT_NAMESPACE = XSL + 112;
+    public static final int XSL_SCHEMA_ROLE = XSL + 107;
+    public static final int XSL_TYPE = XSL + 108;
+    public static final int XSL_USE_ATTRIBUTE_SETS = XSL + 109;
+    public static final int XSL_USE_WHEN = XSL + 110;
+    public static final int XSL_VALIDATION = XSL + 111;
+    public static final int XSL_VERSION = XSL + 112;
+    public static final int XSL_XPATH_DEFAULT_NAMESPACE = XSL + 113;
 
 
     public static final int SAXON_ASSIGN = SAXON + 1;
@@ -164,6 +167,7 @@ public abstract class StandardNames {
     public static final int XML_ID = XML + 4;
     public static final int XML_LANG_TYPE = XML + 5;
     public static final int XML_SPACE_TYPE = XML + 6;
+    public static final int XML_ZERO_LENGTH_STRING_TYPE = XML + 7;
 
     public static final NodeName XML_ID_NAME = new FingerprintedQName("xml", NamespaceUri.XML, "id", XML_ID);
 
@@ -300,7 +304,9 @@ public abstract class StandardNames {
             new StructuredQName("err", NamespaceUri.ERR, "module"),
             new StructuredQName("err", NamespaceUri.ERR, "line-number"),
             new StructuredQName("err", NamespaceUri.ERR, "column-number"),
-            new StructuredQName("err", NamespaceUri.ERR, "additional")
+            new StructuredQName("err", NamespaceUri.ERR, "additional"),
+            new StructuredQName("err", NamespaceUri.ERR, "stack-trace"),
+            new StructuredQName("err", NamespaceUri.ERR, "map")
     };
     // key is an expanded QName in Clark notation
     // value is a fingerprint, as a java.lang.Integer
@@ -403,7 +409,9 @@ public abstract class StandardNames {
         bindXSLTName(XSL_PERFORM_SORT, "perform-sort");
         bindXSLTName(XSL_PRESERVE_SPACE, "preserve-space");
         bindXSLTName(XSL_PROCESSING_INSTRUCTION, "processing-instruction");
+        bindXSLTName(XSL_RECORD, "record");
         bindXSLTName(XSL_RESULT_DOCUMENT, "result-document");
+        bindXSLTName(XSL_SELECT, "select");
         bindXSLTName(XSL_SEQUENCE, "sequence");
         bindXSLTName(XSL_SORT, "sort");
         bindXSLTName(XSL_SOURCE_DOCUMENT, "source-document");
@@ -429,6 +437,7 @@ public abstract class StandardNames {
         bindXSLTName(XSL_EXCLUDE_RESULT_PREFIXES, "exclude-result-prefixes");
         bindXSLTName(XSL_EXTENSION_ELEMENT_PREFIXES, "extension-element-prefixes");
         bindXSLTName(XSL_INHERIT_NAMESPACES, "inherit-namespaces");
+        bindXSLTName(XSL_SCHEMA_ROLE, "schema-role");
         bindXSLTName(XSL_TYPE, "type");
         bindXSLTName(XSL_USE_ATTRIBUTE_SETS, "use-attribute-sets");
         bindXSLTName(XSL_USE_WHEN, "use-when");
@@ -455,6 +464,7 @@ public abstract class StandardNames {
         bindXMLName(XML_ID, "id");
         bindXMLName(XML_LANG_TYPE, "_langType");
         bindXMLName(XML_SPACE_TYPE, "_spaceType");
+        bindXMLName(XML_ZERO_LENGTH_STRING_TYPE, "_zeroLengthStringType");
 
         bindXSName(XS_STRING, "string");
         bindXSName(XS_BOOLEAN, "boolean");

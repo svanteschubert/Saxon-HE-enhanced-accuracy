@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,16 +13,13 @@ import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.str.StringConstants;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
-import net.sf.saxon.type.AtomicType;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.ConversionResult;
-import net.sf.saxon.type.ValidationFailure;
+import net.sf.saxon.type.*;
 
 /**
  * A boolean XPath value
  */
 
-public final class BooleanValue extends AtomicValue implements XPathComparable, AtomicMatchKey, ContextFreeAtomicValue {
+public final class BooleanValue extends AtomicValue implements XPathComparable, AtomicMatchKey {
     private final boolean value;
 
     /**
@@ -35,8 +32,9 @@ public final class BooleanValue extends AtomicValue implements XPathComparable, 
     public static final BooleanValue FALSE = new BooleanValue(false);
 
     /**
-     * Private Constructor: create a boolean value. Only two instances of this class are
-     * ever created, one to represent true and one to represent false.
+     * Private Constructor: create a boolean value. Normally, only two instances of this class are
+     * ever created, one to represent true and one to represent false. Exceptionally, however,
+     * other instances may be created if there is a user-defined subtype of xs:boolean in a schema.
      *
      * @param value the initial value, true or false
      */
@@ -66,7 +64,7 @@ public final class BooleanValue extends AtomicValue implements XPathComparable, 
      * @param typeLabel the type label, xs:boolean or a subtype
      */
 
-    public BooleanValue(boolean value, AtomicType typeLabel) {
+    public BooleanValue(boolean value, AtomicMetadata typeLabel) {
         super(typeLabel);
         this.value = value;
     }
@@ -75,12 +73,15 @@ public final class BooleanValue extends AtomicValue implements XPathComparable, 
      * Create a copy of this atomic value (usually so that the type label can be changed).
      * The type label of the copy will be reset to the primitive type.
      *
-     * @param typeLabel the atomic type label to be added to the copied value
+     * @param metadata the atomic type label to be added to the copied value
      */
 
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        return new BooleanValue(value, typeLabel);
+    public AtomicValue withMetadata(AtomicMetadata metadata) {
+        if (metadata == BuiltInAtomicType.BOOLEAN) {
+            return BooleanValue.get(getBooleanValue());
+        }
+        return new BooleanValue(value, metadata);
     }
 
     /**
@@ -170,34 +171,29 @@ public final class BooleanValue extends AtomicValue implements XPathComparable, 
     public UnicodeString getPrimitiveStringValue() {
         return value ? StringConstants.TRUE : StringConstants.FALSE;
     }
-
+    
     /**
      * Get a Comparable value that implements the XPath ordering comparison semantics for this value.
      * Returns null if the value is not comparable according to XPath rules. The default implementation
      * returns null. This is overridden for types that allow ordered comparisons in XPath: numeric, boolean,
      * string, date, time, dateTime, yearMonthDuration, dayTimeDuration, and anyURI.
      *
-     *
-     * @param collator the collation to be used when comparing strings
-     * @param implicitTimezone  the XPath dynamic evaluation context, used in cases where the comparison is context
-     *                 sensitive
+     * @param collator         the collation to be used when comparing strings
+     * @param implicitTimezone the XPath dynamic evaluation context, used in cases where the comparison is context
+     *                         sensitive
+     * @param specVersion
      * @return an Object whose equals() and hashCode() methods implement the XPath comparison semantics
-     *         with respect to this atomic value. If ordered is specified, the result will either be null if
-     *         no ordering is defined, or will be a Comparable
+     * with respect to this atomic value. If ordered is specified, the result will either be null if
+     * no ordering is defined, or will be a Comparable
      */
 
     @Override
-    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone) {
+    public AtomicMatchKey getXPathMatchKey(StringCollator collator, int implicitTimezone, int specVersion) {
         return this;
     }
 
     @Override
-    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone) {
-        return this;
-    }
-
-    @Override
-    public XPathComparable getXPathComparable()  {
+    public XPathComparable getXPathComparable(StringCollator collator, int implicitTimezone, int specVersion) {
         return this;
     }
 
@@ -245,7 +241,7 @@ public final class BooleanValue extends AtomicValue implements XPathComparable, 
      * @return the hash code
      */
     public int hashCode() {
-        return value ? 0 : 1;
+        return value ? 0x1f2f3f4f : 0x1e2e3e4e;
     }
 
     /**

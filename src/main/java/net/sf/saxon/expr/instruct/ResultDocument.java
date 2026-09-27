@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -34,6 +34,7 @@ import net.sf.saxon.trans.XmlProcessingException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.type.ErrorType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.value.Whitespace;
 
@@ -94,6 +95,7 @@ public class ResultDocument extends Instruction
                           Expression href,
                           Expression formatExpression,      // AVT defining the output format
                           int validationAction,
+                          Schema schema,
                           SchemaType schemaType,
                           Map<StructuredQName, Expression> serializationAttributes,  // computed local properties only
                           CharacterMapIndex characterMapIndex) {
@@ -105,7 +107,7 @@ public class ResultDocument extends Instruction
         if (formatExpression != null) {
             formatOp = new Operand(this, formatExpression, OperandRole.SINGLE_ATOMIC);
         }
-        setValidationAction(validationAction, schemaType);
+        setValidationAction(schema, validationAction, schemaType);
         this.serializationAttributes = new HashMap<>(serializationAttributes.size());
         for (Map.Entry<StructuredQName, Expression> entry : serializationAttributes.entrySet()) {
             this.serializationAttributes.put(entry.getKey(), new Operand(this, entry.getValue(), OperandRole.SINGLE_ATOMIC));
@@ -180,11 +182,12 @@ public class ResultDocument extends Instruction
      */
 
 
-    public void setValidationAction(int mode, /*@Nullable*/ SchemaType schemaType) {
+    private void setValidationAction(Schema schema, int mode, SchemaType schemaType) {
         boolean preservingTypes = mode == Validation.PRESERVE && schemaType == null;
         if (!preservingTypes) {
             if (validationOptions == null) {
                 validationOptions = new ParseOptions()
+                        .withSchema(schema)
                         .withSchemaValidationMode(mode)
                         .withTopLevelType(schemaType);
             }
@@ -253,7 +256,7 @@ public class ResultDocument extends Instruction
         if (buildTree || contentDependentMethod ||
                 "xml".equals(method) || "html".equals(method) || "xhtml".equals(method) || "text".equals(method)) {
             try {
-                DocumentInstr.checkContentSequence(visitor.getStaticContext(), contentOp, validationOptions);
+                DocumentInstr.checkContentSequence(contentOp, validationOptions);
             } catch (XPathException err) {
                 throw err.maybeWithLocation(getLocation());
             }
@@ -303,6 +306,7 @@ public class ResultDocument extends Instruction
                 getHref() == null ? null : getHref().copy(rebindings),
                 getFormatExpression() == null ? null : getFormatExpression().copy(rebindings),
                 getValidationAction(),
+                validationOptions == null ? null : validationOptions.getSchema(),
                 getSchemaType(),
                 map,
                 characterMapIndex);
@@ -350,33 +354,6 @@ public class ResultDocument extends Instruction
         return list;
     }
 
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNodeSet representing the points in the source document that are both reachable by this
-     * expression, and that represent possible results of this expression. For an expression that does
-     * navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     * expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet result = super.addToPathMap(pathMap, pathMapNodeSet);
-        result.setReturnable(false);
-        return new PathMap.PathMapNodeSet(pathMap.makeNewRoot(this));
-    }
-
 
     public void process(PushEvaluator content, XPathContext context) throws XPathException {
         checkNotTemporaryOutputState(context);
@@ -384,10 +361,9 @@ public class ResultDocument extends Instruction
     }
 
     /**
-     * Evaluation method designed for calling from compiled bytecode.
+     * Evaluation method
      *
-     * @param content The content expression. When called from bytecode, this will be the compiled version
-     *                of the interpreted content expression
+     * @param content The content expression.
      * @param context dynamic evaluation context
      * @throws XPathException if a dynamic error occurs
      */
@@ -442,12 +418,13 @@ public class ResultDocument extends Instruction
         // which can then be injected at an appropriate point into the output pipeline
 
         if (validationOptions != null && validationOptions.getSchemaValidationMode() != Validation.PRESERVE) {
+            Schema schema = getRetainedStaticContext().getImportedSchema();
             serParams.setValidationFactory(
                     output -> {
                         // Validation can add redundant namespace declarations so we
                         // need to follow it with a namespace reducer
                         NamespaceReducer reducer = new NamespaceReducer(output);
-                        return config.getDocumentValidator(
+                        return schema.getDocumentValidator(
                                 reducer, output.getSystemId(), validationOptions, getLocation());
                     }
             );
@@ -603,13 +580,13 @@ public class ResultDocument extends Instruction
         Properties computedGlobalProps = globalProperties;
         NamespaceResolver nsResolver = getRetainedStaticContext();
         assert nsResolver != null;
-
+        boolean allow40 = getPackageData().getHostLanguageVersion() >= 40;
         if (getFormatExpression() != null) {
             // format was an AVT and now needs to be computed
             StructuredQName qName;
             String format = getFormatExpression().evaluateAsString(context).toString();
             if (format.startsWith("Q{")) {
-                qName = StructuredQName.fromEQName(format);
+                qName = allow40 ? StructuredQName.fromEQName40(format) : StructuredQName.fromEQName(format);
             } else {
                 String[] parts;
                 try {
@@ -680,7 +657,7 @@ public class ResultDocument extends Instruction
         }
 
         // For choosing the default output method, avoid using the backwards-compatibility rules
-        computedLocalProps.setProperty(SaxonOutputKeys.STYLESHEET_VERSION, "30");
+        computedLocalProps.setProperty(SaxonOutputKeys.SPEC_VERSION, "3.1");
 
         return computedLocalProps;
     }

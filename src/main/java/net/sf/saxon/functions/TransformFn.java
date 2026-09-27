@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,32 +8,34 @@
 package net.sf.saxon.functions;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.Controller;
 import net.sf.saxon.Version;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.expr.Callable;
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
-import net.sf.saxon.ma.map.HashTrieMap;
+import net.sf.saxon.ma.map.EmptyMap;
+import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
-import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.serialize.CharacterMap;
 import net.sf.saxon.serialize.CharacterMapIndex;
 import net.sf.saxon.serialize.SerializationProperties;
+import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.StylesheetCache;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
-import net.sf.saxon.tree.iter.AtomicIterator;
 import net.sf.saxon.tree.wrapper.RebasedDocument;
 import net.sf.saxon.type.SpecificFunctionType;
-import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.*;
+import net.sf.saxon.value.SequenceType;
 
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Source;
@@ -57,7 +59,8 @@ public class TransformFn extends SystemFunction implements Callable {
 
     private static final String[] transformOptionNames30 = new String[]{
             "package-name", "package-version", "package-node", "package-location", "static-params", "global-context-item",
-            "template-params", "tunnel-params", "initial-function", "function-params"
+            "template-params", "tunnel-params", "initial-function", "function-params",
+            "enable-assertions"
     };
 
     private final static String dummyBaseOutputUriScheme = "dummy";
@@ -73,39 +76,41 @@ public class TransformFn extends SystemFunction implements Callable {
     }
 
 
-    public static OptionsParameter makeOptionsParameter() {
-        OptionsParameter op = new OptionsParameter();
-        op.addAllowedOption("xslt-version", SequenceType.SINGLE_DECIMAL);
+    public static OptionsParameter makeOptionsParameter(int version) {
+        OptionsParameter op = new OptionsParameter(version);
+        op.addAllowedOption("base-output-uri", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("cache", SequenceType.SINGLE_BOOLEAN);
+        op.addAllowedOption("delivery-format", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("enable-assertions", SequenceType.SINGLE_BOOLEAN);
+        op.addAllowedOption("enable-messages", SequenceType.SINGLE_BOOLEAN);
+        op.addAllowedOption("enable-trace", SequenceType.SINGLE_BOOLEAN);
+        op.addAllowedOption("function-params", ArrayItemType.SINGLE_ARRAY);
+        op.addAllowedOption("global-context-item", SequenceType.SINGLE_ITEM);
+        op.addAllowedOption("initial-function", SequenceType.SINGLE_QNAME);
+        op.addAllowedOption("initial-match-selection", SequenceType.ANY_SEQUENCE);
+        op.addAllowedOption("initial-mode", SequenceType.SINGLE_QNAME);
+        op.addAllowedOption("initial-template", SequenceType.SINGLE_QNAME);
+        op.addAllowedOption("package-location", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("package-name", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("package-node", SequenceType.SINGLE_NODE);
+        op.addAllowedOption("package-version", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("post-process", SequenceType.one(
+                new SpecificFunctionType(SequenceType.SINGLE_STRING, SequenceType.ANY_SEQUENCE,
+                        SequenceType.ANY_SEQUENCE)));
+        op.addAllowedOption("requested-properties", SequenceType.SINGLE_MAP);
+        op.addAllowedOption("serialization-params", SequenceType.SINGLE_MAP);
+        op.addAllowedOption("source-location", SequenceType.SINGLE_STRING); // Saxon extension (feature 3619)
+        op.addAllowedOption("source-node", SequenceType.SINGLE_NODE);
+        op.addAllowedOption("static-params", SequenceType.SINGLE_MAP);
+        op.addAllowedOption("stylesheet-base-uri", SequenceType.SINGLE_STRING);
         op.addAllowedOption("stylesheet-location", SequenceType.SINGLE_STRING);
         op.addAllowedOption("stylesheet-node", SequenceType.SINGLE_NODE);
+        op.addAllowedOption("stylesheet-params", SequenceType.SINGLE_MAP);
         op.addAllowedOption("stylesheet-text", SequenceType.SINGLE_STRING);
-        op.addAllowedOption("stylesheet-base-uri", SequenceType.SINGLE_STRING);
-        op.addAllowedOption("base-output-uri", SequenceType.SINGLE_STRING);
-        op.addAllowedOption("stylesheet-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
-        op.addAllowedOption("source-node", SequenceType.SINGLE_NODE);
-        op.addAllowedOption("source-location", SequenceType.SINGLE_STRING); // Saxon extension (feature 3619)
-        op.addAllowedOption("initial-mode", SequenceType.SINGLE_QNAME);
-        op.addAllowedOption("initial-match-selection", SequenceType.ANY_SEQUENCE);
-        op.addAllowedOption("initial-template", SequenceType.SINGLE_QNAME);
-        op.addAllowedOption("delivery-format", SequenceType.SINGLE_STRING);
-        op.addAllowedOption("serialization-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
-        op.addAllowedOption("vendor-options", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
-        op.addAllowedOption("cache", SequenceType.SINGLE_BOOLEAN);
-        op.addAllowedOption("package-name", SequenceType.SINGLE_STRING);
-        op.addAllowedOption("package-version", SequenceType.SINGLE_STRING);
-        op.addAllowedOption("package-node", SequenceType.SINGLE_NODE);
-        op.addAllowedOption("package-location", SequenceType.SINGLE_STRING);
-        op.addAllowedOption("static-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
-        op.addAllowedOption("global-context-item", SequenceType.SINGLE_ITEM);
-        op.addAllowedOption("template-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
-        op.addAllowedOption("tunnel-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
-        op.addAllowedOption("initial-function", SequenceType.SINGLE_QNAME);
-        op.addAllowedOption("function-params", ArrayItemType.SINGLE_ARRAY);
-        op.addAllowedOption("requested-properties", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
-        op.addAllowedOption("post-process", SequenceType.makeSequenceType(
-                new SpecificFunctionType(new SequenceType[]{SequenceType.SINGLE_STRING, SequenceType.ANY_SEQUENCE}, SequenceType.ANY_SEQUENCE),
-                StaticProperty.EXACTLY_ONE));
-                // function(xs:string, item()*) as item()*
+        op.addAllowedOption("template-params", SequenceType.SINGLE_MAP);
+        op.addAllowedOption("tunnel-params", SequenceType.SINGLE_MAP);
+        op.addAllowedOption("vendor-options", SequenceType.SINGLE_MAP);
+        op.addAllowedOption("xslt-version", SequenceType.SINGLE_DECIMAL);
         return op;
     }
 
@@ -227,12 +232,11 @@ public class TransformFn extends SystemFunction implements Callable {
 
     private void setRequestedProperties(Map<String, GroundedValue> options, Processor processor) throws XPathException {
         MapItem requestedProps = (MapItem) options.get("requested-properties").head();
-        AtomicIterator optionIterator = requestedProps.keys();
-        while (true) {
-            AtomicValue option = optionIterator.next();
+        for (KeyValuePair kvp : requestedProps.keyValuePairs()) {
+            AtomicValue option = kvp.key();
             if (option != null) {
                 StructuredQName optionName = ((QNameValue) option.head()).getStructuredQName();
-                AtomicValue value = (AtomicValue)requestedProps.get(option).head();
+                AtomicValue value = (AtomicValue)kvp.value().head();
                 if (optionName.hasURI(NamespaceUri.XSLT)) {
                     String localName = optionName.getLocalPart();
                     String val = value.getStringValue();
@@ -345,15 +349,14 @@ public class TransformFn extends SystemFunction implements Callable {
 
     private void setStaticParams(Map<String, GroundedValue> options, XsltCompiler xsltCompiler, boolean allowTypedNodes) throws XPathException {
         MapItem staticParamsMap = (MapItem) options.get("static-params").head();
-        AtomicIterator paramIterator = staticParamsMap.keys();
-        while (true) {
-            AtomicValue param = paramIterator.next();
+        for (KeyValuePair kvp : staticParamsMap.keyValuePairs()) {
+            AtomicValue param = kvp.key();
             if (param != null) {
                 if (!(param instanceof QNameValue)) {
                     throw new XPathException("Parameter names in static-params must be supplied as QNames", "FOXT0002");
                 }
                 QName paramName = new QName(((QNameValue) param).getStructuredQName());
-                GroundedValue value = staticParamsMap.get(param);
+                GroundedValue value = kvp.value();
                 if (!allowTypedNodes) {
                     checkSequenceIsUntyped(value);
                 }
@@ -544,16 +547,20 @@ public class TransformFn extends SystemFunction implements Callable {
 
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        Map<String, GroundedValue> options = getDetails().optionDetails.processSuppliedOptions((MapItem) arguments[0].head(), context);
+        int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+        Map<String, GroundedValue> options =
+                getDetails().optionDetails.processSuppliedOptions((MapItem) arguments[0].head(), context, version);
 
         Sequence vendorOptionsValue = options.get("vendor-options");
         MapItem vendorOptions = vendorOptionsValue == null ? null : (MapItem) vendorOptionsValue.head();
 
+        Controller controller = context.getController();
         Configuration targetConfig = context.getConfiguration();
         boolean allowTypedNodes = true;
         boolean tracing = targetConfig.isTiming();
         int schemaValidation = Validation.DEFAULT;
-
+        boolean writeResultDocuments = false;
+        
         if (vendorOptions != null) {
             Sequence optionValue = vendorOptions.get(new QNameValue("", NamespaceUri.SAXON, "configuration"));
             if (optionValue != null) {
@@ -568,6 +575,10 @@ public class TransformFn extends SystemFunction implements Callable {
             if (optionValue != null) {
                 String valOption = optionValue.head().getStringValue();
                 schemaValidation = Validation.getCode(valOption);
+            }
+            optionValue = vendorOptions.get(new QNameValue("", NamespaceUri.SAXON, "write-result-documents"));
+            if (optionValue != null) {
+                 writeResultDocuments = ExpressionTool.effectiveBooleanValue(optionValue.iterate());
             }
         }
         Processor processor = new Processor(true);
@@ -590,6 +601,8 @@ public class TransformFn extends SystemFunction implements Callable {
         String invocationOption;
         String invocationName = "invocation";
         String styleOption;
+        boolean enableAssertions = false;
+        boolean enableMessages = true;
 
         invocationOption = checkInvocationMutualExclusion30(options);
         // if invocation option is not initial-function or initial-template then check for source-node
@@ -629,6 +642,11 @@ public class TransformFn extends SystemFunction implements Callable {
             setStaticParams(options, xsltCompiler, allowTypedNodes);
         }
 
+        if (options.get("enable-assertions") != null) {
+            enableAssertions = options.get("enable-assertions").effectiveBooleanValue();
+            xsltCompiler.setAssertionsEnabled(enableAssertions);
+        }
+
         XsltExecutable sheet = getStylesheet(options, xsltCompiler, styleOption, context);
         Xslt30Transformer transformer = sheet.load30();
         transformer.setErrorReporter(context.getErrorReporter());
@@ -650,6 +668,7 @@ public class TransformFn extends SystemFunction implements Callable {
         XdmValue[] functionParams = null;
         FunctionItem postProcessor = null;
         String principalResultKey = "output";
+
 
         for (String name : options.keySet()) {
             Sequence value = options.get(name);
@@ -729,11 +748,22 @@ public class TransformFn extends SystemFunction implements Callable {
                 case "post-process":
                     postProcessor = (FunctionItem) head;
                     break;
+                case "enable-assertions":
+                    enableAssertions = head.effectiveBooleanValue();
+                    break;
+                case "enable-messages":
+                    enableMessages = head.effectiveBooleanValue();
+                    break;
             }
         }
 
         if (baseOutputUri == null) {
-            baseOutputUri = getStaticBaseUriString();
+            if (controller instanceof XsltController) {
+                baseOutputUri = controller.getBaseOutputURI();
+            }
+            if (baseOutputUri == null) {
+                baseOutputUri = getStaticBaseUriString();
+            }
         } else {
             try {
                 URI base = new URI(baseOutputUri);
@@ -752,8 +782,17 @@ public class TransformFn extends SystemFunction implements Callable {
         deliverer.setPrincipalResultKey(principalResultKey);
         deliverer.setPostProcessor(postProcessor, context);
 
-        XsltController controller = transformer.getUnderlyingController();
-        controller.setResultDocumentResolver(deliverer);
+        if (writeResultDocuments) {
+            if (controller instanceof XsltController) {
+                deliverer = new DelegatingDeliverer(deliverer,
+                                                    ((XsltController) controller).getResultDocumentResolver());
+            } else {
+                deliverer = new DelegatingDeliverer(deliverer, new StandardResultDocumentResolver());
+            }
+        }
+
+        XsltController newController = transformer.getUnderlyingController();
+        newController.setResultDocumentResolver(deliverer);
 
         Destination destination = deliverer.getPrimaryDestination(serializationParamsMap);
         Sequence result;
@@ -763,6 +802,25 @@ public class TransformFn extends SystemFunction implements Callable {
             transformer.setInitialTemplateParameters(templateParams, false);
             transformer.setInitialTemplateParameters(tunnelParams, true);
             transformer.setResourceResolver(context.getResourceResolver());
+            transformer.setAssertionsEnabled(enableAssertions);
+
+            if (enableMessages) {
+                if (context.getController() instanceof XsltController) {
+                    transformer.setMessageHandler(((XsltController) context.getController()).getMessageHandler());
+                }
+            } else {
+                transformer.setMessageHandler(msg -> {
+                });
+            }
+
+            if (controller instanceof XsltController) {
+                if (enableMessages) {
+                    transformer.setMessageHandler(((XsltController) controller).getMessageHandler());
+                } else {
+                    transformer.setMessageHandler(msg -> {
+                    });
+                }
+            }
 
             if (schemaValidation == Validation.STRICT || schemaValidation == Validation.LAX) {
                 if (sourceNode != null) {
@@ -851,14 +909,14 @@ public class TransformFn extends SystemFunction implements Callable {
 
         // Build map of secondary results
 
-        MapItem resultMap = new HashTrieMap();
+        MapItem resultMap = EmptyMap.INSTANCE_40;
         resultMap = deliverer.populateResultMap(resultMap);
 
         // Add primary result
 
         if (result != null) {
             AtomicValue resultKey = new StringValue(principalResultKey);
-            resultMap = resultMap.addEntry(resultKey, result.materialize());
+            resultMap = resultMap.put(resultKey, result.materialize());
         }
         return resultMap;
 
@@ -875,15 +933,14 @@ public class TransformFn extends SystemFunction implements Callable {
      */
 
     private void processParams(MapItem suppliedParams, Map<QName, XdmValue> checkedParams, boolean allowTypedNodes) throws XPathException {
-        AtomicIterator paramIterator = suppliedParams.keys();
-        while (true) {
-            AtomicValue param = paramIterator.next();
+         for (KeyValuePair kvp : suppliedParams.keyValuePairs()) {
+            AtomicValue param = kvp.key();
             if (param != null) {
                 if (!(param instanceof QNameValue)) {
                     throw new XPathException("The names of parameters must be supplied as QNames", "FOXT0002");
                 }
                 QName paramName = new QName(((QNameValue) param).getStructuredQName());
-                Sequence value = suppliedParams.get(param);
+                Sequence value = kvp.value();
                 if (!allowTypedNodes) {
                     checkSequenceIsUntyped(value);
                 }
@@ -922,7 +979,6 @@ public class TransformFn extends SystemFunction implements Callable {
         protected String principalResultKey;
         protected FunctionItem postProcessor;
         protected XPathContext context;
-        protected HashTrieMap resultMap = new HashTrieMap();
 
         /**
          * Factory method to construct a Deliverer for the chosen delivery format
@@ -1037,10 +1093,8 @@ public class TransformFn extends SystemFunction implements Callable {
         protected Serializer makeSerializer(Processor processor, MapItem serializationParamsMap) throws XPathException {
             Serializer serializer = processor.newSerializer();
             if (serializationParamsMap != null) {
-                AtomicIterator paramIterator = serializationParamsMap.keys();
-                AtomicValue param;
-                while ((param = paramIterator.next()) != null) {
-                    // See bug 29440/29443. For the time being, accept both the old and new forms of serialization params
+                for (KeyValuePair kvp : serializationParamsMap.keyValuePairs()) {
+                    AtomicValue param = kvp.key();    // See bug 29440/29443. For the time being, accept both the old and new forms of serialization params
                     QName paramName;
                     if (param instanceof StringValue) {
                         paramName = new QName(param.getStringValue());
@@ -1050,7 +1104,7 @@ public class TransformFn extends SystemFunction implements Callable {
                         throw new XPathException("Serialization parameters must be strings or QNames", "XPTY0004");
                     }
                     String paramValue = null;
-                    GroundedValue supplied = serializationParamsMap.get(param);
+                    GroundedValue supplied = kvp.value();
                     if (supplied.getLength() > 0) {
                         if (supplied.getLength() == 1) {
                             Item val = supplied.itemAt(0);
@@ -1175,8 +1229,8 @@ public class TransformFn extends SystemFunction implements Callable {
         public MapItem populateResultMap(MapItem resultMap) {
             for (Map.Entry<String, GroundedValue> entry : results.entrySet()) {
                 String uri = entry.getKey();
-                resultMap = resultMap.addEntry(new StringValue(uri),
-                                               entry.getValue());
+                resultMap = resultMap.put(new StringValue(uri),
+                                          entry.getValue());
             }
             return resultMap;
         }
@@ -1189,7 +1243,7 @@ public class TransformFn extends SystemFunction implements Callable {
     private static class SerializedDeliverer extends Deliverer {
         private final Processor processor;
         private final Map<String, GroundedValue> results = new ConcurrentHashMap<>();
-        private StringWriter primaryWriter;
+        private UnicodeBuilder primaryBuilder;
 
         public SerializedDeliverer(Processor processor) {
             this.processor = processor;
@@ -1198,14 +1252,14 @@ public class TransformFn extends SystemFunction implements Callable {
         @Override
         public Destination getPrimaryDestination(MapItem serializationParamsMap) throws XPathException {
             Serializer serializer = makeSerializer(processor, serializationParamsMap);
-            primaryWriter = new StringWriter();
-            serializer.setOutputWriter(primaryWriter);
+            primaryBuilder = new UnicodeBuilder();
+            serializer.setOutputWriter(primaryBuilder);
             return serializer;
         }
 
         @Override
         public Sequence getPrimaryResult() throws XPathException {
-            String str = primaryWriter.toString();
+            UnicodeString str = primaryBuilder.toUnicodeString();
             if (str.isEmpty()) {
                 return null;
             }
@@ -1244,8 +1298,8 @@ public class TransformFn extends SystemFunction implements Callable {
         public MapItem populateResultMap(MapItem resultMap) {
             for (Map.Entry<String, GroundedValue> entry : results.entrySet()) {
                 String uri = entry.getKey();
-                resultMap = resultMap.addEntry(new StringValue(uri),
-                                               entry.getValue());
+                resultMap = resultMap.put(new StringValue(uri),
+                                          entry.getValue());
             }
             return resultMap;
         }
@@ -1290,10 +1344,74 @@ public class TransformFn extends SystemFunction implements Callable {
         public MapItem populateResultMap(MapItem resultMap) {
             for (Map.Entry<String, GroundedValue> entry : results.entrySet()) {
                 String uri = entry.getKey();
-                resultMap = resultMap.addEntry(new StringValue(uri),
-                                               entry.getValue());
+                resultMap = resultMap.put(new StringValue(uri),
+                                          entry.getValue());
             }
             return resultMap;
+        }
+    }
+
+    /**
+     * This deliverer is used when the Saxon vendor option write-result-documents is set to true
+     * (new in Saxon 13). The effect is to delegate handling of the principal output document
+     * to oue of the standard deliverers based on the selected delivery-format, while delegating
+     * handling of secondary result documents to the result document handler of the invoking
+     * transformation.
+     */
+
+    private static class DelegatingDeliverer extends Deliverer {
+
+        private final Deliverer primary;
+        private final ResultDocumentResolver secondary;
+
+        public DelegatingDeliverer(Deliverer primary, ResultDocumentResolver secondary) {
+            this.primary = primary;
+            this.secondary = secondary;
+        }
+
+        /**
+         * Return a map containing information about all the secondary result documents
+         *
+         * @param resultMap a map to be populated, initially empty
+         * @return a map containing one entry for each secondary result document that has been written
+         * @throws XPathException if a failure occurs
+         */
+        @Override
+        public MapItem populateResultMap(MapItem resultMap) throws XPathException {
+            return primary.populateResultMap(resultMap);
+        }
+
+        /**
+         * Get the s9api Destination object to be used for the transformation
+         *
+         * @param serializationParamsMap the serialization parameters requested
+         * @return a suitable primaryDestination object, or null in the case of raw mode
+         * @throws XPathException if a failure occurs
+         */
+        @Override
+        public Destination getPrimaryDestination(MapItem serializationParamsMap) throws XPathException {
+            return primary.getPrimaryDestination(serializationParamsMap);
+        }
+
+        /**
+         * Get the primary result of the transformation, that is, the value to be included in the
+         * entry of the result map that describes the principal result tree
+         *
+         * @return the primary result, or null if there is no primary result (after post-processing if any)
+         */
+        @Override
+        public Sequence getPrimaryResult() throws XPathException {
+            return primary.getPrimaryResult();
+        }
+
+        /**
+         * Saxon calls this method when an {@code xsl:result-document} instruction
+         * with an {@code href} attribute is evaluated.
+         * @throws XPathException if a result document cannot be opened
+         */
+        @Override
+        public Receiver resolve(XPathContext context, String href, String baseUri, SerializationProperties properties) throws XPathException {
+            return secondary.resolve(context, href, baseUri, properties);
         }
     }
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,12 +10,16 @@ package net.sf.saxon.query;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.instruct.UserFunction;
+import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.functions.CallableFunction;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.hof.UnresolvedXQueryFunctionItem;
 import net.sf.saxon.functions.hof.UserFunctionReference;
+import net.sf.saxon.ma.trie.ImmutableHashTrieMap;
+import net.sf.saxon.ma.trie.TrieKVP;
+import net.sf.saxon.ma.zeno.ZenoChain;
 import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
@@ -24,30 +28,39 @@ import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SpecificFunctionType;
 import net.sf.saxon.value.SequenceType;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * An XQueryFunctionLibrary is a function library containing all the user-defined functions available for use within a
  * particular XQuery module: that is, the functions declared in that module, and the functions imported from other
- * modules. It also contains (transiently during compilation) a list of function calls within the module that have not
- * yet been bound to a specific function declaration.
+ * modules. It also contains (transiently during compilation) entries for functions that have been referenced
+ * but not yet declared, because the body of a function may contain a reference to another function
+ * declared later in the same module.
  */
 
 public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBinder {
 
     private Configuration config;
 
-    // The functions in this library are represented using a HashMap
-    // The key of the hashmap is an object that encodes the QName of the function and its arity
-    // The value in the hashmap is an XQueryFunction
-    /*@NotNull*/ private HashMap<SymbolicName, XQueryFunction> functions =
-            new HashMap<>(20);
+    // At the top level we have an index by namespace. For each namespace there is an index
+    // by local name. There may be more than one function with a given local name (but different
+    // arity ranges); these are held simply as a list, with a sequential search to find the
+    // required arity. The index by local name is held as an immutable HashMap which allows
+    // sharing in the common case where all the functions with a given namespace are in the
+    // same library module. For each namespace / local-name() there is an immutable list of
+    // functions, these will have different arity ranges.
 
-    private HashMap<StructuredQName, List<XQueryFunction>> functionsByName =
-            new HashMap<>(20);
+    private java.util.HashMap<NamespaceUri, ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>>>
+            functionsByNamespace = new java.util.HashMap<>(20);
 
     /**
      * Create an XQueryFunctionLibrary
@@ -88,26 +101,46 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
      */
 
     public void declareFunction(/*@NotNull*/ XQueryFunction function) throws XPathException {
-        SymbolicName keyObj = function.getIdentificationKey();
-
-        // Test if the arity range of this function overlaps the arity range of another function
         StructuredQName functionName = function.getFunctionName();
-        @SuppressWarnings("Convert2Diamond")
-        List<XQueryFunction> existingFunctions = functionsByName.computeIfAbsent(
-                functionName, k -> new ArrayList<XQueryFunction>(2));
-        for (XQueryFunction existing : existingFunctions) {
-            if (existing == function) {
-                return;
+        ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>> localMap =
+                functionsByNamespace.get(functionName.getNamespaceUri());
+        if (localMap == null) {
+            ZenoChain<XQueryFunction> list = makeEmptyList();
+            list = list.prepend(function);
+            localMap = makeEmptyMap();
+            localMap = localMap.put(functionName.getLocalPart(),list);
+        } else {
+            // Test if the arity range of this function overlaps the arity range of another function
+            ZenoChain<XQueryFunction> existingFunctions =
+                    localMap.get(functionName.getLocalPart());
+            if (existingFunctions == null) {
+                existingFunctions = makeEmptyList();
             }
-            if (hasOverlappingArity(function, existing)) {
-                throw new XPathException("Conflicting definition of function " +
-                                                                function.getDisplayName() +
-                                                                " (see line " + existing.getLineNumber() + " in " + existing.getSystemId() + ')')
-                        .withErrorCode("XQST0034").asStaticError().withLocation(function);
+            for (XQueryFunction existing : existingFunctions) {
+                if (existing == function) {
+                    return;
+                }
+                if (hasOverlappingArity(function, existing)) {
+                    throw new XPathException("Conflicting definition of function " +
+                                                     function.getDisplayName() +
+                                                     " (see line " + existing.getLineNumber() + " in " + existing.getSystemId() + ')')
+                            .withErrorCode("XQST0034").asStaticError().withLocation(function);
+                }
             }
+            ZenoChain<XQueryFunction> newList = existingFunctions.prepend(function);
+            localMap = localMap.put(functionName.getLocalPart(), newList);
         }
-        functions.put(keyObj, function);
-        existingFunctions.add(function);
+        functionsByNamespace.put(functionName.getNamespaceUri(), localMap);
+    }
+
+    //@CSharpReplaceBody(code="return System.Collections.Immutable.ImmutableList<Saxon.Hej.query.XQueryFunction>.Empty;")
+    private static ZenoChain<XQueryFunction> makeEmptyList() {
+        return new ZenoChain<XQueryFunction>();
+    }
+
+    @CSharpReplaceBody(code="return System.Collections.Immutable.ImmutableDictionary<string,Saxon.Hej.ma.zeno.ZenoChain<Saxon.Hej.query.XQueryFunction>>.Empty;")
+    private static ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>> makeEmptyMap() {
+        return ImmutableHashTrieMap.empty();
     }
 
     private static boolean hasOverlappingArity(XQueryFunction f1, XQueryFunction f2) {
@@ -138,8 +171,6 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
                         functionName.getComponentName().getDisplayName() + " from outside its module", "XPST0017");
             }
             final UserFunction fn = fd.getUserFunction();
-//            FunctionItemType type = new SpecificFunctionType(
-//                    fd.getArgumentTypes(), fd.getResultType(), fd.getAnnotations());
             if (fn == null) {
                 // not yet compiled: create a dummy
                 UserFunction uf = new UserFunction();
@@ -162,7 +193,7 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
                     argTypes[i] = fd.getArgumentTypes()[i];
                 }
                 SpecificFunctionType functionType = new SpecificFunctionType(argTypes, fd.getResultType());
-                return new CallableFunction(functionName, callable, functionType);
+                return new CallableFunction(functionName, callable::call, functionType);
             }
         } else {
             return null;
@@ -173,71 +204,41 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
      * Test whether a function with a given name and arity is available
      * <p>This supports the function-available() function in XSLT.</p>
      *
-     * @param functionName the qualified name of the function being called
+     * @param functionName  the qualified name of the function being called
+     * @param schema the schema in question (constructor functions are available
+     *               in some schemas and not others)
      * @param languageLevel the XPath language level times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
-        return functions.get(functionName) != null;
+
+    public boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel) {
+        return getDeclarationByKey(functionName) != null;
     }
 
-    /**
-     * Inner class containing information about a reference to a function whose declaration
-     * has not yet been encountered. The references gets fixed up later, once information
-     * about all user-declared functions is available.
-     */
+    public Iterable<NamespaceUri> getNamespaces() {
+        return functionsByNamespace.keySet();
+    }
 
-    public static class UnresolvedCallable implements UserFunctionResolvable, Callable {
-        SymbolicName.F symbolicName;
-        UserFunction function;
+    public ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>> getFunctionsForNamespace(NamespaceUri ns) {
+        return functionsByNamespace.get(ns);
+    }
 
-        public UnresolvedCallable(SymbolicName.F symbolicName) {
-            this.symbolicName = symbolicName;
-        }
-
-        public StructuredQName getFunctionName() {
-            return symbolicName.getComponentName();
-        }
-
-        public int getArity() {
-            return symbolicName.getArity();
-        }
-
-        //public void setFunctionItem(CallableFunctionItem fi) {
-        //    this.functionItem = fi;
-        //}
-
-        /**
-         * Evaluate the expression
-         *
-         * @param context   the dynamic evaluation context
-         * @param arguments the values of the arguments, supplied as Sequences
-         * @return the result of the evaluation, in the form of a Sequence
-         * @throws net.sf.saxon.trans.XPathException
-         *          if a dynamic error occurs during the evaluation of the expression
-         */
-        @Override
-        public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            if (function == null) {
-                throw new XPathException("Forwards reference to XQuery function has not been resolved");
+    public void addFunctions(NamespaceUri ns,
+                             ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>> functions)
+    throws XPathException {
+        ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>> localMap = functionsByNamespace.get(ns);
+        if (localMap == null) {
+            functionsByNamespace.put(ns, functions);
+        } else {
+            for (TrieKVP<String, ZenoChain<XQueryFunction>> kvp : localMap) {
+                for (XQueryFunction fn : kvp.value) {
+                    declareFunction(fn);
+                }
             }
-            Sequence[] args = new Sequence[arguments.length];
-            for (int i = 0; i < arguments.length; i++) {
-                args[i] = arguments[i].materialize(); // TODO: is the copy needed?
-            }
-            return function.call(context.newCleanContext(), args);
-        }
-
-        @Override
-        public void setFunction(UserFunction function) {
-            this.function = function;
-        }
-
-        public UserFunction getFunction() {
-            return function;
         }
     }
+
 
     /**
      * Identify a (namespace-prefixed) function appearing in the expression. This
@@ -281,6 +282,23 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
                 }
             }
             ufc.setStaticType(fd.getResultType());
+
+
+            // Inject any default value expressions
+            for (int i = 0; i < ufc.getArguments().length; i++) {
+                if (ufc.getArg(i) instanceof DefaultedArgumentExpression) {
+                    Supplier<Expression> def = fd.getParameterDefinitions()[i].getDefaultValueExpression();
+                    if (def == null) {
+                        throw new XPathException("Argument " + (i + 1) + " has no default value in function "
+                                                         + functionName.getComponentName().getEQName(), "XPST0017");
+                    }
+                    ufc.setArg(i, def.get().copy(new RebindingMap()));
+
+                }
+                ufc.adoptChildExpression(ufc.getArg(i));
+            }
+
+
             UserFunction fn = fd.getUserFunction();
             if (fn == null) {
                 // not yet compiled
@@ -302,7 +320,12 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
 
     @Override
     public XQueryFunction getDeclaration(StructuredQName functionName, int staticArgs) {
-        List<XQueryFunction> homonyms = functionsByName.get(functionName);
+        ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>> localMap =
+                functionsByNamespace.get(functionName.getNamespaceUri());
+        if (localMap == null) {
+            return null;
+        }
+        ZenoChain<XQueryFunction> homonyms = localMap.get(functionName.getLocalPart());
         if (homonyms != null) {
             for (XQueryFunction f : homonyms) {
                 if (f.getMinimumArity() <= staticArgs && f.getNumberOfParameters() >= staticArgs) {
@@ -312,77 +335,7 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
         }
         return null;
     }
-
-    /**
-     * Bind a function call using this XQuery function library, in the situation where
-     * it was not possible to bind it earlier, typically because it was encountered as a forwards
-     * reference.
-     *
-     * @param ufc    The unbound function call, which will include a non-null <code>UnboundFunctionCallDetails</code>
-     * @param reasons a list which can be populated with messages indicating why binding failed
-     * @return true if the function call is now bound; false if it remains unbound.
-     */
-
-    public boolean bindUnboundFunctionCall(UserFunctionCall ufc, List<String> reasons) {
-        UnboundFunctionLibrary.UnboundFunctionCallDetails details = ufc.getUnboundCallDetails();
-        assert details != null;
-        StructuredQName functionName = details.functionName.getComponentName();
-        Expression[] arguments = details.arguments;
-        Map<StructuredQName, Integer> keywords = details.keywords;
-        XQueryFunction fd = getDeclaration(functionName, arguments.length);
-        if (fd != null) {
-            if (fd.isPrivate() && fd.getStaticContext() != details.env) {
-                reasons.add("Cannot call the private XQuery function " +
-                                    functionName.getDisplayName() + " from outside its module");
-                return false;
-            }
-            ufc.setFunctionName(fd.getFunctionName());
-            int maxArity = fd.getNumberOfParameters();
-            if (arguments.length == maxArity && (details.keywords == null || details.keywords.isEmpty())) {
-                ufc.setArguments(arguments);
-            } else {
-                // 4.0: handle keyword arguments and default arguments
-                Expression[] expandedArgs = Arrays.copyOf(arguments, maxArity);
-                // If there are keyword arguments, reposition them to the correct position in the argument sequence
-                if (keywords != null) {
-                    int positionalArgs = arguments.length - keywords.size();
-                    for (Map.Entry<StructuredQName, Integer> entry : keywords.entrySet()) {
-                        StructuredQName key = entry.getKey();
-                        int argPos = entry.getValue();
-                        int paramPos = fd.getPositionOfParameter(key);
-                        if (paramPos < 0) {
-                            throw new UncheckedXPathException("Keyword " + key + " does not match the name of any declared parameter", "XPST0142");
-                        }
-                        if (paramPos < positionalArgs) {
-                            throw new UncheckedXPathException("Parameter " + key + " is supplied both by position and by keyword", "XPST0141");
-                        }
-                        Expression supplied = arguments[paramPos];
-                        expandedArgs[argPos] = null;
-                        expandedArgs[paramPos] = supplied;
-                    }
-                }
-                for (int a = 0; a < maxArity; a++) {
-                    if (expandedArgs[a] == null) {
-                        Expression expr = fd.getParameterDefinitions()[a].getDefaultValueExpression();
-                        expandedArgs[a] = expr.copy(new RebindingMap());
-                    }
-                }
-                ufc.setArguments(expandedArgs);
-            }
-            ufc.setStaticType(fd.getResultType());
-            UserFunction fn = fd.getUserFunction();
-            if (fn == null) {
-                // not yet compiled
-                fd.registerReference(ufc);
-            } else {
-                ufc.setFunction(fn);
-            }
-            return true;
-        } else {
-            return false;
-        }
-    }
-
+    
     /**
      * Get the function declaration corresponding to a given function name and arity, supplied
      * in the form "{uri}local/arity"
@@ -391,20 +344,30 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
      * @return the XQueryFunction if there is one, or null if not.
      */
 
-    public XQueryFunction getDeclarationByKey(SymbolicName functionKey) {
-        return functions.get(functionKey);
+    public XQueryFunction getDeclarationByKey(SymbolicName.F functionKey) {
+        return getDeclaration(functionKey.getComponentName(), functionKey.getArity());
     }
 
     /**
-     * Get an iterator over the Functions defined in this module
-     *
-     * @return an Iterable, whose items are {@link XQueryFunction} objects. It returns
-     *         all function known to this module including those imported from elsewhere; they
-     *         can be distinguished by their namespace.
+     * Process all the functions defined in this module
+     * @param action an action to be performed on every function defined in this module
+     * including those imported from elsewhere.
+     * @throws XPathException if any of the defined actions fails with an
+     * {@link UncheckedXPathException}
      */
 
-    public Iterable<XQueryFunction> getFunctionDefinitions() {
-        return functions.values();
+    public void processAllFunctions(Consumer<XQueryFunction> action) throws XPathException {
+        for (ImmutableHashTrieMap<String, ZenoChain<XQueryFunction>> localMap : functionsByNamespace.values()) {
+            for (TrieKVP<String, ZenoChain<XQueryFunction>> kvp : localMap) {
+                for (XQueryFunction fn : kvp.value) {
+                    try {
+                        action.accept(fn);
+                    } catch (UncheckedXPathException e) {
+                        throw e.getXPathException();
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -421,12 +384,36 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
 
     protected void fixupGlobalFunctions(/*@NotNull*/ QueryModule env) throws XPathException {
         ExpressionVisitor visitor = ExpressionVisitor.make(env);
-        for (XQueryFunction fn : functions.values()) {
-            fn.compile();
-        }
-        for (XQueryFunction fn : functions.values()) {
-            fn.checkReferences(visitor);
-        }
+        processAllFunctions(fn -> {
+            try {
+                fn.compile();
+                Expression body = fn.getBody();
+                Expression e2 = body.simplify();
+                if (e2 != body) {
+                    ExpressionTool.copyLocationInfo(body, e2);
+                    fn.setBody(e2);
+                }
+                for (int i=0; i<fn.getNumberOfParameters(); i++) {
+                    Supplier<Expression> init = fn.getDefaultValueExpression(i);
+                    if (init != null) {
+                        Expression initExp = init.get();
+                        e2 = initExp.simplify();
+                        if (e2 != initExp) {
+                            fn.setDefaultValueExpression(i, e2);
+                        }
+                    }
+                }
+            } catch (XPathException err) {
+                throw new UncheckedXPathException(err);
+            }
+        });
+        processAllFunctions(fn -> {
+            try {
+                fn.checkReferences(visitor);
+            } catch (XPathException err) {
+                throw new UncheckedXPathException(err);
+            }
+        });
     }
 
     /**
@@ -440,11 +427,15 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
      */
 
     protected void optimizeGlobalFunctions(QueryModule topModule) throws XPathException {
-        for (XQueryFunction fn : functions.values()) {
-            if (((QueryModule)fn.getStaticContext()).getTopLevelModule() == topModule) {
-                fn.optimize();
+        processAllFunctions(fn -> {
+            try {
+                if (((QueryModule) fn.getStaticContext()).getTopLevelModule() == topModule) {
+                    fn.optimize();
+                }
+            } catch (XPathException err) {
+                throw new UncheckedXPathException(err);
             }
-        }
+        });
     }
 
 
@@ -456,9 +447,13 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
      */
 
     public void explainGlobalFunctions(/*@NotNull*/ ExpressionPresenter out) throws XPathException {
-        for (XQueryFunction fn : functions.values()) {
-            fn.explain(out);
-        }
+        processAllFunctions(fn -> {
+            try {
+                fn.explain(out);
+            } catch (XPathException err) {
+                throw new UncheckedXPathException(err);
+            }
+        });
     }
 
     /**
@@ -475,8 +470,8 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
 
     /*@Nullable*/
     public UserFunction getUserDefinedFunction(/*@NotNull*/ NamespaceUri uri, /*@NotNull*/ String localName, int arity) {
-        SymbolicName functionKey = new SymbolicName.F(new StructuredQName("", uri, localName), arity);
-        XQueryFunction fd = functions.get(functionKey);
+        SymbolicName.F functionKey = new SymbolicName.F(new StructuredQName("", uri, localName), arity);
+        XQueryFunction fd = getDeclarationByKey(functionKey);
         if (fd == null) {
             return null;
         }
@@ -495,7 +490,7 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
     @Override
     public FunctionLibrary copy() {
         XQueryFunctionLibrary qfl = new XQueryFunctionLibrary(config);
-        qfl.functions = new HashMap<SymbolicName, XQueryFunction>(functions);
+        qfl.functionsByNamespace = new java.util.HashMap<>(functionsByNamespace);
         return qfl;
     }
 
@@ -514,9 +509,11 @@ public class XQueryFunctionLibrary implements FunctionLibrary, XQueryFunctionBin
             Sequence[] extendedArguments = Arrays.copyOf(arguments, userFunction.getArity());
             for (int i = arguments.length; i < userFunction.getArity(); i++) {
                 // Evaluate the default value expression for the omitted argument
-                extendedArguments[i] = declaredFunction.getParameterDefinitions()[i].getDefaultValueExpression().makeElaborator().eagerly().evaluate(context);
+                Supplier<Expression> expr = declaredFunction.getParameterDefinitions()[i].getDefaultValueExpression();
+                extendedArguments[i] = expr.get().makeElaborator().eagerly().evaluate(context);
             }
-            return userFunction.call(context, extendedArguments);
+            XPathContextMajor c2 = userFunction.makeNewContext(context, userFunction);
+            return userFunction.call(c2, extendedArguments);
         }
 
     }

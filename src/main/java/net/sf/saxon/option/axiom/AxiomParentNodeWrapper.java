@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,18 +9,16 @@ package net.sf.saxon.option.axiom;
 
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.wrapper.AbstractNodeWrapper;
 import net.sf.saxon.tree.wrapper.SiblingCountingNode;
 import net.sf.saxon.value.StringValue;
-import org.apache.axiom.om.OMContainer;
-import org.apache.axiom.om.OMDocument;
-import org.apache.axiom.om.OMNode;
-import org.apache.axiom.om.OMText;
+import org.apache.axiom.om.*;
+import org.apache.axiom.om.impl.llom.OMDocumentImpl;
 
 import java.util.Iterator;
 
@@ -99,14 +97,14 @@ public abstract class AxiomParentNodeWrapper extends AbstractNodeWrapper
     }
 
     @Override
-    protected final AxisIterator iterateChildren(NodeTest nodeTest) {
+    protected final SequenceIterator iterateChildren(NodePredicate nodeTest) {
         return new ChildWrappingIterator(this, nodeTest);
     }
 
     @Override
-    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
+    protected SequenceIterator iterateDescendants(NodePredicate predicate, boolean includeSelf) {
         // Note: for unknown reasons, this method is really slow. See XMark test q7.
-        return new DescendantWrappingIterator(this, nodeTest, includeSelf);
+        return new DescendantWrappingIterator(this, predicate, includeSelf);
     }
 
     private static boolean isIgnoredNode(OMNode node) {
@@ -126,24 +124,26 @@ public abstract class AxiomParentNodeWrapper extends AbstractNodeWrapper
      * successive node as it is found.
      */
 
-    private abstract class AxiomWrappingIterator implements AxisIterator {
-        Iterator base;
-        NodeTest nodeTest;
+    private abstract class AxiomWrappingIterator implements SequenceIterator {
+        private final Iterator base;
+        private final NodePredicate predicate;
 
-        public AxiomWrappingIterator(Iterator base, NodeTest nodeTest) {
+        public AxiomWrappingIterator(Iterator base, NodePredicate predicate) {
             this.base = base;
-            this.nodeTest = nodeTest;
+            this.predicate = predicate;
         }
 
         @Override
         public NodeInfo next() {
             while (true) {
                 if (base.hasNext()) {
-                    OMNode node = (OMNode)base.next();
-                    if (!isIgnoredNode(node)) {
-                        NodeInfo wrapper = wrap(node);
-                        if (nodeTest.test(wrapper)) {
-                            return wrapper;
+                    Object node = base.next();
+                    if (node instanceof OMNode || node instanceof OMDocument) {
+                        if (node instanceof OMDocument || !isIgnoredNode((OMNode) node)) {
+                            NodeInfo wrapper = wrap(node);
+                            if (predicate == null || predicate.test(wrapper)) {
+                                return wrapper;
+                            }
                         }
                     }
                 } else {
@@ -164,8 +164,8 @@ public abstract class AxiomParentNodeWrapper extends AbstractNodeWrapper
         AxiomDocument docWrapper;
         boolean includeSelf;
 
-        public DescendantWrappingIterator(AxiomParentNodeWrapper parentWrapper, NodeTest nodeTest, boolean includeSelf) {
-            super(node.getDescendants(includeSelf), nodeTest);
+        public DescendantWrappingIterator(AxiomParentNodeWrapper parentWrapper, NodePredicate predicate, boolean includeSelf) {
+            super(node.getDescendants(includeSelf), predicate);
             this.parentWrapper = parentWrapper;
             docWrapper = (AxiomDocument)parentWrapper.getTreeInfo();
             this.includeSelf = includeSelf;
@@ -191,10 +191,9 @@ public abstract class AxiomParentNodeWrapper extends AbstractNodeWrapper
         AxiomDocument docWrapper;
         int index = 0;
 
-        public ChildWrappingIterator(AxiomParentNodeWrapper commonParent, NodeTest nodeTest) {
-            super(node.getChildren(), nodeTest);
+        public ChildWrappingIterator(AxiomParentNodeWrapper commonParent, NodePredicate predicate) {
+            super(node.getChildren(), predicate);
             this.commonParent = commonParent;
-            this.nodeTest = nodeTest;
             this.docWrapper = (AxiomDocument)commonParent.getTreeInfo();
         }
 

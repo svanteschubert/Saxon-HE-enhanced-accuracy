@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,6 +21,7 @@ import net.sf.saxon.tree.iter.SequenceIteratorOverJavaIterator;
 import net.sf.saxon.z.IntSet;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -64,6 +65,17 @@ public class SimpleArrayItem extends AbstractArrayItem {
         SimpleArrayItem result = new SimpleArrayItem(members);
         result.knownToBeGrounded = true;
         return result;
+    }
+
+    /**
+     * Construct an array from a fixed set of grounded values
+     * @param members the grounded values to make up the array
+     * @return a new ArrayItem
+     */
+
+    public static SimpleArrayItem of(GroundedValue... members) {
+        List<GroundedValue> list = Arrays.asList(members);
+        return new SimpleArrayItem(list);
     }
 
     /**
@@ -114,7 +126,7 @@ public class SimpleArrayItem extends AbstractArrayItem {
             }
         }
     }
-
+    
     /**
      * Get the function annotations (as defined in XQuery). Returns an empty
      * list if there are no function annotations.
@@ -198,7 +210,7 @@ public class SimpleArrayItem extends AbstractArrayItem {
     public SequenceIterator parcels() {
         return new SequenceIteratorOverJavaIterator<GroundedValue>(
                 _members.iterator(),
-                member -> new Parcel(member));
+                (member, position) -> new Parcel(member));
     }
 
     /**
@@ -331,6 +343,14 @@ public class SimpleArrayItem extends AbstractArrayItem {
             }
             return buff.toString().trim();
         }
+    }
+
+    /**
+     * Output a string representation of the array, suitable for diagnostics
+     */
+    @Override
+    public String toString() {
+        return toShortString();
     }
 }
 

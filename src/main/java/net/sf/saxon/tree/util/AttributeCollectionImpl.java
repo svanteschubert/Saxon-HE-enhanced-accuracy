@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -174,7 +174,7 @@ public class AttributeCollectionImpl implements Attributes {
      * @param index The position of the attribute in the list.
      * @return The properties of the attribute. This is a set
      *         of bit-settings defined in class {@link net.sf.saxon.event.ReceiverOption}. The
-     *         most interesting of these is {{@link net.sf.saxon.event.ReceiverOption#DEFAULTED_VALUE},
+     *         most interesting of these is {@link net.sf.saxon.event.ReceiverOption#DEFAULTED_VALUE},
      *         which indicates an attribute that was added to an element as a result of schema validation.
      */
 

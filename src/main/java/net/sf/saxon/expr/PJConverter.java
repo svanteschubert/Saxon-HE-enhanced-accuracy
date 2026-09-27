@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,8 @@ package net.sf.saxon.expr;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.ExternalObjectModel;
 import net.sf.saxon.ma.map.MapItem;
-import net.sf.saxon.ma.map.MapType;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -92,7 +91,7 @@ public abstract class PJConverter {
         jpmap.put(Base64BinaryValue.class, SequenceType.OPTIONAL_BASE64_BINARY);
         jpmap.put(HexBinaryValue.class, SequenceType.OPTIONAL_HEX_BINARY);
         jpmap.put(FunctionItem.class, SequenceType.OPTIONAL_FUNCTION_ITEM);
-        jpmap.put(MapItem.class, MapType.OPTIONAL_MAP_ITEM);
+        jpmap.put(MapItem.class, SequenceType.OPTIONAL_MAP);
         jpmap.put(NodeInfo.class, SequenceType.OPTIONAL_NODE);
         jpmap.put(TreeInfo.class, SequenceType.OPTIONAL_DOCUMENT_NODE);
 
@@ -114,11 +113,11 @@ public abstract class PJConverter {
             Class<?> memberClass = javaClass.getComponentType();
             if (memberClass == byte.class) {
                 // special-case byte[] which maps to xs:unsignedByte* - see bugs 3525, 3818
-                return SequenceType.makeSequenceType(BuiltInAtomicType.UNSIGNED_BYTE, StaticProperty.ALLOWS_ZERO_OR_MORE);
+                return BuiltInAtomicType.UNSIGNED_BYTE.zeroOrMore();
             } else {
                 SequenceType memberType = getEquivalentSequenceType(memberClass);
                 if (memberType != null) {
-                    return SequenceType.makeSequenceType(memberType.getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE);
+                    return SequenceType.zeroOrMore(memberType.getPrimaryType());
                 }
             }
         }
@@ -760,7 +759,7 @@ public abstract class PJConverter {
             }
             if (!(head instanceof AnyExternalObject)) {
                 if (Sequence.class.isAssignableFrom(targetClass)) {
-                    head = new ObjectValue<>(value);
+                    head = new ObjectValue<>(value, targetClass);
                 } else {
                     throw new XPathException("Expected external object of class " + targetClass.getName() +
                             ", got " + head.getClass());
@@ -786,7 +785,7 @@ public abstract class PJConverter {
             Item head = iter.next();
             if (head == null) {
                 if (targetClass.isAssignableFrom(EmptySequence.class)) {
-                    return EmptySequence.getInstance();
+                    return EmptySequence.INSTANCE;
                 } else {
                     throw new XPathException("Supplied value is empty: expected + " + targetClass.getName());
                 }

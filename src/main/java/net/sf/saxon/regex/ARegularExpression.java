@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,7 @@ package net.sf.saxon.regex;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.str.BMPString;
+import net.sf.saxon.str.StringTool;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
@@ -25,9 +25,9 @@ import java.util.function.BiFunction;
 
 public class ARegularExpression implements RegularExpression {
 
-    UnicodeString rawPattern;
-    String rawFlags;
-    REProgram regex;
+    private final UnicodeString rawPattern;
+    private final String rawFlags;
+    private final REProgram regex;
 
     /**
      * Create and compile a regular expression
@@ -74,7 +74,7 @@ public class ARegularExpression implements RegularExpression {
 
     public static ARegularExpression compile(String pattern, String flags) {
         try {
-            return new ARegularExpression(BMPString.of(pattern), flags, "XP31", null, null);
+            return new ARegularExpression(StringTool.fromCharSequence(pattern), flags, "XP31", null, null);
         } catch (XPathException e) {
             throw new IllegalArgumentException(e);
         }
@@ -127,7 +127,11 @@ public class ARegularExpression implements RegularExpression {
      */
     @Override
     public AtomicIterator tokenize(UnicodeString input) {
-        return new ATokenIterator(input.tidy(), new REMatcher(regex));
+        if (regex.flags.isAllowsXPath40Extensions()) {
+            return new ATokenIterator40(input.tidy(), new REMatcher(regex));
+        } else {
+            return new ATokenIterator(input.tidy(), new REMatcher(regex));
+        }
     }
 
     /**

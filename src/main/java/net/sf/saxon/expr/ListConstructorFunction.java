@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.functions.AbstractFunction;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.om.*;
 import net.sf.saxon.str.UnicodeString;
+import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AnyURIValue;
@@ -90,8 +91,8 @@ public class ListConstructorFunction extends AbstractFunction {
         SequenceType argType = allowEmpty ? SequenceType.OPTIONAL_ATOMIC : SequenceType.SINGLE_ATOMIC;
 
         return new SpecificFunctionType(
-                new SequenceType[]{argType},
-                SequenceType.makeSequenceType(resultType, StaticProperty.ALLOWS_ZERO_OR_MORE));
+                argType,
+                SequenceType.zeroOrMore(resultType));
     }
 
     /**
@@ -140,7 +141,7 @@ public class ListConstructorFunction extends AbstractFunction {
         AtomicValue val = (AtomicValue) args[0].head();
         if (val == null) {
             if (allowEmpty) {
-                return EmptyAtomicSequence.getInstance();
+                return AtomicArray.EMPTY_ATOMIC_ARRAY;
             } else {
                 XPathException e = new XPathException("Cast expression does not allow an empty sequence to be supplied", "XPTY0004");
                 e.setIsTypeError(true);
@@ -160,6 +161,14 @@ public class ListConstructorFunction extends AbstractFunction {
             throw failure.makeException();
         }
         return targetType.getTypedValue(cs, nsResolver, rules);
+    }
+
+    @Override
+    public void export(ExpressionPresenter out) throws XPathException {
+        out.startElement("acFnRef");
+        out.emitAttribute("name", targetType.getStructuredQName().getEQName());
+        out.emitAttribute("flags", allowEmpty ? "le" : "l");
+        out.endElement();
     }
 }
 

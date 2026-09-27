@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,10 @@ package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.elab.*;
+import net.sf.saxon.expr.elab.Elaborator;
+import net.sf.saxon.expr.elab.PushElaborator;
+import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.elab.StringEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StandardDiagnostics;
@@ -23,12 +26,13 @@ import net.sf.saxon.str.BMPString;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.Err;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XsltController;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
-import net.sf.saxon.type.SchemaType;
+import net.sf.saxon.type.SimpleType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.Whitespace;
@@ -216,48 +220,50 @@ public class MessageInstr extends Instruction {
 
     /**
      * The MessageAdapter is a filter applied to the message pipeline which is designed to ensure that outputting an attribute
-     * with no containing element (for example &lt;xsl:message select="@x"/>) is not an error. Such an attribute is wrapped in
-     * a processing instruction so it can exist as a child of a document node.
+     * with no containing element (for example &lt;xsl:message select="@x"/&gt;) is not an error. Instead (see bug 6609) we
+     * output a text node containing the attribute's value.
      */
 
-    private static class MessageAdapter extends ProxyReceiver {
+    private static class MessageAdapter extends ProxyOutputter {
 
-        public MessageAdapter(SequenceReceiver next) {
+        public MessageAdapter(Outputter next) {
             super(next);
         }
 
         @Override
-        public void startDocument(int properties) throws XPathException {
-            super.startDocument(properties);
-            //processingInstruction("error-code", errorCode, location, ReceiverOption.NONE);
+        public void attribute(NodeName attName, SimpleType typeCode, String value, Location location, int properties) throws XPathException {
+            try {
+                super.attribute(attName, typeCode, value, location, properties);
+            } catch (XPathException e) {
+                characters(StringView.of(value), location, properties);
+                //processingInstruction("attribute", StringView.of("name=\"" + attName.getDisplayName() + "\" value=\"" + value + "\""), location, ReceiverOption.NONE);
+            }
         }
 
         @Override
-        public void startElement(NodeName elemName, SchemaType type,
-                                 AttributeMap attributes, NamespaceMap namespaces,
-                                 Location location, int properties) throws XPathException {
-            super.startElement(elemName, type, attributes, namespaces, location, properties);
+        public void namespace(String prefix, NamespaceUri namespaceUri, int properties) throws XPathException {
+            try {
+                super.namespace(prefix, namespaceUri, properties);
+            } catch (XPathException e) {
+                characters(namespaceUri.toUnicodeString(), Loc.NONE, properties);
+                //processingInstruction("namespace", StringView.of("prefix=\"" + prefix + "\" uri=\"" + namespaceUri + "\""), Loc.NONE, ReceiverOption.NONE);
+            }
         }
 
         @Override
         public void append(Item item, Location locationId, int copyNamespaces) throws XPathException {
             if (item instanceof NodeInfo) {
                 int kind = ((NodeInfo) item).getNodeKind();
-                if (kind == Type.ATTRIBUTE) {
-                    String attName = ((NodeInfo)item).getDisplayName();
-                    processingInstruction("attribute", StringView.of("name=\"" + attName + "\" value=\"" + item.getUnicodeStringValue() + "\""), locationId, ReceiverOption.NONE);
-                    return;
-                } else if (kind == Type.NAMESPACE) {
-                    String prefix = ((NodeInfo) item).getLocalPart();
-                    processingInstruction("namespace", StringView.of("prefix=\"" + prefix + "\" uri=\"" + item.getUnicodeStringValue() + "\""), Loc.NONE, ReceiverOption.NONE);
+                if (kind == Type.ATTRIBUTE || kind == Type.NAMESPACE) {
+                    characters(item.getUnicodeStringValue(), locationId, ReceiverOption.NONE);
                     return;
                 }
             } else if (item instanceof FunctionItem && !((FunctionItem) item).isArray()) {
                 String representation = ((FunctionItem) item).isMap() ? Err.depict(item) : "Function " + Err.depict(item);
-                nextReceiver.characters(StringView.of(representation), locationId, ReceiverOption.NONE);
+                characters(StringView.of(representation), locationId, ReceiverOption.NONE);
                 return;
             }
-            nextReceiver.append(item, locationId, copyNamespaces);
+            getNextOutputter().append(item, locationId, copyNamespaces);
         }
     }
 
@@ -286,24 +292,7 @@ public class MessageInstr extends Instruction {
                     return null;
                 }
 
-                boolean abort = false;
-                String term = Whitespace.trim(terminate.eval(context));
-                switch (term) {
-                    case "no":
-                    case "false":
-                    case "0":
-                        // no action
-                        break;
-                    case "yes":
-                    case "true":
-                    case "1":
-                        abort = true;
-                        break;
-                    default:
-                        throw new XPathException("The terminate attribute of xsl:message must be yes|true|1 or no|false|0")
-                                .withXPathContext(context)
-                                .withErrorCode("XTDE0030");
-                }
+                boolean abort = evaluateBooleanAVT(context, terminate, "terminate", "xsl:message");
 
                 String code;
                 try {
@@ -316,7 +305,12 @@ public class MessageInstr extends Instruction {
                 StructuredQName errorCode;
                 try {
                     errorCode = StructuredQName.fromLexicalQName(
-                            code, false, true, expr.getRetainedStaticContext());
+                            code, false, StructuredQName.QUPL, expr.getRetainedStaticContext());
+                    // Note, we're being a bit over-liberal here: XSLT 3.0 does not allow Q{uri}prefix:local
+                    if (errorCode.hasURI(NamespaceUri.ERR) && errorCode.getPrefix().isEmpty()) {
+                        // cosmetic - add the err: prefix
+                        errorCode = new StructuredQName("err", NamespaceUri.ERR, errorCode.getLocalPart());
+                    }
                 } catch (XPathException err) {
                     // The spec says we fall back to XTMM9000
                     errorCode = new StructuredQName("err", NamespaceUri.ERR, "XTMM9000");
@@ -327,33 +321,51 @@ public class MessageInstr extends Instruction {
                 Builder builder = controller.makeBuilder();
                 builder.setDurability(Durability.TEMPORARY);
                 builder.setTiming(false);
-                Receiver rec = new MessageAdapter(new TreeReceiver(builder));
-                rec.open();
 
-                ComplexContentOutputter cco = new ComplexContentOutputter(rec);
-                cco.startDocument(abort ? ReceiverOption.TERMINATE : ReceiverOption.NONE);
+                ComplexContentOutputter cco = new ComplexContentOutputter(builder);
+                Outputter rec = new MessageAdapter(cco);
+                rec.open();
+                rec.startDocument(abort ? ReceiverOption.TERMINATE : ReceiverOption.NONE);
 
                 try {
-                    TailCall tc = select.processLeavingTail(cco, context);
-                    dispatchTailCall(tc);
+                    try {
+                        TailCall tc = select.processLeavingTail(rec, context);
+                        dispatchTailCall(tc);
+                    } catch (UncheckedXPathException e) {
+                        throw e.getXPathException();
+                    }
                 } catch (XPathException e) {
-                    cco.append(StringValue.bmp("Error " + e.showErrorCode() +
-                                                       " while evaluating xsl:message at line "
-                                                       + expr.getLocation().getLineNumber() + " of " + expr.getLocation().getSystemId() +
-                                                       ": " + e.getMessage()));
+                    int lineno = expr.getLocation().getLineNumber();
+                    rec.append(new StringValue("Error " + e.showErrorCode()
+                                                       + " while evaluating xsl:message "
+                                                       + (lineno > 0 ? "at line " + lineno + " of ": "in ")
+                                                       + expr.getLocation().getSystemId()
+                                                       + ": " + e.getMessage()));
                 }
 
-                cco.endDocument();
-                cco.close();
+                rec.endDocument();
+                rec.close();
                 builder.close();
                 NodeInfo content = builder.getCurrentRoot();
                 Message message = expr.makeMessage(abort, errorCode, content);
-                controller.getMessageHandler().accept(message);
+                try {
+                    controller.getMessageHandler().accept(message);
+                } catch (Exception e) {
+                    // Ignore exceptions from the message handler - see bug 6464
+                }
+                // Allow the message handler to indicate that the message is to be treated as fatal
+                String reason = "";
+                if (!abort && message.isTerminate()) {
+                    abort = true;
+                    reason = "user-written message handler for ";
+                }
+                abort |= message.isTerminate();
                 if (abort) {
                     TerminationException te = new TerminationException(
-                            "Processing terminated by " + StandardDiagnostics.getInstructionNameDefault(expr) +
+                            "Processing terminated by " + reason + StandardDiagnostics.getInstructionNameDefault(expr) +
                                     " at line " + expr.getLocation().getLineNumber() +
-                                    " in " + StandardDiagnostics.abbreviateLocationURIDefault(expr.getLocation().getSystemId()));
+                                    " in " + StandardDiagnostics.abbreviateLocationURIDefault(expr.getLocation().getSystemId()),
+                            message);
                     te.setLocation(expr.getLocation());
                     te.setErrorCodeQName(errorCode);
                     te.setErrorObject(content);
@@ -363,6 +375,27 @@ public class MessageInstr extends Instruction {
 
             };
         }
+    }
+
+    /**
+     * Evaluate an expression representing a boolean-valued attribute value template, such as xsl:message/@terminate
+     * @param context the evaluation context
+     * @param terminate an evaluator for the AVT expression
+     * @param attName the name of the attribute (for diagnostics)
+     * @param instr the name of the containing instruction (for diagnostics)
+     * @return the boolean value of the attribute
+     * @throws XPathException if the value is invalid
+     */
+    public static boolean evaluateBooleanAVT(XPathContext context, StringEvaluator terminate, String attName, String instr) throws XPathException {
+        String term = Whitespace.trim(terminate.eval(context));
+        return switch (term) {
+            case "no", "false", "0" -> false;
+            case "yes", "true", "1" -> true;
+            default ->
+                    throw new XPathException("The " + attName + " attribute of " + instr + " must be yes|true|1 or no|false|0")
+                            .withXPathContext(context)
+                            .withErrorCode("XTDE0030");
+        };
     }
 
 }

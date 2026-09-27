@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.lib.ErrorReporter;
 /**
  * The <b>XmlProcessingError</b> class contains information about an error detected during
  * compilation or execution of a stylesheet, query, XPath expression, or schema
- * @since 10.0. In 11.0, the super-interface {@code StaticError} is dropped, as it had
+ * @since 10.0. In 11.0, the super-interface {@code StaticError} was dropped, as it had
  * become misleading.
  */
 

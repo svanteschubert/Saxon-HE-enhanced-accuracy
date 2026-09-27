@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,12 @@
 
 package net.sf.saxon.expr.sort;
 
+//import com.saxonica.ee.stream.ManualGroupIterator;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.functions.Count;
-import net.sf.saxon.functions.DistinctValues;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.UncheckedXPathException;
@@ -101,9 +101,9 @@ public class GroupAdjacentIterator implements GroupIterator, LastPositionFinder,
         for (AtomicValue aKey : key) {
             AtomicMatchKey comparisonKey;
             if (aKey.isNaN()) {
-                comparisonKey = DistinctValues.NaN_MATCH_KEY;
+                comparisonKey = AtomicSortComparer.COLLATION_KEY_NaN;
             } else {
-                comparisonKey = aKey.getXPathMatchKey(collator, keyContext.getImplicitTimezone());
+                comparisonKey = aKey.getXPathMatchKey(collator, keyContext.getImplicitTimezone(), 31);
             }
             ckey.add(comparisonKey);
         }

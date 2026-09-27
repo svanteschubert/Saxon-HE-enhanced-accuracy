@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,11 +10,10 @@ package net.sf.saxon.trans.rules;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.instruct.ParameterSet;
-import net.sf.saxon.s9api.Location;
 import net.sf.saxon.om.Item;
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.s9api.Location;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.util.Navigator;
 
 /**
  * The built-in rule set introduced in XSLT 3.0, which raises an error when there is no user-supplied
@@ -51,9 +50,7 @@ public class FailRuleSet implements BuiltInRuleSet {
     public void process(Item item, ParameterSet parameters,
                         ParameterSet tunnelParams, Outputter output, XPathContext context,
                         Location locationId) throws XPathException {
-        String id = (item instanceof NodeInfo ?
-                "the node " + Navigator.getPath((NodeInfo) item) :
-                "the atomic value " + item.getUnicodeStringValue());
+        String id = Err.depict(item);
         XPathException err = new XPathException("No user-defined template rule in " +
                                                     context.getCurrentMode().getActor().getModeTitle(false) +
                                                         " matches " + id, "XTDE0555");

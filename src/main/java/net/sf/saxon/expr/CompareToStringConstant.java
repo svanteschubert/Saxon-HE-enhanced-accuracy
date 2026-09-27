@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.expr.elab.UnicodeStringEvaluator;
 import net.sf.saxon.expr.elab.BooleanElaborator;
 import net.sf.saxon.expr.elab.Elaborator;
 import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.expr.parser.Token;
 import net.sf.saxon.expr.sort.AtomicComparer;
@@ -39,12 +40,12 @@ public class CompareToStringConstant extends CompareToConstant {
      * @param operand   the operand to be compared with an integer constant. This must
      *                  have a static type of NUMERIC, and a cardinality of EXACTLY ONE
      * @param operator  the comparison operator,
-     *                  one of {@link Token#FEQ}, {@link Token#FNE}, {@link Token#FGE},
-     *                  {@link Token#FGT}, {@link Token#FLE}, {@link Token#FLT}
+     *                  one of {@link OperatorSymbol#FEQ}, {@link OperatorSymbol#FNE}, {@link OperatorSymbol#FGE},
+     *                  {@link OperatorSymbol#FGT}, {@link OperatorSymbol#FLE}, {@link OperatorSymbol#FLT}
      * @param comparand the integer constant
      */
 
-    public CompareToStringConstant(Expression operand, int operator, UnicodeString comparand) {
+    public CompareToStringConstant(Expression operand, OperatorSymbol operator, UnicodeString comparand) {
         super(operand);
         this.operator = operator;
         this.comparand = comparand;
@@ -158,7 +159,7 @@ public class CompareToStringConstant extends CompareToConstant {
     @Override
     public void export(ExpressionPresenter destination) throws XPathException {
         destination.startElement("compareToString", this);
-        destination.emitAttribute("op", Token.tokens[operator]);
+        destination.emitAttribute("op", operator.toString());
         destination.emitAttribute("val", getComparand().toString());
         getLhsExpression().export(destination);
         destination.endElement();
@@ -175,7 +176,7 @@ public class CompareToStringConstant extends CompareToConstant {
     @Override
     public String toString() {
         return ExpressionTool.parenthesize(getLhsExpression()) + " " +
-                Token.tokens[operator] + " " + comparand.toString();
+                operator.toString() + " " + comparand.toString();
     }
 
     /**
@@ -185,7 +186,7 @@ public class CompareToStringConstant extends CompareToConstant {
      */
     @Override
     public String toShortString() {
-        return getLhsExpression().toShortString() + " " + Token.tokens[operator] + " \"" + comparand + "\"";
+        return getLhsExpression().toShortString() + " " + operator.toString() + " \"" + comparand + "\"";
     }
 
     /**
@@ -228,7 +229,7 @@ public class CompareToStringConstant extends CompareToConstant {
             final Expression arg = expression.getBaseExpression();
             final UnicodeStringEvaluator argEval = arg.makeElaborator().elaborateForUnicodeString(false);
             final boolean nullable = Cardinality.allowsZero(expression.getCardinality());
-            final int operator = expression.getComparisonOperator();
+            final OperatorSymbol operator = expression.getComparisonOperator();
             final UnicodeString comparand = expression.getComparand();
 
             return context -> {

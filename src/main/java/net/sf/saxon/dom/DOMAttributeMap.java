@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,12 @@ package net.sf.saxon.dom;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.NamespaceBinding;
 import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.tree.NamespaceNode;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.Type;
 import org.w3c.dom.DOMException;
 import org.w3c.dom.NamedNodeMap;
@@ -53,7 +53,7 @@ class DOMAttributeMap implements NamedNodeMap {
     private NamespaceBinding[] getNamespaceDeltas() {
         NamespaceMap allNamespaces = element.getAllNamespaces();
         NamespaceBinding[] bindings;
-        NodeInfo parent = element.getParent();
+        NodeInfo parent = (NodeInfo)element.getParent();
         if (parent != null && parent.getNodeKind() == Type.ELEMENT) {
             bindings = allNamespaces.getDifferences(parent.getAllNamespaces(), !excludeNamespaceUndeclarations);
         } else {
@@ -92,9 +92,9 @@ class DOMAttributeMap implements NamedNodeMap {
             }
             return null;
         } else {
-            AxisIterator atts = element.iterateAxis(AxisInfo.ATTRIBUTE);
+            SequenceIterator atts = element.iterateAttributeAxis(AnyGNode.TEST);
             NodeInfo att;
-            while ((att = atts.next()) != null) {
+            while ((att = (NodeInfo)atts.next()) != null) {
                 if (att.getDisplayName().equals(name)) {
                     return NodeOverNodeInfo.wrap(att);
                 }
@@ -124,9 +124,9 @@ class DOMAttributeMap implements NamedNodeMap {
         }
         int pos = 0;
         int attNr = index - namespaces.length;
-        AxisIterator atts = element.iterateAxis(AxisInfo.ATTRIBUTE);
+        SequenceIterator atts = element.iterateAttributeAxis(AnyGNode.TEST);
         NodeInfo att;
-        while ((att = atts.next()) != null) {
+        while ((att = (NodeInfo)atts.next()) != null) {
             if (pos == attNr) {
                 return NodeOverNodeInfo.wrap(att);
             }
@@ -175,7 +175,7 @@ class DOMAttributeMap implements NamedNodeMap {
     @Override
     public int getLength() {
         int length = 0;
-        AxisIterator atts = element.iterateAxis(AxisInfo.ATTRIBUTE);
+        SequenceIterator atts = element.iterateAttributeAxis(AnyGNode.TEST);
         while (atts.next() != null) {
             length++;
         }
@@ -197,9 +197,9 @@ class DOMAttributeMap implements NamedNodeMap {
         if (uri.equals("") && localName.equals("xmlns")) {
             return getNamedItem("xmlns");
         }
-        AxisIterator atts = element.iterateAxis(AxisInfo.ATTRIBUTE);
+        SequenceIterator atts = element.iterateAttributeAxis(AnyGNode.TEST);
         while (true) {
-            NodeInfo att = atts.next();
+            NodeInfo att = (NodeInfo)atts.next();
             if (att == null) {
                 return null;
             }

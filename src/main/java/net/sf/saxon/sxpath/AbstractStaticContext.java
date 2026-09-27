@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,8 +17,8 @@ import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
-import net.sf.saxon.functions.registry.XPath31FunctionSet;
 import net.sf.saxon.lib.ErrorReporter;
+import net.sf.saxon.om.NamespaceMap;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
@@ -26,9 +26,12 @@ import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.UnprefixedElementMatchingPolicy;
 import net.sf.saxon.trans.DecimalFormatManager;
 import net.sf.saxon.trans.KeyManager;
+import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
+import net.sf.saxon.type.Schema;
+import net.sf.saxon.value.SequenceType;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -54,11 +57,12 @@ public abstract class AbstractStaticContext implements StaticContext {
     private NamespaceUri defaultFunctionNamespace = NamespaceUri.FN;
     private NamespaceUri defaultElementNamespace = NamespaceUri.NULL;
     private boolean backwardsCompatible = false;
-    private int xpathLanguageLevel = 31;
+    protected int xpathLanguageLevel = 31;
     protected boolean usingDefaultFunctionLibrary;
     private final Map<StructuredQName, ItemType> typeAliases = new HashMap<>();
     private UnprefixedElementMatchingPolicy unprefixedElementPolicy = UnprefixedElementMatchingPolicy.DEFAULT_NAMESPACE;
     private WarningHandler warningHandler;
+    protected NamespaceMap prologNamespaces = NamespaceMap.emptyMap();
 
     /**
      * Set the Configuration. This is protected so it can be used only by subclasses;
@@ -113,6 +117,11 @@ public abstract class AbstractStaticContext implements StaticContext {
         getPackageData().setSchemaAware(aware);
     }
 
+    @Override
+    public Schema getImportedSchema() {
+        return getPackageData().getImportedSchema("");
+    }
+
     /**
      * Construct a RetainedStaticContext, which extracts information from this StaticContext
      * to provide the subset of static context information that is potentially needed
@@ -132,16 +141,6 @@ public abstract class AbstractStaticContext implements StaticContext {
      * This can be overridden using setFunctionLibrary().
      */
 
-    protected final void setDefaultFunctionLibrary() {
-        FunctionLibraryList lib = new FunctionLibraryList();
-        lib.addFunctionLibrary(XPath31FunctionSet.getInstance());
-        lib.addFunctionLibrary(getConfiguration().getBuiltInExtensionLibraryList(31));
-        lib.addFunctionLibrary(new ConstructorFunctionLibrary(getConfiguration()));
-        lib.addFunctionLibrary(config.getIntegratedFunctionLibrary());
-        config.addExtensionBinders(lib);
-        setFunctionLibrary(lib);
-    }
-
     public final void setDefaultFunctionLibrary(int version) {
         FunctionLibraryList lib = new FunctionLibraryList();
         lib.addFunctionLibrary(config.getXPathFunctionSet(version));
@@ -159,6 +158,21 @@ public abstract class AbstractStaticContext implements StaticContext {
 
     protected final void addFunctionLibrary(FunctionLibrary library) {
         libraryList.addFunctionLibrary(library);
+    }
+
+    /**
+     * Register a namespace that is explicitly declared in the prolog of the expression or
+     * query module.
+     *
+     * @param prefix The namespace prefix. Must not be null.
+     * @param uri    The namespace URI. Must not be null. The value "" (zero-length string) is used
+     *               to undeclare a namespace; it is not an error if there is no existing binding for
+     *               the namespace prefix.
+     * @throws XPathException if the declaration is invalid
+     */
+   // @Override
+    public void declarePrologNamespace(String prefix, NamespaceUri uri) throws XPathException {
+        throw new UnsupportedOperationException("Cannot declare prolog namespaces on an immutable static context");
     }
 
     /**
@@ -390,6 +404,7 @@ public abstract class AbstractStaticContext implements StaticContext {
         if (packageData.getHostLanguageVersion() != level) {
             packageData.setHostLanguage(packageData.getHostLanguage(), level);
         }
+        setDefaultFunctionLibrary(level);
     }
 
     /**
@@ -451,7 +466,20 @@ public abstract class AbstractStaticContext implements StaticContext {
 
     @Override
     public ItemType getRequiredContextItemType() {
-        return AnyItemType.getInstance();
+        return AnyItemType.INSTANCE;
+    }
+
+    /**
+     * Get the required type of the context value. If no type has been explicitly declared for the context
+     * value, the SequenceType item() is returned.
+     *
+     * @return the required type of the context value
+     * @since 13.0
+     */
+
+    @Override
+    public SequenceType getRequiredContextValueType() {
+        return SequenceType.one(getRequiredContextItemType());
     }
 
     /**

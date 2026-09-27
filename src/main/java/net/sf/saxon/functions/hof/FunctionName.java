@@ -39,14 +39,14 @@ public class FunctionName extends SystemFunction {
         assert f != null;
         StructuredQName name = f.getFunctionName();
         if (name == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else if (name.hasURI(NamespaceUri.ANONYMOUS)) {
             // Used for inline functions
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else {
             return new QNameValue(name, BuiltInAtomicType.QNAME);
         }
     }
 }
 
-// Copyright (c) 2012-2023 Saxonica Limited
+// Copyright (c) 2012-2026 Saxonica Limited

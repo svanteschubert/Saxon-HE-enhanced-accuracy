@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,9 +8,11 @@
 package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.z.IntPredicateProxy;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
+import net.sf.saxon.tree.util.Navigator;
+
+import java.util.function.IntPredicate;
 
 /**
  * This class supports the preceding-sibling axis.
@@ -18,26 +20,21 @@ import net.sf.saxon.z.IntPredicateProxy;
  * to ensure this, construct the enumeration using NodeInfo#getEnumeration()
  */
 
-final class PrecedingSiblingIterator implements AxisIterator {
+final class PrecedingSiblingIterator implements SequenceIterator {
 
-    private final TinyTree document;
-    private final TinyNodeImpl startNode;
+    private final TinyTree tree;
     private int nextNodeNr;
-    private final NodeTest test;
     private final TinyNodeImpl parentNode;
-    private final IntPredicateProxy matcher;
+    private final IntPredicate matcher;
 
-    PrecedingSiblingIterator(TinyTree doc, /*@NotNull*/ TinyNodeImpl node, NodeTest nodeTest) {
-        document = doc;
-        document.ensurePriorIndex();
-        test = nodeTest;
-        startNode = node;
+    PrecedingSiblingIterator(TinyTree doc, TinyNodeImpl node, NodePredicate predicate) {
+        tree = doc;
+        tree.ensurePriorIndex();
         nextNodeNr = node.nodeNr;
         parentNode = node.parent;   // doesn't matter if this is null (unknown)
-        this.matcher = nodeTest.getMatcher(doc);
+        matcher = Navigator.getNumberedNodeMatcher(predicate, doc);
     }
 
-    /*@Nullable*/
     @Override
     public NodeInfo next() {
         if (nextNodeNr < 0) {
@@ -45,12 +42,12 @@ final class PrecedingSiblingIterator implements AxisIterator {
             return null;
         }
         while (true) {
-            nextNodeNr = document.prior[nextNodeNr];
+            nextNodeNr = tree.prior[nextNodeNr];
             if (nextNodeNr < 0) {
                 return null;
             }
             if (matcher.test(nextNodeNr)) {
-                TinyNodeImpl next = document.getNode(nextNodeNr);
+                TinyNodeImpl next = tree.getNode(nextNodeNr);
                 next.setParentNode(parentNode);
                 return next;
             }

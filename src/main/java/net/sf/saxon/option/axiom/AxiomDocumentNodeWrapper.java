@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,12 +8,8 @@
 package net.sf.saxon.option.axiom;
 
 import net.sf.saxon.Configuration;
-import net.sf.saxon.om.GenericTreeInfo;
-import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.om.TreeInfo;
-import net.sf.saxon.pattern.NodeTest;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.om.*;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.type.Type;
 import org.apache.axiom.om.OMDocument;
@@ -139,7 +135,7 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper {
      */
     @Override
     public String getBaseURI() {
-        return getTreeInfo().getRootNode().getBaseURI();
+        return ((AxiomDocument) getTreeInfo()).getSystemId();
     }
 
     /**
@@ -249,13 +245,13 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper {
     }
 
     @Override
-    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
-        return EmptyIterator.ofNodes();
+    protected SequenceIterator iterateAttributes(NodePredicate nodeTest) {
+        return EmptyIterator.INSTANCE;
     }
 
     @Override
-    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
-        return EmptyIterator.ofNodes();
+    protected SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards) {
+        return EmptyIterator.INSTANCE;
     }
 
     /**
@@ -271,11 +267,11 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper {
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         return other == this ? 0 : -1;
     }
 
-    protected static class FollowingSiblingIterator implements AxisIterator {
+    protected static class FollowingSiblingIterator implements SequenceIterator {
 
         private final OMNode start;
         private OMNode currentOMNode;
@@ -304,7 +300,7 @@ public class AxiomDocumentNodeWrapper extends AxiomParentNodeWrapper {
 
     }
 
-    protected static class PrecedingSiblingIterator implements AxisIterator {
+    protected static class PrecedingSiblingIterator implements SequenceIterator {
 
         private final OMNode start;
         private OMNode currentOMNode;

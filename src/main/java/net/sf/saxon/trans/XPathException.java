@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -520,7 +520,7 @@ public class XPathException extends TransformerException {
      */
 
     public boolean hasErrorCode(String... codes) {
-        if (errorCode != null && errorCode.hasURI(NamespaceUri.ERR)) {
+        if (hasStandardErrorCode()) {
             for (String code : codes) {
                 if (errorCode.getLocalPart().equals(code)) {
                     return true;
@@ -528,6 +528,14 @@ public class XPathException extends TransformerException {
             }
         }
         return false;
+    }
+
+    /**
+     * Checks if the exception has an error in the standard error namespace.
+     * @return true iff the error code is in the standard error namepace
+     */
+    public boolean hasStandardErrorCode() {
+        return errorCode != null && errorCode.hasURI(NamespaceUri.ERR);
     }
 
     /**

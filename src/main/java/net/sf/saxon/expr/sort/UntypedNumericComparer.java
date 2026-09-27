@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.expr.sort;
 
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.parser.Token;
+import net.sf.saxon.expr.parser.OperatorSymbol;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.str.UnicodeString;
@@ -16,6 +16,8 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.value.*;
+
+import java.math.BigDecimal;
 
 /**
  * A specialist comparer that implements the rules for comparing an untypedAtomic value
@@ -26,72 +28,31 @@ public class UntypedNumericComparer implements AtomicComparer {
 
     private ConversionRules rules = ConversionRules.DEFAULT;
 
-    private static final double[][] bounds = new double[][] {
+    private static final long[][] bounds = new long[][] {
             // Initialization syntax chosen to be compatible with C#
-            new double[] {1, 0e0, 0e1, 0e2, 0e3, 0e4, 0e5, 0e6, 0e7, 0e8, 0e9, 0e10},
-            new double[] {1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10},
-            new double[] {1, 2e0, 2e1, 2e2, 2e3, 2e4, 2e5, 2e6, 2e7, 2e8, 2e9, 2e10},
-            new double[] {1, 3e0, 3e1, 3e2, 3e3, 3e4, 3e5, 3e6, 3e7, 3e8, 3e9, 3e10},
-            new double[] {1, 4e0, 4e1, 4e2, 4e3, 4e4, 4e5, 4e6, 4e7, 4e8, 4e9, 4e10},
-            new double[] {1, 5e0, 5e1, 5e2, 5e3, 5e4, 5e5, 5e6, 5e7, 5e8, 5e9, 5e10},
-            new double[] {1, 6e0, 6e1, 6e2, 6e3, 6e4, 6e5, 6e6, 6e7, 6e8, 6e9, 6e10},
-            new double[] {1, 7e0, 7e1, 7e2, 7e3, 7e4, 7e5, 7e6, 7e7, 7e8, 7e9, 7e10},
-            new double[] {1, 8e0, 8e1, 8e2, 8e3, 8e4, 8e5, 8e6, 8e7, 8e8, 8e9, 8e10},
-            new double[] {1, 9e0, 9e1, 9e2, 9e3, 9e4, 9e5, 9e6, 9e7, 9e8, 9e9, 9e10},
-            new double[] {1, 10e0, 10e1, 10e2, 10e3, 10e4, 10e5, 10e6, 10e7, 10e8, 10e9, 10e10}
+            new long[] {1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L},
+            new long[] {1L, 1L, 10L, 100L, 1000L, 10_000L, 100_000L, 1_000_000L, 10_000_000L, 100_000_000L, 1_000_000_000L, 10_000_000_000L},
+            new long[] {1L, 2L, 20L, 200L, 2000L, 20_000L, 200_000L, 2_000_000L, 20_000_000L, 200_000_000L, 2_000_000_000L, 20_000_000_000L},
+            new long[] {1L, 3L, 30L, 300L, 3000L, 30_000L, 300_000L, 3_000_000L, 30_000_000L, 300_000_000L, 3_000_000_000L, 30_000_000_000L},
+            new long[] {1L, 4L, 40L, 400L, 4000L, 40_000L, 400_000L, 4_000_000L, 40_000_000L, 400_000_000L, 4_000_000_000L, 40_000_000_000L},
+            new long[] {1L, 5L, 50L, 500L, 5000L, 50_000L, 500_000L, 5_000_000L, 50_000_000L, 500_000_000L, 5_000_000_000L, 50_000_000_000L},
+            new long[] {1L, 6L, 60L, 600L, 6000L, 60_000L, 600_000L, 6_000_000L, 60_000_000L, 600_000_000L, 6_000_000_000L, 60_000_000_000L},
+            new long[] {1L, 7L, 70L, 700L, 7000L, 70_000L, 700_000L, 7_000_000L, 70_000_000L, 700_000_000L, 7_000_000_000L, 70_000_000_000L},
+            new long[] {1L, 8L, 80L, 800L, 8000L, 80_000L, 800_000L, 8_000_000L, 80_000_000L, 800_000_000L, 8_000_000_000L, 80_000_000_000L},
+            new long[] {1L, 9L, 90L, 900L, 9000L, 90_000L, 900_000L, 9_000_000L, 90_000_000L, 900_000_000L, 9_000_000_000L, 90_000_000_000L},
+            new long[] {1L, 10L, 100L, 1000L, 10_000L, 100_000L, 1000_000L, 10_000_000L, 100_000_000L, 1000_000_000L, 910000_000_000L, 100_000_000_000L}
     };
 
     /**
-     * Optimized routine to compare an untyped atomic value with a numeric value.
-     * This attempts to deliver a quick answer if the comparison is obviously false,
-     * without performing the full string-to-double conversion
-     * @param a0 the untypedAtomic comparand
-     * @param a1 the numeric comparand
-     * @param operator the comparison operator: a singleton operator such as Token.FEQ
-     * @param rules the conversion rules
-     * @return the result of the comparison
-     * @throws XPathException if the first operand is not convertible to a double
+     * Get lower and upper bounds on the number represented by a string written as a simple decimal
+     * @param cs the string to be examined
+     * @return either an array of 3 long values: the first two give a lower and upper bound on the
+     * number represented by the string; the third is 1L if the number is a simple sequence of digits,
+     * otherwise 0L. Otherwise, null if this cannot be determined.
      */
 
-    public static boolean quickCompare(
-            StringValue a0, NumericValue a1, int operator, ConversionRules rules)
-            throws XPathException {
-        int comp = quickComparison(a0, a1, rules);
-        switch (operator) {
-            case Token.FEQ:
-                return comp == 0;
-            case Token.FLE:
-                return comp <= 0;
-            case Token.FLT:
-                return comp < 0;
-            case Token.FGE:
-                return comp >= 0;
-            case Token.FGT:
-                return comp > 0;
-            case Token.FNE:
-            default:
-                return comp != 0;
-        }
-    }
-
-    /**
-     * Optimized routine to compare an untyped atomic value with a numeric value.
-     * This attempts to deliver a quick answer if the comparison if obviously false,
-     * without performing the full string-to-double conversion
-     *
-     * @param a0       the untypedAtomic comparand
-     * @param a1       the numeric comparand
-     * @param rules    the conversion rules
-     * @return the result of the comparison (negative if a0 lt a1, 0 if equal, positive if a0 gt a1)
-     * @throws XPathException if the first operand is not convertible to a double
-     */
-
-    private static int quickComparison(
-            StringValue a0, NumericValue a1, ConversionRules rules)
-            throws XPathException {
-        double d1 = a1.getDoubleValue();
-        UnicodeString cs = Whitespace.trim(a0.getUnicodeStringValue());
-
+    private static long[] getBounds(UnicodeString cs) {
+        // Analyze the string to find the leading digit and the number of digits before the decimal point
         boolean simple = true;
         int wholePartLength = 0;
         int firstDigit = -1;
@@ -127,34 +88,167 @@ public class UntypedNumericComparer implements AtomicComparer {
             simple = false;
         }
         if (simple && wholePartLength > 0 && wholePartLength <= 10) {
-            double lowerBound = bounds[firstDigit][wholePartLength];
-            double upperBound = bounds[firstDigit + 1][wholePartLength];
+            long lowerBound = bounds[firstDigit][wholePartLength];
+            long upperBound = bounds[firstDigit + 1][wholePartLength];
+            long simpleNumber = (decimalPoints == 0) ? 1L : 0L;
             if (sign == '-') {
-                double temp = lowerBound;
-                lowerBound = -upperBound;
-                upperBound = -temp;
+                return new long[]{-upperBound, -lowerBound, simpleNumber};
+            } else {
+                return new long[]{lowerBound, upperBound, simpleNumber};
             }
-            if (upperBound < d1) {
+        }
+        return null;
+    }
+
+    /**
+     * Optimized routine to compare an untyped atomic value with a numeric value.
+     * This attempts to deliver a quick answer if the comparison is obviously false,
+     * without performing the full string-to-double conversion
+     * @param a0 the untypedAtomic comparand
+     * @param a1 the numeric comparand
+     * @param operator the comparison operator: a singleton operator such as Token.FEQ
+     * @param rules the conversion rules
+     * @param specVersion for example 40 for XPath 4.0
+     * @return the result of the comparison
+     * @throws XPathException if the first operand is not convertible to a double
+     */
+
+    public static boolean quickCompare(
+            StringValue a0, NumericValue a1, OperatorSymbol operator, ConversionRules rules, int specVersion)
+            throws XPathException {
+        if (a1.isNaN()) {
+            return operator == OperatorSymbol.FNE;
+        }
+        int comp = specVersion >= 40
+                ? quickComparison40(a0, a1, rules)
+                : quickComparison31(a0, a1, rules);
+        return switch (operator) {
+            case FEQ -> comp == 0;
+            case FLE -> comp <= 0;
+            case FLT -> comp < 0;
+            case FGE -> comp >= 0;
+            case FGT -> comp > 0;
+            default -> comp != 0;
+        };
+    }
+
+    /**
+     * Optimized routine to compare an untyped atomic value with a numeric value.
+     * This attempts to deliver a quick answer if the comparison if obviously false,
+     * without performing the full string-to-double conversion
+     *
+     * @param a0       the untypedAtomic comparand
+     * @param a1       the numeric comparand
+     * @param rules    the conversion rules
+     * @return the result of the comparison (negative if a0 lt a1, 0 if equal, positive if a0 gt a1)
+     * @throws XPathException if the first operand is not convertible to a double
+     */
+
+    private static int quickComparison31(
+            StringValue a0, NumericValue a1, ConversionRules rules)
+            throws XPathException {
+        double d1 = a1.getDoubleValue();
+        UnicodeString cs = Whitespace.trim(a0.getUnicodeStringValue());
+
+        // Analyze the string to find the leading digit and the number of digits before the decimal point
+        long[] bounds = getBounds(cs);
+
+        boolean plain = false;
+        if (bounds != null) {
+            plain = bounds[2] > 0;
+            if (bounds[1] < d1) {
                 return -1;
             }
-            if (lowerBound > d1) {
+            if (bounds[0] > d1) {
                 return +1;
             }
-
         }
+
         // The quick check was inconclusive, so we now parse the number.
         // We use integer comparison if both sides are simple integers, or double comparison otherwise
-        if (simple && decimalPoints == 0 && wholePartLength <= 15 && a1 instanceof Int64Value) {
+        if (plain && a1 instanceof Int64Value) {
             long l0 = Long.parseLong(cs.toString());
             return Long.compare(l0, a1.longValue());
         } else {
             ConversionResult result;
             synchronized(a0) {
-                result = BuiltInAtomicType.DOUBLE.getStringConverter(rules).convertString(a0.getUnicodeStringValue());
+                result = BuiltInAtomicType.DOUBLE.getStringConverter(rules).convertString(cs);
             }
             AtomicValue av = result.asAtomic();
             return Double.compare(((DoubleValue)av).getDoubleValue(), d1);
         }
+
+    }
+
+    /**
+     * Optimized routine to compare an untyped atomic value with a numeric value.
+     * This attempts to deliver a quick answer if the comparison if obviously false,
+     * without performing the full string-to-double conversion. This version of the
+     * method implements the proposed XPath 4.0 semantics, which first attempt
+     * conversion to the type of the other operand.
+     *
+     * @param a0    the untypedAtomic comparand
+     * @param a1    the numeric comparand
+     * @param rules the conversion rules
+     * @return the result of the comparison (negative if a0 lt a1, 0 if equal, positive if a0 gt a1)
+     * @throws XPathException if the first operand is not convertible to a double
+     */
+
+    private static int quickComparison40(
+            StringValue a0, NumericValue a1, ConversionRules rules)
+            throws XPathException {
+
+        if (a1 instanceof DoubleValue || a1 instanceof FloatValue) {
+            return quickComparison31(a0, a1, rules);
+        }
+
+        UnicodeString cs = Whitespace.trim(a0.getUnicodeStringValue());
+
+        // Analyze the string to find the leading digit and the number of digits before the decimal point
+        long[] bounds = getBounds(cs);
+
+        // Compare the string as if by converting it to the primitive type of the other operand
+        boolean plain;
+        if (bounds != null) {
+            plain = bounds[2] > 0;
+            if (a1 instanceof IntegerValue) {
+                long a1L = a1.longValue();
+                if (bounds[1] < a1L) {
+                    return -1;
+                }
+                if (bounds[0] > a1L) {
+                    return +1;
+                }
+                if (plain) {
+                    long a0L = Long.parseLong(cs.toString());
+                    return Long.compare(a0L, a1L);
+                }
+            }
+
+            BigDecimal a1D = a1.getDecimalValue();
+            if (BigDecimal.valueOf(bounds[1]).compareTo(a1D) < 0) {
+                return -1;
+            }
+            if (BigDecimal.valueOf(bounds[0]).compareTo(a1D) > 0) {
+                return +1;
+            }
+
+        }
+
+        // The quick check was inconclusive, so we now parse the number.
+
+        ConversionResult result;
+        synchronized(a0) {
+            result = BuiltInAtomicType.DECIMAL.getStringConverter(rules).convertString(cs);
+            if (result instanceof DecimalValue) {
+                return ((DecimalValue) result).getDecimalValue().compareTo(a1.getDecimalValue());
+            }
+            // if it can't be converted to decimal, try double
+            result = BuiltInAtomicType.DOUBLE.getStringConverter(rules).convertString(cs);
+            DoubleValue av = (DoubleValue)result.asAtomic();
+            return av.transitiveCompareTo(a1);
+        }
+
 
     }
 
@@ -176,7 +270,7 @@ public class UntypedNumericComparer implements AtomicComparer {
     @Override
     public int compareAtomicValues(AtomicValue a, AtomicValue b) {
         try {
-            return quickComparison((StringValue)a, (NumericValue)b, rules);
+            return quickComparison31((StringValue)a, (NumericValue)b, rules);
         } catch (XPathException e) {
             throw new ComparisonException(e);
         }

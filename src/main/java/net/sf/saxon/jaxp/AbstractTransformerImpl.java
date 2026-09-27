@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,9 +20,11 @@ import net.sf.saxon.om.Sequence;
 import net.sf.saxon.s9api.*;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.type.JavaExternalObjectType;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.ObjectValue;
+import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
 import org.w3c.dom.Node;
 import org.xml.sax.XMLFilter;
@@ -175,6 +177,8 @@ abstract class AbstractTransformerImpl extends IdentityTransformer {
             return;
         }
         Configuration config = getConfiguration();
+        int version =  xsltExecutable.getXsltVersion();
+        CoercionRules coercionRules = CoercionRules.forVersion(config, version);
         net.sf.saxon.value.SequenceType required = details.getUnderlyingDeclaredType();
         GroundedValue converted;
         try {
@@ -190,14 +194,14 @@ abstract class AbstractTransformerImpl extends IdentityTransformer {
                 converted = converter.convert(value, context);
             }
             if (converted == null) {
-                converted = EmptySequence.getInstance();
+                converted = EmptySequence.INSTANCE;
             }
 
-            if (required != null && !required.matches(converted, config.getTypeHierarchy())) {
+            if (required != null && !required.matches(converted)) {
                 Supplier<RoleDiagnostic> role =
                         () -> new RoleDiagnostic(RoleDiagnostic.VARIABLE, qName.toString(), -1);
-                converted = config.getTypeHierarchy().applyFunctionConversionRules(
-                        converted, required, role, Loc.NONE);
+                converted = coercionRules.coerce(
+                        converted, required, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE).materialize();
             }
         } catch (XPathException e) {
             throw new IllegalArgumentException(e);

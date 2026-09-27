@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,6 @@
 package net.sf.saxon.expr.instruct;
 
 import net.sf.saxon.Configuration;
-import net.sf.saxon.Controller;
 import net.sf.saxon.event.*;
 import net.sf.saxon.expr.*;
 import net.sf.saxon.expr.elab.Elaborator;
@@ -21,12 +20,18 @@ import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.*;
+import net.sf.saxon.pattern.MultipleNodeKindTest;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
+import net.sf.saxon.pattern.qname.AnyQNameTest;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.AnyXNodeType;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.SequenceType;
 
@@ -53,17 +58,18 @@ public class Copy extends ElementCreator {
      *
      * @param copyNamespaces    true if namespace nodes are to be copied when copying an element
      * @param inheritNamespaces true if child elements are to inherit the namespace nodes of their parent
+     * @param schema
      * @param schemaType        the Schema type against which the content is to be validated
      * @param validation        the schema validation mode
      */
 
     public Copy(boolean copyNamespaces,
                 boolean inheritNamespaces,
-                SchemaType schemaType,
+                Schema schema, SchemaType schemaType,
                 int validation) {
         this.copyNamespaces = copyNamespaces;
         this.bequeathNamespacesToChildren = inheritNamespaces;
-        setValidationAction(validation, schemaType);
+        setValidationAction(schema, validation, schemaType);
         preservingTypes = schemaType == null && validation == Validation.PRESERVE;
     }
 
@@ -119,10 +125,10 @@ public class Copy extends ElementCreator {
             switch (selectItemType.getPrimitiveType()) {
                 // For elements and attributes, assume the type annotation will change
                 case Type.ELEMENT:
-                    this.resultItemType = NodeKindTest.ELEMENT;
+                    this.resultItemType = NodeKindType.ELEMENT;
                     break;
                 case Type.DOCUMENT:
-                    this.resultItemType = NodeKindTest.DOCUMENT;
+                    this.resultItemType = NodeKindType.DOCUMENT;
                     break;
                 case Type.ATTRIBUTE:
                 case Type.TEXT:
@@ -142,7 +148,7 @@ public class Copy extends ElementCreator {
             this.resultItemType = selectItemType;
         }
 
-        checkContentSequence(visitor.getStaticContext());
+        checkContentSequence();
         return this;
     }
 
@@ -156,8 +162,9 @@ public class Copy extends ElementCreator {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
+        Schema schema = getSchema();
         Copy copy = new Copy(
-                copyNamespaces, bequeathNamespacesToChildren, getSchemaType(), getValidationAction());
+                copyNamespaces, bequeathNamespacesToChildren, schema, getSchemaType(), getValidationAction());
         ExpressionTool.copyLocationInfo(this, copy);
         copy.setContentExpression(getContentExpression().copy(rebindings));
         copy.resultItemType = resultItemType;
@@ -183,7 +190,7 @@ public class Copy extends ElementCreator {
      * where a subexpression's dependencies are not necessarily inherited by the parent
      * expression.
      *
-     * @return a set of bit-significant flags identifying the dependencies of
+     * @return a bit-set of flags identifying the dependencies of
      * the expression
      */
 
@@ -234,7 +241,7 @@ public class Copy extends ElementCreator {
     }
 
     private ItemType computeItemType(TypeHierarchy th) {
-        ItemType selectItemType = this.selectItemType; //select.getItemType();
+        ItemType selectItemType = this.selectItemType;
         if (!getPackageData().isSchemaAware()) {
             return selectItemType;
         }
@@ -244,31 +251,31 @@ public class Copy extends ElementCreator {
         // The rest of the code handles the complications of schema-awareness
         Configuration config = th.getConfiguration();
         if (getSchemaType() != null) {
-            Affinity e = th.relationship(selectItemType, NodeKindTest.ELEMENT);
+            Affinity e = th.relationship(selectItemType, NodeKindType.ELEMENT);
             if (e == Affinity.SAME_TYPE || e == Affinity.SUBSUMED_BY) {
-                return new ContentTypeTest(Type.ELEMENT, getSchemaType(), config, false);
+                return new NamedXNodeType(Type.ELEMENT, AnyQNameTest.getInstance(), getSchemaType(), false, config);
             }
-            Affinity a = th.relationship(selectItemType, NodeKindTest.ATTRIBUTE);
+            Affinity a = th.relationship(selectItemType, NodeKindType.ATTRIBUTE);
             if (a == Affinity.SAME_TYPE || a == Affinity.SUBSUMED_BY) {
-                return new ContentTypeTest(Type.ATTRIBUTE, getSchemaType(), config, false);
+                return new NamedXNodeType(Type.ATTRIBUTE, AnyQNameTest.getInstance(), getSchemaType(), false, config);
             }
-            return AnyNodeTest.getInstance();
+            return AnyXNodeType.getInstance();
         } else {
             switch (getValidationAction()) {
                 case Validation.PRESERVE:
                     return selectItemType;
                 case Validation.STRIP: {
-                    Affinity e = th.relationship(selectItemType, NodeKindTest.ELEMENT);
+                    Affinity e = th.relationship(selectItemType, NodeKindType.ELEMENT);
                     if (e == Affinity.SAME_TYPE || e == Affinity.SUBSUMED_BY) {
-                        return new ContentTypeTest(Type.ELEMENT, Untyped.getInstance(), config, false);
+                        return new NamedXNodeType(Type.ELEMENT, AnyQNameTest.getInstance(), Untyped.INSTANCE, false, config);
                     }
-                    Affinity a = th.relationship(selectItemType, NodeKindTest.ATTRIBUTE);
+                    Affinity a = th.relationship(selectItemType, NodeKindType.ATTRIBUTE);
                     if (a == Affinity.SAME_TYPE || a == Affinity.SUBSUMED_BY) {
-                        return new ContentTypeTest(Type.ATTRIBUTE, BuiltInAtomicType.UNTYPED_ATOMIC, config, false);
+                        return new NamedXNodeType(Type.ATTRIBUTE, AnyQNameTest.getInstance(), BuiltInAtomicType.UNTYPED_ATOMIC, false, config);
                     }
                     if (e != Affinity.DISJOINT || a != Affinity.DISJOINT) {
                         // it might be an element or attribute
-                        return AnyNodeTest.getInstance();
+                        return AnyXNodeType.getInstance();
                     } else {
                         // it can't be an element or attribute, so stripping type annotations can't affect it
                         return selectItemType;
@@ -276,52 +283,55 @@ public class Copy extends ElementCreator {
                 }
                 case Validation.STRICT:
                 case Validation.LAX:
-                    if (selectItemType instanceof NodeTest) {
-                        int fp = ((NodeTest) selectItemType).getFingerprint();
+                    if (selectItemType instanceof NamedXNodePredicate) {
+                        NamedXNodePredicate fpTest = (NamedXNodePredicate) selectItemType;
+                        int fp = fpTest.getRequiredFingerprint();
                         if (fp != -1) {
-                            Affinity e = th.relationship(selectItemType, NodeKindTest.ELEMENT);
+                            Affinity e = th.relationship(selectItemType, NodeKindType.ELEMENT);
                             if (e == Affinity.SAME_TYPE || e == Affinity.SUBSUMED_BY) {
-                                SchemaDeclaration elem = config.getElementDeclaration(fp);
+                                Schema schema = getRetainedStaticContext().getImportedSchema();
+                                IElementDecl elem = schema.getElementDecl(fp);
                                 if (elem != null) {
                                     try {
-                                        return new ContentTypeTest(Type.ELEMENT, elem.getType(), config, false);
+                                        return new NamedXNodeType(Type.ELEMENT, AnyQNameTest.getInstance(), elem.getType(), false, config);
                                     } catch (MissingComponentException e1) {
-                                        return new ContentTypeTest(Type.ELEMENT, AnyType.getInstance(), config, false);
+                                        return new NamedXNodeType(Type.ELEMENT, AnyQNameTest.getInstance(), AnyType.INSTANCE, false, config);
                                     }
                                 } else {
                                     // No element declaration now, but there might be one at run-time
-                                    return new ContentTypeTest(Type.ELEMENT, AnyType.getInstance(), config, false);
+                                    return new NamedXNodeType(Type.ELEMENT, AnyQNameTest.getInstance(), AnyType.INSTANCE, false, config);
                                 }
                             }
-                            Affinity a = th.relationship(selectItemType, NodeKindTest.ATTRIBUTE);
+                            Affinity a = th.relationship(selectItemType, NodeKindType.ATTRIBUTE);
                             if (a == Affinity.SAME_TYPE || a == Affinity.SUBSUMED_BY) {
-                                SchemaDeclaration attr = config.getElementDeclaration(fp);
+                                Schema schema = getRetainedStaticContext().getImportedSchema();
+                                IAttributeDecl attr = schema.getAttributeDecl(fp);
                                 if (attr != null) {
                                     try {
-                                        return new ContentTypeTest(Type.ATTRIBUTE, attr.getType(), config, false);
+                                        return new NamedXNodeType(Type.ATTRIBUTE, AnyQNameTest.getInstance(), attr.getType(), false, config);
                                     } catch (MissingComponentException e1) {
-                                        return new ContentTypeTest(Type.ATTRIBUTE, AnySimpleType.getInstance(), config, false);
+                                        return new NamedXNodeType(Type.ATTRIBUTE, AnyQNameTest.getInstance(), AnySimpleType.INSTANCE, false, config);
                                     }
                                 } else {
                                     // No attribute declaration now, but there might be one at run-time
-                                    return new ContentTypeTest(Type.ATTRIBUTE, AnySimpleType.getInstance(), config, false);
+                                    return new NamedXNodeType(Type.ATTRIBUTE, AnyQNameTest.getInstance(), AnySimpleType.INSTANCE, false, config);
                                 }
                             }
                         } else {
-                            Affinity e = th.relationship(selectItemType, NodeKindTest.ELEMENT);
+                            Affinity e = th.relationship(selectItemType, NodeKindType.ELEMENT);
                             if (e == Affinity.SAME_TYPE || e == Affinity.SUBSUMED_BY) {
-                                return NodeKindTest.ELEMENT;
+                                return NodeKindType.ELEMENT;
                             }
-                            Affinity a = th.relationship(selectItemType, NodeKindTest.ATTRIBUTE);
+                            Affinity a = th.relationship(selectItemType, NodeKindType.ATTRIBUTE);
                             if (a == Affinity.SAME_TYPE || a == Affinity.SUBSUMED_BY) {
-                                return NodeKindTest.ATTRIBUTE;
+                                return NodeKindType.ATTRIBUTE;
                             }
                         }
-                        return AnyNodeTest.getInstance();
+                        return AnyXNodeType.getInstance();
                     } else if (selectItemType instanceof AtomicType) {
                         return selectItemType;
                     } else {
-                        return AnyItemType.getInstance();
+                        return AnyItemType.INSTANCE;
                     }
                 default:
                     throw new IllegalStateException();
@@ -339,7 +349,8 @@ public class Copy extends ElementCreator {
             }
             if (visitor.isOptimizeForStreaming()) {
                 UType type = contextItemType.getItemType().getUType();
-                if (!type.intersection(MultipleNodeKindTest.LEAF.getUType()).equals(UType.VOID)) {
+                // If the expression exclusively selects childless nodes, then replace copy() with copy-of()
+                if (!type.intersection(UType.LEAF).equals(UType.VOID)) {
                     // Bug 4346: only do this optimization once
                     Expression p = getParentExpression();
                     if (p instanceof Choose && ((Choose) p).size() == 2 && ((Choose) p).getAction(1) == this &&
@@ -348,11 +359,11 @@ public class Copy extends ElementCreator {
                     }
                     Expression copyOf = new CopyOf(
                             new ContextItemExpression(), false, getValidationAction(), getSchemaType(), false);
-                    NodeTest leafTest = new MultipleNodeKindTest(type.intersection(MultipleNodeKindTest.LEAF.getUType()));
+                    ItemType leafTest = ChoiceItemType.of(type.intersection(MultipleNodeKindTest.LEAF.getUType()));
                     Expression[] conditions = new Expression[]{
                             new InstanceOfExpression(
                                     new ContextItemExpression(),
-                                    SequenceType.makeSequenceType(leafTest, StaticProperty.EXACTLY_ONE)),
+                                    SequenceType.one(leafTest)),
                             Literal.makeLiteral(BooleanValue.TRUE, this)};
                     Expression[] actions = new Expression[]{copyOf, this};
                     Choose choose = new Choose(conditions, actions);
@@ -469,6 +480,10 @@ public class Copy extends ElementCreator {
         out.emitAttribute("flags", flags);
         String sType = SequenceType.makeSequenceType(selectItemType, getCardinality()).toAlphaCode();
         out.emitAttribute("sit", sType);
+        String schemaRole = getRetainedStaticContext().getImportedSchemaRoleName();
+        if (!schemaRole.isEmpty()) {
+            out.emitAttribute("schemaRole", schemaRole);
+        }
         out.setChildRole("content");
         getContentExpression().export(out);
         out.endElement();
@@ -504,10 +519,6 @@ public class Copy extends ElementCreator {
             return copiedNode.getBaseURI();
         }
 
-        @Override
-        public void processContent(Outputter out, XPathContext context) throws XPathException {
-            Expression.dispatchTailCall(contentEvaluator.processLeavingTail(out, context));
-        }
     }
 
     public static class CopyElaborator extends PushElaborator {
@@ -515,11 +526,11 @@ public class Copy extends ElementCreator {
         @Override
         public PushEvaluator elaborateForPush() {
             Copy expr = (Copy)getExpression();
+            Schema schema = expr.getRetainedStaticContext().getImportedSchema();
             PushEvaluator contentPush = expr.getContentExpression().makeElaborator().elaborateForPush();
 
-            SchemaType typeCode = expr.getValidationAction() == Validation.PRESERVE
-                    ? AnyType.getInstance()
-                    : Untyped.getInstance();
+            SchemaType typeCode;
+            typeCode = expr.getValidationAction() == Validation.PRESERVE ? AnyType.INSTANCE : Untyped.INSTANCE;
 
             int properties = ReceiverOption.NONE;
             if (!expr.bequeathNamespacesToChildren) {
@@ -530,9 +541,9 @@ public class Copy extends ElementCreator {
             }
             properties |= ReceiverOption.ALL_NAMESPACES;
             final int finalProperties = properties;
+            Configuration config = expr.getConfiguration();
 
             return (output, context) -> {
-                Controller controller = context.getController();
                 Item item = context.getContextItem();
                 if (item == null) {
                     throw new XPathException("There is no context item for xsl:copy", "XTTE0945")
@@ -557,8 +568,8 @@ public class Copy extends ElementCreator {
                             if (!expr.preservingTypes) {
                                 ParseOptions options = expr.getValidationOptions()
                                         .withTopLevelElement(elemName.getStructuredQName());
-                                context.getConfiguration().prepareValidationReporting(context, options);
-                                Receiver validator = context.getConfiguration().getElementValidator(
+                                config.prepareValidationReporting(context, options);
+                                Receiver validator = schema.getElementValidator(
                                         elemOut, options, expr.getLocation());
 
                                 if (validator != elemOut) {
@@ -631,10 +642,9 @@ public class Copy extends ElementCreator {
                     case Type.DOCUMENT:
                         if (!expr.preservingTypes) {
                             ParseOptions options = expr.getValidationOptions()
-                                    .withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
-                            controller.getConfiguration().prepareValidationReporting(context, options);
-                            Receiver val = controller.getConfiguration().
-                                    getDocumentValidator(output, source.getBaseURI(), options, expr.getLocation());
+                                    .withSpaceStrippingRule(NoElementsSpaceStrippingRule.INSTANCE);
+                            config.prepareValidationReporting(context, options);
+                            Receiver val = schema.getDocumentValidator(output, source.getBaseURI(), options, expr.getLocation());
                             output = new ComplexContentOutputter(val);
                         }
                         if (output.getSystemId() == null) {

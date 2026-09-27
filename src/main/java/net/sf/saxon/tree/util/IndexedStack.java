@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -104,7 +104,7 @@ public class IndexedStack<T> implements Iterable<T>{
      * @param i the position of the required item, where the first item counting from
      *          the bottom of the stack is position 0 (zero)
      * @return the item at the specified position
-     * @throws IndexOutOfBoundsException if {code i} is negative, or greater than or equal to the stack size
+     * @throws IndexOutOfBoundsException if {@code i} is negative, or greater than or equal to the stack size
      */
 
     public T get(int i) {
@@ -117,7 +117,7 @@ public class IndexedStack<T> implements Iterable<T>{
      * @param i the position of the required item, where the first item counting from
      *          the bottom of the stack is position 0 (zero)
      * @param value the item to be put at the specified position
-     * @throws IndexOutOfBoundsException if {code i} is negative, or greater than or equal to the stack size
+     * @throws IndexOutOfBoundsException if {@code i} is negative, or greater than or equal to the stack size
      */
 
     public void set(int i, T value) {

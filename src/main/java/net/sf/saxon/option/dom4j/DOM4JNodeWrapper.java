@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,11 +8,11 @@
 package net.sf.saxon.option.dom4j;
 
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.str.EmptyUnicodeString;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.SteppingNavigator;
@@ -179,7 +179,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
      */
 
     @Override
-    public int compareOrder(NodeInfo other) {
+    public int compareOrder(GNode other) {
         if (other instanceof SiblingCountingNode) {
             return Navigator.compareOrder(this, (SiblingCountingNode) other);
         } else {
@@ -340,7 +340,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
         if (index == -1) {
             int ix = 0;
             getParent();
-            AxisIterator iter;
+            SequenceIterator iter;
             switch (nodeKind) {
                 case Type.ELEMENT:
                 case Type.TEXT:
@@ -367,17 +367,17 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
                     throw new IllegalStateException("DOM4J node not linked to parent node");
                 }
                 case Type.ATTRIBUTE:
-                    iter = parent.iterateAxis(AxisInfo.ATTRIBUTE);
+                    iter = parent.iterateAttributeAxis(AnyGNode.TEST);
                     break;
                 case Type.NAMESPACE:
-                    iter = parent.iterateAxis(AxisInfo.NAMESPACE);
+                    iter = parent.iterateNamespaceAxis(AnyGNode.TEST);
                     break;
                 default:
                     index = 0;
                     return index;
             }
             while (true) {
-                NodeInfo n = iter.next();
+                GNode n = (GNode)iter.next();
                 if (n == null) {
                     break;
                 }
@@ -392,154 +392,45 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
         return index;
     }
 
-    /**
-     * Return an iteration over the nodes reached by the given axis from this node
-     *
-     * //@param axisNumber the axis to be used
-     * @param nodeTest A pattern to be matched by the returned nodes
-     * @return a SequenceIterator that scans the nodes reached by the axis in turn.
-     */
-
-//    public AxisIterator iterateAxis(byte axisNumber, NodeTest nodeTest) {
-//        switch (axisNumber) {
-//            case AxisInfo.ANCESTOR:
-//                if (nodeKind == Type.DOCUMENT) {
-//                    return EmptyIterator.ofNodes();
-//                }
-//                return new Navigator.AxisFilter(
-//                        new Navigator.AncestorEnumeration(this, false),
-//                        nodeTest);
-//
-//            case AxisInfo.ANCESTOR_OR_SELF:
-//                if (nodeKind == Type.DOCUMENT) {
-//                    return Navigator.filteredSingleton(this, nodeTest);
-//                }
-//                return new Navigator.AxisFilter(
-//                        new Navigator.AncestorEnumeration(this, true),
-//                        nodeTest);
-//
-//            case AxisInfo.ATTRIBUTE:
-//                if (nodeKind != Type.ELEMENT) {
-//                    return EmptyIterator.ofNodes();
-//                }
-//                return new Navigator.AxisFilter(
-//                        new AttributeEnumeration(this),
-//                        nodeTest);
-//
-//            case AxisInfo.CHILD:
-//                if (hasChildNodes()) {
-//                    return new Navigator.AxisFilter(
-//                            new ChildEnumeration(this, true, true),
-//                            nodeTest);
-//                } else {
-//                    return EmptyIterator.ofNodes();
-//                }
-//
-//            case AxisInfo.DESCENDANT:
-//                if (hasChildNodes()) {
-//                    return new Navigator.AxisFilter(
-//                            (new TreeWalker()).newDescendantAxisIterator(this, false, nodeTest),//new Navigator.DescendantEnumeration(this, false, true),
-//                            nodeTest);
-//                } else {
-//                    return EmptyIterator.ofNodes();
-//                }
-//
-//            case AxisInfo.DESCENDANT_OR_SELF:
-//                return new Navigator.AxisFilter(
-//                        (new TreeWalker()).newDescendantAxisIterator(this, true, nodeTest),//new Navigator.DescendantEnumeration(this, true, true),
-//                        nodeTest);
-//
-//            case AxisInfo.FOLLOWING:
-//                return new Navigator.AxisFilter(
-//                        new Navigator.FollowingEnumeration(this),
-//                        nodeTest);
-//
-//            case AxisInfo.FOLLOWING_SIBLING:
-//                switch (nodeKind) {
-//                    case Type.DOCUMENT:
-//                    case Type.ATTRIBUTE:
-//                    case Type.NAMESPACE:
-//                        return EmptyIterator.ofNodes();
-//                    default:
-//                        return new Navigator.AxisFilter(
-//                                new ChildEnumeration(this, false, true),
-//                                nodeTest);
-//                }
-//
-//            case AxisInfo.NAMESPACE:
-//                if (nodeKind != Type.ELEMENT) {
-//                    return EmptyIterator.ofNodes();
-//                }
-//                return NamespaceNode.makeIterator(this, nodeTest);
-//
-//            case AxisInfo.PARENT:
-//                getParent();
-//                return Navigator.filteredSingleton(parent, nodeTest);
-//
-//            case AxisInfo.PRECEDING:
-//                return new Navigator.AxisFilter(
-//                        new Navigator.PrecedingEnumeration(this, false),
-//                        nodeTest);
-//
-//            case AxisInfo.PRECEDING_SIBLING:
-//                switch (nodeKind) {
-//                    case Type.DOCUMENT:
-//                    case Type.ATTRIBUTE:
-//                    case Type.NAMESPACE:
-//                        return EmptyIterator.ofNodes();
-//                    default:
-//                        return new Navigator.AxisFilter(
-//                                new ChildEnumeration(this, false, false),
-//                                nodeTest);
-//                }
-//
-//            case AxisInfo.SELF:
-//                return Navigator.filteredSingleton(this, nodeTest);
-//
-//            case AxisInfo.PRECEDING_OR_ANCESTOR:
-//                return new Navigator.AxisFilter(
-//                        new Navigator.PrecedingEnumeration(this, true),
-//                        nodeTest);
-//
-//            default:
-//                throw new IllegalArgumentException("Unknown axis number " + axisNumber);
-//        }
-//    }
     @Override
-    protected AxisIterator iterateAttributes(NodeTest nodeTest) {
-        return new Navigator.AxisFilter(
-                new AttributeEnumeration(this),
-                nodeTest);
-    }
-
-    @Override
-    protected AxisIterator iterateChildren(NodeTest nodeTest) {
-        if (hasChildNodes()) {
-            return new Navigator.AxisFilter(
-                    new ChildEnumeration(this, true, true),
+    protected SequenceIterator iterateAttributes(NodePredicate nodeTest) {
+        if (getNodeKind() == Type.ELEMENT) {
+            return Navigator.filter(
+                    new AttributeEnumeration(this),
                     nodeTest);
         } else {
-            return EmptyIterator.ofNodes();
+            return EmptyIterator.INSTANCE;
         }
     }
 
     @Override
-    protected AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards) {
-        return new Navigator.AxisFilter(
+    protected SequenceIterator iterateChildren(NodePredicate nodeTest) {
+        if (hasChildNodes()) {
+            return Navigator.filter(
+                    new ChildEnumeration(this, true, true),
+                    nodeTest);
+        } else {
+            return EmptyIterator.INSTANCE;
+        }
+    }
+
+    @Override
+    protected SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards) {
+        return Navigator.filter(
                 new ChildEnumeration(this, false, forwards),
                 nodeTest);
     }
 
     @Override
-    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
+    protected SequenceIterator iterateDescendants(NodePredicate predicate, boolean includeSelf) {
         if (includeSelf) {
-            return new SteppingNavigator.DescendantAxisIterator(this, true, nodeTest);
+            return new SteppingNavigator.DescendantAxisIterator(this, true, predicate);
 
         } else {
             if (hasChildNodes()) {
-                return new SteppingNavigator.DescendantAxisIterator(this, false, nodeTest);
+                return new SteppingNavigator.DescendantAxisIterator(this, false, predicate);
             } else {
-                return EmptyIterator.ofNodes();
+                return EmptyIterator.INSTANCE;
             }
 
         }
@@ -717,7 +608,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
     ///////////////////////////////////////////////////////////////////////////////
 
 
-    private final class AttributeEnumeration implements AxisIterator {
+    private final class AttributeEnumeration implements SequenceIterator {
 
         private final Iterator<Attribute> atts;
         private int ix = 0;
@@ -748,7 +639,7 @@ public class DOM4JNodeWrapper extends AbstractNodeWrapper implements SiblingCoun
      * preceding and preceding-or-ancestor axes (the latter being used by xsl:number)
      */
 
-    private final class ChildEnumeration implements AxisIterator {
+    private final class ChildEnumeration implements SequenceIterator {
 
         private final DOM4JNodeWrapper start;
         private final DOM4JNodeWrapper commonParent;

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -52,10 +52,10 @@ public interface GroundedIterator extends SequenceIterator {
     /**
      * Create a GroundedValue (a sequence materialized in memory) containing all the values delivered
      * by this SequenceIterator. The method must only be used when the SequenceIterator is positioned
-     * at the start. If it is not positioned at the start, then it is implementation-dependant whether
+     * at the start. If it is not positioned at the start, then it is implementation-dependent whether
      * the returned sequence contains all the nodes delivered by the SequenceIterator from the beginning,
      * or only those delivered starting at the current position.
-     * <p>It is implementation-dependant whether this method consumes the SequenceIterator. (More specifically,
+     * <p>It is implementation-dependent whether this method consumes the SequenceIterator. (More specifically,
      * in the current implementation: if the iterator is backed by a {@link GroundedValue}, then that
      * value is returned and the iterator is not consumed; otherwise, the iterator is consumed and the
      * method returns the remaining items after the current position only).</p>

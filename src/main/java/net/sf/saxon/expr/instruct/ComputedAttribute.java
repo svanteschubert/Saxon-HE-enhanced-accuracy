@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,7 +17,6 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.lib.StandardURIChecker;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -136,18 +135,6 @@ public final class ComputedAttribute extends AttributeCreator {
     }
 
     /**
-     * Get the static type of this expression
-     *
-     * @return the static type of the item returned by this expression
-     */
-
-    /*@NotNull*/
-    @Override
-    public ItemType getItemType() {
-        return NodeKindTest.ATTRIBUTE;
-    }
-
-    /**
      * Get the static cardinality of this expression
      *
      * @return the static cardinality (exactly one)
@@ -186,12 +173,12 @@ public final class ComputedAttribute extends AttributeCreator {
     public void localTypeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
         nameOp.typeCheck(visitor, contextItemType);
 
-        Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "attribute/name", 0);
         Configuration config = visitor.getConfiguration();
         TypeHierarchy th = config.getTypeHierarchy();
 
         if (allowNameAsQName) {
             // Can only happen in XQuery
+            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.SUBEXPRESSION, "computed attribute/name", 0);
             setNameExp(config.getTypeChecker(false).staticTypeCheck(
                     getNameExp(), SequenceType.SINGLE_ATOMIC, role, visitor));
             ItemType nameItemType = getNameExp().getItemType();
@@ -500,6 +487,10 @@ public final class ComputedAttribute extends AttributeCreator {
         if (getNamespaceExp() != null) {
             out.setChildRole("namespace");
             getNamespaceExp().export(out);
+        }
+        String schemaRole = getRetainedStaticContext().getImportedSchemaRoleName();
+        if (!schemaRole.isEmpty()) {
+            out.emitAttribute("schemaRole", schemaRole);
         }
         out.setChildRole("select");
         getSelect().export(out);

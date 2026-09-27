@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,6 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.sort.SimpleTypeComparison;
-import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 
@@ -18,6 +17,7 @@ import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.util.*;
 
 /**
@@ -30,14 +30,14 @@ import java.util.*;
  */
 public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
 
-    /*@Nullable*/ private CalendarValue calendarValue;
-    /*@Nullable*/ private BigInteger year;
+    private CalendarValue calendarValue;
+    private int year = DatatypeConstants.FIELD_UNDEFINED;
     private int month = DatatypeConstants.FIELD_UNDEFINED;
     private int day = DatatypeConstants.FIELD_UNDEFINED;
     private int hour = DatatypeConstants.FIELD_UNDEFINED;
     private int minute = DatatypeConstants.FIELD_UNDEFINED;
     private int second = DatatypeConstants.FIELD_UNDEFINED;
-    private int microsecond = DatatypeConstants.FIELD_UNDEFINED;
+    private BigDecimal subSecond = null;
     private int tzOffset = DatatypeConstants.FIELD_UNDEFINED;
 
     /**
@@ -62,39 +62,37 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
 
     public void setCalendarValue(/*@NotNull*/ CalendarValue value) {
         calendarValue = value;
-        try {
-            if (value instanceof GYearValue) {
-                year = BigInteger.valueOf(((Int64Value) value.getComponent(AccessorFn.Component.YEAR)).longValue());
-            } else if (value instanceof GYearMonthValue) {
-                year = BigInteger.valueOf(((Int64Value) value.getComponent(AccessorFn.Component.YEAR)).longValue());
-                month = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MONTH)).longValue();
-            } else if (value instanceof GMonthValue) {
-                month = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MONTH)).longValue();
-            } else if (value instanceof GMonthDayValue) {
-                month = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MONTH)).longValue();
-                day = (int) ((Int64Value) value.getComponent(AccessorFn.Component.DAY)).longValue();
-            } else if (value instanceof GDayValue) {
-                day = (int) ((Int64Value) value.getComponent(AccessorFn.Component.DAY)).longValue();
-            } else if (value instanceof DateValue) {
-                year = BigInteger.valueOf(((Int64Value) value.getComponent(AccessorFn.Component.YEAR)).longValue());
-                month = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MONTH)).longValue();
-                day = (int) ((Int64Value) value.getComponent(AccessorFn.Component.DAY)).longValue();
-            } else if (value instanceof TimeValue) {
-                hour = (int) ((Int64Value) value.getComponent(AccessorFn.Component.HOURS)).longValue();
-                minute = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MINUTES)).longValue();
-                second = (int) ((Int64Value) value.getComponent(AccessorFn.Component.WHOLE_SECONDS)).longValue();
-                microsecond = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MICROSECONDS)).longValue();
-            } else {
-                year = BigInteger.valueOf(((Int64Value) value.getComponent(AccessorFn.Component.YEAR)).longValue());
-                month = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MONTH)).longValue();
-                day = (int) ((Int64Value) value.getComponent(AccessorFn.Component.DAY)).longValue();
-                hour = (int) ((Int64Value) value.getComponent(AccessorFn.Component.HOURS)).longValue();
-                minute = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MINUTES)).longValue();
-                second = (int) ((Int64Value) value.getComponent(AccessorFn.Component.WHOLE_SECONDS)).longValue();
-                microsecond = (int) ((Int64Value) value.getComponent(AccessorFn.Component.MICROSECONDS)).longValue();
-            }
-        } catch (XPathException e) {
-            throw new IllegalArgumentException(e.getMessage());
+        if (value instanceof GYearValue gy) {
+            year = gy.getYear();
+        } else if (value instanceof GYearMonthValue gym) {
+            year = gym.getYear();
+            month = gym.getMonth();
+        } else if (value instanceof GMonthValue gm) {
+            month = gm.getMonth();
+        } else if (value instanceof GMonthDayValue gmd) {
+            month = gmd.getMonth();
+            day = gmd.getDay();
+        } else if (value instanceof GDayValue gd) {
+            day = gd.getDay();
+        } else if (value instanceof DateValue d) {
+            year = d.getYear();
+            month = d.getMonth();
+            day = d.getDay();
+        } else if (value instanceof TimeValue t) {
+            hour = t.getHour();
+            minute = t.getMinute();
+            second = t.getSecond().intValue();
+            subSecond = t.getSecond().divideAndRemainder(BigDecimal.ONE)[1];
+        } else if (value instanceof DateTimeValue dt){
+            year = dt.getYear();
+            month = dt.getMonth();
+            day = dt.getDay();
+            hour = dt.getHour();
+            minute = dt.getMinute();
+            second = dt.getSecond().intValue();
+            subSecond = dt.getSecond().divideAndRemainder(BigDecimal.ONE)[1];
+        } else {
+            throw new IllegalArgumentException(value.getClass().getName());
         }
     }
 
@@ -105,13 +103,13 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
      */
     @Override
     public void clear() {
-        year = null;
+        year = DatatypeConstants.FIELD_UNDEFINED;
         month = DatatypeConstants.FIELD_UNDEFINED;
         day = DatatypeConstants.FIELD_UNDEFINED;
         hour = DatatypeConstants.FIELD_UNDEFINED;
         minute = DatatypeConstants.FIELD_UNDEFINED;
         second = DatatypeConstants.FIELD_UNDEFINED;
-        microsecond = DatatypeConstants.FIELD_UNDEFINED;
+        subSecond = null;
         tzOffset = DatatypeConstants.FIELD_UNDEFINED;
     }
 
@@ -138,7 +136,11 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     @Override
     public void setYear(BigInteger year) {
         calendarValue = null;
-        this.year = year;
+        try {
+            this.year = year.intValueExact();
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("Year is out of range: " + year);
+        }
     }
 
     /**
@@ -155,7 +157,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     @Override
     public void setYear(int year) {
         calendarValue = null;
-        this.year = BigInteger.valueOf(year);
+        this.year = year;
     }
 
     /**
@@ -258,7 +260,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     @Override
     public void setMillisecond(int millisecond) {
         calendarValue = null;
-        microsecond = millisecond * 1000;
+        subSecond = BigDecimal.valueOf(millisecond).divide(BigDecimal.valueOf(1000), RoundingMode.DOWN);
     }
 
     /**
@@ -273,10 +275,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     @Override
     public void setFractionalSecond(/*@NotNull*/ BigDecimal fractional) {
         calendarValue = null;
-        second = fractional.intValue();
-        BigInteger micros = fractional.movePointRight(6).toBigInteger();
-        micros = micros.remainder(BigInteger.valueOf(1000000));
-        microsecond = micros.intValue();
+        subSecond = fractional;
     }
 
     /**
@@ -293,7 +292,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
      */
     @Override
     public BigInteger getEon() {
-        return year.divide(BigInteger.valueOf(1000000000));
+        return BigInteger.ZERO;
     }
 
     /**
@@ -308,7 +307,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
      */
     @Override
     public int getYear() {
-        return year.intValue();
+        return year;
     }
 
     /**
@@ -327,7 +326,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     /*@Nullable*/
     @Override
     public BigInteger getEonAndYear() {
-        return year;
+        return BigInteger.valueOf(year);
     }
 
     /**
@@ -335,7 +334,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
      * <p>Value constraints for this value are summarized in
      * <a href="#datetimefield-month">month field of date/time field mapping table</a>.</p>
      *
-     * @return year  of this <code>XMLGregorianCalendar</code>.
+     * @return month  of this <code>XMLGregorianCalendar</code>, from 1 to 12.
      */
     @Override
     public int getMonth() {
@@ -413,34 +412,6 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
         return second;
     }
 
-    /**
-     * <p>Return microsecond precision of {@link #getFractionalSecond()}.</p>
-     * <p>This method represents a convenience accessor to infinite
-     * precision fractional second value returned by
-     * {@link #getFractionalSecond()}. The returned value is the rounded
-     * down to microseconds value of
-     * {@link #getFractionalSecond()}. When {@link #getFractionalSecond()}
-     * returns <code>null</code>, this method must return
-     * {@link DatatypeConstants#FIELD_UNDEFINED}.</p>
-     * <p>Value constraints for this value are summarized in
-     * <a href="#datetimefield-second">second field of date/time field mapping table</a>.</p>
-     *
-     * @return Millisecond  of this <code>XMLGregorianCalendar</code>.
-     * @see #getFractionalSecond()
-     * @see #setTime(int, int, int)
-     */
-    public int getMicrosecond() {
-
-        BigDecimal fractionalSeconds = getFractionalSecond();
-
-        // is field undefined?
-        if (fractionalSeconds == null) {
-            return DatatypeConstants.FIELD_UNDEFINED;
-        }
-
-        return getFractionalSecond().movePointRight(6).intValue();
-    }
-
 
     /**
      * <p>Return fractional seconds.</p>
@@ -458,10 +429,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     /*@Nullable*/
     @Override
     public BigDecimal getFractionalSecond() {
-        if (second == DatatypeConstants.FIELD_UNDEFINED) {
-            return null;
-        }
-        return BigDecimal.valueOf(microsecond).movePointLeft(6);
+        return subSecond;
     }
 
     /**
@@ -538,7 +506,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     @Override
     public QName getXMLSchemaType() {
         if (second == DatatypeConstants.FIELD_UNDEFINED) {
-            if (year == null) {
+            if (year == DatatypeConstants.FIELD_UNDEFINED) {
                 if (month == DatatypeConstants.FIELD_UNDEFINED) {
                     return DatatypeConstants.GDAY;
                 } else if (day == DatatypeConstants.FIELD_UNDEFINED) {
@@ -554,7 +522,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
                 }
             }
             return DatatypeConstants.DATE;
-        } else if (year == null) {
+        } else if (year == DatatypeConstants.FIELD_UNDEFINED) {
             return DatatypeConstants.TIME;
         } else {
             return DatatypeConstants.DATETIME;
@@ -664,15 +632,14 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
     public GregorianCalendar toGregorianCalendar(TimeZone timezone, Locale aLocale, /*@NotNull*/ XMLGregorianCalendar defaults) {
         GregorianCalendar gc = new GregorianCalendar(timezone, aLocale);
         gc.setGregorianChange(new Date(Long.MIN_VALUE));
-        gc.set(Calendar.ERA, year == null ? defaults.getYear() > 0 ? +1 : -1 : year.signum());
-        gc.set(Calendar.YEAR, year == null ? defaults.getYear() : year.abs().intValue());
+        gc.set(Calendar.ERA, year == DatatypeConstants.FIELD_UNDEFINED ? defaults.getYear() > 0 ? +1 : -1 : Integer.signum(year));
+        gc.set(Calendar.YEAR, year == DatatypeConstants.FIELD_UNDEFINED ? defaults.getYear() : Math.abs(year));
         gc.set(Calendar.MONTH, month == DatatypeConstants.FIELD_UNDEFINED ? defaults.getMonth() : month);
         gc.set(Calendar.DAY_OF_MONTH, day == DatatypeConstants.FIELD_UNDEFINED ? defaults.getDay() : day);
         gc.set(Calendar.HOUR, hour == DatatypeConstants.FIELD_UNDEFINED ? defaults.getHour() : hour);
         gc.set(Calendar.MINUTE, minute == DatatypeConstants.FIELD_UNDEFINED ? defaults.getMinute() : minute);
         gc.set(Calendar.SECOND, second == DatatypeConstants.FIELD_UNDEFINED ? defaults.getSecond() : second);
-        gc.set(Calendar.MILLISECOND, microsecond == DatatypeConstants.FIELD_UNDEFINED
-                ? defaults.getMillisecond() : microsecond / 1000);
+        gc.set(Calendar.MILLISECOND, subSecond == null ? 0 : subSecond.multiply(BigDecimal.valueOf(1000)).intValue());
         return gc;
     }
 
@@ -719,7 +686,7 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
         s.setHour(hour);
         s.setMinute(minute);
         s.setSecond(second);
-        s.setMillisecond(microsecond / 1000);
+        s.setFractionalSecond(subSecond);
         s.setTimezone(tzOffset);
         return s;
     }
@@ -736,28 +703,28 @@ public class SaxonXMLGregorianCalendar extends XMLGregorianCalendar {
             return calendarValue;
         }
         if (second == DatatypeConstants.FIELD_UNDEFINED) {
-            if (year == null) {
+            if (year == DatatypeConstants.FIELD_UNDEFINED) {
                 if (month == DatatypeConstants.FIELD_UNDEFINED) {
-                    return new GDayValue((byte) day, tzOffset);
+                    return new GDayValue(day, tzOffset);
                 } else if (day == DatatypeConstants.FIELD_UNDEFINED) {
-                    return new GMonthValue((byte) month, tzOffset);
+                    return new GMonthValue(month, tzOffset);
                 } else {
-                    return new GMonthDayValue((byte) month, (byte) day, tzOffset);
+                    return new GMonthDayValue(month, day, tzOffset);
                 }
             } else if (day == DatatypeConstants.FIELD_UNDEFINED) {
                 if (month == DatatypeConstants.FIELD_UNDEFINED) {
-                    return new GYearValue(year.intValue(), tzOffset, true);
+                    return new GYearValue(year, tzOffset);
                 } else {
-                    return new GYearMonthValue(year.intValue(), (byte) month, tzOffset, true);
+                    return new GYearMonthValue(year, month, tzOffset);
                 }
             }
-            return new DateValue(year.intValue(), (byte) month, (byte) day, tzOffset, true);
-        } else if (year == null) {
-            return new TimeValue((byte) hour, (byte) minute, (byte) second, getMicrosecond()*1000,
+            return new DateValue(year, month, day, tzOffset);
+        } else if (year == DatatypeConstants.FIELD_UNDEFINED) {
+            return new TimeValue(hour, minute, BigDecimal.valueOf(second).add(subSecond),
                                  tzOffset, BuiltInAtomicType.TIME);
         } else {
-            return new DateTimeValue(year.intValue(), (byte) month, (byte) day,
-                    (byte) hour, (byte) minute, (byte) second, getMicrosecond(), tzOffset, true);
+            return new DateTimeValue(year, month, day,
+                    hour, minute, BigDecimal.valueOf(second).add(subSecond), tzOffset);
         }
     }
 }

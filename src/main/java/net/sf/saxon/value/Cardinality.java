@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.value;
 
 import net.sf.saxon.expr.*;
+import net.sf.saxon.s9api.OccurrenceIndicator;
 
 /**
  * This class contains static methods to manipulate the cardinality
@@ -78,6 +79,24 @@ public final class Cardinality {
     }
 
     /**
+     * Determine whether a given cardinality allows a specific number of items
+     *
+     * @param cardinality the cardinality
+     * @param count       the number of items in a value
+     * @return true if the cardinality allows a value with this number of items
+     */
+
+    public static boolean allows(int cardinality, int count) {
+        if (count == 0) {
+            return allowsZero(cardinality);
+        } else if (count == 1) {
+            return (cardinality & StaticProperty.ALLOWS_ONE) != 0;
+        } else {
+            return allowsMany(cardinality);
+        }
+    }
+
+    /**
      * Form the union of two cardinalities. The cardinality of the expression "if (c) then e1 else e2"
      * is the union of the cardinalities of e1 and e2.
      *
@@ -142,7 +161,7 @@ public final class Cardinality {
         }
     }
 
-    static int fromMinAndMax(int min, int max) {
+    public static int fromMinAndMax(int min, int max) {
         boolean zero = min == 0;
         boolean one = min <= 1 || max <= 1;
         boolean many = max > 1;
@@ -202,26 +221,19 @@ public final class Cardinality {
      */
 
     public static String describe(int cardinality) {
-        switch (cardinality) {
-            case StaticProperty.ALLOWS_ZERO_OR_ONE:
-                return "zero or one";
-            case StaticProperty.EXACTLY_ONE:
-                return "exactly one";
-            case StaticProperty.ALLOWS_ZERO_OR_MORE:
-                return "zero or more";
-            case StaticProperty.ALLOWS_ONE_OR_MORE:
-                return "one or more";
-            case StaticProperty.EMPTY:
-                return "exactly zero";
-            case StaticProperty.ALLOWS_MANY:
-                return "more than one";
-            default:
-                return "code " + cardinality;
-        }
+        return switch (cardinality) {
+            case StaticProperty.ALLOWS_ZERO_OR_ONE -> "zero or one";
+            case StaticProperty.EXACTLY_ONE -> "exactly one";
+            case StaticProperty.ALLOWS_ZERO_OR_MORE -> "zero or more";
+            case StaticProperty.ALLOWS_ONE_OR_MORE -> "one or more";
+            case StaticProperty.EMPTY -> "exactly zero";
+            case StaticProperty.ALLOWS_MANY -> "more than one";
+            default -> "code " + cardinality;
+        };
     }
 
     /**
-     * Get the occurence indicator representing the cardinality
+     * Get the occurrence indicator representing the cardinality
      *
      * @param cardinality the cardinality value
      * @return the occurrence indicator, for example "*", "+", "?", "".
@@ -229,63 +241,83 @@ public final class Cardinality {
 
     /*@NotNull*/
     public static String getOccurrenceIndicator(int cardinality) {
-        switch (cardinality) {
-            case StaticProperty.ALLOWS_ZERO_OR_ONE:
-                return "?";
-            case StaticProperty.EXACTLY_ONE:
-                return "";
-            case StaticProperty.ALLOWS_ZERO_OR_MORE:
-                return "*";
-            case StaticProperty.ALLOWS_ONE_OR_MORE:
-                return "+";
-            case StaticProperty.ALLOWS_MANY:
-                return "+";
-            case StaticProperty.EMPTY:
-                return "0";
-            default:
-                return "*";
-                // Covers no bits set (which shouldn't arise) and zero_or_many (which can arise, but is too specific for our purposes)
-        }
+        return switch (cardinality) {
+            case StaticProperty.ALLOWS_ZERO_OR_ONE -> "?";
+            case StaticProperty.EXACTLY_ONE -> "";
+            case StaticProperty.ALLOWS_ZERO_OR_MORE -> "*";
+            case StaticProperty.ALLOWS_ONE_OR_MORE -> "+";
+            case StaticProperty.ALLOWS_MANY -> "+";
+            case StaticProperty.EMPTY -> "0";
+            default -> "*";
+            // Covers no bits set (which shouldn't arise) and zero_or_many (which can arise, but is too specific for our purposes)
+        };
     }
 
     public static int fromOccurrenceIndicator(String indicator) {
-        switch (indicator) {
-            case "?":
-                return StaticProperty.ALLOWS_ZERO_OR_ONE;
-            case "*":
-                return StaticProperty.ALLOWS_ZERO_OR_MORE;
-            case "+":
-                return StaticProperty.ALLOWS_ONE_OR_MORE;
-            case "1":
-                return StaticProperty.ALLOWS_ONE;
-            case "":
-                return StaticProperty.ALLOWS_ONE;
-            case "\u00B0":  // TODO: obsolescent, delete this
-            case "0":
-            default:
-                return StaticProperty.ALLOWS_ZERO;
-        }
+        return switch (indicator) {
+            case "?" -> StaticProperty.ALLOWS_ZERO_OR_ONE;
+            case "*" -> StaticProperty.ALLOWS_ZERO_OR_MORE;
+            case "+" -> StaticProperty.ALLOWS_ONE_OR_MORE;
+            case "1" -> StaticProperty.ALLOWS_ONE;
+            case "" -> StaticProperty.ALLOWS_ONE;  // TODO: obsolescent, delete this
+            default -> StaticProperty.ALLOWS_ZERO;
+        };
     }
 
     /**
-     * Generate Javascript code to check whether a number satisfies the cardinality property.
+     * Get the {@link OccurrenceIndicator} value corresponding to an internal cardinality property
      *
-     * @param card the cardinality value
-     * @return a Javascript function which checks whether a number satisfies the cardinality property.
+     * @param cardinality the internal cardinality property, for example {@link StaticProperty#ALLOWS_ONE_OR_MORE}.
+     * @return the corresponding {@link OccurrenceIndicator}
      */
 
-    public static String generateJavaScriptChecker(int card) {
-        if (Cardinality.allowsZero(card) && Cardinality.allowsMany(card)) {
-            return "function c() {return true;};";
-        } else if (card == StaticProperty.EXACTLY_ONE) {
-            return "function c(n) {return n==1;};";
-        } else if (card == StaticProperty.EMPTY) {
-            return "function c(n) {return n==0;};";
-        } else if (!Cardinality.allowsZero(card)) {
-            return "function c(n) {return n>=1;};";
-        } else {
-            return "function c(n) {return n<=1;};";
-        }
+    public static OccurrenceIndicator getOccurrenceIndicatorForCardinality(int cardinality) {
+        return switch (cardinality) {
+            case StaticProperty.EMPTY -> OccurrenceIndicator.ZERO;
+            case StaticProperty.ALLOWS_ZERO_OR_ONE -> OccurrenceIndicator.ZERO_OR_ONE;
+            case StaticProperty.ALLOWS_ZERO_OR_MORE -> OccurrenceIndicator.ZERO_OR_MORE;
+            case StaticProperty.ALLOWS_ONE -> OccurrenceIndicator.ONE;
+            case StaticProperty.ALLOWS_ONE_OR_MORE -> OccurrenceIndicator.ONE_OR_MORE;
+            default -> OccurrenceIndicator.ZERO_OR_MORE;
+        };
     }
+
+    /**
+     * Ask whether a given occurrence indicator allows a value of a given size
+     * @param indicator the given occurrence indicator
+     * @param size the given size (number of items)
+     * @return true if the occurrence indicator matches a sequence of the given length
+     */
+    public static boolean occurrenceIndicatorAllows(OccurrenceIndicator indicator, int size) {
+        return switch (indicator) {
+            case ZERO -> size == 0;
+            case ZERO_OR_ONE -> size <= 1;
+            case ZERO_OR_MORE -> true;
+            case ONE -> size == 1;
+            case ONE_OR_MORE -> size > 0;
+            default -> false;
+        };
+    }
+
+    /**
+     * Get the internal StaticProperty value corresponding to an {@link OccurrenceIndicator}
+     *
+     * @param indicator {@link OccurrenceIndicator}
+     * @return the corresponding internal cardinality property, for example {@link StaticProperty#ALLOWS_ONE_OR_MORE}.
+     *
+     */
+
+    public static int staticPropertyFromOccurrenceIndicator(OccurrenceIndicator indicator) {
+        return switch (indicator) {
+            case ZERO -> StaticProperty.EMPTY;
+            case ZERO_OR_ONE -> StaticProperty.ALLOWS_ZERO_OR_ONE;
+            case ZERO_OR_MORE -> StaticProperty.ALLOWS_ZERO_OR_MORE;
+            case ONE -> StaticProperty.ALLOWS_ONE;
+            case ONE_OR_MORE -> StaticProperty.ALLOWS_ONE_OR_MORE;
+            default -> StaticProperty.EMPTY;
+        };
+    }
+
+
 }
 

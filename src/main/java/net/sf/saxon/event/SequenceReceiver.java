@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.event;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.jnode.JNode;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Location;
@@ -44,7 +45,7 @@ public abstract class SequenceReceiver implements Receiver {
 
     /*@NotNull*/
     @Override
-    public final PipelineConfiguration getPipelineConfiguration() {
+    public PipelineConfiguration getPipelineConfiguration() {
         return pipelineConfiguration;
     }
 
@@ -192,8 +193,7 @@ public abstract class SequenceReceiver implements Receiver {
                     } else {
                         throw new XPathException("Cannot add a " + thing + " to an XDM node tree", errorCode, locationId);
                     }
-                case NODE:
-                default:
+                case XNODE:
                     NodeInfo node = (NodeInfo) item;
                     int kind = node.getNodeKind();
                     if (node instanceof Orphan && ((Orphan) node).isDisableOutputEscaping()) {
@@ -202,7 +202,8 @@ public abstract class SequenceReceiver implements Receiver {
                         previousAtomic = false;
                     } else if (kind == Type.DOCUMENT) {
                         startDocument(ReceiverOption.NONE); // needed to ensure that illegal namespaces or attributes in the content are caught
-                        for (NodeInfo child : node.children()) {
+                        SequenceIterator children = node.iterateChildAxis(null);
+                        for (NodeInfo child; (child = (NodeInfo) children.next()) != null; ) {
                             append(child, locationId, copyNamespaces);
                         }
                         previousAtomic = false;
@@ -221,6 +222,14 @@ public abstract class SequenceReceiver implements Receiver {
                         ((NodeInfo) item).copy(this, copyOptions, locationId);
                         previousAtomic = false;
                     }
+                    break;
+                case JNODE:
+                    // default is to unwrap the JNode
+                    for (Item it : ((JNode)item).getContent().asIterable()) {
+                        append(it);
+                    }
+                    break;
+                default:
                     break;
             }
         }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,13 +11,11 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Builder;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodePredicate;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.SingleNodeIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.StringValue;
 
@@ -255,13 +253,13 @@ public final class Orphan implements MutableNodeInfo {
         switch (getNodeKind()) {
             case Type.COMMENT:
             case Type.PROCESSING_INSTRUCTION:
+            case Type.NAMESPACE:
                 return new StringValue(stringValue);
             case Type.TEXT:
             case Type.DOCUMENT:
-            case Type.NAMESPACE:
                 return StringValue.makeUntypedAtomic(getUnicodeStringValue());
             default:
-                if (typeAnnotation == null || typeAnnotation == Untyped.getInstance() ||
+                if (typeAnnotation == null || typeAnnotation == Untyped.INSTANCE ||
                         typeAnnotation == BuiltInAtomicType.UNTYPED_ATOMIC) {
                     return StringValue.makeUntypedAtomic(getUnicodeStringValue());
                 } else {
@@ -286,7 +284,7 @@ public final class Orphan implements MutableNodeInfo {
     public SchemaType getSchemaType() {
         if (typeAnnotation == null) {
             if (kind == Type.ELEMENT) {
-                return Untyped.getInstance();
+                return Untyped.INSTANCE;
             } else if (kind == Type.ATTRIBUTE) {
                 return BuiltInAtomicType.UNTYPED_ATOMIC;
             }
@@ -356,7 +354,7 @@ public final class Orphan implements MutableNodeInfo {
      */
 
     @Override
-    public int compareOrder(/*@NotNull*/ NodeInfo other) {
+    public int compareOrder(/*@NotNull*/ GNode other) {
 
         // are they the same node?
         if (this.equals(other)) {
@@ -454,69 +452,39 @@ public final class Orphan implements MutableNodeInfo {
     }
 
     /**
-     * Return an iteration over the nodes reached by the given axis from this node
+     * Get an iterator over the child axis, starting at this node; the nodes will
+     * be in document order.
      *
-     * @param axisNumber the axis to be searched, e.g. Axis.CHILD or Axis.ANCESTOR
-     * @return a SequenceIterator that scans the nodes reached by the axis in turn.
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
      */
-
-    /*@NotNull*/
     @Override
-    public AxisIterator iterateAxis(int axisNumber) {
-        switch (axisNumber) {
-            case AxisInfo.ANCESTOR_OR_SELF:
-            case AxisInfo.DESCENDANT_OR_SELF:
-            case AxisInfo.SELF:
-                return SingleNodeIterator.makeIterator(this);
-            case AxisInfo.ANCESTOR:
-            case AxisInfo.ATTRIBUTE:
-            case AxisInfo.CHILD:
-            case AxisInfo.DESCENDANT:
-            case AxisInfo.FOLLOWING:
-            case AxisInfo.FOLLOWING_SIBLING:
-            case AxisInfo.NAMESPACE:
-            case AxisInfo.PARENT:
-            case AxisInfo.PRECEDING:
-            case AxisInfo.PRECEDING_SIBLING:
-            case AxisInfo.PRECEDING_OR_ANCESTOR:
-                return EmptyIterator.ofNodes();
-            default:
-                throw new IllegalArgumentException("Unknown axis number " + axisNumber);
-        }
+    public SequenceIterator iterateChildAxis(NodePredicate predicate) {
+        return EmptyIterator.INSTANCE;
     }
 
+    /**
+     * Get an iterator over the following-sibling axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingSiblingAxis(NodePredicate predicate) {
+        return EmptyIterator.INSTANCE;
+    }
 
     /**
-     * Return an iteration over the nodes reached by the given axis from this node
+     * Get an iterator over the preceding-sibling axis, starting at this node; the nodes will
+     * be in reverse document order.
      *
-     * @param axisNumber the axis to be searched, e.g. Axis.CHILD or Axis.ANCESTOR
-     * @param nodeTest   A pattern to be matched by the returned nodes
-     * @return a SequenceIterator that scans the nodes reached by the axis in turn.
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
      */
-
-    /*@NotNull*/
     @Override
-    public AxisIterator iterateAxis(int axisNumber, NodePredicate nodeTest) {
-        switch (axisNumber) {
-            case AxisInfo.ANCESTOR_OR_SELF:
-            case AxisInfo.DESCENDANT_OR_SELF:
-            case AxisInfo.SELF:
-                return Navigator.filteredSingleton(this, nodeTest);
-            case AxisInfo.ANCESTOR:
-            case AxisInfo.ATTRIBUTE:
-            case AxisInfo.CHILD:
-            case AxisInfo.DESCENDANT:
-            case AxisInfo.FOLLOWING:
-            case AxisInfo.FOLLOWING_SIBLING:
-            case AxisInfo.NAMESPACE:
-            case AxisInfo.PARENT:
-            case AxisInfo.PRECEDING:
-            case AxisInfo.PRECEDING_SIBLING:
-            case AxisInfo.PRECEDING_OR_ANCESTOR:
-                return EmptyIterator.ofNodes();
-            default:
-                throw new IllegalArgumentException("Unknown axis number " + axisNumber);
-        }
+    public SequenceIterator iteratePrecedingSiblingAxis(NodePredicate predicate) {
+        return EmptyIterator.INSTANCE;
     }
 
     /**
@@ -839,5 +807,7 @@ public final class Orphan implements MutableNodeInfo {
     public Builder newBuilder() {
         throw new UnsupportedOperationException("Cannot create children for an Orphan node");
     }
+
+
 }
 

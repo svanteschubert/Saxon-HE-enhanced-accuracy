@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,6 @@ package net.sf.saxon.value;
 import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.NamespaceConstant;
-import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 
 import javax.xml.datatype.DatatypeConstants;
@@ -215,8 +214,10 @@ public class SaxonDuration extends Duration {
         calendar.add(Calendar.DAY_OF_MONTH, getDays() * sign);
         calendar.add(Calendar.HOUR_OF_DAY, getHours() * sign);
         calendar.add(Calendar.MINUTE, getMinutes() * sign);
-        calendar.add(Calendar.SECOND, (int) ((Int64Value) duration.getComponent(AccessorFn.Component.WHOLE_SECONDS)).longValue() * sign);
-        calendar.add(Calendar.MILLISECOND, (int) ((Int64Value) duration.getComponent(AccessorFn.Component.MICROSECONDS)).longValue() * sign / 1000);
+        BigDecimal seconds = duration.getSeconds();
+        int[] split = DateTimeValue.splitSeconds(seconds);
+        calendar.add(Calendar.SECOND, split[0] * sign);
+        calendar.add(Calendar.MILLISECOND, split[1] * sign / 1_000_000);
     }
 
     /**
@@ -295,7 +296,7 @@ public class SaxonDuration extends Duration {
      * @throws UnsupportedOperationException If the underlying implementation
      *                                       cannot reasonably process the request, e.g. W3C XML Schema allows for
      *                                       arbitrarily large/small/precise values, the request may be beyond the
-     *                                       implementations capability.
+     *                                       implementation's capability.
      * @throws NullPointerException          if <code>duration</code> is <code>null</code>.
      * @throws IllegalArgumentException      if the operands are not dayTimeDuration or yearMonthDuration values.
      * @see #isShorterThan(javax.xml.datatype.Duration)
@@ -306,13 +307,9 @@ public class SaxonDuration extends Duration {
         if (!(rhs instanceof SaxonDuration)) {
             throw new IllegalArgumentException("Supplied duration is not a SaxonDuration");
         }
-        try {
-            XPathComparable c0 = duration.getXPathComparable(null, 0);
-            XPathComparable c1 = ((SaxonDuration) rhs).duration.getXPathComparable(null, 0);
-            return c0.compareTo(c1);
-        } catch (NoDynamicContextException e) {
-            throw new AssertionError(e);
-        }
+        XPathComparable c0 = duration.getXPathComparable(null, 0, 31);
+        XPathComparable c1 = ((SaxonDuration) rhs).duration.getXPathComparable(null, 0, 31);
+        return c0.compareTo(c1);
     }
 
     /**

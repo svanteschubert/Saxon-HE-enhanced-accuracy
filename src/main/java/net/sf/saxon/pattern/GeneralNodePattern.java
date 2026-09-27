@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -20,11 +20,15 @@ import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.ManualIterator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.AnyGNodeType;
+import net.sf.saxon.type.gnode.AnyXNodeType;
 
 /**
  * A GeneralNodePattern represents a pattern which, because of the presence of positional
@@ -35,7 +39,7 @@ import net.sf.saxon.type.*;
 public final class GeneralNodePattern extends Pattern {
 
     private Expression equivalentExpr;
-    private final NodeTest itemType;
+    private final ItemType itemType;
     private Expression topNodeEquivalent = null;
     private PullEvaluator equivalentExprEvaluator;
     private PullEvaluator equivalentTopNodeEvaluator;
@@ -45,12 +49,12 @@ public final class GeneralNodePattern extends Pattern {
      * Create a GeneralNodePattern
      *
      * @param expr     the "equivalent expression"
-     * @param itemType a type that all matched nodes must satisfy
+     * @param type     a condition that all matched nodes must satisfy
      */
 
-    public GeneralNodePattern(Expression expr, NodeTest itemType) {
+    public GeneralNodePattern(Expression expr, ItemType type) {
         equivalentExpr = expr;
-        this.itemType = itemType;
+        this.itemType = type;
     }
 
     /**
@@ -122,7 +126,7 @@ public final class GeneralNodePattern extends Pattern {
 
     @Override
     public Pattern typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
-        ContextItemStaticInfo cit = new ContextItemStaticInfo(AnyNodeTest.getInstance(), false);
+        ContextItemStaticInfo cit = new ContextItemStaticInfo(AnyXNodeType.getInstance());
         equivalentExpr = equivalentExpr.typeCheck(visitor, cit);
         makeTopNodeEquivalent();
         return this;
@@ -219,16 +223,19 @@ public final class GeneralNodePattern extends Pattern {
     @Override
     public boolean matches(Item item, XPathContext context) throws XPathException {
         TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
-        if (!itemType.matches(item, th)) {
+        if (!(item instanceof NodeInfo)) {
+            return false;
+        }
+        if (!itemType.matches(item)) {
             return false;
         }
         if (precondition != null && !precondition.matches(item, context)) {
             return false;
         }
-        AxisIterator anc = ((NodeInfo) item).iterateAxis(AxisInfo.ANCESTOR_OR_SELF);
+        SequenceIterator anc = ((NodeInfo) item).iterateAncestorOrSelfAxis(AnyGNode.TEST);
         NodeInfo top = (NodeInfo)item;
         while (true) {
-            NodeInfo a = anc.next();
+            NodeInfo a = (NodeInfo)anc.next();
             if (a == null) {
                 // The first step in a pattern, if it uses the child axis, is interpreted as "child-or-top" (test case match-274)
                 if (topNodeEquivalent != null && UType.CHILD_NODE_KINDS.matches(top)) {
@@ -259,7 +266,7 @@ public final class GeneralNodePattern extends Pattern {
 
     @Override
     public boolean matchesBeneathAnchor(NodeInfo node, NodeInfo anchor, XPathContext context) throws XPathException {
-        if (!itemType.test(node)) {
+        if (!itemType.matches(node)) {
             return false;
         }
 
@@ -268,9 +275,9 @@ public final class GeneralNodePattern extends Pattern {
         // equivalent expression
 
         if (anchor == null) {
-            AxisIterator ancestors = node.iterateAxis(AxisInfo.ANCESTOR_OR_SELF);
+            SequenceIterator ancestors = node.iterateAncestorOrSelfAxis(AnyGNode.TEST);
             while (true) {
-                NodeInfo ancestor = ancestors.next();
+                NodeInfo ancestor = (NodeInfo)ancestors.next();
                 if (ancestor == null) {
                     return false;
                 }
@@ -328,13 +335,20 @@ public final class GeneralNodePattern extends Pattern {
      */
 
     @Override
-    public int getFingerprint() {
-        return itemType.getFingerprint();
+    public int getFingerprint(int nodeKind) {
+        if (itemType instanceof NamedXNodePredicate) {
+            return ((NamedXNodePredicate) itemType).getRequiredFingerprint();
+        }
+        return -1;
     }
 
     /**
      * Get a NodeTest that all the nodes matching this pattern must satisfy
      */
+
+    public NodeTest getNodeTest() {
+        return itemType instanceof NodeTest nt ? nt : AnyGNodeType.getInstance();
+    }
 
     @Override
     public ItemType getItemType() {

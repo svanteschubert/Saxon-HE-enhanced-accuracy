@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,6 +22,7 @@ import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpInjectMembers;
 import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.wrapper.SpaceStrippedDocument;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.ObjectValue;
@@ -92,7 +93,7 @@ public class CollectionFn extends SystemFunction implements Callable {
         return (super.getSpecialProperties(arguments) & ~StaticProperty.NO_NODES_NEWLY_CREATED) | StaticProperty.PEER_NODESET;
     }
 
-    private String getAbsoluteCollectionURI(String href, XPathContext context) throws XPathException {
+    public static String getAbsoluteCollectionURI(String baseUri, String href, XPathContext context) throws XPathException {
         String absoluteURI;
         if (href == null) {
             absoluteURI = context.getConfiguration().getDefaultCollection();
@@ -112,9 +113,8 @@ public class CollectionFn extends SystemFunction implements Callable {
                 if (uri.isAbsolute()) {
                     absoluteURI = uri.toString();
                 } else {
-                    String base = getRetainedStaticContext().getStaticBaseUriString();
-                    if (base != null) {
-                        absoluteURI = ResolveURI.makeAbsolute(href, base).toString();
+                    if (baseUri != null) {
+                        absoluteURI = ResolveURI.makeAbsolute(href, baseUri).toString();
                     } else {
                         throw new XPathException("Relative collection URI cannot be resolved: no base URI available", "FODC0002");
                     }
@@ -132,7 +132,7 @@ public class CollectionFn extends SystemFunction implements Callable {
      *
      * @param collection the resource collection
      * @param context    the XPath dynamic context
-     * @return a SequenceIterator delivering ObjectValue&lt;Resource> items
+     * @return a SequenceIterator delivering ObjectValue&lt;Resource&gt; items
      * @throws XPathException if a dynamic error occurs
      */
 
@@ -167,9 +167,10 @@ public class CollectionFn extends SystemFunction implements Callable {
         }
 
         @Override
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
         public Item next() {
             if (sources.hasNext()) {
-                return new ObjectValue<Resource>(sources.next());
+                return new ObjectValue<Resource>(sources.next(), Resource.class);
             } else {
                 return null;
             }
@@ -219,16 +220,17 @@ public class CollectionFn extends SystemFunction implements Callable {
             throw new XPathException("No default collection has been defined", "FODC0002");
         }
 
-        String absoluteURI = getAbsoluteCollectionURI(href, context);
+        String absoluteURI = getAbsoluteCollectionURI(
+                getRetainedStaticContext().getStaticBaseUriString(), href, context);
 
         // See if the collection has been cached
 
         PackageData packageData = getRetainedStaticContext().getPackageData();
-        SpaceStrippingRule whitespaceRule = NoElementsSpaceStrippingRule.getInstance();
+        SpaceStrippingRule whitespaceRule = NoElementsSpaceStrippingRule.INSTANCE;
         String collectionKey = absoluteURI;
         if (packageData.isXSLT()) {
             whitespaceRule = ((StylesheetPackage) packageData).getSpaceStrippingRule();
-            if (whitespaceRule != NoElementsSpaceStrippingRule.getInstance()) {
+            if (whitespaceRule != NoElementsSpaceStrippingRule.INSTANCE) {
                 collectionKey = ((StylesheetPackage) packageData).getPackageName() +
                         ((StylesheetPackage) packageData).getPackageVersion() +
                         " " +
@@ -260,11 +262,13 @@ public class CollectionFn extends SystemFunction implements Callable {
 
         // In XSLT, worry about whitespace stripping
 
-        if (packageData instanceof StylesheetPackage && whitespaceRule != NoElementsSpaceStrippingRule.getInstance()) {
-            if (collection instanceof AbstractResourceCollection) {
-                boolean alreadyStripped = ((AbstractResourceCollection)collection).stripWhitespace(whitespaceRule);
-                if (alreadyStripped) {
-                    whitespaceRule = null;
+        if (packageData instanceof StylesheetPackage) {
+            if (whitespaceRule != NoElementsSpaceStrippingRule.INSTANCE) {
+                if (collection instanceof AbstractResourceCollection) {
+                    boolean alreadyStripped = ((AbstractResourceCollection) collection).stripWhitespace(whitespaceRule);
+                    if (alreadyStripped) {
+                        whitespaceRule = null;
+                    }
                 }
             }
         }
@@ -291,7 +295,7 @@ public class CollectionFn extends SystemFunction implements Callable {
             });
         }
 
-        // If the collection is stable, cache the result
+        // If the collection is stable, cache the result. Take care to avoid attempting to put duplicates in the pool.
         if (collection.isStable(context) || context.getConfiguration().getBooleanProperty(Feature.STABLE_COLLECTION_URI)) {
             Controller controller = context.getController();
             DocumentPool docPool = controller.getDocumentPool();
@@ -304,15 +308,21 @@ public class CollectionFn extends SystemFunction implements Callable {
             for (Item item; (item = iter.next()) != null; ) {
                 if (item instanceof NodeInfo && ((NodeInfo) item).getNodeKind() == Type.DOCUMENT) {
                     String docUri = ((NodeInfo) item).getSystemId();
-                    DocumentKey docKey;
+                    final DocumentKey docKey;
                     if (packageData instanceof StylesheetPackage) {
                         StylesheetPackage pack = (StylesheetPackage) packageData;
                         docKey = new DocumentKey(docUri, pack.getPackageName(), pack.getPackageVersion());
                     } else {
                         docKey = new DocumentKey(docUri);
                     }
-                    TreeInfo info = item instanceof TreeInfo ? (TreeInfo) item : new GenericTreeInfo(controller.getConfiguration(), (NodeInfo) item);
-                    docPool.add(info, docKey);
+                    // Only add the document if it isn't already present
+                    if (docPool.find(docKey) == null) {
+                        if (item instanceof TreeInfo) {
+                            docPool.add((TreeInfo) item, docKey);
+                        } else {
+                            docPool.add(new GenericTreeInfo(controller.getConfiguration(), (NodeInfo) item), docKey);
+                        }
+                    }
                 }
             }
             context.getController().setUserData("saxon:collections", collectionKey, cachedCollection);

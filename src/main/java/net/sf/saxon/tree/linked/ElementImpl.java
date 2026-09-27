@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,15 +12,14 @@ import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.pattern.NodeSelector;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.NodePredicateLambda;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.Whitespace;
 
@@ -39,7 +38,7 @@ import java.util.Objects;
 public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
 
     private NodeName nodeName;
-    private SchemaType type = Untyped.getInstance();
+    private SchemaType type = Untyped.INSTANCE;
     private AttributeMap attributeMap;      // this excludes namespace attributes
     private NamespaceMap namespaceMap = NamespaceMap.emptyMap();
 
@@ -48,7 +47,7 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
      */
 
     public ElementImpl() {
-        this.attributeMap = EmptyAttributeMap.getInstance();
+        this.attributeMap = EmptyAttributeMap.INSTANCE;
     }
 
     /**
@@ -211,11 +210,7 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
     @Override
     public int getLineNumber() {
         DocumentImpl root = getPhysicalRoot();
-        if (root == null) {
-            return -1;
-        } else {
-            return root.getLineNumber(getRawSequenceNumber());
-        }
+        return root == null ? -1 : root.getLineNumber(getRawSequenceNumber());
     }
 
     /**
@@ -274,10 +269,11 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
         return attributeMap;
     }
 
-    AxisIterator iterateAttributes(NodeTest test) {
+    @Override
+    public SequenceIterator iterateAttributeAxis(NodePredicate test) {
         if (attributeMap instanceof AttributeMapWithIdentity) {
             // this case needs special care because of the possibility of deleted attribute nodes
-            return new Navigator.AxisFilter(((AttributeMapWithIdentity) attributeMap).iterateAttributes(this), test);
+            return Navigator.filter(((AttributeMapWithIdentity) attributeMap).iterateAttributes(this), test);
         } else {
             return new AttributeAxisIterator(this, test);
         }
@@ -303,8 +299,8 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
 
         final boolean copyTypes = CopyOptions.includes(copyOptions, CopyOptions.TYPE_ANNOTATIONS);
         final boolean copyForUpdate = CopyOptions.includes(copyOptions, CopyOptions.FOR_UPDATE);
-        SchemaType typeCode = copyTypes ?
-                getSchemaType() : Untyped.getInstance();
+        SchemaType typeCode;
+        typeCode = copyTypes ? getSchemaType() : Untyped.INSTANCE;
         java.util.function.Function<NodeInfo, Object> informee = out.getPipelineConfiguration().getCopyInformee();
         if (informee != null) {
             Object o = informee.apply(this);
@@ -431,7 +427,7 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
         DocumentImpl root = getPhysicalRoot();
         super.delete();
         if (root != null) {
-            AxisIterator iter = iterateAxis(AxisInfo.DESCENDANT_OR_SELF, NodeKindTest.ELEMENT);
+            SequenceIterator iter = iterateDescendantOrSelfAxis(NodeKindType.ELEMENT);
             while (true) {
                 ElementImpl n = (ElementImpl) iter.next();
                 for (AttributeInfo att : attributeMap) {
@@ -499,7 +495,7 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
             NamespaceMap oldMap = namespaceMap;
             namespaceMap = namespaceMap.put(binding.getPrefix(), binding.getNamespaceUri());
             if (inherit && namespaceMap != oldMap) {
-                for (NodeInfo child : children(NodeKindTest.ELEMENT)) {
+                for (NodeInfo child : children(NodeKindType.ELEMENT)) {
                     ((ElementImpl) child).inheritParentNamespaces(binding, oldMap, namespaceMap);
                 }
             }
@@ -514,7 +510,7 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
             } else {
                 namespaceMap = namespaceMap.put(binding.getPrefix(), binding.getNamespaceUri());
             }
-            for (NodeInfo child : children(NodeKindTest.ELEMENT)) {
+            for (NodeInfo child : children(NodeKindType.ELEMENT)) {
                 ((ElementImpl) child).inheritParentNamespaces(binding, oldMap, namespaceMap);
             }
         }
@@ -680,8 +676,8 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
 
     @Override
     public void removeTypeAnnotation() {
-        if (getSchemaType() != Untyped.getInstance()) {
-            type = AnyType.getInstance();
+        if (getSchemaType() != Untyped.INSTANCE) {
+            type = AnyType.INSTANCE;
             getRawParent().removeTypeAnnotation();
         }
     }
@@ -803,7 +799,7 @@ public class ElementImpl extends ParentNodeImpl implements NamespaceResolver {
             }
         }
         namespaceMap = childNamespaces;
-        for (NodeInfo child : children(NodeSelector.of(ElementImpl.class::isInstance))) {
+        for (NodeInfo child : children(NodePredicateLambda.of(ElementImpl.class::isInstance))) {
             ((ElementImpl) child).deepAddNamespaces(inheritedNamespaces);
         }
     }

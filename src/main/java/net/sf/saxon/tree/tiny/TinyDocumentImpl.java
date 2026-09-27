@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,19 +9,23 @@ package net.sf.saxon.tree.tiny;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
+import net.sf.saxon.lib.Logger;
 import net.sf.saxon.om.AtomicSequence;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.CopyOptions;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.iter.NodeListIterator;
+import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.ListIterator;
+import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.AnyType;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.Untyped;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntHashMap;
 
@@ -42,9 +46,8 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
     private String baseURI;
 
 
-    public TinyDocumentImpl(/*@NotNull*/ TinyTree tree) {
-        this.tree = tree;
-        nodeNr = 0;
+    public TinyDocumentImpl(TinyTree tree) {
+        super(tree, 0);
     }
 
     /**
@@ -171,6 +174,48 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
         return this;
     }
 
+    @Override
+    public SequenceIterator iterateDescendantAxis(NodePredicate predicate) {
+        // Optimization to use document-level index by element name
+        if (predicate instanceof NamedXNodePredicate) {
+            NamedXNodePredicate fpTest = (NamedXNodePredicate) predicate;
+            int fingerprint = fpTest.getRequiredFingerprint();
+            if (fingerprint != -1 && fpTest.getNodeKind() == Type.ELEMENT) {
+                SequenceIterator all = getAllElements(fingerprint);
+                if (fpTest.isFingerprintSufficient()) {
+                    return all;
+                } else {
+                    return Navigator.filter(all, predicate);
+                }
+            }
+        }
+        return super.iterateDescendantAxis(predicate);
+    }
+
+    /**
+     * Get an iterator over the preceding-sibling axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingSiblingAxis(NodePredicate predicate) {
+        return EmptyIterator.INSTANCE;
+    }
+
+    /**
+     * Get an iterator over the preceding-sibling-or-self axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingSiblingOrSelfAxis(NodePredicate predicate) {
+        return Navigator.filteredSingleton(this, predicate);
+    }
+
     /**
      * Get a character string that uniquely identifies this node
      *
@@ -205,7 +250,7 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
      * @return an iterator over all elements with this name
      */
 
-    /*@NotNull*/ AxisIterator getAllElements(int fingerprint) {
+    /*@NotNull*/ SequenceIterator getAllElements(int fingerprint) {
         if (elementList == null) {
             elementList = new IntHashMap<List<NodeInfo>>(20);
         }
@@ -214,7 +259,7 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
             list = makeElementList(fingerprint);
             elementList.put(fingerprint, list);
         }
-        return new NodeListIterator(list);
+        return new ListIterator.Of<>(list);
     }
 
     /**
@@ -267,12 +312,12 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
      */
     @Override
     public SchemaType getSchemaType() {
-        AxisIterator children = iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT);
-        NodeInfo node = children.next();
-        if (node == null || node.getSchemaType() == Untyped.getInstance()) {
-            return Untyped.getInstance();
+        SequenceIterator children = iterateChildAxis(NodeKindType.ELEMENT);
+        NodeInfo node = (NodeInfo)children.next();
+        if (node == null || node.getSchemaType() == Untyped.INSTANCE) {
+            return Untyped.INSTANCE;
         } else {
-            return AnyType.getInstance();
+            return AnyType.INSTANCE;
         }
     }
 
@@ -299,15 +344,16 @@ public final class TinyDocumentImpl extends TinyParentNodeImpl {
 
         // output the children
 
-        for (NodeInfo child : children()) {
+        SequenceIterator children = iterateChildAxis(null);
+        for (NodeInfo child; (child = (NodeInfo) children.next()) != null; ) {
             child.copy(out, copyOptions, locationId);
         }
 
         out.endDocument();
     }
 
-    public void showSize() {
-        tree.showSize();
+    public void showSize(Logger logger) {
+        tree.showSize(logger);
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,9 +12,9 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.value.*;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,7 +37,7 @@ public class ParseIetfDate extends SystemFunction implements Callable {
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         StringValue stringValue = (StringValue) arguments[0].head();
         if (stringValue == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
         return SequenceTool.itemOrEmpty(parse(stringValue.getStringValue(), context));
     }
@@ -170,8 +170,8 @@ public class ParseIetfDate extends SystemFunction implements Callable {
     public DateTimeValue parse(String input, XPathContext context) throws XPathException {
         List<String> tokens = tokenize(input);
         int year = 0;
-        byte month = 0;
-        byte day = 0;
+        int month = 0;
+        int day = 0;
         List<TimeValue> timeValue = new ArrayList<>();
         int i = 0;
         String currentToken = tokens.get(i);
@@ -196,7 +196,7 @@ public class ParseIetfDate extends SystemFunction implements Callable {
             if (currentToken.length() > 2){
                 badDate("Day number exceeds two digits", input);
             }
-            day = (byte) Integer.parseInt(currentToken);
+            day = Integer.parseInt(currentToken);
             currentToken = tokens.get(++i);
             if (!" ".equals(currentToken)){
                 badDate("Space missing after day number", input);
@@ -218,7 +218,7 @@ public class ParseIetfDate extends SystemFunction implements Callable {
             if (currentToken.length() > 2){
                 badDate("First number in string expected to be day in two digits", input);
             }
-            day = (byte) Integer.parseInt(currentToken);
+            day = Integer.parseInt(currentToken);
             i = requireDSep(tokens, ++i, input);
             currentToken = tokens.get(i);
             if (!isMonthName(currentToken)){
@@ -253,7 +253,7 @@ public class ParseIetfDate extends SystemFunction implements Callable {
         TimeValue time = timeValue.get(0);
         if (time.getHour() == 24) {
             date = DateValue.tomorrow(date.getYear(), date.getMonth(), date.getDay());
-            time = new TimeValue((byte) 0, (byte) 0, (byte) 0, 0, time.getTimezoneInMinutes(), BuiltInAtomicType.TIME);
+            time = new TimeValue(0, 0, BigDecimal.ZERO, time.getTimezoneInMinutes());
         }
         return DateTimeValue.makeDateTimeValue(date, time);
     }
@@ -453,7 +453,8 @@ public class ParseIetfDate extends SystemFunction implements Callable {
         if (!isValidTime(hour, minute, second, microsecond, tz)) {
             badDate("Time/timezone is not valid", input);
         }
-        TimeValue timeValue = new TimeValue(hour, minute, second, microsecond*1000, tz, BuiltInAtomicType.TIME);
+
+        TimeValue timeValue = new TimeValue(hour, minute, DateTimeValue.makeSeconds(second, microsecond*1000), tz);
         result.add(timeValue);
         return n;
     }
@@ -519,4 +520,4 @@ public class ParseIetfDate extends SystemFunction implements Callable {
 }
 
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

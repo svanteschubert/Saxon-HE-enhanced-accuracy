@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr;
 
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.UncheckedXPathException;
@@ -25,9 +26,9 @@ public class UnionEnumeration implements SequenceIterator, LookaheadIterator {
 
     private final SequenceIterator e1;
     private final SequenceIterator e2;
-    /*@Nullable*/ private NodeInfo nextNode1 = null;
+    private final Comparator<? super GNode> comparer;
+    private NodeInfo nextNode1 = null;
     private NodeInfo nextNode2 = null;
-    private final Comparator<? super NodeInfo> comparer;
 
     /**
      * Create the iterator. The two input iterators must return nodes in document
@@ -41,7 +42,7 @@ public class UnionEnumeration implements SequenceIterator, LookaheadIterator {
      */
 
     public UnionEnumeration(SequenceIterator p1, SequenceIterator p2,
-                            Comparator<? super NodeInfo> comparer) throws XPathException {
+                            Comparator<? super GNode> comparer) throws XPathException {
         this.e1 = p1;
         this.e2 = p2;
         this.comparer = comparer;

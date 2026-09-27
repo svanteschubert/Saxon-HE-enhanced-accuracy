@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,10 +14,7 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.str.BMPString;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.ConversionResult;
-import net.sf.saxon.type.Converter;
-import net.sf.saxon.type.ValidationFailure;
+import net.sf.saxon.type.*;
 import net.sf.saxon.value.*;
 
 import java.math.BigDecimal;
@@ -93,7 +90,7 @@ public final class Date {
                 return ((DateTimeValue) cr).toDateValue().getStringValue();
             }
         } else {
-            ConversionResult cr = DateValue.makeDateValue(datetimeIn.getUnicodeStringValue(), rules);
+            ConversionResult cr = DateValue.tryParseDate(datetimeIn.getStringValue(), rules.isAllowYearZero());
             if (cr instanceof ValidationFailure) {
                 return "";
             } else {
@@ -874,23 +871,29 @@ public final class Date {
      */
 
     /*@Nullable*/
+
+    /**
+     * Add two duration values, according to the rules for the add-duration() and sum() functions
+     *
+     * @param dv0 the first duration
+     * @param dv1 the second duration
+     * @return the sum of the two durations, or null if they are not summable (e.g. P1Y + -P1D)
+     */
+
+    /*@Nullable*/
     private static DurationValue addDurationValues(DurationValue dv0, DurationValue dv1) {
-        YearMonthDurationValue dv0m = Converter.DurationToYearMonthDuration.INSTANCE.convert(dv0);
-        DayTimeDurationValue dv0s = Converter.DurationToDayTimeDuration.INSTANCE.convert(dv0);
-        YearMonthDurationValue dv1m = Converter.DurationToYearMonthDuration.INSTANCE.convert(dv1);
-        DayTimeDurationValue dv1s = Converter.DurationToDayTimeDuration.INSTANCE.convert(dv1);
-        int months = dv0m.getLengthInMonths() + dv1m.getLengthInMonths();
-        long micros = dv0s.getLengthInMicroseconds() + dv1s.getLengthInMicroseconds();
-        if (Integer.signum(months) * Long.signum(micros) < 0) {
+        int months = dv0.getTotalMonths() + dv1.getTotalMonths();
+        BigDecimal seconds = dv0.getTotalSeconds().add(dv1.getTotalSeconds());
+        if (months == 0) {
+            return new DayTimeDurationValue(seconds);
+        }
+        if (seconds.equals(BigDecimal.ZERO)) {
+            return new YearMonthDurationValue(months, BuiltInAtomicType.YEAR_MONTH_DURATION);
+        }
+        if (Integer.signum(months) != seconds.signum()) {
             return null;
         }
-        boolean positive = months >= 0 && micros >= 0;
-        if (!positive) {
-            months = -months;
-            micros = -micros;
-        }
-        return new DurationValue(positive, 0, months,
-                0, 0, 0, (int) (micros / 1000000), (int) (micros % 1000000), BuiltInAtomicType.DURATION);
+        return new DurationValue(months, seconds,BuiltInAtomicType.DURATION);
     }
 
     /**
@@ -1007,9 +1010,13 @@ public final class Date {
      * @return the duration as a string in ISO format
      */
 
-    public static String duration(double seconds) {
-        DayTimeDurationValue v = DayTimeDurationValue.fromSeconds(new BigDecimal(seconds));
-        return v.getStringValue();
+    public static String duration(NumericValue seconds) {
+        try {
+            DayTimeDurationValue v = new DayTimeDurationValue(seconds.getDecimalValue(), BuiltInAtomicType.DAY_TIME_DURATION);
+            return v.getStringValue();
+        } catch (ValidationException e) {
+            return "";
+        }
     }
 
     /**
@@ -1021,8 +1028,8 @@ public final class Date {
      */
     public static double seconds(XPathContext context) throws XPathException {
         DateTimeValue now = context.getCurrentDateTime();
-        DurationValue diff = now.subtract(DateTimeValue.EPOCH, context);
-        return diff.getLengthInSeconds();
+        DayTimeDurationValue diff = now.subtract(DateTimeValue.EPOCH, context);
+        return diff.getTotalSeconds().doubleValue();
     }
 
     /**
@@ -1085,7 +1092,7 @@ public final class Date {
                 if (duration.getYears() != 0 || duration.getMonths() != 0) {
                     return Double.NaN;
                 } else {
-                    return duration.getLengthInSeconds();
+                    return duration.getTotalSeconds().doubleValue();
                 }
             } else {
                 return Double.NaN;

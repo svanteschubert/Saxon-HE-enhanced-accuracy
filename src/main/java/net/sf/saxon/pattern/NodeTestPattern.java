@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,11 +12,13 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.pattern.nodetest.NamedXNodePredicate;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.AlphaCode;
-import net.sf.saxon.type.SchemaDeclaration;
-import net.sf.saxon.type.UType;
+import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.GNodeType;
 
 /**
  * A NodeTestPattern is a pattern that consists simply of a NodeTest
@@ -49,7 +51,7 @@ public class NodeTestPattern extends Pattern {
 
     @Override
     public boolean matches(Item item, XPathContext context) {
-        return item instanceof NodeInfo && nodeTest.test((NodeInfo)item);
+        return item instanceof NodeInfo node && nodeTest.test(node);
     }
 
     /**
@@ -57,8 +59,8 @@ public class NodeTestPattern extends Pattern {
      */
 
     @Override
-    public NodeTest getItemType() {
-        return nodeTest;
+    public ItemType getItemType() {
+        return nodeTest.getItemType();
     }
 
     /**
@@ -79,8 +81,11 @@ public class NodeTestPattern extends Pattern {
      */
 
     @Override
-    public int getFingerprint() {
-        return nodeTest.getFingerprint();
+    public int getFingerprint(int nodeKind) {
+        if (nodeTest instanceof NamedXNodePredicate) {
+            return ((NamedXNodePredicate) nodeTest).getRequiredFingerprint();
+        }
+        return -1;
     }
 
     /**
@@ -127,29 +132,37 @@ public class NodeTestPattern extends Pattern {
      */
     @Override
     public Pattern convertToTypedPattern(String val) throws XPathException {
-        if (nodeTest instanceof NameTest && nodeTest.getUType() == UType.ELEMENT) {
-            SchemaDeclaration decl = getConfiguration().getElementDeclaration(nodeTest.getMatchingNodeName());
-            if (decl == null) {
-                if ("lax".equals(val)) {
-                    return this;
+        if (nodeTest instanceof NamedXNodePredicate fpTest) {
+            int fp = fpTest.getRequiredFingerprint();
+            if (fp != -1) {
+                StructuredQName qName = getRetainedStaticContext().getConfiguration().getNamePool().getStructuredQName(fp);
+                Schema schema = getRetainedStaticContext().getImportedSchema();
+                IElementDecl decl = schema.getElementDecl(qName);
+                if (decl == null) {
+                    if ("lax".equals(val)) {
+                        return this;
+                    } else {
+                        // See spec bug 25517
+                        throw new XPathException("The mode specifies typed='strict', " +
+                                                         "but there is no schema element declaration named " + nodeTest, "XTSE3105");
+                    }
                 } else {
-                    // See spec bug 25517
-                    throw new XPathException("The mode specifies typed='strict', " +
-                            "but there is no schema element declaration named " + nodeTest, "XTSE3105");
+                    GNodeType schemaNodeTest = schema.makeSchemaElementTest(fp);
+                    return new NodeTestPattern(schemaNodeTest);
                 }
-            } else {
-                NodeTest schemaNodeTest = decl.makeSchemaNodeTest();
-                return new NodeTestPattern(schemaNodeTest);
             }
-        } else {
-            return this;
         }
+        return this;
     }
 
     @Override
     public void export(ExpressionPresenter presenter) throws XPathException {
         presenter.startElement("p.nodeTest");
-        presenter.emitAttribute("test", AlphaCode.fromItemType(nodeTest));
+        presenter.emitAttribute("test", AlphaCode.fromItemType(nodeTest.getItemType()));
+        String schemaRole = getRetainedStaticContext().getImportedSchemaRoleName();
+        if (!schemaRole.isEmpty()) {
+            presenter.emitAttribute("schemaRole", schemaRole);
+        }
         presenter.endElement();
     }
 
@@ -163,7 +176,7 @@ public class NodeTestPattern extends Pattern {
     /*@NotNull*/
     @Override
     public Pattern copy(RebindingMap rebindings) {
-        NodeTestPattern n = new NodeTestPattern(nodeTest.copy());
+        NodeTestPattern n = new NodeTestPattern(nodeTest);
         n.setPriority(getDefaultPriority());
         ExpressionTool.copyLocationInfo(this, n);
         n.setOriginalText(getOriginalText());

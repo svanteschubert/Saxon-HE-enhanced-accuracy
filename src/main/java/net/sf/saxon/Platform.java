@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -72,6 +72,12 @@ public interface Platform {
     String getPlatformSuffix();
 
     /**
+     * Ask if we are running on Windows
+     */
+
+    boolean isWindows();
+
+    /**
      * Get the default DynamicLoader for the platform
      * @return the default DynamicLoader
      */
@@ -135,12 +141,13 @@ public interface Platform {
      * Convert a Source to an ActiveSource. This method is present in the Platform
      * because different Platforms accept different kinds of Source object.
      *
-     * @param source A source object, typically the source supplied as the first
-     *               argument to {@link javax.xml.transform.Transformer#transform(javax.xml.transform.Source, javax.xml.transform.Result)}
-     *               or similar methods.
-     * @param config The Configuration. This provides the SourceResolver with access to
-     *               configuration information; it also allows the SourceResolver to invoke the
-     *               resolveSource() method on the Configuration object as a fallback implementation.
+     * @param source  A source object, typically the source supplied as the first
+     *                argument to {@link javax.xml.transform.Transformer#transform(Source, javax.xml.transform.Result)}
+     *                or similar methods.
+     * @param options parsing options, if relevant
+     * @param config  The Configuration. This provides the SourceResolver with access to
+     *                configuration information; it also allows the SourceResolver to invoke the
+     *                resolveSource() method on the Configuration object as a fallback implementation.
      * @return a source object that Saxon knows how to process. This must be an instance of one
      * of the classes  StreamSource, SAXSource, DOMSource, {@link AugmentedSource},
      * {@link net.sf.saxon.om.NodeInfo},
@@ -150,7 +157,7 @@ public interface Platform {
      */
 
     /*@Nullable*/
-    ActiveSource resolveSource(Source source, Configuration config) throws XPathException;
+    ActiveSource resolveSource(Source source, ParseOptions options, Configuration config) throws XPathException;
 
     /**
      * Obtain a collation with a given set of properties. The set of properties is extensible

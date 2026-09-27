@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,7 +18,7 @@ import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.SequenceTool;
-import net.sf.saxon.pattern.DocumentNodeTest;
+import net.sf.saxon.type.gnode.DocumentNodeType;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.Err;
@@ -28,7 +28,6 @@ import net.sf.saxon.tree.iter.TwoItemIterator;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.IntegerValue;
 
 import java.util.function.Supplier;
 
@@ -55,8 +54,6 @@ public final class CardinalityChecker extends UnaryExpression {
         super(sequence);
         requiredCardinality = cardinality;
         this.roleSupplier = role;
-        //computeStaticProperties();
-        //adoptChildExpression(sequence);
     }
 
     /**
@@ -70,10 +67,16 @@ public final class CardinalityChecker extends UnaryExpression {
      */
 
     public static Expression makeCardinalityChecker(Expression sequence, int cardinality, Supplier<RoleDiagnostic> roleSupplier) {
-        Expression result;
+//        if (Cardinality.subsumes(cardinality, sequence.getCardinality())) {
+//            return sequence;
+//        }
+        // Note that we insert a CardinalityChecker even if it's not needed, because this method is called before we
+        // can safely call getCardinality() on the expression. The CardinalityChcecker will be dropped later if
+        // not needed. The exception is for literals, where we can safely get the actual cardinality now.
         if (sequence instanceof Literal && Cardinality.subsumes(cardinality, SequenceTool.getCardinality(((Literal) sequence).getGroundedValue()))) {
             return sequence;
         }
+        Expression result;
         if (sequence instanceof Atomizer && !Cardinality.allowsMany(cardinality)) {
             Expression base = ((Atomizer) sequence).getBaseExpression();
             result = new SingletonAtomizer(base, roleSupplier, Cardinality.allowsZero(cardinality));
@@ -141,8 +144,15 @@ public final class CardinalityChecker extends UnaryExpression {
         }
         if ((base.getCardinality() & requiredCardinality) == 0) {
             RoleDiagnostic role = roleSupplier.get();
-            throw new XPathException("The " + role.getMessage() +
-                    " does not satisfy the cardinality constraints", role.getErrorCode())
+            String message;
+            if (base.getCardinality() == StaticProperty.ALLOWS_ZERO && !Cardinality.allowsZero(requiredCardinality)) {
+                message = "An empty sequence is not allowed as the " + role.getMessage();
+            } else {
+                message = "The " + role.getMessage() +
+                        " must contain " + Cardinality.describe(requiredCardinality) + " item(s)";
+            }
+            throw new XPathException(message)
+                    .withErrorCode(role.getErrorCode())
                     .withLocation(getLocation())
                     .asTypeErrorIf(role.isTypeError());
         }
@@ -158,18 +168,6 @@ public final class CardinalityChecker extends UnaryExpression {
         }
         return this;
     }
-
-
-//    /**
-//     * Set the error code to be returned (this is used when evaluating the functions such
-//     * as exactly-one() which have their own error codes)
-//     *
-//     * @param code the error code to be used
-//     */
-//
-//    public void setErrorCode(String code) {
-//        roleSupplier.setErrorCode(code);
-//    }
 
     /**
      * Get the RoleLocator, which contains diagnostic information for use if the cardinality check fails
@@ -198,24 +196,6 @@ public final class CardinalityChecker extends UnaryExpression {
             m |= EVALUATE_METHOD;
         }
         return m;
-    }
-
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        return getBaseExpression().getIntegerBounds();
     }
 
     /**
@@ -516,7 +496,7 @@ public final class CardinalityChecker extends UnaryExpression {
                 type = ((ItemChecker) next).getRequiredType();
                 next = ((ItemChecker) next).getBaseExpression();
             }
-            if ((next.getImplementationMethod() & PROCESS_METHOD) != 0 && !(type instanceof DocumentNodeTest)) {
+            if ((next.getImplementationMethod() & PROCESS_METHOD) != 0 && !(type instanceof DocumentNodeType)) {
                 ItemType finalType = type;
                 PushEvaluator pushEval = next.makeElaborator().elaborateForPush();
                 return (output, context) -> {

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,7 +12,6 @@ import net.sf.saxon.event.Builder;
 import net.sf.saxon.event.FilterFactory;
 import net.sf.saxon.expr.accum.Accumulator;
 import net.sf.saxon.ma.trie.ImmutableHashTrieMap;
-import net.sf.saxon.ma.trie.ImmutableMap;
 import net.sf.saxon.ma.trie.TrieKVP;
 import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.om.StructuredQName;
@@ -21,6 +20,7 @@ import net.sf.saxon.trans.Maker;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.transpile.CSharpSimpleEnum;
+import net.sf.saxon.type.Schema;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.ValidationParams;
 import org.xml.sax.EntityResolver;
@@ -70,22 +70,23 @@ public class ParseOptions {
         LINE_NUMBERING,
         MODEL,
         PLEASE_CLOSE,
+        SCHEMA,
         SCHEMA_VALIDATION,
         SPACE_STRIPPING_RULE,
         STABLE,
         TOP_LEVEL_ELEMENT,
         TOP_LEVEL_TYPE,
         TREE_MODEL,
+        TRUSTED,
         USE_XSI_SCHEMA_LOCATION,
         VALIDATION_ERROR_LIMIT,
         VALIDATION_PARAMS,
         VALIDATION_STATISTICS_RECIPIENT,
         WRAP_DOCUMENT
-
-
+        
     }
 
-    private final ImmutableMap<Key, Object> properties;
+    private final ImmutableHashTrieMap<Key, Object> properties;
 
     private List<Key> cacheKeys;
     private List<Object> cacheValues;
@@ -103,12 +104,12 @@ public class ParseOptions {
      * Private constructor for internal use: create a ParseOptions object with supplied content
      * @param properties the initial property values to be set
      */
-    private ParseOptions(ImmutableMap<Key, Object> properties) {
+    private ParseOptions(ImmutableHashTrieMap<Key, Object> properties) {
         this.properties = properties;
     }
 
     @CSharpReplaceBody(code = "return System.Collections.Immutable.ImmutableDictionary<Saxon.Hej.lib.ParseOptions.Key,System.Object>.Empty;")
-    private ImmutableMap<Key, Object> init() {
+    private ImmutableHashTrieMap<Key, Object> init() {
         return ImmutableHashTrieMap.empty();
     }
     /**
@@ -202,7 +203,7 @@ public class ParseOptions {
      * @return the value of the property, or its default
      */
     private int getIntegerProperty(Key key, int defaultValue) {
-        Object value = properties.get(key);
+        Object value = getProperty(key);
         if (value == null) {
             return defaultValue;
         } else {
@@ -220,7 +221,7 @@ public class ParseOptions {
      */
 
     private boolean getBooleanProperty(Key key, boolean defaultValue) {
-        Object value = properties.get(key);
+        Object value = getProperty(key);
         if (value == null) {
             return defaultValue;
         } else {
@@ -347,7 +348,7 @@ public class ParseOptions {
      * <p>User-supplied filters are applied to the input stream after
      * applying any system-defined filters such as the whitespace stripper
      * and the schema validator.</p>
-     *
+     * 
      * <p>Example: {@code withFilter(receiver -> new MyFilter(receiver)}, where
      * <code>MyFilter</code> extends {@link net.sf.saxon.event.ProxyReceiver}</p>
      *
@@ -434,7 +435,7 @@ public class ParseOptions {
      * @param value The value given to the properties as a string
      */
     public ParseOptions withParserProperty(String uri, Object value) {
-        Map<String, Object> parserProperties = (Map<String, Object>) getProperty(Key.PARSER_FEATURES);
+        Map<String, Object> parserProperties = (Map<String, Object>) getProperty(Key.PARSER_PROPERTIES);
         Map<String, Object> parserProperties2;
         if (parserProperties == null) {
             parserProperties2 = new HashMap<>(4);
@@ -580,6 +581,27 @@ public class ParseOptions {
     }
 
     /**
+     * Set the schema to be used for validation.
+     *
+     * @return the schema to be used for validation, assuming validation has been requested.
+     * Returns null if validation is not requested.
+     */
+
+    public ParseOptions withSchema(Schema schema) {
+        return withProperty(Key.SCHEMA, schema);
+    }
+
+    /**
+     * Get the schema to be used for validation.
+     * @return the schema to be used for validation, assuming validation has been requested.
+     * Returns null if validation is not requested.
+     */
+
+    public Schema getSchema() {
+        return (Schema)getProperty(Key.SCHEMA);
+    }
+
+    /**
      * Get whether or not schema validation of this source is required
      *
      * @return the validation mode requested, or {@link Validation#DEFAULT}
@@ -719,10 +741,11 @@ public class ParseOptions {
      *               requested, but validation failures are treated as warnings only.</p>
      */
 
+    @CSharpReplaceBody(code="return withProperty(Key.DTD_VALIDATION, option);")
     public ParseOptions withDTDValidationMode(int option) {
         return
                 withParserFeature("http://xml.org/sax/features/validation",
-                                 option == Validation.STRICT || option == Validation.LAX).
+                          option == Validation.STRICT || option == Validation.LAX).
                 withProperty(Key.DTD_VALIDATION, option);
     }
 
@@ -1095,6 +1118,30 @@ public class ParseOptions {
     }
 
     /**
+     * Ask whether the document (or collection) should be trusted, that is, if it is allowed
+     * to reference external entities (including external DTDs). By default, at this level of the system,
+     * documents and collections are trusted.
+     *
+     * @return true if the document or collection is trusted
+     */
+
+    public boolean isTrusted() {
+        return getBooleanProperty(Key.TRUSTED, false);
+    }
+
+    /**
+     * Say whether the document (or collection) should be trusted, that is, if it is allowed
+     * to reference external entities (including external DTDs). By default, at this level of the system,
+     * documents and collections are trusted.
+     *
+     * @param trusted true if the document or collection is trusted
+     */
+
+    public ParseOptions withTrusted(boolean trusted) {
+        return withProperty(Key.TRUSTED, trusted);
+    }
+
+    /**
      * Get the callback for reporting validation errors
      *
      * @return the registered InvalidityHandler
@@ -1211,10 +1258,10 @@ public class ParseOptions {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        for (TrieKVP<Key, Object> entry : properties) {
-            sb.append(entry.getKey());
+        for (TrieKVP<Key, Object> kvp : properties) {
+            sb.append(kvp.key);
             sb.append('=');
-            sb.append(entry.getValue());
+            sb.append(kvp.value);
             sb.append(' ');
         }
         return sb.toString();

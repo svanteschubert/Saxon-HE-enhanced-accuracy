@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -66,7 +66,7 @@ public class TailIterator
             try {
                 GroundedValue value = SequenceTool.toGroundedValue(base);
                 if (start > value.getLength()) {
-                    return EmptyIterator.getInstance();
+                    return EmptyIterator.INSTANCE;
                 } else {
                     return new ValueTailIterator(value, start - 1);
                 }
@@ -78,7 +78,7 @@ public class TailIterator
             for (int i = 0; i < start - 1; i++) {
                 Item b = base.next();
                 if (b == null) {
-                    return EmptyIterator.getInstance();
+                    return EmptyIterator.INSTANCE;
                 }
             }
             return new TailIterator(base, start);

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,7 +16,7 @@ import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.XPathException;
@@ -68,7 +68,7 @@ public class XSLSourceDocument extends StyleElement {
     @Override
     protected void prepareAttributes() {
 
-        parseOptions = getConfiguration().getParseOptions();
+        parseOptions = getConfiguration().getParseOptions().withSchema(getImportedSchema());
 
         String hrefAtt = null;
         String validationAtt = null;
@@ -116,13 +116,13 @@ public class XSLSourceDocument extends StyleElement {
                     case "strip-space":
                         switch (Whitespace.normalizeWhitespace(StringView.of(value)).toString()) {
                             case "#all":
-                                parseOptions = parseOptions.withSpaceStrippingRule(AllElementsSpaceStrippingRule.getInstance());
+                                parseOptions = parseOptions.withSpaceStrippingRule(AllElementsSpaceStrippingRule.INSTANCE);
                                 break;
                             case "#none":
-                                parseOptions = parseOptions.withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance());
+                                parseOptions = parseOptions.withSpaceStrippingRule(NoElementsSpaceStrippingRule.INSTANCE);
                                 break;
                             case "#ignorable":
-                                parseOptions = parseOptions.withSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
+                                parseOptions = parseOptions.withSpaceStrippingRule(IgnorableSpaceStrippingRule.INSTANCE);
                                 break;
                             case "#default":
                                 parseOptions = parseOptions.withSpaceStrippingRule(null);
@@ -149,7 +149,7 @@ public class XSLSourceDocument extends StyleElement {
             int validation = validateValidationAttribute(validationAtt);
             parseOptions = parseOptions.withSchemaValidationMode(validation);
         }
-
+        
         if (typeAtt != null) {
             if (!isSchemaAware()) {
                 compileError("The @type attribute is available only with a schema-aware XSLT processor", "XTSE1660");
@@ -197,7 +197,7 @@ public class XSLSourceDocument extends StyleElement {
         try {
             ExpressionVisitor visitor = makeExpressionVisitor();
             action = action.simplify();
-            action = action.typeCheck(visitor, config.makeContextItemStaticInfo(NodeKindTest.DOCUMENT, false));
+            action = action.typeCheck(visitor, config.makeContextItemStaticInfo(NodeKindType.DOCUMENT));
 
             return config.makeStreamInstruction(
                         href, action, streaming, parseOptions, null, saveLocation(),

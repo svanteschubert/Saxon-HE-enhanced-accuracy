@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,7 +26,7 @@ import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.EmptyIterator;
-import net.sf.saxon.tree.iter.PrependSequenceIterator;
+import net.sf.saxon.tree.iter.PrependIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
@@ -45,7 +45,7 @@ import java.util.List;
 
 public class GeneralComparison10 extends BinaryExpression implements Callable {
 
-    protected int singletonOperator;
+    protected OperatorSymbol singletonOperator;
     protected AtomicComparer comparer;
     private boolean atomize0 = true;
     private boolean atomize1 = true;
@@ -60,7 +60,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
      * @param p1 the right-hand operand
      */
 
-    public GeneralComparison10(Expression p0, int op, Expression p1) {
+    public GeneralComparison10(Expression p0, OperatorSymbol op, Expression p1) {
         super(p0, op, p1);
         singletonOperator = GeneralComparison.getCorrespondingSingletonOperator(op);
     }
@@ -84,6 +84,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
 
+        int version = visitor.getStaticContext().getXPathVersion();
         getLhs().typeCheck(visitor, contextInfo);
         getRhs().typeCheck(visitor, contextInfo);
 
@@ -94,7 +95,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
         }
 
         XPathContext context = env.makeEarlyEvaluationContext();
-        comparer = new GenericAtomicComparer(comp, context);
+        comparer = new GenericAtomicComparer(comp, version, context);
 
         // evaluate the expression now if both arguments are constant
 
@@ -176,7 +177,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
             // Use the 2.0 path if we don't have to deal with the possibility of boolean values,
             // or the complications of converting values to numbers
 
-            if (operator == Token.EQUALS || operator == Token.NE) {
+            if (operator == OperatorSymbol.EQUALS || operator == OperatorSymbol.NE) {
                 if ((!maybeNumeric0 && !maybeNumeric1) || (numeric0 && numeric1)) {
                     GeneralComparison gc = new GeneralComparison20(getLhsExpression(), operator, getRhsExpression());
                     gc.setRetainedStaticContext(getRetainedStaticContext());
@@ -268,10 +269,10 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
             }
             // Reconstitute the original iterator
             if (i02 != null) {
-                iter0 = new PrependSequenceIterator(i02, iter0);
+                iter0 = new PrependIterator(i02, iter0);
             }
             if (i01 != null) {
-                iter0 = new PrependSequenceIterator(i01, iter0);
+                iter0 = new PrependIterator(i01, iter0);
             }
         }
 
@@ -292,10 +293,10 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
             }
             // Reconstitute the original iterator
             if (i12 != null) {
-                iter1 = new PrependSequenceIterator(i12, iter1);
+                iter1 = new PrependIterator(i12, iter1);
             }
             if (i11 != null) {
-                iter1 = new PrependSequenceIterator(i11, iter1);
+                iter1 = new PrependIterator(i11, iter1);
             }
         }
 
@@ -318,7 +319,8 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
         // If the operator is one of <, >, <=, >=, then convert both operands to sequences of xs:double
         // using the number() function
 
-        if (operator == Token.LT || operator == Token.LE || operator == Token.GT || operator == Token.GE) {
+        if (operator == OperatorSymbol.LT || operator == OperatorSymbol.LE
+                || operator == OperatorSymbol.GT || operator == OperatorSymbol.GE) {
             final Configuration config = context.getConfiguration();
             ItemMappingFunction map = ItemMapper.of(item -> Number_1.convert((AtomicValue)item, config));
             iter0 = new ItemMappingIterator(iter0, map, true);
@@ -399,7 +401,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
      */
 
     private static boolean compare(AtomicValue a0,
-                                   int operator,
+                                   OperatorSymbol operator,
                                    AtomicValue a1,
                                    AtomicComparer comparer,
                                    XPathContext context) throws XPathException {

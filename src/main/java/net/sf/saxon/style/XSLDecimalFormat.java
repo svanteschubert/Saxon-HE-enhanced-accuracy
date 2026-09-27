@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,11 +11,15 @@ import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
+import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.DecimalFormatManager;
 import net.sf.saxon.trans.DecimalSymbols;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.AttributeLocation;
 import net.sf.saxon.value.Whitespace;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Handler for xsl:decimal-format elements in stylesheet. <br>
@@ -37,6 +41,8 @@ public class XSLDecimalFormat extends StyleElement {
     String zeroDigit;
     String digit;
     String patternSeparator;
+
+    private Map<String, UnicodeString> decimalProperties = new HashMap<>(10);
 
     DecimalSymbols symbols;
 
@@ -69,37 +75,17 @@ public class XSLDecimalFormat extends StyleElement {
                     name = Whitespace.trim(value);
                     break;
                 case "decimal-separator":
-                    decimalSeparator = value;
-                    break;
                 case "grouping-separator":
-                    groupingSeparator = value;
-                    break;
                 case "infinity":
-                    infinity = value;
-                    break;
                 case "minus-sign":
-                    minusSign = value;
-                    break;
                 case "NaN":
-                    NaN = value;
-                    break;
                 case "percent":
-                    percent = value;
-                    break;
                 case "per-mille":
-                    perMille = value;
-                    break;
                 case "zero-digit":
-                    zeroDigit = value;
-                    break;
                 case "digit":
-                    digit = value;
-                    break;
                 case "exponent-separator":
-                    exponentSeparator = value;
-                    break;
                 case "pattern-separator":
-                    patternSeparator = value;
+                    decimalProperties.put(f, StringView.of(value));
                     break;
                 default:
                     checkUnknownAttribute(attName);
@@ -117,50 +103,12 @@ public class XSLDecimalFormat extends StyleElement {
         if (symbols == null) {
             return; // error already reported
         }
-        if (decimalSeparator != null) {
-            setProp(DecimalSymbols.DECIMAL_SEPARATOR, decimalSeparator, precedence);
-        }
-        if (groupingSeparator != null) {
-            setProp(DecimalSymbols.GROUPING_SEPARATOR, groupingSeparator, precedence);
-        }
-        if (infinity != null) {
-            setProp(DecimalSymbols.INFINITY, infinity, precedence);
-        }
-        if (minusSign != null) {
-            setProp(DecimalSymbols.MINUS_SIGN, minusSign, precedence);
-        }
-        if (NaN != null) {
-            setProp(DecimalSymbols.NAN, NaN, precedence);
-        }
-        if (percent != null) {
-            setProp(DecimalSymbols.PERCENT, percent, precedence);
-        }
-        if (perMille != null) {
-            setProp(DecimalSymbols.PER_MILLE, perMille, precedence);
-        }
-        if (zeroDigit != null) {
-            setProp(DecimalSymbols.ZERO_DIGIT, zeroDigit, precedence);
-        }
-        if (digit != null) {
-            setProp(DecimalSymbols.DIGIT, digit, precedence);
-        }
-        if (exponentSeparator != null) {
-            setProp(DecimalSymbols.EXPONENT_SEPARATOR, exponentSeparator, precedence);
-        }
-        if (patternSeparator != null) {
-            setProp(DecimalSymbols.PATTERN_SEPARATOR, patternSeparator, precedence);
+
+        for (Map.Entry<String, UnicodeString> pair : decimalProperties.entrySet()) {
+            symbols.setProperty(pair.getKey(), pair.getValue(), precedence);
         }
     }
 
-    private void setProp(int propertyCode, String value, int precedence) throws XPathException {
-        try {
-            symbols.setProperty(propertyCode, value, precedence);
-        } catch (XPathException err) {
-            throw err.withLocation(
-                    new AttributeLocation(this,
-                                          StructuredQName.fromClarkName(DecimalSymbols.propertyNames[propertyCode])));
-        }
-    }
 
     /**
      * Method supplied by declaration elements to add themselves to a stylesheet-level index

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,32 +9,59 @@ package net.sf.saxon.trans;
 
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.HostLanguage;
-import net.sf.saxon.str.StringView;
+import net.sf.saxon.str.Twine8;
+import net.sf.saxon.str.UnicodeChar;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.z.IntHashMap;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * This class is modelled on Java's DecimalFormatSymbols, but it allows the use of any
  * Unicode character to represent symbols such as the decimal point and the grouping
  * separator, whereas DecimalFormatSymbols restricts these to a char (1-65535).
+ *
+ * <p>Upgraded July 2024 to handle new QT4 features, in particular the ability
+ * to supply both a marker character and a rendition string for properties like
+ * {@code PERCENT}: the marker character is used in the picture string, while
+ * the rendition form is used in the output.</p>
  */
 public class DecimalSymbols {
 
-    public static final int DECIMAL_SEPARATOR = 0;
-    public static final int GROUPING_SEPARATOR = 1;
-    public static final int DIGIT = 2;
-    public static final int MINUS_SIGN = 3;
-    public static final int PERCENT = 4;
-    public static final int PER_MILLE = 5;
-    public static final int ZERO_DIGIT = 6;
-    public static final int EXPONENT_SEPARATOR = 7;
-    public static final int PATTERN_SEPARATOR = 8;
-    public static final int INFINITY = 9;
-    public static final int NAN = 10;
+    /**
+     * Decimal format properties. Properties such as "percent" are split into two,
+     * the marker character and the rendered output.
+     */
+    public enum Property {
+        DECIMAL_SEPARATOR_MARKER,
+        DECIMAL_SEPARATOR_RENDITION,
+        GROUPING_SEPARATOR_MARKER,
+        GROUPING_SEPARATOR_RENDITION,
+        DIGIT,
+        EXPONENT_SEPARATOR_MARKER,
+        EXPONENT_SEPARATOR_RENDITION,
+        INFINITY,
+        MINUS_SIGN,
+        NAN,
+        PATTERN_SEPARATOR,
+        PERCENT_MARKER,
+        PERCENT_RENDITION,
+        PER_MILLE_MARKER,
+        PER_MILLE_RENDITION,
+        ZERO_DIGIT
+    }
 
+    /**
+     * Property settings for this decimal format
+     */
+    private Map<Property, UnicodeString> properties = new HashMap<>();
+
+    /**
+     * Error conditions, potentially mapped to different actual error codes.
+     */
     private static final int ERR_NOT_SINGLE_CHAR = 0;
     private static final int ERR_NOT_UNICODE_DIGIT = 1;
     private static final int ERR_SAME_CHAR_IN_TWO_ROLES = 2;
@@ -44,289 +71,245 @@ public class DecimalSymbols {
     private static final String[] XQUERY_CODES = {"XQST0097", "XQST0097", "XQST0098", "XQST0114"};
     private String[] errorCodes = XSLT_CODES;
 
+    /**
+     * Language level: 40 for 4.0, 31 for 3.1 etc
+     */
+    private int languageLevel;
 
-    private String infinityValue;
-    private String NaNValue;
+    /**
+     * Default values of the decimal format properties
+     */
 
-    public final static String[] propertyNames = {
-        "decimal-separator",
-        "grouping-separator",
-        "digit",
-        "minus-sign",
-        "percent",
-        "per-mille",
-        "zero-digit",
-        "exponent-separator",
-        "pattern-separator",
-        "infinity",
-        "NaN"
+    private final static Map<Property, UnicodeString> defaultProperties = new HashMap<>();
+
+    static {
+        defaultProperties.put(Property.DECIMAL_SEPARATOR_MARKER, new UnicodeChar('.'));
+        defaultProperties.put(Property.DECIMAL_SEPARATOR_RENDITION, new UnicodeChar('.'));
+        defaultProperties.put(Property.GROUPING_SEPARATOR_MARKER, new UnicodeChar(','));
+        defaultProperties.put(Property.GROUPING_SEPARATOR_RENDITION, new UnicodeChar(','));
+        defaultProperties.put(Property.DIGIT, new UnicodeChar('#'));
+        defaultProperties.put(Property.EXPONENT_SEPARATOR_MARKER, new UnicodeChar('e'));
+        defaultProperties.put(Property.EXPONENT_SEPARATOR_RENDITION, new UnicodeChar('e'));
+        defaultProperties.put(Property.INFINITY, new Twine8("Infinity"));
+        defaultProperties.put(Property.MINUS_SIGN, new UnicodeChar('-'));
+        defaultProperties.put(Property.NAN, new Twine8("NaN"));
+        defaultProperties.put(Property.PATTERN_SEPARATOR, new UnicodeChar(';'));
+        defaultProperties.put(Property.PERCENT_MARKER, new UnicodeChar('%'));
+        defaultProperties.put(Property.PERCENT_RENDITION, new UnicodeChar('%'));
+        defaultProperties.put(Property.PER_MILLE_MARKER, new UnicodeChar('‰'));
+        defaultProperties.put(Property.PER_MILLE_RENDITION, new UnicodeChar('‰'));
+        defaultProperties.put(Property.ZERO_DIGIT, new UnicodeChar('0'));
+    }
+
+
+    /**
+     * Ask if the supplied string is recognized as a decimal format property name
+     * @param name the name in question
+     * @return true if this is an acceptable property name
+     */
+    public static boolean isValidPropertyName(String name) {
+        switch (name) {
+            case "decimal-separator":
+            case "grouping-separator":
+            case "digit":
+            case "minus-sign":
+            case "percent":
+            case "per-mille":
+            case "zero-digit":
+            case "exponent-separator":
+            case "pattern-separator":
+            case "infinity":
+            case "NaN":
+                return true;
+            default:
+                return false;
+        }
     };
 
-    private final int[] intValues = new int[propertyNames.length - 2];
-    private final int[] precedences = new int[propertyNames.length];
-    private final boolean[] inconsistent = new boolean[propertyNames.length];
+    /**
+     * Get the property with a given name
+     * @param name the property name
+     * @return the corresponding property. In the case of "dual" properties such as {@code PERCENT},
+     * the marker property is returned.
+     */
+
+    public static Property getPropertyForName(String name) {
+        return switch (name) {
+            case "decimal-separator" -> Property.DECIMAL_SEPARATOR_MARKER;
+            case "grouping-separator" -> Property.GROUPING_SEPARATOR_MARKER;
+            case "digit" -> Property.DIGIT;
+            case "minus-sign" -> Property.MINUS_SIGN;
+            case "percent" -> Property.PERCENT_MARKER;
+            case "per-mille" -> Property.PER_MILLE_MARKER;
+            case "zero-digit" -> Property.ZERO_DIGIT;
+            case "exponent-separator" -> Property.EXPONENT_SEPARATOR_MARKER;
+            case "pattern-separator" -> Property.PATTERN_SEPARATOR;
+            case "infinity" -> Property.INFINITY;
+            case "NaN" -> Property.NAN;
+            default -> throw new IllegalArgumentException();
+        };
+    }
+
+    /**
+     * The import precedences of the properties. This is needed in XSLT because different properties
+     * of a decimal format can be set in different stylesheet modules, and therefore have different
+     * precedences. Not used in XPath/XQuery.
+     */
+    private Map<Property, Integer> precedences = new HashMap<>(20);
+
+    /**
+     * Map noting properties that have inconsistent settings (two different settings at the same
+     * precedence level). This is reported as an error only if there is no higher-precedence
+     * setting of the property to remove the ambiguity. XSLT only.
+     */
+    private Map<Property, Boolean> inconsistent = new HashMap<>(20);
 
     /**
      * Create a DecimalSymbols object with default values for all properties
+     * @param language e.g. XSLT or XQuery
+     * @param languageLevel language version (times ten), e.g. 40 for XQuery 4.0
      */
 
     public DecimalSymbols(HostLanguage language, int languageLevel) {
-        intValues[DECIMAL_SEPARATOR] = '.';
-        intValues[GROUPING_SEPARATOR] = ',';
-        intValues[DIGIT] = '#';
-        intValues[MINUS_SIGN] = '-';
-        intValues[PERCENT] = '%';
-        intValues[PER_MILLE] = '\u2030';
-        intValues[ZERO_DIGIT] = '0';
-        intValues[EXPONENT_SEPARATOR] = 'e';
-        intValues[PATTERN_SEPARATOR] = ';';
-        infinityValue = "Infinity";
-        NaNValue = "NaN";
-        Arrays.fill(precedences, Integer.MIN_VALUE);
+        properties = new HashMap<>(defaultProperties);
         setHostLanguage(language, languageLevel);
     }
 
+    /**
+     * Copy a set of decimal format symbols
+     * @param input the symbols to be copied
+     */
+
+    public DecimalSymbols(DecimalSymbols input) {
+        properties = new HashMap<>(input.properties);
+        precedences = new HashMap<>(input.precedences);
+        inconsistent = new HashMap<>(input.inconsistent);
+        errorCodes = input.errorCodes;
+        languageLevel = input.languageLevel;
+    }
+
+    /**
+     * Set the host language and version
+     * @param language e.g. XSLT or XQuery
+     * @param languageLevel language version (times ten), e.g. 40 for XQuery 4.0
+     */
     public void setHostLanguage(HostLanguage language, int languageLevel) {
         if (language == HostLanguage.XQUERY) {
             errorCodes = XQUERY_CODES;
         } else {
             errorCodes = XSLT_CODES;
         }
+        this.languageLevel = languageLevel;
     }
 
     /**
-     * Get the decimal separator value
-     *
-     * @return the decimal separator value that has been explicitly set, or its default ('.')
+     * Get the value of a given property
+     * @param property the property required
+     * @return the property value if set, or null if not.
      */
 
-    public int getDecimalSeparator() {
-        return intValues[DECIMAL_SEPARATOR];
+    public UnicodeString getProperty(Property property) {
+        return properties.get(property);
     }
 
     /**
-     * Get the grouping separator value
-     *
-     * @return the grouping separator value that has been explicitly set, or its default (',')
+     * Get the value of a single-character property
+     * @param marker the property required
+     * @return the value of the property as a single codepoint
+     * @throws IllegalStateException if the value of the property is not a single character
      */
 
-    public int getGroupingSeparator() {
-        return intValues[GROUPING_SEPARATOR];
+    public int getMarker(Property marker) {
+        UnicodeString val = properties.get(marker);
+        if (val.length() == 1) {
+            return val.codePointAt(0);
+        } else {
+            throw new IllegalStateException("Invalid decimal property found");
+        }
     }
 
     /**
-     * Get the digit symbol value
-     *
-     * @return the digit symbol value that has been explicitly set, or its default ('#')
+     * Ask whether a given property takes its default value
+     * @param property the property in question
+     * @return true if the value is explicitly or implicitly set to its default value
      */
-
-    public int getDigit() {
-        return intValues[DIGIT];
-    }
-
-    /**
-     * Get the minus sign value
-     *
-     * @return the minus sign value that has been explicitly set, or its default ('-')
-     */
-
-    public int getMinusSign() {
-        return intValues[MINUS_SIGN];
-    }
-
-    /**
-     * Get the percent symbol value
-     *
-     * @return the percent symbol value that has been explicitly set, or its default ('%')
-     */
-
-    public int getPercent() {
-        return intValues[PERCENT];
-    }
-
-    /**
-     * Get the per-mille symbol value
-     *
-     * @return the per-mille symbol value that has been explicitly set, or its default
-     */
-
-    public int getPerMille() {
-        return intValues[PER_MILLE];
-    }
-
-    /**
-     * Get the zero digit symbol value
-     *
-     * @return the zero digit symbol value that has been explicitly set, or its default ('0')
-     */
-
-    public int getZeroDigit() {
-        return intValues[ZERO_DIGIT];
-    }
-
-    /**
-     * Get the exponent separator symbol
-     * @return the exponent separator character that has been explicitly set, or its default ('e');
-     */
-
-    public int getExponentSeparator() { return intValues[EXPONENT_SEPARATOR]; }
-
-    /**
-     * Get the pattern separator value
-     *
-     * @return the pattern separator value that has been explicitly set, or its default (';')
-     */
-
-    public int getPatternSeparator() {
-        return intValues[PATTERN_SEPARATOR];
-    }
-
-    /**
-     * Get the infinity symbol value
-     *
-     * @return the infinity symbol value that has been explicitly set, or its default ('Infinity')
-     */
-
-    public String getInfinity() {
-        return infinityValue;
-    }
-
-    /**
-     * Get the NaN symbol value
-     *
-     * @return the NaN symbol value that has been explicitly set, or its default ('NaN')
-     */
-
-    public String getNaN() {
-        return NaNValue;
-    }
-
-    /**
-     * Set the character to be used as the decimal separator
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setDecimalSeparator(String value) throws XPathException {
-        setProperty(DECIMAL_SEPARATOR, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the grouping separator
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setGroupingSeparator(String value) throws XPathException {
-        setProperty(GROUPING_SEPARATOR, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the digit symbol (default is '#')
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setDigit(String value) throws XPathException {
-        setProperty(DIGIT, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the minus sign
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setMinusSign(String value) throws XPathException {
-        setProperty(MINUS_SIGN, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the percent sign
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setPercent(String value) throws XPathException {
-        setProperty(PERCENT, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the per-mille sign
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setPerMille(String value) throws XPathException {
-        setProperty(PER_MILLE, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the zero digit (which determines the digit family used in the output)
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted),
-     *                        or if it is not a character classified in Unicode as a digit with numeric value zero
-     */
-
-    public void setZeroDigit(String value) throws XPathException {
-        setProperty(ZERO_DIGIT, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the exponent separator
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setExponentSeparator(String value) throws XPathException {
-        setProperty(EXPONENT_SEPARATOR, value, 0);
-    }
-
-    /**
-     * Set the character to be used as the pattern separator (default ';')
-     *
-     * @param value the character to be used
-     * @throws XPathException if the value is not a single Unicode character (a surrogate pair is permitted)
-     */
-
-    public void setPatternSeparator(String value) throws XPathException {
-        setProperty(PATTERN_SEPARATOR, value, 0);
-    }
-
-    /**
-     * Set the string to be used to represent infinity
-     *
-     * @param value the string to be used
-     * @throws XPathException - should not happen
-     */
-
-    public void setInfinity(String value) throws XPathException {
-        setProperty(INFINITY, value, 0);
-    }
-
-    /**
-     * Set the string to be used to represent NaN
-     *
-     * @param value the string to be used
-     * @throws XPathException - should not happen
-     */
-
-    public void setNaN(String value) throws XPathException {
-        setProperty(NAN, value, 0);
+    public boolean hasDefaultValue(Property property) {
+        return properties.get(property).equals(defaultProperties.get(property));
     }
 
     /**
      * Set the value of a property
+     * @param propertyName the name of the property as a string
+     * @param value the value of the property
+     * @throws XPathException if the name or value is invalid
+     */
+    public void setProperty(String propertyName, UnicodeString value) throws XPathException {
+        switch (propertyName) {
+            case "decimal-separator" ->
+                    setDualProperty(propertyName, Property.DECIMAL_SEPARATOR_MARKER, Property.DECIMAL_SEPARATOR_RENDITION, value);
+            case "grouping-separator" ->
+                    setDualProperty(propertyName, Property.GROUPING_SEPARATOR_MARKER, Property.GROUPING_SEPARATOR_RENDITION, value);
+            case "digit" ->
+                    setSingleCharProperty(propertyName, Property.DIGIT, value);
+            case "minus-sign" ->
+                    setStringProperty(propertyName, Property.MINUS_SIGN, value);
+            case "percent" ->
+                    setDualProperty(propertyName, Property.PERCENT_MARKER, Property.PERCENT_RENDITION, value);
+            case "per-mille" ->
+                    setDualProperty(propertyName, Property.PER_MILLE_MARKER, Property.PER_MILLE_RENDITION, value);
+            case "zero-digit" -> {
+                setSingleCharProperty(propertyName, Property.ZERO_DIGIT, value);
+                if (!isValidZeroDigit(value.codePointAt(0))) {
+                    throw new XPathException("The value of the zero-digit attribute must be a Unicode digit with value zero",
+                                             errorCodes[ERR_NOT_UNICODE_DIGIT]);
+                }
+            }
+            case "exponent-separator" ->
+                    setDualProperty(propertyName, Property.EXPONENT_SEPARATOR_MARKER, Property.EXPONENT_SEPARATOR_RENDITION, value);
+            case "pattern-separator" ->
+                    setSingleCharProperty(propertyName, Property.PATTERN_SEPARATOR, value);
+            case "infinity" ->
+                    setStringProperty(propertyName, Property.INFINITY, value);
+            case "NaN" ->
+                    setStringProperty(propertyName, Property.NAN, value);
+            default ->
+                    throw new XPathException("Unknown decimal format property: " + propertyName);
+        }
+    }
+
+    private void setSingleCharProperty(String propertyName, Property prop, UnicodeString value) throws XPathException {
+        if (value.length32() != 1) {
+            throw new XPathException("Decimal format property " + propertyName + " must be a single character", errorCodes[ERR_NOT_SINGLE_CHAR]);
+        }
+        properties.put(prop, value);
+        precedences.put(prop, 0);
+    }
+
+    private void setStringProperty(String propertyName, Property prop, UnicodeString value) throws XPathException {
+        properties.put(prop, value);
+        precedences.put(prop, 0);
+    }
+
+    private void setDualProperty(String propertyName, Property marker, Property rendition, UnicodeString value) throws XPathException {
+        if (value.length32() == 1 || languageLevel < 4) {
+            setSingleCharProperty(propertyName, marker,value);
+            setStringProperty(propertyName, rendition, value);
+        } else if (value.length32() > 2 && value.codePointAt(1) == ':') {
+            setSingleCharProperty(propertyName, marker, value.substring(0, 1));
+            setStringProperty(propertyName, rendition,value.substring(2));
+        } else {
+            throw new XPathException("Value of decimal-format property " + propertyName + " must either be a single character, "
+                                             + "or have a colon (:) as its second character", errorCodes[ERR_NOT_SINGLE_CHAR]);
+        }
+        precedences.put(marker, 0);
+        precedences.put(rendition, 0);
+    }
+
+
+    /**
+     * Set the value of a property at a given precedence level
      *
-     * @param key        the integer key of the property to be set
+     * @param prop        the property to be set
      * @param value      the value of the property as a string (in many cases, this must be a single character)
      * @param precedence the precedence of the property value
      * @throws XPathException if the property is invalid.
@@ -336,103 +319,122 @@ public class DecimalSymbols {
      *                        error is reported when the checkConsistency() method is subsequently called.
      */
 
-    public void setProperty(int key, String value, int precedence) throws XPathException {
-        String name = propertyNames[key];
-        if (key <= PATTERN_SEPARATOR) {
-            int intValue = singleChar(name, value);
-            if (precedence > precedences[key]) {
-                intValues[key] = intValue;
-                precedences[key] = precedence;
-                inconsistent[key] = false;
-            } else if (precedence == precedences[key]) {
-                if (intValue != intValues[key]) {
-                    inconsistent[key] = true;
-                }
-            } else {
-                // ignore the new value
-            }
-            if (key == ZERO_DIGIT && !isValidZeroDigit(intValue)) {
-                throw new XPathException("The value of the zero-digit attribute must be a Unicode digit with value zero",
-                        errorCodes[ERR_NOT_UNICODE_DIGIT]);
-            }
-        } else if (key == INFINITY) {
-            if (precedence > precedences[key]) {
-                infinityValue = value;
-                precedences[key] = precedence;
-                inconsistent[key] = false;
-            } else if (precedence == precedences[key]) {
-                if (!infinityValue.equals(value)) {
-                    inconsistent[key] = true;
-                }
-            }
-        } else if (key == NAN) {
-            if (precedence > precedences[key]) {
-                NaNValue = value;
-                precedences[key] = precedence;
-                inconsistent[key] = false;
-            } else if (precedence == precedences[key]) {
-                if (!NaNValue.equals(value)) {
-                    inconsistent[key] = false;
-                }
+    public void setProperty(String prop, UnicodeString value, int precedence) throws XPathException {
+        if (!isValidPropertyName(prop)) {
+            throw new XPathException("invalid decimal property name");
+        }
+        Property p = getPropertyForName(prop);
+        int existingPrecedence = precedences.getOrDefault(p, -1);
+        if (precedence > existingPrecedence) {
+            setProperty(prop, value);
+            precedences.put(p, precedence);
+            inconsistent.put(p, false);
+        } else if (precedence == existingPrecedence) {
+            if (!value.equals(properties.get(p))) {
+                inconsistent.put(p, true);
             }
         } else {
-            throw new IllegalArgumentException();
+            // ignore the new value
         }
 
     }
 
     /**
-     * Set one of the single-character properties. Used when reloading an exported package
-     * @param name the name of the property
-     * @param value the Unicode codepoint of the property value
+     * Export a decimal format to a SEF file
+     * @param name the name of the decimal format to be exported, or null for the unnamed decimal format
+     * @param out the destination of the export
      */
-
-    public void setIntProperty(String name, int value) {
-        for (int i=0; i<propertyNames.length; i++) {
-            if (propertyNames[i].equals(name)) {
-                intValues[i] = value;
-            }
-        }
-    }
-
     public void export(StructuredQName name, ExpressionPresenter out) {
-        DecimalSymbols defaultSymbols = new DecimalSymbols(HostLanguage.XSLT, 31);
         out.startElement("decimalFormat");
         if (name != null) {
             out.emitAttribute("name", name);
         }
-        for (int i=0; i<intValues.length; i++) {
-            int propValue = intValues[i];
-            if (propValue != defaultSymbols.intValues[i]) {
-                out.emitAttribute(propertyNames[i], propValue + "");
-            }
+        HashMap<String, UnicodeString> result = new HashMap<>(10);
+        if (!(hasDefaultValue(Property.DECIMAL_SEPARATOR_MARKER) && hasDefaultValue(Property.DECIMAL_SEPARATOR_RENDITION))) {
+            exportDual("decimal-separator", Property.DECIMAL_SEPARATOR_MARKER, Property.DECIMAL_SEPARATOR_RENDITION, out);
         }
-        if (!"Infinity".equals(getInfinity())) {
-            out.emitAttribute("infinity", getInfinity());
+        if (!(hasDefaultValue(Property.GROUPING_SEPARATOR_MARKER) && hasDefaultValue(Property.GROUPING_SEPARATOR_RENDITION))) {
+            exportDual("grouping-separator", Property.GROUPING_SEPARATOR_MARKER, Property.GROUPING_SEPARATOR_RENDITION, out);
         }
-        if (!"NaN".equals(getNaN())) {
-            out.emitAttribute("NaN", getNaN());
+        if (!hasDefaultValue(Property.DIGIT)) {
+            out.emitAttribute("digit", getProperty(Property.DIGIT).toString());
         }
+        if (!(hasDefaultValue(Property.EXPONENT_SEPARATOR_MARKER) && hasDefaultValue(Property.EXPONENT_SEPARATOR_RENDITION))) {
+            exportDual("exponent-separator", Property.EXPONENT_SEPARATOR_MARKER, Property.EXPONENT_SEPARATOR_RENDITION, out);
+        }
+        if (!hasDefaultValue(Property.INFINITY)) {
+            out.emitAttribute("infinity", getProperty(Property.INFINITY).toString());
+        }
+        if (!hasDefaultValue(Property.MINUS_SIGN)) {
+            out.emitAttribute("minus-sign", getProperty(Property.MINUS_SIGN).toString());
+        }
+        if (!hasDefaultValue(Property.NAN)) {
+            out.emitAttribute("NaN", getProperty(Property.NAN).toString());
+        }
+        if (!hasDefaultValue(Property.PATTERN_SEPARATOR)) {
+            out.emitAttribute("pattern-separator", getProperty(Property.PATTERN_SEPARATOR).toString());
+        }
+        if (!(hasDefaultValue(Property.PERCENT_MARKER) && hasDefaultValue(Property.PERCENT_RENDITION))) {
+            exportDual("percent", Property.PERCENT_MARKER, Property.PERCENT_RENDITION, out);
+        }
+        if (!(hasDefaultValue(Property.PER_MILLE_MARKER) && hasDefaultValue(Property.PER_MILLE_RENDITION))) {
+            exportDual("per-mille", Property.PER_MILLE_MARKER, Property.PER_MILLE_RENDITION, out);
+        }
+        if (!hasDefaultValue(Property.ZERO_DIGIT)) {
+            out.emitAttribute("zero-digit", getProperty(Property.ZERO_DIGIT).toString());
+        }
+
         out.endElement();
     }
 
-    /**
-     * Get the Unicode codepoint corresponding to a String, which must represent a single Unicode character
-     *
-     * @param name  the name of the property, for use in error messages
-     * @param value the input string, representing a single Unicode character, perhaps as a surrogate pair
-     * @return the corresponding Unicode codepoint
-     * @throws XPathException if the supplied string is not a single character
-     */
-    private int singleChar(String name, String value) throws XPathException {
-        UnicodeString us = StringView.of(value).tidy();
-        if (us.length() != 1) {
-            XPathException err = new XPathException("Attribute " + name + " should be a single character",
-                    errorCodes[ERR_NOT_SINGLE_CHAR]);
-            err.setIsStaticError(true);
-            throw err;
+    private void exportDual(String propertyName, Property marker, Property rendition, ExpressionPresenter out) {
+        if (getProperty(marker).equals(getProperty(rendition))) {
+            out.emitAttribute(propertyName, getProperty(marker).toString());
+        } else {
+            out.emitAttribute(propertyName, getProperty(marker)
+                    .concat(new UnicodeChar(':'))
+                    .concat(getProperty(rendition))
+                    .toString());
         }
-        return us.codePointAt(0);
+    }
+
+    private String getPropertyName(Property prop) {
+        switch (prop) {
+            case DECIMAL_SEPARATOR_MARKER:
+                return "decimal-separator-marker";
+            case DECIMAL_SEPARATOR_RENDITION:
+                return "decimal-separator";
+            case GROUPING_SEPARATOR_MARKER:
+                return "grouping-separator-marker";
+            case GROUPING_SEPARATOR_RENDITION:
+                return "grouping-separator";
+            case DIGIT:
+                return "digit";
+            case EXPONENT_SEPARATOR_MARKER:
+                return "decimal-separator-marker";
+            case EXPONENT_SEPARATOR_RENDITION:
+                return "exponent-separator";
+            case INFINITY:
+                return "infinity";
+            case MINUS_SIGN:
+                return "minus-sign";
+            case NAN:
+                return "NaN";
+            case PATTERN_SEPARATOR:
+                return "pattern-separator";
+            case PERCENT_MARKER:
+                return "percent-marker";
+            case PERCENT_RENDITION:
+                return "percent";
+            case PER_MILLE_MARKER:
+                return "per-mille-marker";
+            case PER_MILLE_RENDITION:
+                return "per-mille";
+            case ZERO_DIGIT:
+                return "zero-digit";
+            default:
+                return "";
+        }
     }
 
 
@@ -446,12 +448,13 @@ public class DecimalSymbols {
 
     public void checkConsistency(StructuredQName name) throws XPathException {
 
-        for (int i = 0; i < 10; i++) {
-            if (inconsistent[i]) {
+        for (Property prop : properties.keySet()) {
+            boolean isInconsistent = inconsistent.containsKey(prop) && inconsistent.get(prop);
+            if (isInconsistent) {
                 throw new XPathException(
                         "Inconsistency in " +
                                 (name == null ? "unnamed decimal format. " : "decimal format " + name.getDisplayName() + ". ") +
-                                "There are two inconsistent values for decimal-format property " + propertyNames[i] +
+                                "There are two inconsistent values for decimal-format property " + getPropertyName(prop) +
                                 " at the same import precedence")
                         .withErrorCode(errorCodes[ERR_TWO_VALUES_FOR_SAME_PROPERTY])
                         .asStaticError();
@@ -459,39 +462,39 @@ public class DecimalSymbols {
         }
 
         IntHashMap<String> map = new IntHashMap<String>(20);
-        map.put(getDecimalSeparator(), "decimal-separator");
+        map.put(getMarker(Property.DECIMAL_SEPARATOR_MARKER), "decimal-separator");
 
-        if (map.get(getGroupingSeparator()) != null) {
-            duplicate("grouping-separator", map.get(getGroupingSeparator()), name);
+        if (map.get(getMarker(Property.GROUPING_SEPARATOR_MARKER)) != null) {
+            duplicate("grouping-separator", map.get(getMarker(Property.GROUPING_SEPARATOR_MARKER)), name);
         }
-        map.put(getGroupingSeparator(), "grouping-separator");
+        map.put(getMarker(Property.GROUPING_SEPARATOR_MARKER), "grouping-separator");
 
-        if (map.get(getPercent()) != null) {
-            duplicate("percent", map.get(getPercent()), name);
+        if (map.get(getMarker(Property.PERCENT_MARKER)) != null) {
+            duplicate("percent", map.get(getMarker(Property.PERCENT_MARKER)), name);
         }
-        map.put(getPercent(), "percent");
+        map.put(getMarker(Property.PERCENT_MARKER), "percent");
 
-        if (map.get(getPerMille()) != null) {
-            duplicate("per-mille", map.get(getPerMille()), name);
+        if (map.get(getMarker(Property.PER_MILLE_MARKER)) != null) {
+            duplicate("per-mille", map.get(getMarker(Property.PER_MILLE_MARKER)), name);
         }
-        map.put(getPerMille(), "per-mille");
+        map.put(getMarker(Property.PER_MILLE_MARKER), "per-mille");
 
-        if (map.get(getDigit()) != null) {
-            duplicate("digit", map.get(getDigit()), name);
+        if (map.get(getMarker(Property.DIGIT)) != null) {
+            duplicate("digit", map.get(getMarker(Property.DIGIT)), name);
         }
-        map.put(getDigit(), "digit");
+        map.put(getMarker(Property.DIGIT), "digit");
 
-        if (map.get(getPatternSeparator()) != null) {
-            duplicate("pattern-separator", map.get(getPatternSeparator()), name);
+        if (map.get(getMarker(Property.PATTERN_SEPARATOR)) != null) {
+            duplicate("pattern-separator", map.get(getMarker(Property.PATTERN_SEPARATOR)), name);
         }
-        map.put(getPatternSeparator(), "pattern-separator");
+        map.put(getMarker(Property.PATTERN_SEPARATOR), "pattern-separator");
 
-        if (map.get(getExponentSeparator()) != null) {
-            duplicate("exponent-separator", map.get(getExponentSeparator()), name);
+        if (map.get(getMarker(Property.EXPONENT_SEPARATOR_MARKER)) != null) {
+            duplicate("exponent-separator", map.get(getMarker(Property.EXPONENT_SEPARATOR_MARKER)), name);
         }
-        map.put(getExponentSeparator(), "exponent-separator");
+        map.put(getMarker(Property.EXPONENT_SEPARATOR_MARKER), "exponent-separator");
 
-        int zero = getZeroDigit();
+        int zero = getMarker(Property.ZERO_DIGIT);
         for (int i = zero; i < zero + 10; i++) {
             if (map.get(i) != null) {
                 throw new XPathException(
@@ -548,21 +551,11 @@ public class DecimalSymbols {
         if (!(obj instanceof DecimalSymbols)) {
             return false;
         }
-        DecimalSymbols o = (DecimalSymbols) obj;
-        return getDecimalSeparator() == o.getDecimalSeparator() &&
-                getGroupingSeparator() == o.getGroupingSeparator() &&
-                getDigit() == o.getDigit() &&
-                getMinusSign() == o.getMinusSign() &&
-                getPercent() == o.getPercent() &&
-                getPerMille() == o.getPerMille() &&
-                getZeroDigit() == o.getZeroDigit() &&
-                getPatternSeparator() == o.getPatternSeparator() &&
-                getInfinity().equals(o.getInfinity()) &&
-                getNaN().equals(o.getNaN());
+        return properties.equals(((DecimalSymbols) obj).properties);
     }
 
     public int hashCode() {
-        return getDecimalSeparator() + (37 * getGroupingSeparator()) + (41 * getDigit());
+        return properties.hashCode();
     }
 
 }

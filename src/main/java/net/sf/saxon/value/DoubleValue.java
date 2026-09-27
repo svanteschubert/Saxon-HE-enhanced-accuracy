@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,15 +10,17 @@ package net.sf.saxon.value;
 import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.AtomicSortComparer;
 import net.sf.saxon.expr.sort.DoubleSortComparer;
+import net.sf.saxon.functions.Round;
+import net.sf.saxon.ma.map.BigDecimalMapKey;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceBody;
-import net.sf.saxon.type.AtomicType;
+import net.sf.saxon.transpile.CSharpReplaceException;
+import net.sf.saxon.type.AtomicMetadata;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ValidationException;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 /**
  * A numeric (double precision floating point) value
@@ -55,7 +57,7 @@ public final class DoubleValue extends NumericValue {
      *              value must conform to this type. The method does not check these conditions.
      */
 
-    public DoubleValue(double value, AtomicType typeLabel) {
+    public DoubleValue(double value, AtomicMetadata typeLabel) {
         super(typeLabel);
         this.value = value;
     }
@@ -74,14 +76,14 @@ public final class DoubleValue extends NumericValue {
     /**
      * Create a copy of this atomic value, with a different type label
      *
-     * @param typeLabel the type label of the new copy. The caller is responsible for checking that
+     * @param metadata the type label of the new copy. The caller is responsible for checking that
      *                  the value actually conforms to this type.
      */
 
     /*@NotNull*/
     @Override
-    public AtomicValue copyAsSubType(AtomicType typeLabel) {
-        return new DoubleValue(value, typeLabel);
+    public AtomicValue withMetadata(AtomicMetadata metadata) {
+        return new DoubleValue(value, metadata);
     }
 
     /**
@@ -125,9 +127,27 @@ public final class DoubleValue extends NumericValue {
      *          if the value cannot be converted, for example if it is NaN or infinite
      */
     @Override
+    @CSharpReplaceException(from = "java.lang.NumberFormatException", to = "System.ArgumentOutOfRangeException")
     public BigDecimal getDecimalValue() throws ValidationException {
         try {
             return BigDecimal.valueOf(value);
+        } catch (NumberFormatException e) {
+            throw new ValidationException(e);
+        }
+    }
+
+    /**
+     * Get the numeric value converted to a decimal. This method gets the exact value
+     * as needed for map keys and fn:compare, to give transitive comparison semantics
+     *
+     * @return a decimal representing this numeric value;
+     * @throws ValidationException if the value cannot be converted, for example if it is NaN or infinite
+     */
+    @Override
+    @CSharpReplaceException(from="java.lang.NumberFormatException", to="System.ArgumentOutOfRangeException")
+    public BigDecimal getExactDecimalValue() throws ValidationException {
+        try {
+            return new BigDecimal(value);
         } catch (NumberFormatException e) {
             throw new ValidationException(e);
         }
@@ -153,7 +173,11 @@ public final class DoubleValue extends NumericValue {
      */
 
     public int hashCode() {
-        if (value > Integer.MIN_VALUE && value < Integer.MAX_VALUE) {
+        if (isNaN()) {
+            return AtomicSortComparer.COLLATION_KEY_NaN.hashCode();
+        } else if (Double.isInfinite(value)) {
+            return Double.valueOf(value).hashCode();
+        } else if (isWholeNumber() && value > Integer.MIN_VALUE && value < Integer.MAX_VALUE) {
             return (int) value;
         } else {
             return Double.valueOf(value).hashCode();
@@ -254,7 +278,6 @@ public final class DoubleValue extends NumericValue {
      */
 
     @Override
-    @CSharpReplaceBody(code="return new Saxon.Hej.value.DoubleValue(Saxon.Impl.Helpers.Utils.roundDouble(value, scale));")
     public NumericValue round(int scale) {
         if (Double.isNaN(value)) {
             return this;
@@ -273,82 +296,53 @@ public final class DoubleValue extends NumericValue {
             return new DoubleValue(Math.round(value));
         }
 
-        // Convert to a scaled integer, by multiplying by 10^scale
+        return roundViaDecimal(scale, Round.RoundingRule.HALF_TO_CEILING);
 
-        double factor = Math.pow(10, scale + 1);
-        double d = Math.abs(value * factor);
-
-        if (Double.isInfinite(d)) {
-            // double arithmetic has overflowed - do it in decimal
-            BigDecimal dec = BigDecimal.valueOf(value);
-            dec = dec.setScale(scale, RoundingMode.HALF_UP);
-            return new DoubleValue(dec.doubleValue());
-        }
-
-        // Now apply any rounding needed, using the "round half to even" rule***CHANGE
-
-        double rem = d % 10;
-        if (rem >= 5) {
-            d += 10 - rem;
-        } else if (rem < 5) {
-            d -= rem;
-        }
-
-        // Now convert back to the original magnitude
-
-        d /= factor;
-        if (value < 0) {
-            d = -d;
-        }
-        return new DoubleValue(d);
     }
 
     /**
-     * Implement the XPath round-to-half-even() function
+     * Implement the XPath round() and round-to-half-even() function
      */
 
     @Override
-    public NumericValue roundHalfToEven(int scale) {
-        if (Double.isNaN(value)) return this;
-        if (Double.isInfinite(value)) return this;
-        if (value == 0.0) return this;    // handles the negative zero case
-
-        // Convert to a scaled integer, by multiplying by 10^scale
-
-        double factor = Math.pow(10, scale + 1);
-        double d = Math.abs(value * factor);
-
-        if (Double.isInfinite(d)) {
-            // double arithmetic has overflowed - do it in decimal
-            BigDecimal dec = BigDecimal.valueOf(value);
-            dec = dec.setScale(scale, RoundingMode.HALF_EVEN);
-            return new DoubleValue(dec.doubleValue());
+    public NumericValue round(int scale, Round.RoundingRule roundingRule) {
+        if (value == 0.0 || Double.isNaN(value) || Double.isInfinite(value)) {
+            return this;
         }
 
-        // Now apply any rounding needed, using the "round half to even" rule
-
-        double rem = d % 10;
-        if (rem > 5) {
-            d += 10 - rem;
-        } else if (rem < 5) {
-            d -= rem;
-        } else {
-            // round half to even - check the last bit
-            if ((d % 20) == 15) {
-                d += 5;
-            } else {
-                d -= 5;
+        // Handle some simple special cases
+        
+        if (scale == 0) {
+            if (roundingRule == Round.RoundingRule.CEILING) {
+                return ceiling();
+            } else if (roundingRule == Round.RoundingRule.FLOOR) {
+                return floor();
+            } else if (roundingRule == Round.RoundingRule.HALF_TO_CEILING) {
+                if (value > Long.MIN_VALUE && value < Long.MAX_VALUE) {
+                    if (value >= -0.5 && value < 0.0) {
+                        return new DoubleValue(-0.0);
+                    }
+                    return new DoubleValue(Math.round(value));
+                }
             }
         }
 
-        // Now convert back to the original magnitude
+        return roundViaDecimal(scale, roundingRule);
+    }
 
-        d /= factor;
-        if (value < 0) {
-            d = -d;
+    private DoubleValue roundViaDecimal(int scale, Round.RoundingRule roundingRule) {
+        if (value == 0.0 || Double.isNaN(value) || Double.isInfinite(value)) {
+            return this;
         }
-        return new DoubleValue(d);
 
+        BigDecimalValue decimalValue = new BigDecimalValue(new BigDecimal(value));
+        NumericValue rounded = decimalValue.round(scale, roundingRule);
+        double result = rounded.getDoubleValue();
+        if (result == 0.0e0) {
+            // return negative zero if the original value was negative
+            return value < 0 ? DoubleValue.NEGATIVE_ZERO : DoubleValue.ZERO;
+        }
+        return new DoubleValue(result);
     }
 
     /**
@@ -433,32 +427,51 @@ public final class DoubleValue extends NumericValue {
         return value < otherDouble ? -1 : +1;
     }
 
-    /**
-     * Get an object that implements XML Schema comparison semantics
-     * @return a comparable that follows XSD rules
-     */
+
+    @Override
+    public int transitiveCompareTo(NumericValue other) {
+        if (other instanceof DoubleValue || other instanceof FloatValue) {
+            double d2 = other.getDoubleValue();
+            if (value == d2) {
+                return 0; // handles the positive/negative zero case
+            }
+            return Double.compare(value, d2);
+        } else {
+            return -other.transitiveCompareTo(this);
+        }
+    }
 
     /**
-     * Get a value whose equals() method follows the "same key" rules for comparing the keys of a map.
+     * Get a value whose {@code equals()} and {@code hashcode()} methods follows the "same key"
+     * rules for comparing the keys of a map. For numeric values, this is done as follows:
+     * <ul>
+     *     <li>For NaN, return {@code AtomicSortComparer.COLLATION_KEY_NaN;}</li>
+     *     <li>For +INF and -INF, call {@code java.lang.Double.hashcode()}</li>
+     *     <li>For any value that is numerically equal to some 32-bit signed integer, return
+     *         a {@link net.sf.saxon.ma.map.Int32MapKey}</li>
+     *     <li>For any other value, return a {@link net.sf.saxon.ma.map.BigDecimalMapKey}</li>
+     * </ul>
      *
-     * @return a value with the property that the equals() and hashCode() methods follow the rules for comparing
+     * @return a value with the property that the {@code equals()} and {@code hashcode()} methods follow the rules for comparing
      * keys in maps.
      */
 
     @Override
-    public AtomicMatchKey asMapKey() {
+    public AtomicMatchKey asMapKey(int specVersion) {
         if (isNaN()) {
             return AtomicSortComparer.COLLATION_KEY_NaN;
         } else if (Double.isInfinite(value)) {
             return this;
+        } else if (Math.floor(value) == value && value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
+            return new net.sf.saxon.ma.map.Int32MapKey((int)value);
         } else {
-            try {
-                return new BigDecimalValue(value);
-            } catch (ValidationException e) {
-                // We have already ruled out the values that fail (NaN and INF)
-                throw new AssertionError(e);
-            }
+            return new BigDecimalMapKey(fromDouble(value));
         }
+    }
+
+    @CSharpReplaceBody(code = "return Saxon.Impl.Helpers.BigDecimalUtils.ExactValueOf(value);")
+    private static BigDecimal fromDouble(double value) {
+        return new BigDecimal(value);
     }
 
     /**

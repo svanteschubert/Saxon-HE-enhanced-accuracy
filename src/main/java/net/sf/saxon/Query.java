@@ -1,11 +1,13 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 package net.sf.saxon;
+
+////import com.saxonica.ee.schema.PreparedSchema;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.expr.instruct.TerminationException;
@@ -68,17 +70,17 @@ public class Query {
     protected String moduleURIResolverClass = null;
     protected boolean explaining = false;
     protected boolean wrap = false;
-    protected boolean projection = false;
     protected boolean streaming = false;
     protected boolean updating = false;
     protected boolean writeback = false;
     protected boolean backup = true;
     protected String explainOutputFileName = null;
-    private Logger traceDestination = new StandardLogger();
+    private Logger traceDestination = StandardLogger.makeLogger();
     private boolean closeTraceDestination = false;
     private boolean allowExit = true;
     protected String languageVersion = "3.1";
     protected String nsOption;
+    private XsdSchema externalSchema = null;
 
 
     /**
@@ -104,7 +106,26 @@ public class Query {
 
     public static void main(String[] args) {
         // the real work is delegated to another routine so that it can be used in a subclass
-        new Query().doQuery(args, "java net.sf.saxon.Query");
+        new Query().execute(args);
+    }
+
+    /**
+     * Main entry point for running the program from the command line via the
+     * static {@link #main} method.
+     *
+     * <p>This method runs the program, catches any {@link
+     * CommandExitException}s, and calling {@link System#exit} with
+     * {@link CommandExitException#getCode}.</p>
+     * @param args List of arguments supplied on operating system command line
+     * @since 12.10
+     */
+
+    public void execute(String[] args) {
+        try {
+            doQuery(args);
+        } catch (CommandExitException e) {
+            System.exit(e.getCode());
+        }
     }
 
     /**
@@ -121,8 +142,8 @@ public class Query {
                                     "Use specified catalog file to resolve URIs");
         options.addRecognizedOption("config", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Use specified configuration file");
-        options.addRecognizedOption("cr", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
-                                    "Use specified collection URI resolver class");
+//        options.addRecognizedOption("cr", CommandLineOptions.TYPE_CLASSNAME | CommandLineOptions.VALUE_REQUIRED,
+//                                    "Use specified collection URI resolver class");
         options.addRecognizedOption("dtd", CommandLineOptions.TYPE_ENUMERATION,
                                     "Validate using DTD");
         options.setPermittedValues("dtd", new String[]{"on", "off", "recover"}, "on");
@@ -153,8 +174,6 @@ public class Query {
         options.setPermittedValues("outval", new String[]{"recover", "fatal"}, null);
         options.addRecognizedOption("p", CommandLineOptions.TYPE_BOOLEAN,
                                     "Recognize query parameters in URI passed to doc()");
-        options.addRecognizedOption("projection", CommandLineOptions.TYPE_BOOLEAN,
-                                    "Use source document projection");
         options.addRecognizedOption("q", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "Query filename");
         options.addRecognizedOption("qs", CommandLineOptions.TYPE_STRING | CommandLineOptions.VALUE_REQUIRED,
@@ -183,11 +202,11 @@ public class Query {
                                     "Display version and timing information");
         options.addRecognizedOption("T", CommandLineOptions.TYPE_CLASSNAME,
                                     "Use named TraceListener class, or standard TraceListener");
+        options.addRecognizedOption("TC", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
+                "Write coverage data to specified output file");
         options.addRecognizedOption("TJ", CommandLineOptions.TYPE_BOOLEAN,
                                     "Debug binding and execution of extension functions");
         options.setPermittedValues("TJ", new String[]{"on", "off"}, "on");
-        options.addRecognizedOption("tree", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
-                                    "Use specified tree model for source documents");
         options.addRecognizedOption("Tlevel", CommandLineOptions.TYPE_STRING,
                                     "Level of detail for trace listener output");
         options.setPermittedValues("Tlevel", new String[]{"none", "low", "normal", "high"}, "normal");
@@ -199,6 +218,8 @@ public class Query {
                                     "Stylesheet for formatting -TP output");
         options.addRecognizedOption("traceout", CommandLineOptions.TYPE_FILENAME | CommandLineOptions.VALUE_REQUIRED,
                                     "File for output of trace() messages");
+        options.addRecognizedOption("tree", CommandLineOptions.TYPE_ENUMERATION | CommandLineOptions.VALUE_REQUIRED,
+                                    "Use specified tree model for source documents");
         options.setPermittedValues("tree", new String[]{"linked", "tiny", "tinyc"}, null);
         options.addRecognizedOption("u", CommandLineOptions.TYPE_BOOLEAN,
                                     "Interpret filename arguments as URIs");
@@ -231,9 +252,18 @@ public class Query {
     }
 
 
+
+
     /**
-     * Support method for main program. This support method can also be invoked from subclasses
-     * that support the same command line interface
+     * Support method for main program. This support method can also be
+     * invoked from subclasses that support the same command line interface.
+     *
+     * <p>In previous Saxon versions (12.9 and earlier) this method could call
+     * {@link System#exit} unless the argument {@code "-quit:off"} was passed.
+     * Now it throws a {@link CommandExitException} in this case.
+     * {@code CommandExitException} extends {@link RuntimeException}, so
+     * behaviour with and without {@code "-quit:off"} is functionally identical
+     * for API clients now.</p>
      *
      * @param args    the command-line arguments
      */
@@ -283,6 +313,9 @@ public class Query {
             XQueryCompiler compiler = processor.newXQueryCompiler();
             compiler.setSchemaAware(schemaAware);
             compiler.setLanguageVersion(languageVersion);
+            if (externalSchema != null) {
+                compiler.useSchema(externalSchema);
+            }
 
             if (updating) {
                 compiler.setUpdatingEnabled(true);
@@ -331,6 +364,12 @@ public class Query {
                 sourceInput = processSourceFile(sourceXmlFileName, useURLs);
             }
 
+            if (repeat > 1 && showTime) {
+                for (int c=0; c<20; c++) {
+                    // Absorb Java start-up cost
+                    compileQuery(compiler, queryFileName, useURLs);
+                }
+            }
             long startTime = System.nanoTime();
             if (showTime) {
                 config.getLogger().info("Analyzing query from " + queryFileName);
@@ -393,9 +432,8 @@ public class Query {
                 exp.explain(out);
             }
 
-            // Load the source file (applying document projection if requested)
+            // Load the source file
 
-            exp.getUnderlyingCompiledQuery().setAllowDocumentProjection(projection);
             final XQueryEvaluator evaluator = exp.load();
             evaluator.setTraceFunctionDestination(traceDestination);
             if (options.getOptionValue("now") != null) {
@@ -415,7 +453,7 @@ public class Query {
                     Reader jsonReader = new BufferedReader(
                                     new InputStreamReader(new FileInputStream(sourceJsonFileName), StandardCharsets.UTF_8));
                     XdmValue jsonTree = parseJson(processor, jsonReader);
-                    if (!jsonTree.isEmpty()) {
+                    if (!jsonTree.isEmptySequence()) {
                         evaluator.setContextItem(jsonTree.itemAt(0));
                     }
                 } catch (IOException e) {
@@ -497,6 +535,8 @@ public class Query {
         } catch (TransformerFactoryConfigurationError err) {
             err.printStackTrace();
             quit("Query processing failed", 2);
+        } catch (CommandExitException err) {
+            throw err;
         } catch (Exception err2) {
             err2.printStackTrace();
             quit("Fatal error during query: " + err2.getClass().getName() + ": " +
@@ -543,11 +583,10 @@ public class Query {
      * Parse the options supplied on the command line
      *
      * @param options the command line arguments
-     * @throws TransformerException if failures occur. Note, the method may also invoke System.exit().
+     * @throws SaxonApiException if failures occur. Note, the method may also invoke System.exit().
      */
 
-    void parseOptions(CommandLineOptions options)
-            throws TransformerException {
+    void parseOptions(CommandLineOptions options) throws SaxonApiException {
 
         // Apply those options which simply update the Configuration
 
@@ -571,9 +610,6 @@ public class Query {
             config.setBooleanProperty(Feature.RECOGNIZE_URI_QUERY_PARAMETERS, true);
             useURLs = true;
         }
-
-        projection = "on".equals(options.getOptionValue("projection"));
-
 
         value = options.getOptionValue("q");
         if (value != null) {
@@ -621,14 +657,14 @@ public class Query {
                     // no action, this is the default
                     break;
                 case "#out":
-                    traceDestination = new StandardLogger(System.out);
+                    traceDestination = StandardLogger.makeLogger(System.out);
                     break;
                 case "#null":
                     traceDestination = null;
                     break;
                 default:
                     try {
-                        traceDestination = new StandardLogger(new File(value));
+                        traceDestination = StandardLogger.makeLogger(new File(value));
                         closeTraceDestination = true;
                     } catch (FileNotFoundException e) {
                         badUsage("Trace output file " + value + " cannot be created");
@@ -639,12 +675,30 @@ public class Query {
 
         value = options.getOptionValue("T");
         if (value != null) {
-            if ("".equals(value)) {
+            if (value.isEmpty()) {
                 makeXQueryTraceListener(options);
             } else {
                 config.setTraceListenerClass(value);
             }
             config.setLineNumbering(true);
+        }
+
+        value = options.getOptionValue("TC");
+        if (value != null) {
+            XQueryCoverageCodeInjector injector = new XQueryCoverageCodeInjector();
+            CoverageTraceListener listener = new CoverageTraceListener(injector.histograms);
+            processor.setConfigurationProperty(Feature.TRACE_LISTENER, listener);
+            processor.setConfigurationProperty(Feature.LINE_NUMBERING, true);
+            config.setLineNumbering(true);
+            config.getDefaultStaticQueryContext().setCodeInjector(injector);
+            if (!value.isEmpty()) {
+                try {
+                    listener.setOutputDestination(
+                            StandardLogger.makeLogger(new File(value)));
+                } catch (FileNotFoundException e) {
+                    throw new SaxonApiException(e);
+                }
+            }
         }
 
         value = options.getOptionValue("Tout");
@@ -664,7 +718,7 @@ public class Query {
             if (!value.isEmpty()) {
                 try {
                     traceListener.setOutputDestination(
-                            new StandardLogger(new File(value)));
+                            StandardLogger.makeLogger(new File(value)));
                 } catch (FileNotFoundException e) {
                     badUsage("Trace output file " + value + " cannot be created");
                 }
@@ -703,8 +757,6 @@ public class Query {
             config.setSourceParserClass(value);
         }
 
-        String additionalSchemas = options.getOptionValue("xsd");
-
         value = options.getOptionValue("?");
         if (value != null) {
             badUsage("");
@@ -740,11 +792,14 @@ public class Query {
 
         String scmInput = options.getOptionValue("scmin");
         if (scmInput != null) {
-            config.importComponents(new StreamSource(scmInput));
+//            PreparedSchema ps = PreparedSchema.fromScm(config, new StreamSource(value));
+//            //compiler.useSchema(null);
+            throw new UnsupportedOperationException(); // TODO: implement me
         }
 
+        String additionalSchemas = options.getOptionValue("xsd");
         if (additionalSchemas != null) {
-            CommandLineOptions.loadAdditionalSchemas(config, additionalSchemas);
+            externalSchema = CommandLineOptions.loadAdditionalSchemas(processor, additionalSchemas);
         }
     }
 
@@ -753,7 +808,7 @@ public class Query {
         String value = options.getOptionValue("Tout");
         if (value != null) {
             try {
-                listener.setOutputDestination(new StandardLogger(new PrintStream(value)));
+                listener.setOutputDestination(StandardLogger.makeLogger(new PrintStream(value)));
             } catch (FileNotFoundException e) {
                 badUsage("Cannot write to " + value);
             }
@@ -951,6 +1006,11 @@ public class Query {
             DocumentBuilder builder = processor.newDocumentBuilder();
             if (exp.isUpdateQuery()) {
                 builder.setTreeModel(TreeModel.LINKED_TREE);
+            } else {
+                builder.setTreeModel(TreeModel.getTreeModel(getConfiguration().getTreeModel()));
+            }
+            if (externalSchema != null) {
+                builder.setSchemaValidator(externalSchema.newValidator());
             }
             if (showTime) {
                 config.getLogger().info("Processing " + sourceInput.getSystemId());
@@ -958,12 +1018,6 @@ public class Query {
             if (!exp.getUnderlyingCompiledQuery().usesContextItem()) {
                 config.getLogger().warning("Source document ignored - query can be evaluated without reference to the context item");
                 return;
-            }
-            if (projection) {
-                builder.setDocumentProjectionQuery(exp);
-                if (explaining) {
-                    exp.getUnderlyingCompiledQuery().explainPathMap();
-                }
             }
             builder.setDTDValidation(getConfiguration().getBooleanProperty(Feature.DTD_VALIDATION));
             if (getConfiguration().getBooleanProperty(Feature.DTD_VALIDATION_RECOVERABLE)) {
@@ -1097,7 +1151,7 @@ public class Query {
                 // OK
                 break;
             case Type.ELEMENT:
-                NodeInfo parent = doc.getParent();
+                NodeInfo parent = (NodeInfo)doc.getParent();
                 if (parent != null && parent.getNodeKind() != Type.DOCUMENT) {
                     throw new SaxonApiException("Cannot rewrite an element node unless it is top-level");
                 }
@@ -1146,8 +1200,12 @@ public class Query {
     }
 
     /**
-     * Exit with a message
+     * Exit with a message, by throwing an unchecked exception.
+     * If this method throws a {@link CommandExitException} then the
+     * catching method will call {@link System#exit} using the value
+     * from {@link CommandExitException#getCode}.
      *
+     * @throws CommandExitException
      * @param message The message to be output
      * @param code    The result code to be returned to the operating
      *                system shell
@@ -1160,7 +1218,7 @@ public class Query {
             System.err.println(message);
         }
         if (allowExit) {
-            System.exit(code);
+            throw new CommandExitException(code, message);
         } else {
             throw new RuntimeException(message);
         }
@@ -1179,7 +1237,7 @@ public class Query {
         if (!showTime) {
             logger.info(config.getProductTitle());
         }
-        logger.info("Usage: see http://www.saxonica.com/documentation/index.html#!using-xquery/commandline");
+        logger.info("Usage: see https://www.saxonica.com/documentation/index.html#!using-xquery/commandline");
         logger.info("Format: " + CommandLineOptions.getCommandName(this) + " options params");
         CommandLineOptions options = new CommandLineOptions();
         setPermittedOptions(options);

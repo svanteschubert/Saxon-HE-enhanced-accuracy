@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.om.AttributeInfo;
-import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.trans.XPathException;
 
@@ -61,14 +60,7 @@ public class XSLMatchingSubstring extends StyleElement {
             compileError(getDisplayName() + " must be immediately within xsl:analyze-string", "XTSE0010");
         }
         if (select != null) {
-            for (NodeInfo child : children()) {
-                if (!(child instanceof XSLFallback)) {
-                    if (select != null) {
-                        compileError("An " + getDisplayName() + " element with a select attribute must be empty", "XTSE3185");
-                    }
-                    break;
-                }
-            }
+            checkSelectXorContent(true);
             select = typeCheck("select", select);
         }
     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr;
 
+//import com.saxonica.ee.stream.Streamability;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.event.ReceiverOption;
 import net.sf.saxon.expr.flwor.LocalVariableBinding;
@@ -16,14 +17,13 @@ import net.sf.saxon.expr.instruct.LocalParamBlock;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.lib.StandardDiagnostics;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 /**
@@ -312,7 +312,9 @@ public abstract class VariableReference extends Expression implements BindingRef
             newItemType = type;
         }
         int newcard = cardinality & getCardinality();
-        if (newcard == 0) {
+        if (newItemType == ErrorType.getInstance()) {
+            newcard = StaticProperty.ALLOWS_ZERO_OR_MORE;
+        } else if (newcard == 0) {
             // this will probably lead to a type error later
             newcard = getCardinality();
         }
@@ -330,14 +332,14 @@ public abstract class VariableReference extends Expression implements BindingRef
     /*@NotNull*/
     @Override
     public ItemType getItemType() {
-        if (staticType == null || staticType.getPrimaryType() == AnyItemType.getInstance()) {
+        if (staticType == null || staticType.getPrimaryType() == AnyItemType.INSTANCE) {
             if (binding != null) {
                 SequenceType st = binding.getRequiredType();
                 if (st != null) {
                     return st.getPrimaryType();
                 }
             }
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         } else {
             return staticType.getPrimaryType();
         }
@@ -368,28 +370,6 @@ public abstract class VariableReference extends Expression implements BindingRef
             }
         }
         return UType.ANY;
-    }
-
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     * unknown or not applicable.
-     */
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        if (binding != null) {
-            return binding.getIntegerBoundsForVariable();
-        } else {
-            return null;
-        }
     }
 
     /**
@@ -541,31 +521,6 @@ public abstract class VariableReference extends Expression implements BindingRef
             parent = parent.getParentExpression();
         }
         return null;
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNodeSet representing the points in the source document that are both reachable by this
-     * expression, and that represent possible results of this expression. For an expression that does
-     * navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     * expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        return pathMap.getPathForVariable(getBinding());
     }
 
     /**

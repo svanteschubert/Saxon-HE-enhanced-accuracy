@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,25 +26,7 @@ import net.sf.saxon.value.IntegerValue;
 /**
  * Implementation of the fn:count function
  */
-public class Count extends SystemFunction {
-
-    /**
-     * For an expression that returns an integer or a sequence of integers, get
-     * a lower and upper bound on the values of the integers that may be returned, from
-     * static analysis. The default implementation returns null, meaning "unknown" or
-     * "not applicable". Other implementations return an array of two IntegerValue objects,
-     * representing the lower and upper bounds respectively. The values
-     * UNBOUNDED_LOWER and UNBOUNDED_UPPER are used by convention to indicate that
-     * the value may be arbitrarily large. The values MAX_STRING_LENGTH and MAX_SEQUENCE_LENGTH
-     * are used to indicate values limited by the size of a string or the size of a sequence.
-     *
-     * @return the lower and upper bounds of integer values in the result, or null to indicate
-     *         unknown or not applicable.
-     */
-    @Override
-    public IntegerValue[] getIntegerBounds() {
-        return new IntegerValue[]{Int64Value.ZERO, Expression.MAX_SEQUENCE_LENGTH};
-    }
+public class Count extends SystemFunction implements ArityOneFunction {
 
     /**
      * Get the number of items in a sequence identified by a SequenceIterator
@@ -99,8 +81,20 @@ public class Count extends SystemFunction {
      */
     @Override
     public IntegerValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-        Sequence arg = arguments[0];
-        int size = arg instanceof GroundedValue ? ((GroundedValue)arg).getLength() : count(arg.iterate());
+        return call1(context, arguments[0]);
+    }
+
+    /**
+     * Call a function with one argument
+     *
+     * @param context the dynamic evaluation context
+     * @param arg0    the first argument
+     * @return the result of the function call
+     * @throws XPathException if the call fails with a dynamic error
+     */
+    @Override
+    public IntegerValue call1(XPathContext context, Sequence arg0) throws XPathException {
+        int size = arg0 instanceof GroundedValue ? ((GroundedValue) arg0).getLength() : count(arg0.iterate());
         return Int64Value.makeIntegerValue(size);
     }
 

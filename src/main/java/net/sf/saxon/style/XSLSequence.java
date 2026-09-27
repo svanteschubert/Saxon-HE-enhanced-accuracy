@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,14 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.instruct.SequenceInstr;
+import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.om.AttributeInfo;
-import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.NodeName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.value.SequenceType;
+
+import java.util.function.Supplier;
 
 
 /**
@@ -23,6 +26,7 @@ import net.sf.saxon.trans.XPathException;
 public class XSLSequence extends StyleElement {
 
     private Expression select;
+    private SequenceType requiredType;
 
     /**
      * Determine whether this node is an instruction.
@@ -74,6 +78,14 @@ public class XSLSequence extends StyleElement {
             String f = attName.getDisplayName();
             if (f.equals("select")) {
                 select = makeExpression(value, att);
+            } else if (f.equals("as")) {
+                if (requireXslt40Attribute("as")) {
+                    try {
+                        requiredType = makeSequenceType(value);
+                    } catch (XPathException e) {
+                        compileErrorInAttribute(e, "as");
+                    }
+                }
             } else {
                 checkUnknownAttribute(attName);
             }
@@ -83,22 +95,22 @@ public class XSLSequence extends StyleElement {
 
     @Override
     public void validate(ComponentDeclaration decl) throws XPathException {
-        for (NodeInfo child : children()) {
-            if (!(child instanceof XSLFallback)) {
-                if (select != null) {
-                    compileError("An " + getDisplayName() + " element with a select attribute must be empty", "XTSE3185");
-                }
-                break;
-            }
-        }
+        checkSelectXorContent(true);
         select = typeCheck("select", select);
     }
 
     /*@Nullable*/
     @Override
     public Expression compile(Compilation exec, ComponentDeclaration decl) throws XPathException {
+        String container = select == null ? "xsl:sequence/#content" : "xsl:sequence/select";
         if (select == null) {
             select = compileSequenceConstructor(exec, decl, false);
+        }
+        if (requiredType != null) {
+            Supplier<RoleDiagnostic> role = () ->
+                    new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, container, 0, "XPTY0004");
+            select = getConfiguration().getTypeChecker(false).staticTypeCheck(
+                    select, requiredType, role, makeExpressionVisitor());
         }
         if (getConfiguration().getBooleanProperty(Feature.STRICT_STREAMABILITY)) {
             select = new SequenceInstr(select);

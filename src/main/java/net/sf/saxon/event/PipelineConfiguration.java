@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -34,6 +34,7 @@ public class PipelineConfiguration {
     private Controller controller;
     private ParseOptions parseOptions;
     private HostLanguage hostLanguage = HostLanguage.UNKNOWN;
+    private int hostLanguageVersion = 31;
     private Map<String, Object> components;
     private XPathContext context;
     private java.util.function.Function<NodeInfo, Object> copyInformee;
@@ -70,6 +71,7 @@ public class PipelineConfiguration {
         controller = p.controller;
         parseOptions = p.parseOptions;
         hostLanguage = p.hostLanguage;
+        hostLanguageVersion = p.hostLanguageVersion;
         if (p.components != null) {
             components = new HashMap<>(p.components);
         }
@@ -189,17 +191,6 @@ public class PipelineConfiguration {
         return getParseOptions().isContinueAfterValidationErrors();
     }
 
-//    /**
-//     * Set a user-defined SchemaURIResolver for resolving URIs used in "import schema"
-//     * declarations.
-//     *
-//     * @param resolver the SchemaURIResolver
-//     */
-//
-//    public void setSchemaURIResolver(SchemaURIResolver resolver) {
-//        schemaURIResolver = resolver;
-//    }
-
     /**
      * Get the controller associated with this pipelineConfiguration
      *
@@ -250,6 +241,21 @@ public class PipelineConfiguration {
 
     public void setHostLanguage(HostLanguage language) {
         hostLanguage = language;
+    }
+
+    /**
+     * Set the host language and version in use
+     *
+     * @param language for example {@link HostLanguage#XSLT} or {@link HostLanguage#XQUERY}
+     */
+
+    public void setHostLanguage(HostLanguage language, int version) {
+        hostLanguage = language;
+        hostLanguageVersion = version;
+    }
+
+    public int getHostLanguageVersion() {
+        return hostLanguageVersion;
     }
 
     /**

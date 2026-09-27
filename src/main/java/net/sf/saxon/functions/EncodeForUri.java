@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,7 +11,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.serialize.charcode.UTF8CharacterSet;
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
@@ -28,6 +28,9 @@ public class EncodeForUri extends ScalarSystemFunction {
 
     @Override
     public AtomicValue evaluate(Item arg, XPathContext context) throws XPathException {
+        if (arg == null) {
+            return StringValue.EMPTY_STRING;
+        }
         final UnicodeString s = arg.getUnicodeStringValue();
         return escape(s, "-_.~");
     }
@@ -51,22 +54,22 @@ public class EncodeForUri extends ScalarSystemFunction {
 
     public static StringValue escape(UnicodeString s, String allowedPunctuation) {
         s = s.tidy();
-        UnicodeBuilder sb = new UnicodeBuilder(s.length32() + 20);
+        TwineBuilder tb = TwineBuilder.make(s.length32() + 20);
         IntIterator iter = s.codePoints();
         while (iter.hasNext()) {
             int c = iter.next();
             if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
-                sb.append(c);
+                tb = tb.append(c);
             } else if (c <= 0x20 || c >= 0x7f) {
-                escapeChar(c, sb);
+                tb = escapeChar(c, tb);
             } else if (allowedPunctuation.indexOf((char)c) >= 0) {
-                sb.append(c);
+                tb = tb.append(c);
             } else {
-                escapeChar(c, sb);
+                tb = escapeChar(c, tb);
             }
 
         }
-        return new StringValue(sb.toUnicodeString());
+        return new StringValue(tb.toUnicodeString());
     }
 
     private static final String hex = "0123456789ABCDEF";
@@ -76,15 +79,16 @@ public class EncodeForUri extends ScalarSystemFunction {
      * a surrogate pair
      *
      * @param cp  the codepoint to be escaped,
-     * @param sb the buffer to contain the escaped result
+     * @param tb the buffer to contain the escaped result
      */
 
-    public static void escapeChar(int cp, UnicodeBuilder sb) {
+    public static TwineBuilder escapeChar(int cp, TwineBuilder tb) {
         byte[] array = UTF8CharacterSet.encode(new IntSingletonIterator(cp));
         for (byte value : array) {
             int v = (int) value & 0xff;
-            sb.append('%').append(hex.charAt(v / 16)).append(hex.charAt(v % 16));
+            tb = tb.append('%').append(hex.charAt(v / 16)).append(hex.charAt(v % 16));
         }
+        return tb;
     }
 
     /**

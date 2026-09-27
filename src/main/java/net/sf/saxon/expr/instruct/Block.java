@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,12 +14,14 @@ import net.sf.saxon.ma.zeno.ZenoSequence;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.str.EmptyUnicodeString;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.type.*;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.*;
 
 import java.util.ArrayList;
@@ -65,7 +67,7 @@ public class Block extends Instruction {
      * @param n the position of the child expression required (zero-based)
      * @return the child expression at that position
      */
-
+    
     private Expression child(int n) {
         return operanda[n].getChildExpression();
     }
@@ -280,8 +282,8 @@ public class Block extends Instruction {
         }
         Expression[] checked = new Expression[operanda.length];
         SequenceType subReq = req;
-        if (req.getCardinality() != StaticProperty.ALLOWS_ZERO_OR_MORE) {
-            subReq = SequenceType.makeSequenceType(req.getPrimaryType(), StaticProperty.ALLOWS_ZERO_OR_MORE);
+        if (req.getCardinality() != StaticProperty.ALLOWS_ZERO_OR_MORE && req.getCardinality() != StaticProperty.ALLOWS_ZERO) {
+            subReq = SequenceType.zeroOrMore(req.getPrimaryType());
         }
         for (int i=0; i<operanda.length; i++) {
             checked[i] = tc.staticTypeCheck(operanda[i].getChildExpression(), subReq, roleSupplier, visitor);
@@ -322,8 +324,8 @@ public class Block extends Instruction {
             Expression exp = o.getChildExpression();
             if (!exp.hasSpecialProperty(StaticProperty.ALL_NODES_UNTYPED)) {
                 ItemType it = exp.getItemType();
-                if (th.relationship(it, NodeKindTest.ELEMENT) != Affinity.DISJOINT ||
-                        th.relationship(it, NodeKindTest.ATTRIBUTE) != Affinity.DISJOINT) {
+                if (th.relationship(it, NodeKindType.ELEMENT) != Affinity.DISJOINT ||
+                        th.relationship(it, NodeKindType.ATTRIBUTE) != Affinity.DISJOINT) {
                     return false;
                 }
             }
@@ -341,9 +343,10 @@ public class Block extends Instruction {
         boolean[] isLiteralText = new boolean[size()];
         boolean hasAdjacentTextNodes = false;
         for (int i = 0; i < size(); i++) {
-            isLiteralText[i] = child(i) instanceof ValueOf &&
-                    ((ValueOf) child(i)).getSelect() instanceof StringLiteral &&
-                    !((ValueOf) child(i)).isDisableOutputEscaping();
+            isLiteralText[i] = child(i) instanceof ValueOf vOf &&
+                    vOf.getSelect() instanceof StringLiteral &&
+                    !vOf.isDisableOutputEscaping() &&
+                    vOf.getCdataExpression() == null;
 
             if (i > 0 && isLiteralText[i] && isLiteralText[i - 1]) {
                 hasAdjacentTextNodes = true;
@@ -351,11 +354,13 @@ public class Block extends Instruction {
         }
         if (hasAdjacentTextNodes) {
             List<Expression> content = new ArrayList<>(size());
-            String pendingText = null;
+            UnicodeString pendingText = null;
             for (int i = 0; i < size(); i++) {
                 if (isLiteralText[i]) {
-                    pendingText = (pendingText == null ? "" : pendingText) +
-                            ((StringLiteral) ((ValueOf) child(i)).getSelect()).getString();
+                    pendingText = (pendingText == null
+                                           ? EmptyUnicodeString.getInstance()
+                                           : pendingText).concat(
+                                                ((StringLiteral) ((ValueOf) child(i)).getSelect()).getUnicodeString());
                 } else {
                     if (pendingText != null) {
                         ValueOf inst = new ValueOf(new StringLiteral(pendingText), false, false);
@@ -763,7 +768,7 @@ public class Block extends Instruction {
     @Override
     public SequenceIterator iterate(XPathContext context) throws XPathException {
         if (size() == 0) {
-            return EmptyIterator.getInstance();
+            return EmptyIterator.INSTANCE;
         } else if (size() == 1) {
             return child(0).iterate(context);
         } else {
@@ -821,10 +826,13 @@ public class Block extends Instruction {
 
         private static class BlockIterator extends AbstractBlockIterator {
 
+            private final XPathContext context;
+
             private final PullEvaluator[] pullers;
             public BlockIterator(PullEvaluator[] pullers, XPathContext context) {
                 this.pullers = pullers;
-                init(pullers.length, context);
+                this.context = context;
+                init(pullers.length);
             }
 
             @Override

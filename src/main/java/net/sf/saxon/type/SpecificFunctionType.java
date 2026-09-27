@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,6 +10,7 @@ package net.sf.saxon.type;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
+import net.sf.saxon.functions.hof.CoercedFunction;
 import net.sf.saxon.functions.hof.FunctionSequenceCoercer;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
@@ -22,9 +23,12 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.type.coercion.CoercionPlan;
+import net.sf.saxon.type.coercion.FunctionItemCoercionPlan;
 import net.sf.saxon.value.Cardinality;
 import net.sf.saxon.value.SequenceType;
 
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -38,22 +42,49 @@ public class SpecificFunctionType extends AnyFunctionType {
     private final SequenceType[] argTypes;
     private final SequenceType resultType;
     private final AnnotationList annotations;
+    private boolean acceptReducedArity;
 
 
-    public final static FunctionItemType COMPONENT_FUNCTION_TYPE =
-            new SpecificFunctionType(new SequenceType[]{SequenceType.SINGLE_STRING}, SequenceType.ANY_SEQUENCE);
+    public final static SpecificFunctionType COMPONENT_FUNCTION_TYPE =
+            new SpecificFunctionType(SequenceType.SINGLE_STRING, SequenceType.ANY_SEQUENCE);
 
 
+    /**
+     * Construct a specific function type
+     * @param argTypes the types of the arguments to the function
+     * @param resultType the type of the function result
+     */
     public SpecificFunctionType(SequenceType[] argTypes, SequenceType resultType) {
         this.argTypes = Objects.requireNonNull(argTypes);
         this.resultType = Objects.requireNonNull(resultType);
         this.annotations = AnnotationList.EMPTY;
     }
 
+    /**
+     * Construct a specific function type including function annotations
+     *
+     * @param argTypes   the types of the arguments to the function
+     * @param resultType the type of the function result
+     * @param annotations the function annotations
+     */
+
     public SpecificFunctionType(SequenceType[] argTypes, SequenceType resultType, AnnotationList annotations) {
         this.argTypes = Objects.requireNonNull(argTypes);
         this.resultType = Objects.requireNonNull(resultType);
         this.annotations = Objects.requireNonNull(annotations);
+    }
+
+    /**
+     * Convenience variadic constructor
+     * @param types the argument types, followed by the result type
+     */
+    public SpecificFunctionType(SequenceType... types) {
+        if (types.length == 0) {
+            throw new IllegalArgumentException("No result type supplied");
+        }
+        this.argTypes = Arrays.copyOf(types, types.length - 1);
+        this.resultType = types[types.length - 1];
+        this.annotations = AnnotationList.EMPTY;
     }
 
     /**
@@ -65,6 +96,53 @@ public class SpecificFunctionType extends AnyFunctionType {
     public int getArity() {
         return argTypes.length;
     }
+
+    /**
+     * Indicate that this function type describes a callback function, and that the caller of this
+     * callback is prepared to accept a reduced-arity version of the function directly, without
+     * needing it to be wrapped in a {@code CoercedFunction} that accepts and swallows the superfluous
+     * arguments. This is useful where it means that the caller does not need to compute additional
+     * argument values just for them to be ignored.
+     * @return this, after setting the {@code acceptReducedArity} flag.
+     */
+
+    public SpecificFunctionType withAcceptReducedArity() {
+        acceptReducedArity = true;
+        return this;
+    }
+
+    public boolean isAcceptReducedArity() {
+        return acceptReducedArity;
+    }
+
+    /**
+     * Ask whether a function of a supplied type is acceptable, despite not being an exact
+     * match, without needing to be wrapped in a {@link CoercedFunction}
+     * @param supplied the item type of a supplied function
+     * @return true if the caller is able to call the supplied function without further wrapping
+     */
+    public boolean acceptsReducedArityFunction(ItemType supplied) {
+        if (supplied instanceof SpecificFunctionType) {
+            SpecificFunctionType actual = (SpecificFunctionType) supplied;
+            if (!actual.getResultType().equals(getResultType())) {
+                return false;
+            }
+            if (actual.getArity() > getArity()) {
+                return false;
+            }
+            if (!acceptReducedArity && actual.getArity() < getArity() )  {
+                return false;
+            }
+            for (int i=0; i < actual.getArity(); i++) {
+                if (!actual.getArgumentTypes()[i].equals(getArgumentTypes()[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
 
     /**
      * Get the argument types
@@ -163,14 +241,14 @@ public class SpecificFunctionType extends AnyFunctionType {
     public boolean equals(Object other) {
         if (other instanceof SpecificFunctionType) {
             SpecificFunctionType f2 = (SpecificFunctionType) other;
-            if (!resultType.equals(f2.resultType)) {
+            if (!resultType.normalizeSequenceType().equals(f2.resultType.normalizeSequenceType())) {
                 return false;
             }
             if (argTypes.length != f2.argTypes.length) {
                 return false;
             }
             for (int i = 0; i < argTypes.length; i++) {
-                if (!argTypes[i].equals(f2.argTypes[i])) {
+                if (!argTypes[i].normalizeSequenceType().equals(f2.argTypes[i].normalizeSequenceType())) {
                     return false;
                 }
             }
@@ -203,21 +281,18 @@ public class SpecificFunctionType extends AnyFunctionType {
      */
 
     @Override
-    public Affinity relationship(FunctionItemType other, TypeHierarchy th) {
-        if (other == AnyFunctionType.getInstance() || other instanceof AnyFunctionTypeWithAssertions) {
+    public Affinity relationship(FunctionItemType other) {
+        if (other == INSTANCE || other instanceof AnyFunctionTypeWithAssertions) {
             return Affinity.SUBSUMED_BY;
         } else if (equals(other)) {
             return Affinity.SAME_TYPE;
         } else if (other instanceof ArrayItemType || other instanceof MapType) {
-            Affinity rrel = other.relationship(this, th);
-            switch (rrel) {
-                case SUBSUMES:
-                    return Affinity.SUBSUMED_BY;
-                case SUBSUMED_BY:
-                    return Affinity.SUBSUMES;
-                default:
-                    return rrel;
-            }
+            Affinity rrel = other.relationship(this);
+            return switch (rrel) {
+                case SUBSUMES -> Affinity.SUBSUMED_BY;
+                case SUBSUMED_BY -> Affinity.SUBSUMES;
+                default -> rrel;
+            };
         } else {
             if (argTypes.length != other.getArgumentTypes().length) {
                 return Affinity.DISJOINT;
@@ -225,43 +300,35 @@ public class SpecificFunctionType extends AnyFunctionType {
             boolean wider = false;
             boolean narrower = false;
             for (int i = 0; i < argTypes.length; i++) {
-                Affinity argRel = th.sequenceTypeRelationship(argTypes[i], other.getArgumentTypes()[i]);
+                Affinity argRel = Subsumption.sequenceTypeRelationship(argTypes[i], other.getArgumentTypes()[i]);
                 switch (argRel) {
-                    case DISJOINT:
+                    case DISJOINT -> {
                         return Affinity.DISJOINT;
-                    case SUBSUMES:
-                        narrower = true;
-                        break;
-                    case SUBSUMED_BY:
-                        wider = true;
-                        break;
-                    case OVERLAPS:
+                    }
+                    case SUBSUMES -> narrower = true;
+                    case SUBSUMED_BY -> wider = true;
+                    case OVERLAPS -> {
                         wider = true;
                         narrower = true;
-                        break;
-                    case SAME_TYPE:
-                    default:
-                        break;
+                    }
+                    default -> {
+                    }
                 }
             }
 
-            Affinity resRel = th.sequenceTypeRelationship(resultType, other.getResultType());
+            Affinity resRel = Subsumption.sequenceTypeRelationship(resultType, other.getResultType());
             switch (resRel) {
-                case DISJOINT:
+                case DISJOINT -> {
                     return Affinity.DISJOINT;
-                case SUBSUMES:
-                    wider = true;
-                    break;
-                case SUBSUMED_BY:
-                    narrower = true;
-                    break;
-                case OVERLAPS:
+                }
+                case SUBSUMES -> wider = true;
+                case SUBSUMED_BY -> narrower = true;
+                case OVERLAPS -> {
                     wider = true;
                     narrower = true;
-                    break;
-                case SAME_TYPE:
-                default:
-                    break;
+                }
+                default -> {
+                }
             }
 
             if (wider) {
@@ -297,13 +364,11 @@ public class SpecificFunctionType extends AnyFunctionType {
     /**
      * Test whether a given item conforms to this type
      *
-     *
      * @param item The item to be tested
-     * @param th the type hierarchy cache
      * @return true if the item is an instance of this type; false otherwise
      */
     @Override
-    public boolean matches(Item item, TypeHierarchy th) {
+    public boolean matches(Item item) {
         if (!(item instanceof FunctionItem)) {
             return false;
         }
@@ -318,7 +383,7 @@ public class SpecificFunctionType extends AnyFunctionType {
                     argTypes[0].getPrimaryType().isPlainType() &&
                     Cardinality.allowsZero(resultType.getCardinality())) {
                 for (KeyValuePair pair : ((MapItem) item).keyValuePairs()) {
-                    if (!resultType.matches(pair.value, th)) {
+                    if (!resultType.matches(pair.value())) {
                         return false;
                     }
                 }
@@ -334,12 +399,12 @@ public class SpecificFunctionType extends AnyFunctionType {
             if (getArity() == 1 &&
                     argTypes[0].getCardinality() == StaticProperty.EXACTLY_ONE &&
                     argTypes[0].getPrimaryType().isPlainType()) {
-                Affinity rel = th.relationship(argTypes[0].getPrimaryType(), BuiltInAtomicType.INTEGER);
+                Affinity rel = Subsumption.computeRelationship(argTypes[0].getPrimaryType(), BuiltInAtomicType.INTEGER);
                 if (!(rel == Affinity.SAME_TYPE || rel == Affinity.SUBSUMED_BY)) {
                     return false;
                 }
                 for (GroundedValue member : ((ArrayItem) item).members()) {
-                    if (!resultType.matches(member, th)) {
+                    if (!resultType.matches(member)) {
                         return false;
                     }
                 }
@@ -349,7 +414,7 @@ public class SpecificFunctionType extends AnyFunctionType {
             }
         }
 
-        Affinity affinity = th.relationship(((FunctionItem) item).getFunctionItemType(), this);
+        Affinity affinity = Subsumption.computeRelationship(((FunctionItem) item).getFunctionItemType(), this);
         return affinity == Affinity.SAME_TYPE || affinity == Affinity.SUBSUMED_BY;
     }
 
@@ -374,12 +439,12 @@ public class SpecificFunctionType extends AnyFunctionType {
                 if (argTypes[0].getCardinality() == StaticProperty.EXACTLY_ONE &&
                     argTypes[0].getPrimaryType().isPlainType()) {
                     for (KeyValuePair pair : ((MapItem) item).keyValuePairs()) {
-                        if (!resultType.matches(pair.value, th)) {
-                            String s = "The supplied map contains an entry with key (" + pair.key +
-                                    ") whose corresponding value (" + Err.depictSequence(pair.value) +
+                        if (!resultType.matches(pair.value())) {
+                            String s = "The supplied map contains an entry with key (" + pair.key() +
+                                    ") whose corresponding value (" + Err.depictSequence(pair.value()) +
                                     ") is not an instance of the return type in the function signature (" +
                                     resultType + ")";
-                            Optional<String> more = resultType.explainMismatch(pair.value, th);
+                            Optional<String> more = resultType.explainMismatch(pair.value(), th);
                             if (more.isPresent()) {
                                 s = s + ". " + more.get();
                             }
@@ -410,7 +475,7 @@ public class SpecificFunctionType extends AnyFunctionType {
                         return Optional.of(s);
                     } else {
                         for (GroundedValue member : ((ArrayItem) item).members()) {
-                            if (!resultType.matches(member, th)) {
+                            if (!resultType.matches(member)) {
                                 String s = "The supplied array contains an entry (" + Err.depictSequence(member) +
                                         ") is not an instance of the return type in the function signature (" +
                                         resultType + ")";
@@ -439,14 +504,14 @@ public class SpecificFunctionType extends AnyFunctionType {
                     "; the supplied function has arity " + ((FunctionItem) item).getArity();
             return Optional.of(s);
         }
-        Affinity affinity = th.sequenceTypeRelationship(resultType, other.getResultType());
+        Affinity affinity = Subsumption.sequenceTypeRelationship(resultType, other.getResultType());
         if (affinity != Affinity.SAME_TYPE && affinity != Affinity.SUBSUMES) {
             String s = "The return type of the required function is " + resultType +
                     " but the return type of the supplied function is " + other.getResultType();
             return Optional.of(s);
         }
         for (int j=0; j<getArity(); j++) {
-            affinity = th.sequenceTypeRelationship(argTypes[j], other.getArgumentTypes()[j]);
+            affinity = Subsumption.sequenceTypeRelationship(argTypes[j], other.getArgumentTypes()[j]);
             if (affinity != Affinity.SAME_TYPE && affinity != Affinity.SUBSUMED_BY) {
                 String s = "The type of the " + RoleDiagnostic.ordinal(j+1) +
                         " argument of the required function is " + argTypes[j] +
@@ -460,7 +525,17 @@ public class SpecificFunctionType extends AnyFunctionType {
 
     @Override
     public Expression makeFunctionSequenceCoercer(Expression exp, Supplier<RoleDiagnostic> role, boolean allow40) {
-        return new FunctionSequenceCoercer(exp, this, role, allow40);
+        return new FunctionSequenceCoercer(exp, this, role, allow40, acceptReducedArity);
     }
 
+    /**
+     * Get the coercion plan for use when this type is the required type for (say) coercion
+     * of arguments in a function call
+     *
+     * @param version the XPath language version (40 or 31)
+     */
+    @Override
+    public CoercionPlan getCoercionPlan(int version) {
+        return FunctionItemCoercionPlan.getInstance(version);
+    }
 }

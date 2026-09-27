@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -83,11 +83,8 @@ public class UnionConstructorFunction extends AbstractFunction {
     @Override
     public FunctionItemType getFunctionItemType() {
         SequenceType resultType = targetType.getResultTypeOfCast();
-
         SequenceType argType = allowEmpty ? SequenceType.OPTIONAL_ATOMIC : SequenceType.SINGLE_ATOMIC;
-
-        return new SpecificFunctionType(
-            new SequenceType[]{argType}, resultType);
+        return new SpecificFunctionType(argType, resultType);
     }
 
     /**
@@ -212,7 +209,7 @@ public class UnionConstructorFunction extends AbstractFunction {
         AtomicValue val = (AtomicValue) args[0].head();
         if (val == null) {
             if (allowEmpty) {
-                return EmptyAtomicSequence.getInstance();
+                return AtomicArray.EMPTY_ATOMIC_ARRAY;
             } else {
                 XPathException e = new XPathException("Cast expression does not allow an empty sequence to be supplied", "XPTY0004");
                 e.setIsTypeError(true);
@@ -295,6 +292,6 @@ public class UnionConstructorFunction extends AbstractFunction {
 
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 
 

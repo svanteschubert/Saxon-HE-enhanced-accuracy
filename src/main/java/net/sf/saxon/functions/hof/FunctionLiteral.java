@@ -59,8 +59,8 @@ public class FunctionLiteral extends Literal {
     /*@NotNull*/
     @Override
     public Expression simplify() throws XPathException {
-        if (getGroundedValue() instanceof AbstractFunction) {
-            ((AbstractFunction) getGroundedValue()).simplify();
+        if (getGroundedValue() instanceof AbstractFunction fn) {
+            fn.simplify();
         }
         return this;
     }
@@ -74,8 +74,8 @@ public class FunctionLiteral extends Literal {
     /*@NotNull*/
     @Override
     public Expression typeCheck(ExpressionVisitor visitor, ContextItemStaticInfo contextInfo) throws XPathException {
-        if (getGroundedValue() instanceof AbstractFunction) {
-            ((AbstractFunction) getGroundedValue()).typeCheck(visitor, contextInfo);
+        if (getGroundedValue() instanceof AbstractFunction fn) {
+            fn.typeCheck(visitor, contextInfo);
         }
         return this;
     }
@@ -161,7 +161,7 @@ public class FunctionLiteral extends Literal {
      */
 
     public boolean equals(Object obj) {
-        return obj instanceof FunctionLiteral && ((FunctionLiteral) obj).getGroundedValue() == getGroundedValue();
+        return obj instanceof FunctionLiteral lit && lit.getGroundedValue() == getGroundedValue();
 
     }
 
@@ -195,8 +195,8 @@ public class FunctionLiteral extends Literal {
     @Override
     public void export(ExpressionPresenter out) throws XPathException {
         FunctionItem f = getGroundedValue();
-        if (f instanceof UserFunction) {
-            new UserFunctionReference((UserFunction) f).export(out);
+        if (f instanceof UserFunction uf) {
+            new UserFunctionReference(uf).export(out);
         } else {
             f.export(out);
         }
@@ -204,4 +204,4 @@ public class FunctionLiteral extends Literal {
 
 }
 
-// Copyright (c) 2009-2023 Saxonica Limited
+// Copyright (c) 2009-2026 Saxonica Limited

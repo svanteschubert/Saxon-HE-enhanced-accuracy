@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.expr.AscendingRangeIterator;
 import net.sf.saxon.expr.DescendingRangeIterator;
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.StaticProperty;
+import net.sf.saxon.expr.instruct.AbstractBlockIterator;
 import net.sf.saxon.functions.Count;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.str.UnicodeBuilder;
@@ -69,7 +70,7 @@ public class SequenceTool {
 
     public static Sequence toMemoSequence(SequenceIterator iterator) throws XPathException {
         if (iterator instanceof EmptyIterator) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else if (iterator instanceof GroundedIterator && ((GroundedIterator) iterator).isActuallyGrounded()) {
             try {
                 return toGroundedValue(iterator);
@@ -135,7 +136,7 @@ public class SequenceTool {
         try {
             return ((LastPositionFinder)iterator).getLength();
         } catch (ClassCastException e) {
-            throw new UnsupportedOperationException("getLength() not available");
+            throw new UnsupportedOperationException("getLength() not available in " + iterator.getClass());
         }
     }
 
@@ -214,7 +215,6 @@ public class SequenceTool {
      * @param a iterator over the first sequence
      * @param b iterator over the second sequence
      * @return true if the lengths of the two sequences are the same
-     * @throws XPathException if an error is detected
      */
 
     public static boolean sameLength(SequenceIterator a, SequenceIterator b) {
@@ -313,7 +313,7 @@ public class SequenceTool {
 
     public static Object convertToJava(/*@NotNull*/ Item item) throws XPathException {
         switch (item.getGenre()) {
-            case NODE:
+            case XNODE:
                 Object node = item;
                 while (node instanceof VirtualNode) {
                     // strip off any layers of wrapping
@@ -410,7 +410,8 @@ public class SequenceTool {
     /**
      * Get the item type of the items in a sequence. If the sequence is heterogeneous,
      * the method returns the lowest common supertype. If the sequence is empty, it returns
-     * ErrorType (the type to which no instance can belong)
+     * ErrorType (the type to which no instance can belong). If the sequence is lazy,
+     * it is not consumed; instead {@link AnyItemType} is returned
      *
      * @param sequence the input sequence
      * @param th       the Type Hierarchy cache
@@ -432,17 +433,23 @@ public class SequenceTool {
                     } else {
                         type = Type.getCommonSuperType(type, Type.getItemType(item, th), th);
                     }
-                    if (type == AnyItemType.getInstance()) {
+                    if (type == AnyItemType.INSTANCE) {
                         break;
                     }
                 }
                 return type == null ? ErrorType.getInstance() : type;
             } catch (UncheckedXPathException err) {
-                return AnyItemType.getInstance();
+                return AnyItemType.INSTANCE;
             }
         } else {
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         }
+    }
+
+    public static SequenceType getSequenceType(GroundedValue value, TypeHierarchy th) {
+        ItemType it = getItemType(value, th);
+        int cardinality = value.getLength() <= 1 ? StaticProperty.ALLOWS_ZERO_OR_ONE : StaticProperty.ALLOWS_ONE_OR_MORE;
+        return SequenceType.makeSequenceType(it, cardinality);
     }
 
     /**
@@ -474,7 +481,7 @@ public class SequenceTool {
 
 
     /**
-     * Get the cardinality of a sequence
+     * Get the cardinality of a sequence. Note: if the sequence is lazy, it is consumed.
      *
      * @param sequence the supplied sequence
      * @return the cardinality, as one of the constants {@link StaticProperty#ALLOWS_ZERO} (for an empty sequence)
@@ -569,7 +576,7 @@ public class SequenceTool {
     public static AttributeMap attributeMapFromList(List<AttributeInfo> list) {
         int n = list.size();
         if (n == 0) {
-            return EmptyAttributeMap.getInstance();
+            return EmptyAttributeMap.INSTANCE;
         } else if (n == 1) {
             return SingletonAttributeMap.of(list.get(0));
         } else if (n <= SmallAttributeMap.LIMIT) {
@@ -587,9 +594,28 @@ public class SequenceTool {
 
     public static GroundedValue itemOrEmpty(Item item) {
         if (item == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else {
             return item;
+        }
+    }
+
+    public static Sequence joinSequences(Sequence[] sequences) {
+        return new LazySequence(new MultiSequenceIterator(sequences));
+    }
+
+    public static class MultiSequenceIterator extends AbstractBlockIterator {
+
+        private final Sequence[] sequences;
+
+        public MultiSequenceIterator(Sequence[] sequences) {
+            init(sequences.length);
+            this.sequences = sequences;
+        }
+
+        @Override
+        public SequenceIterator getNthChildIterator(int n) {
+            return sequences[n].iterate();
         }
     }
 }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,9 @@
 
 package net.sf.saxon.lib;
 
+
+import net.sf.saxon.s9api.ValidationMode;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 /**
  * This class contains constants and static methods to manipulate the validation
@@ -81,17 +84,13 @@ public final class Validation {
      */
 
     public static int getCode(String value) {
-        if (value.equals("strict")) {
-            return STRICT;
-        } else if (value.equals("lax")) {
-            return LAX;
-        } else if (value.equals("preserve")) {
-            return PRESERVE;
-        } else if (value.equals("strip")) {
-            return STRIP;
-        } else {
-            return INVALID;
-        }
+        return switch (value) {
+            case "strict" -> STRICT;
+            case "lax" -> LAX;
+            case "preserve" -> PRESERVE;
+            case "strip" -> STRIP;
+            default -> INVALID;
+        };
     }
 
     /**
@@ -103,19 +102,18 @@ public final class Validation {
 
     /*@NotNull*/
     public static String describe(int value) {
-        switch (value) {
-            case STRICT:
-                return "strict";
-            case LAX:
-                return "lax";
-            case PRESERVE:
-                return "preserve";
-            case STRIP:
-                return "skip";  // for XQuery
-            case BY_TYPE:
-                return "by type";
-            default:
-                return "invalid";
-        }
+        return switch (value) {
+            case STRICT -> "strict";
+            case LAX -> "lax";
+            case PRESERVE -> "preserve";
+            case STRIP -> "skip";  // for XQuery
+            case BY_TYPE -> "by type";
+            default -> "invalid";
+        };
+    }
+
+    @CSharpReplaceBody(code="return (int)mode;")
+    public static int fromValidationMode(ValidationMode mode) {
+        return mode.getNumber();
     }
 }

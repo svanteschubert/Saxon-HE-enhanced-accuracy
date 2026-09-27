@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.style;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.StringLiteral;
 import net.sf.saxon.expr.instruct.ForEachGroup;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
@@ -162,7 +161,7 @@ public final class XSLForEachGroup extends StyleElement {
                 (splitWhenAtt == null ? 0 : 1);
         if (c != 1) {
             compileError("Exactly one of the attributes group-by, group-adjacent, group-starting-with, " +
-                    "and group-ending-with must be specified", "XTSE1080"); //TODO: add break-when when it becomes mainstream
+                    "group-ending-with, and split-when must be specified", "XTSE1080");
         }
 
         if (startingAtt != null) {
@@ -234,14 +233,14 @@ public final class XSLForEachGroup extends StyleElement {
                 compileError(err);
             }
         } else if (splitWhen != null) {
-            splitWhen = typeCheck("break-when", splitWhen);
+            splitWhen = typeCheck("split-when", splitWhen);
             try {
-                SpecificFunctionType breakWhenType = new SpecificFunctionType(
-                        new SequenceType[]{SequenceType.ANY_SEQUENCE, SequenceType.SINGLE_ITEM}, SequenceType.SINGLE_BOOLEAN);
+                SpecificFunctionType splitWhenType = new SpecificFunctionType(
+                        SequenceType.ANY_SEQUENCE, SequenceType.SINGLE_ITEM, SequenceType.SINGLE_BOOLEAN);
                 Supplier<RoleDiagnostic> role = () ->
-                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/break-when", 0, "XTTE1100");
+                        new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "xsl:for-each-group/split-when", 0, "XTTE1100");
                 splitWhen = tc.staticTypeCheck(splitWhen,
-                                               SequenceType.makeSequenceType(breakWhenType, StaticProperty.EXACTLY_ONE),
+                                               SequenceType.one(splitWhenType),
                                                role, visitor);
             } catch (XPathException err) {
                 compileError(err);

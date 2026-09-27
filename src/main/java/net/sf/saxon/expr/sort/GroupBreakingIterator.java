@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.expr.sort;
 
+//import com.saxonica.ee.stream.ManualGroupIterator;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.elab.PullEvaluator;
 import net.sf.saxon.om.*;
@@ -21,7 +22,7 @@ import java.util.List;
 
 /**
  * A GroupBreakingIterator iterates over a sequence of groups defined by
- * xsl:for-each-group break-when="x". The groups are returned in
+ * xsl:for-each-group split-when="x". The groups are returned in
  * order of first appearance.
  */
 

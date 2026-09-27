@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,10 +26,10 @@ public class DescendingRangeIterator extends RangeIterator implements AtomicIter
         LastPositionFinder,
         LookaheadIterator {
 
-    long start;
-    long step;
-    long currentValue;
-    long limit;
+    private final long start;
+    private final long step;
+    private long currentValue;
+    private final long limit;
 
     /**
      * Create an iterator over a range of integers in monotonic descending order
@@ -42,16 +42,11 @@ public class DescendingRangeIterator extends RangeIterator implements AtomicIter
     public DescendingRangeIterator(long start, long step, long end) {
         assert step > 0;
         assert start - end <= Integer.MAX_VALUE;
-//        if (start - end > Integer.MAX_VALUE) {
-//            throw new UncheckedXPathException("Saxon limit on sequence length exceeded (2^31)", "XPDY0130");
-//        }
+
         this.start = start;
         this.step = step;
         currentValue = start + step;
-        limit = end;
-        if (step != 1L) {
-            limit = start + ((end - start) / step) * step;
-        }
+        limit = step == 1L ? end : start + ((end - start) / step) * step;
     }
 
     public boolean isActuallyGrounded() {

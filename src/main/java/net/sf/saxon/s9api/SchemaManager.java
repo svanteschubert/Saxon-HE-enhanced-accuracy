@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.SchemaURIResolver;
 import net.sf.saxon.transpile.CSharpModifiers;
@@ -17,30 +18,51 @@ import javax.xml.transform.stream.StreamSource;
 import java.io.File;
 
 /**
- * The SchemaManager is used to load schema documents, and to set options for the way in which they are loaded.
- * At present all the resulting schema components are held in a single pool owned by the Processor object.
- * <p>To obtain a <code>SchemaManager</code>, use the method {@link net.sf.saxon.s9api.Processor#getSchemaManager()}.</p>
- * <p>In a schema-aware Processor there is exactly one
- * <code>SchemaManager</code> (in a non-schema-aware Processor there is none).</p>
- * <p>The cache of compiled schema definitions can include only one schema
- * component (for example a type, or an element declaration) with any given name.
- * An attempt to compile two different schemas in the same namespace will usually
- * therefore fail.</p>
- * <p>As soon as a type definition or element declaration is used for the first
- * time in a validation episode, it is marked as being "sealed": this prevents subsequent
- * modifications to the component. Examples of modifications that are thereby disallowed
- * include adding to the substitution group of an existing element declaration, adding subtypes
- * to an existing type, or redefining components using &lt;xs:redefine&gt;</p>
+ * The {@code SchemaManager} is used to load schema documents, and to set options for the way in which they are loaded.
+ *
+ * <p>The {@code SchemaManager} is deprecated from Saxon 13, and an {@link XsdCompiler} should be used instead.
+ * The class is retained to provide a measure of backwards compatibility, but some changes may be needed. In particular:</p>
+ *
+ * <ul>
+ *     <li>The schema must now be loaded (using {@link #load(File)}, {@link #load(Source...)},
+ *     or {@link #importComponents(Source)}) before calling {@link #newSchemaValidator()} to
+ *     construct a validator.</li>
+ *     <li>The schema must be loaded in a single call of {@link #load(File)}, {@link #load(Source...)},
+ *     or {@link #importComponents(Source)}; it can no longer be built incrementally.</li>
+ *     <li>The schema is made available automatically to any {@link XsltCompiler}, {@link XQueryCompiler},
+ *     or {@link XPathCompiler} that is created after the schema is loaded, but it has no effect on
+ *     any pre-existing compilers.</li>
+ *     <li></li>
+ * </ul>
+ *
+ * <p><i>A note on terminology: a <b>schema</b> is a collection of schema components, such as type definitions,
+ * constructed by compiling a set of <b>schema documents</b>.</i></p>
+
+ * <p>In earlier Saxon releases the schema built using the {@code SchemaManager} was held globally at the level
+ * of the {@link Processor} or {@link Configuration}, and new schema components were also added to this schema
+ * as a side effect of other actions that load schemas, for example <code>xsl:import-schema</code> in XSLT,
+ * <code>import schema</code> declarations in XQuery, and <code>xsi:schemaLocation</code> attributes in source
+ * documents undergoing validation. This is no longer the case. The schema built using this class is not modified when
+ * queries and stylesheets import additional schema documents.</p>
+ *
+ * <p>The {@code SchemaManager} is obtained using the call {@link Processor#getSchemaManager()}. Repeated calls
+ * deliver the same {@code SchemaManager} each time. The {@code SchemaManager} is not thread-safe; in particular,
+ * calls on {@link #load(Source...)} should not be made in multiple threads concurrently.</p>
+ *
+ * @deprecated since Saxon 13.0 - use {@link XsdCompiler}
  */
 
 @CSharpModifiers(code = {"abstract", "internal"})
+@Deprecated
 public abstract class SchemaManager {
+
+    protected boolean hasLoadedSchema;
 
     public SchemaManager() {
     }
 
     /**
-     * Set the version of XSD in use. The value must be "1.0" or "1.1". The default is currently "1.0",
+     * Set the version of XSD in use for this schema. The value must be "1.0" or "1.1". The default is currently "1.0",
      * but this may change in a future release.
      *
      * @param version the version of the XSD specification/language: either "1.0" or "1.1".
@@ -49,7 +71,7 @@ public abstract class SchemaManager {
     public abstract void setXsdVersion(String version);
 
     /**
-     * Get the version of XSD in use. The value will be "1.0" or "1.1"
+     * Get the version of XSD in use for this schema. The value will be "1.0" or "1.1"
      *
      * @return the version of XSD in use.
      */
@@ -106,35 +128,52 @@ public abstract class SchemaManager {
     public abstract SchemaURIResolver getSchemaURIResolver();
 
     /**
-     * Load a schema document from a given Source. The schema components derived from this schema
-     * document are added to the cache of schema components maintained by this SchemaManager
+     * Load a schema document from a given {@code Source}, or from a number of sources. The schema components derived from this schema
+     * document are retained by this SchemaManager as the current schema, and are also returned
+     * by the method as an {@link XsdSchema} object.
      *
-     * @param source the document containing the schema. The getSystemId() method applied to this Source
+     * <p>This method can only be called once on a given {@code SchemaManager} object.</p>
+     *
+     * @param source the document(s) containing the schema(s). The getSystemId() method applied to this Source
      *               must return a base URI suitable for resolving <code>xs:include</code> and <code>xs:import</code>
-     *               directives. The document may be either a schema document in source XSD format, or a compiled
-     *               schema in Saxon-defined SCM format (as produced using the -export option)
-     * @throws SaxonApiException if the schema document is not valid, or if its contents are inconsistent
-     *                           with the schema components already held by this SchemaManager.
+     *               directives. Each document may be either a schema document in source XSD format, or a compiled
+     *               schema in Saxon-defined SCM format (as produced using the -export option). If no schema
+     *               documents are supplied, an empty schema is loaded.
+     * @return the resulting schema.
+     * @throws SaxonApiException if the schema document is not valid.
+     * @since 9.1. From Saxon 12.3, the method can only be called once; to load from multiple schema documents,
+     * either supply multiple sources in a single call to the {@link #load(Source...)} method, or use a separate
+     * {@code SchemaManager} for each one and combine the resulting schemas.
      */
 
-    public abstract void load(Source source) throws SaxonApiException;
+    public abstract XsdSchema load(Source... source) throws SaxonApiException;
 
     /**
      * Load a schema document from a given File. The schema components derived from this schema
-     * document are added to the cache of schema components maintained by this SchemaManager
+     * document are retained by this SchemaManager as the current schema, and are also returned
+     * by the method as an {@link XsdSchema} object.
+     *
+     * <p>This method can only be called once on a given {@code SchemaManager} object.</p>
      *
      * @param file the document containing the schema. The getSystemId() method applied to this Source
      *               must return a base URI suitable for resolving <code>xs:include</code> and <code>xs:import</code>
      *               directives. The document may be either a schema document in source XSD format, or a compiled
      *               schema in Saxon-defined SCM format (as produced using the -export option)
-     * @throws SaxonApiException if the schema document is not valid, or if its contents are inconsistent
-     *                           with the schema components already held by this SchemaManager.
+     * @return the resulting schema.
+     * @throws SaxonApiException if the schema document is not valid.
      * @since 12.0
      */
 
-    public void load(File file) throws SaxonApiException {
-        load(new StreamSource(file));
+    public XsdSchema load(File file) throws SaxonApiException {
+        return load(new StreamSource(file));
     }
+
+    /**
+     * Reset the schema manager to its initial state, in particular, set the accumulated schema to be empty.
+     */
+    public abstract void clear();
+
+    public abstract XsdSchema getXsdSchema();
 
     /**
      * Import a precompiled Schema Component Model from a given Source. The schema components derived from this schema
@@ -160,9 +199,15 @@ public abstract class SchemaManager {
 
     /**
      * Create a SchemaValidator which can be used to validate instance documents against the schema held by this
-     * SchemaManager
+     * SchemaManager.
+     *
+     * <p>The result of calling <code>schemaManager.newSchemaValidator()</code> is the same as the result of calling
+     * <code>schemaManager.getXsdSchema().newSchemaValidator()</code>.</p>
      *
      * @return a new SchemaValidator
+     * @throws IllegalStateException if no schema has been loaded (using either {@link #load(Source...)}
+     * or {@link #importComponents(Source)}). To validate against an empty schema,
+     * first call {{@link #load(Source...)}} supplying no arguments.
      */
 
     public abstract SchemaValidator newSchemaValidator();

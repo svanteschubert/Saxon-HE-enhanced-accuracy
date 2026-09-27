@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,6 +14,7 @@ import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.event.SequenceNormalizerWithSpaceSeparator;
 import net.sf.saxon.expr.Component;
+import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
 import net.sf.saxon.expr.instruct.GlobalParameterSet;
 import net.sf.saxon.expr.instruct.UserFunction;
@@ -21,11 +22,15 @@ import net.sf.saxon.expr.instruct.UserFunctionParameter;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.lib.NamespaceConstant;
+import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
 import net.sf.saxon.serialize.SerializationProperties;
 import net.sf.saxon.trans.*;
 import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.transpile.CSharpModifiers;
+import net.sf.saxon.type.coercion.CoercionRules;
+import net.sf.saxon.value.SequenceExtent;
+import net.sf.saxon.value.SequenceType;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.dom.DOMSource;
@@ -55,10 +60,10 @@ import java.util.function.Supplier;
  * because multi-threaded execution is permitted; rather it is to reduce the damage if it is attempted.</p>
  * <p>An <code>Xslt30Transformer</code> is always constructed by running the
  * method {@link XsltExecutable#load30()}.</p>
- * <p>Unlike <code>XsltTransformer</code>, an <code>Xslt30Transformer</code> is not a <code>Destination</code>.
+ * <p>Unlike {@link XsltTransformer}, an <code>Xslt30Transformer</code> is not a {@link Destination}.
  * To pipe the results of one transformation into another, the target should be an <code>XsltTransfomer</code>
  * rather than an <code>Xslt30Transformer</code>.</p>
- * <p>Evaluation of an Xslt30Transformer proceeds in a number of phases:</p>
+ * <p>Evaluation of an <code>Xslt30Transformer</code> proceeds in a number of phases:</p>
  * <ol>
  * <li>First, values may be supplied for stylesheet parameters and for the global context item. The
  * global context item is used when initializing global variables. Unlike earlier transformation APIs,
@@ -300,6 +305,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
             XPathException err = new XPathException("No initial match selection supplied", "XTDE0044");
             throw new SaxonApiException(err);
         }
+        controller.openTraceEpisode();
         prime();
         try {
             Receiver sOut = getDestinationReceiver(controller, destination);
@@ -310,6 +316,8 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
                 getErrorReporter().report(new XmlProcessingException(e));
             }
             throw new SaxonApiException(e);
+        } finally {
+            controller.closeTraceEpisode();
         }
     }
 
@@ -388,7 +396,8 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
                 sourceNode = controller.prepareInputTree(source);
                 controller.setGlobalContextItem(sourceNode);
             } else {
-                sourceNode = controller.makeSourceTree(source, getSchemaValidationMode().getNumber());
+                sourceNode = controller.makeSourceTree(source,
+                                                       Validation.fromValidationMode(getSchemaValidationMode()));
                 controller.setGlobalContextItem(sourceNode);
             }
 
@@ -429,6 +438,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
     public synchronized void applyTemplates(XdmValue selection, Destination destination) throws SaxonApiException {
         Objects.requireNonNull(selection);
         Objects.requireNonNull(destination);
+        controller.openTraceEpisode();
         prime();
         try {
             Receiver sOut = getDestinationReceiver(controller, destination);
@@ -442,6 +452,8 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
                 getErrorReporter().report(new XmlProcessingException(e));
             }
             throw new SaxonApiException(e);
+        } finally {
+            controller.closeTraceEpisode();
         }
     }
 
@@ -490,6 +502,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
 
     public synchronized void callTemplate(QName templateName, Destination destination) throws SaxonApiException {
         Objects.requireNonNull(destination);
+        controller.openTraceEpisode();
         prime();
         if (templateName == null) {
             templateName = new QName("xsl", NamespaceConstant.XSLT, "initial-template");
@@ -509,6 +522,8 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
                 getErrorReporter().report(new XmlProcessingException(e));
             }
             throw new SaxonApiException(e);
+        } finally {
+            controller.closeTraceEpisode();
         }
     }
 
@@ -550,6 +565,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
     public synchronized XdmValue callFunction(QName function, XdmValue[] arguments) throws SaxonApiException {
         Objects.requireNonNull(function);
         Objects.requireNonNull(arguments);
+        controller.openTraceEpisode();
         prime();
         try {
             Component f = getFunctionComponent(function, arguments);
@@ -568,6 +584,8 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
                 getErrorReporter().report(new XmlProcessingException(e));
             }
             throw new SaxonApiException(e);
+        } finally {
+            controller.closeTraceEpisode();
         }
     }
 
@@ -576,28 +594,35 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
         PreparedStylesheet pss = (PreparedStylesheet) controller.getExecutable();
         Component f = pss.getComponent(fName);
         if (f == null) {
-            throw new XPathException("No public function with name " + function.getClarkName() +
+            throw new XPathException("No public function with name " + function.getEQName() +
                                              " and arity " + arguments.length + " has been declared in the stylesheet", "XTDE0041");
         } else if (f.getVisibility() != Visibility.FINAL && f.getVisibility() != Visibility.PUBLIC) {
             throw new XPathException("Cannot invoke " + fName + " externally, because it is not public", "XTDE0041");
         }
         return f;
     }
-
+    
     private Sequence[] typeCheckFunctionArguments(UserFunction uf, XdmValue[] arguments) throws XPathException {
         Configuration config = processor.getUnderlyingConfiguration();
+        int version = controller.getExecutable().getTopLevelPackage().getHostLanguageVersion();
+        CoercionRules coercionRules = CoercionRules.forVersion(config, version);
         UserFunctionParameter[] params = uf.getParameterDefinitions();
         GroundedValue[] vr =
-                new GroundedValue[arguments.length];
-        for (int i = 0; i < arguments.length; i++) {
+                new GroundedValue[params.length];
+        for (int i = 0; i < params.length; i++) {
             net.sf.saxon.value.SequenceType type = params[i].getRequiredType();
-            vr[i] = arguments[i].getUnderlyingValue();
-            if (!type.matches(vr[i], config.getTypeHierarchy())) {
-                final int pos = i;
-                Supplier<RoleDiagnostic> role =
-                        () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, uf.getFunctionName().getDisplayName(), pos);
-                Sequence converted = config.getTypeHierarchy().applyFunctionConversionRules(vr[i], type, role, Loc.NONE);
-                vr[i] = converted.materialize();
+            if (i < arguments.length) {
+                vr[i] = arguments[i].getUnderlyingValue();
+                if (!type.matches(vr[i])) {
+                    final int pos = i;
+                    Supplier<RoleDiagnostic> role =
+                            () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, uf.getFunctionName().getDisplayName(), pos);
+                    Sequence converted = coercionRules.coerce(vr[i], type, SequenceType.ANY_SEQUENCE, config, role, Loc.NONE);
+                    vr[i] = converted.materialize();
+                }
+            } else {
+                XPathContext c2 = controller.newXPathContext();
+                vr[i] = SequenceExtent.from(params[i].getDefaultValueExpression().get().iterate(c2));
             }
         }
         return vr;
@@ -620,6 +645,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      */
 
     public synchronized void callFunction(QName function, XdmValue[] arguments, Destination destination) throws SaxonApiException {
+        controller.openTraceEpisode();
         prime();
         try {
             Component f = getFunctionComponent(function, arguments);
@@ -640,6 +666,8 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
         } catch (XPathException e) {
             getErrorReporter().report(new XmlProcessingException(e));
             throw new SaxonApiException(e);
+        } finally {
+            controller.closeTraceEpisode();
         }
 
         destination.closeAndNotify();
@@ -667,7 +695,7 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
      *
      * @return a {@link Destination} which accepts an XML document (typically as a stream
      * of events) and which transforms this supplied XML document (possibly using streaming)
-     * as defined by the stylesheet from which which this {@code Xslt30Transformer} was generated,
+     * as defined by the stylesheet from which this {@code Xslt30Transformer} was generated,
      * sending the principal result of the transformation to the supplied {@code finalDestination}.
      * The transformation is performed as if by the {@link #applyTemplates(Source, Destination)}
      * method: that is, by applying templates to the root node of the supplied XML document.
@@ -684,7 +712,9 @@ public class Xslt30Transformer extends AbstractXsltTransformer {
             public Receiver getReceiver(PipelineConfiguration pipe, SerializationProperties params) throws SaxonApiException {
                 Receiver rt = getReceivingTransformer(controller, globalParameterSet, finalDestination);
                 rt = new SequenceNormalizerWithSpaceSeparator(rt);
-                rt.setPipelineConfiguration(pipe);
+                if (rt.getPipelineConfiguration() == null) {
+                    rt.setPipelineConfiguration(pipe);
+                }
                 return receiver = rt;
             }
 

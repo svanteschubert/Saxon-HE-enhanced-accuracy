@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,8 +7,11 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.*;
-import net.sf.saxon.om.Item;
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.Literal;
+import net.sf.saxon.expr.TailExpression;
+import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.functions.hof.FilterFn;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.SequenceTool;
@@ -16,7 +19,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.NumericValue;
 import net.sf.saxon.z.IntHashSet;
-import net.sf.saxon.z.IntIterator;
 import net.sf.saxon.z.IntSet;
 import net.sf.saxon.z.IntSingletonSet;
 
@@ -81,78 +83,12 @@ public class Remove extends SystemFunction {
             }
             removePositions = positions;
         }
-        return SequenceTool.toLazySequence(new RemoveIterator(arguments[0].iterate(), removePositions));
+        return SequenceTool.toLazySequence(
+                new FilterFn.PositionalFilterIterator(
+                        arguments[0].iterate(),
+                        (it, pos) -> !removePositions.contains(pos)));
     }
-
-    /**
-     * An implementation of SequenceIterator that returns all items except the one
-     * at a specified position.
-     */
-
-    public static class RemoveIterator implements SequenceIterator, LastPositionFinder {
-
-        SequenceIterator base;
-        IntSet removePositions;
-        int basePosition = 0;
-        Item current = null;
-
-        public RemoveIterator(SequenceIterator base, IntSet removePosition) {
-            this.base = base;
-            this.removePositions = removePosition;
-        }
-
-        @Override
-        public Item next() {
-            current = base.next();
-            basePosition++;
-            while (current != null && removePositions.contains(basePosition)) {
-                current = base.next();
-                basePosition++;
-            }
-            return current;
-        }
-
-        @Override
-        public void close() {
-            base.close();
-        }
-
-        /**
-         * Ask whether this iterator supports use of the {@link #getLength()} method. This
-         * method should always be called before calling {@link #getLength()}, because an iterator
-         * that implements this interface may support use of {@link #getLength()} in some situations
-         * and not in others
-         *
-         * @return true if the {@link #getLength()} method can be called to determine the length
-         * of the underlying sequence.
-         */
-        @Override
-        public boolean supportsGetLength() {
-            return SequenceTool.supportsGetLength(base);
-        }
-
-        /**
-         * Get the last position (that is, the number of items in the sequence). This method is
-         * non-destructive: it does not change the state of the iterator.
-         * The result is undefined if the next() method of the iterator has already returned null.
-         */
-
-        @Override
-        public int getLength() {
-            int x = SequenceTool.getLength(base);
-            int result = x;
-            IntIterator iter = removePositions.iterator();
-            while (iter.hasNext()) {
-                int i = iter.next();
-                if (i >= 1 && i <= x) {
-                    result--;
-                }
-            }
-            return result;
-        }
-
-    }
-
+    
     @Override
     public String getStreamerName() {
         return "Remove";

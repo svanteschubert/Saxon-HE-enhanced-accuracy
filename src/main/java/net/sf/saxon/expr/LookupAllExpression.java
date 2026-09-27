@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,10 +19,7 @@ import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.ma.arrays.ArrayItem;
 import net.sf.saxon.ma.arrays.ArrayItemType;
 import net.sf.saxon.ma.arrays.SquareArrayConstructor;
-import net.sf.saxon.ma.map.KeyValuePair;
-import net.sf.saxon.ma.map.MapItem;
-import net.sf.saxon.ma.map.MapType;
-import net.sf.saxon.ma.map.RecordType;
+import net.sf.saxon.ma.map.*;
 import net.sf.saxon.om.GroundedValue;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.SequenceIterator;
@@ -31,8 +28,11 @@ import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.SaxonErrorCode;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.Cardinality;
+import net.sf.saxon.value.Int64Value;
+import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -40,10 +40,13 @@ import java.util.List;
 
 
 /**
- * A lookup expression is an expression of the form A?*, where A must be a map or an array
+ * The {@code LookupAllExpression} handles lookup expressions of the form {@code expr?*} (which
+ * returns all entries in a map or array) and {@code expr?type(T)} (which returns all entries
+ * whose value matches a given sequence type).
  */
 
 public class LookupAllExpression extends UnaryExpression {
+
 
     /**
      * Constructor
@@ -69,15 +72,8 @@ public class LookupAllExpression extends UnaryExpression {
 
     /*@NotNull*/
     @Override
-    public final ItemType getItemType() {
-        ItemType lhs = getBaseExpression().getItemType();
-        if (lhs instanceof MapType) {
-            return ((MapType)lhs).getValueType().getPrimaryType();
-        } else if (lhs instanceof ArrayItemType) {
-            return ((ArrayItemType) lhs).getMemberType().getPrimaryType();
-        } else {
-            return AnyItemType.getInstance();
-        }
+    public ItemType getItemType() {
+        return AnyItemType.getInstance();
     }
 
 
@@ -112,17 +108,18 @@ public class LookupAllExpression extends UnaryExpression {
         boolean isMapLookup = containerType instanceof MapType || containerType instanceof RecordType;
 
         if (!isArrayLookup && !isMapLookup) {
-            if (th.relationship(containerType, MapType.ANY_MAP_TYPE) == Affinity.DISJOINT &&
-                    th.relationship(containerType, ArrayItemType.getInstance()) == Affinity.DISJOINT) {
-                if (Cardinality.allowsZero(getBaseExpression().getCardinality())) {
-                    visitor.issueWarning("The left-hand operand of '?' must be a map or an array; the expression can succeed only if the operand is an empty sequence "
-                                                 + containerType, SaxonErrorCode.SXWN9026, getLocation());
-                } else {
-                    throw new XPathException("The left-hand operand of '?' must be a map or an array; "
-                                                     + "the supplied expression is of type " + containerType, "XPTY0004")
-                            .withLocation(getLocation())
-                            .asTypeError()
-                            .withFailingExpression(this);
+            if (th.relationship(containerType, MapType.ANY_MAP_TYPE) == Affinity.DISJOINT) {
+                if (th.relationship(containerType, ArrayItemType.INSTANCE) == Affinity.DISJOINT) {
+                    if (Cardinality.allowsZero(getBaseExpression().getCardinality())) {
+                        visitor.issueWarning("The left-hand operand of '?' must be a map or an array; the expression can succeed only if the operand is an empty sequence "
+                                                     + containerType, SaxonErrorCode.SXWN9026, getLocation());
+                    } else {
+                        throw new XPathException("The left-hand operand of '?' must be a map or an array; "
+                                                         + "the supplied expression is of type " + containerType, "XPTY0004")
+                                .withLocation(getLocation())
+                                .asTypeError()
+                                .withFailingExpression(this);
+                    }
                 }
             }
         }
@@ -149,7 +146,7 @@ public class LookupAllExpression extends UnaryExpression {
                 throw e.getXPathException();
             }
         }
-
+        
         // See W3C bug 30228. In the interests of keeping certain tests streamable, we do a rewrite of [A,B,C]?*
         // to (A, B, C).
         if (getBaseExpression() instanceof SquareArrayConstructor) {
@@ -245,7 +242,7 @@ public class LookupAllExpression extends UnaryExpression {
     /*@NotNull*/
     @Override
     public SequenceIterator iterate(final XPathContext context) throws XPathException {
-        return new LookupAllIterator(this, getBaseExpression().iterate(context));
+        return makeElaborator().elaborateForPull().iterate(context);
     }
 
     /**
@@ -287,81 +284,80 @@ public class LookupAllExpression extends UnaryExpression {
         public PullEvaluator elaborateForPull() {
             LookupAllExpression expr = (LookupAllExpression) getExpression();
             PullEvaluator baseEval = expr.getBaseExpression().makeElaborator().elaborateForPull();
-            return (context) -> new LookupAllIterator(expr, baseEval.iterate(context));
+            SequenceType req = SequenceType.ANY_SEQUENCE;
+            TypeHierarchy th = getConfiguration().getTypeHierarchy();
+            return context -> {
+                SequenceIterator lhs = baseEval.iterate(context);
+                SequenceIterator entries = new MappingIterator(lhs, item -> {
+                    if (item instanceof ArrayItem) {
+                        return new ArrayEntriesIterator((ArrayItem)item);
+                    } else if (item instanceof MapItem) {
+                        return new MapEntriesIterator((MapItem)item);
+                    } else {
+                        XPathException err = new XPathException("Left-hand operand of lookup operator `?` must be a map or array", "XPTY0004").asTypeError();
+                        throw new UncheckedXPathException(err);
+                    }
+                });
+
+                return new MappingIterator(entries, item ->
+                        ((ShapedMap) item).getU(Shape.VALUE).iterate());
+
+            };
         }
     }
 
-    private static class LookupAllIterator implements SequenceIterator {
+    /**
+     * Iterator over a sequence of entries in an array, delivering them in the form
+     * required by $array?entry::*
+     */
+    public static class ArrayEntriesIterator implements SequenceIterator {
 
-        final LookupAllExpression expr;
-        final SequenceIterator level0;
-        Iterator<GroundedValue> level1forArrays;
-        Iterator<KeyValuePair> level1forMaps;
-        // delivers GroundedValue in the case of an array, or KeyValuePair in the case of a map
-        SequenceIterator level2;
+        final ArrayItem container;
+        final Iterator<GroundedValue> baseIterator;
+        int index = 0;
 
-        public LookupAllIterator(LookupAllExpression expr, SequenceIterator baseIterator) {
-            level0 = baseIterator;
-            level1forArrays = null;
-            level1forMaps = null;
-            level2 = null;
-            this.expr = expr;
+        public ArrayEntriesIterator(ArrayItem arrayItem) {
+            baseIterator = arrayItem.members().iterator();
+            container = arrayItem;
         }
 
         @Override
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
         public Item next() {
-            if (level2 == null) {
-                if (level1forArrays == null && level1forMaps == null) {
-                    Item lhs = level0.next();
-                    if (lhs == null) {
-                        return null;
-                    } else if (lhs instanceof ArrayItem) {
-                        level1forArrays = ((ArrayItem)lhs).members().iterator();
-                        return next();
-                    } else if (lhs instanceof MapItem) {
-                        level1forMaps = ((MapItem)lhs).keyValuePairs().iterator();
-                        return next();
-                    } else {
-                        try {
-                            LookupExpression.mustBeArrayOrMap(expr, lhs);
-                        } catch (XPathException e) {
-                            throw new UncheckedXPathException(e);
-                        }
-                        return null;
-                    }
-                } else if (level1forArrays != null && level1forArrays.hasNext()) {
-                    GroundedValue nextEntry = level1forArrays.next();
-                    level2 = nextEntry.iterate();
-                } else if (level1forMaps != null && level1forMaps.hasNext()) {
-                    KeyValuePair nextEntry = level1forMaps.next();
-                    GroundedValue value = nextEntry.value;
-                    level2 = value.iterate();
-                } else {
-                    level1forMaps = null;
-                    level1forArrays = null;
-                }
-                return next();
+            if (baseIterator.hasNext()) {
+                GroundedValue value = baseIterator.next();
+                Int64Value key = Int64Value.makeIntegerValue(++index);
+                return LookupExpression.makeEntry(key, value, container);
             } else {
-                Item nextItem = level2.next();
-                if (nextItem == null) {
-                    level2 = null;
-                    return next();
-                } else {
-                    return nextItem;
-                }
+                return null;
             }
+        }
+    }
+
+    /**
+     * Iterator over a sequence of entries in a map, delivering them in the form
+     * required by $map?entry::*
+     */
+    public static class MapEntriesIterator implements SequenceIterator {
+
+        final MapItem container;
+        final Iterator<KeyValuePair> baseIterator;
+
+        public MapEntriesIterator(MapItem mapItem) {
+            baseIterator = mapItem.keyValuePairs().iterator();
+            container = mapItem;
         }
 
         @Override
-        public void close() {
-            if (level0 != null) {
-                level0.close();
-            }
-            if (level2 != null) {
-                level2.close();
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
+        public Item next() {
+            if (baseIterator.hasNext()) {
+                KeyValuePair kvp = baseIterator.next();
+                return LookupExpression.makeEntry(kvp.key(), kvp.value(), container);
+            } else {
+                return null;
             }
         }
-
     }
 }
 

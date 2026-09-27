@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,11 +9,12 @@ package net.sf.saxon.regex;
 
 import net.sf.saxon.expr.LastPositionFinder;
 import net.sf.saxon.expr.parser.Loc;
+import net.sf.saxon.om.Action;
 import net.sf.saxon.str.EmptyUnicodeString;
-import net.sf.saxon.trans.UncheckedXPathException;
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.SaxonErrorCode;
+import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.StringValue;
 import net.sf.saxon.z.IntHashMap;
@@ -196,43 +197,65 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
         return _matcher.getParenCount();
     }
 
+    private static class GroupAction {
+        int groupNr;
+        Action action;
+        public GroupAction (int groupNr, Action action) {
+            this.groupNr = groupNr;
+            this.action = action;
+        }
+    }
+
     /**
      * Process a matching substring, performing specified actions at the start and end of each captured
      * subgroup. This method will always be called when operating in "push" mode; it writes its
      * result to context.getReceiver(). The matching substring text is all written to the receiver,
      * interspersed with calls to the {@link RegexMatchHandler} methods onGroupStart() and onGroupEnd().
      *
-     * @param action  defines the processing to be performed at the start and end of a group
+     * @param handler  defines the processing to be performed at the start and end of a group
      */
 
     @Override
-    public void processMatchingSubstring(RegexMatchHandler action) throws XPathException {
+    public void processMatchingSubstring(RegexMatchHandler handler) throws XPathException {
         int c = _matcher.getParenCount() - 1;
         if (c == 0) {
-            action.characters(current);
+            handler.characters(current);
         } else {
             // Create a map from positions in the string to lists of actions.
-            // The "actions" in each list are: +N: start group N; -N: end group N.
-            IntHashMap<List<Integer>> actions = new IntHashMap<>(c);
+            // The "actions" in each list are to start or end a particular group.
+            IntHashMap<List<GroupAction>> actions = new IntHashMap<>(c);
+            int lengthOfMatch = _matcher.getParenEnd(0) - _matcher.getParenStart(0);
             for (int i = 1; i <= c; i++) {
+                final int groupNr = i;
                 int start = _matcher.getParenStart(i) - _matcher.getParenStart(0);
-                if (start != -1) {
+                if (_matcher.getParenEnd(i) > _matcher.getParenEnd(0)) {
+                    // The captured group is beyond the actual matching string, implying it was captured by lookahead.
+                    // So we need to output a lookahead-group as the last thing before the end-match
+                    List<GroupAction> e = actions.get(lengthOfMatch);
+                    if (e == null) {
+                        e = new ArrayList<>(4);
+                        actions.put(lengthOfMatch, e);
+                    }
+                    final int position = _matcher.getParenStart(i);
+                    final UnicodeString value = _matcher.search.substring(position, _matcher.getParenEnd(i));
+                    e.add(new GroupAction(groupNr, () -> handler.onLookaheadGroup(groupNr, position + 1, value)));
+                } else if (start != -1) {
                     int end = _matcher.getParenEnd(i) - _matcher.getParenStart(0);
                     if (start < end) {
                         // Add the start action after all other actions on the list for the same position
-                        List<Integer> s = actions.get(start);
+                        List<GroupAction> s = actions.get(start);
                         if (s == null) {
                             s = new ArrayList<>(4);
                             actions.put(start, s);
                         }
-                        s.add(i);
+                        s.add(new GroupAction(groupNr, () -> handler.onGroupStart(groupNr)));
                         // Add the end action before all other actions on the list for the same position
-                        List<Integer> e = actions.get(end);
+                        List<GroupAction> e = actions.get(end);
                         if (e == null) {
                             e = new ArrayList<>(4);
                             actions.put(end, e);
                         }
-                        e.add(0, -i);
+                        e.add(new GroupAction(groupNr, () -> handler.onGroupEnd(groupNr)));
                     } else {
                         // zero-length group (start==end). The problem here is that the information available
                         // from Java isn't sufficient to determine the nesting of groups: match("a", "(a(b?))")
@@ -244,50 +267,46 @@ public class ARegexIterator implements RegexIterator, LastPositionFinder {
                         int parentGroup = nestingTable.get(i);
                         // insert the start and end events immediately before the end event for the parent group,
                         // if present; otherwise after all existing events for this position
-                        List<Integer> s = actions.get(start);
+                        List<GroupAction> s = actions.get(start);
                         if (s == null) {
-                            s = new ArrayList<Integer>(4);
+                            s = new ArrayList<>(4);
                             actions.put(start, s);
-                            s.add(i);
-                            s.add(-i);
+                            s.add(new GroupAction(groupNr, () -> handler.onGroupStart(groupNr)));
+                            s.add(new GroupAction(groupNr, () -> handler.onGroupEnd(groupNr)));
                         } else {
                             int pos = s.size();
                             for (int e = 0; e < s.size(); e++) {
-                                if (s.get(e) == -parentGroup) {
+                                if (s.get(e).groupNr == parentGroup) {
                                     pos = e;
                                     break;
                                 }
                             }
-                            s.add(pos, -i);
-                            s.add(pos, i);
+                            s.add(pos, new GroupAction(groupNr, () -> handler.onGroupEnd(groupNr)));
+                            s.add(pos, new GroupAction(groupNr, () -> handler.onGroupStart(groupNr)));
                         }
 
                     }
                 }
 
             }
-            UnicodeBuilder buff = new UnicodeBuilder();
+            TwineBuilder tb = TwineBuilder.make(256);
             for (int i = 0; i < current.length() + 1; i++) {
-                List<Integer> events = actions.get(i);
+                List<GroupAction> events = actions.get(i);
                 if (events != null) {
-                    if (!buff.isEmpty()) {
-                        action.characters(buff.toUnicodeString());
-                        buff.clear();
+                    if (!tb.isEmpty()) {
+                        handler.characters(tb.toUnicodeString());
+                        tb = TwineBuilder.make(256);
                     }
-                    for (Integer group : events) {
-                        if (group > 0) {
-                            action.onGroupStart(group);
-                        } else {
-                            action.onGroupEnd(-group);
-                        }
+                    for (GroupAction groupAction : events) {
+                        groupAction.action.doAction();
                     }
                 }
                 if (i < current.length()) {
-                    buff.append(current.codePointAt(i));
+                    tb = tb.append(current.codePointAt(i));
                 }
             }
-            if (!buff.isEmpty()) {
-                action.characters(buff.toUnicodeString());
+            if (!tb.isEmpty()) {
+                handler.characters(tb.toUnicodeString());
             }
         }
 

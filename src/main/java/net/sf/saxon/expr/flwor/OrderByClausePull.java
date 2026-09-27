@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,6 +11,7 @@ import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.sort.AtomicComparer;
 import net.sf.saxon.expr.sort.ItemToBeSorted;
 import net.sf.saxon.expr.sort.SortKeyDefinitionList;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpReplaceException;
@@ -59,7 +60,7 @@ public class OrderByClausePull extends TuplePull {
             int position = 0;
 
             while (base.nextTuple(context)) {
-                Tuple tuple = tupleExpr.evaluateItem(context);
+                FlworTuple<Sequence> tuple = tupleExpr.evaluateItem(context);
                 SortKeyDefinitionList sortKeyDefinitions = orderByClause.getSortKeyDefinitions();
                 ItemToBeSorted itbs = new ItemToBeSorted(sortKeyDefinitions.size());
                 itbs.value = tuple;
@@ -96,7 +97,7 @@ public class OrderByClausePull extends TuplePull {
         }
 
         if (currentPosition < tupleArray.size()) {
-            tupleExpr.setCurrentTuple(context, (Tuple) tupleArray.get(currentPosition++).value);
+            tupleExpr.setCurrentTuple(context, (FlworTuple<Sequence>) tupleArray.get(currentPosition++).value);
             return true;
         } else {
             return false;

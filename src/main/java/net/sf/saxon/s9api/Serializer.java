@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,12 +7,12 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.event.*;
 import net.sf.saxon.lib.OutputURIResolver;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.lib.SerializerFactory;
 import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.QueryResult;
 import net.sf.saxon.serialize.CharacterMap;
 import net.sf.saxon.serialize.CharacterMapIndex;
@@ -37,9 +37,11 @@ import java.util.Objects;
 import java.util.Properties;
 
 /**
- * A <code>Serializer</code> takes a tree representation of XML and turns it into lexical XML markup.
+ * A <code>Serializer</code> takes an XDM value and outputs a textual representation of the content.
+ * Different serialization methods are defined to support different output formats, for example the XML
+ * method outputs the content as lexical XML, while the JSON method outputs the content as lexical JSON.
  * <p>To construct a <code>Serializer</code>, use the factory method {@link Processor#newSerializer(File)}.</p>
- * <p><i>Note that this is XML serialization in the sense of the W3C XSLT and XQuery specifications.
+ * <p><i>Note that this is serialization in the sense of the W3C XSLT and XQuery specifications.
  * This has nothing to do with the serialization of Java objects, or the {@link java.io.Serializable}
  * interface.</i></p>
  * <p>The serialization may be influenced by a number of serialization parameters. A parameter has a name,
@@ -69,7 +71,7 @@ import java.util.Properties;
 public class Serializer extends AbstractDestination {
 
     private Processor processor; // never null
-    private final Map<StructuredQName, String> properties = new HashMap<>(10);
+    private final Map<String, String> properties = new HashMap<>(10);  // Property name is in Clark format {uri}local
     private final StreamResult result = new StreamResult();
     private CharacterMapIndex characterMapIndex = null;
     private boolean mustClose = false;
@@ -81,116 +83,159 @@ public class Serializer extends AbstractDestination {
     static {
         final Property[] propertyValues = Property.values();
         for (Property p : propertyValues) {
-            standardProperties.put(p.toString(), p);
+            standardProperties.put(propertyClarkName(p), p);
         }
     }
 
     /**
-     * Enumeration class defining the permitted serialization properties
+     * Enumeration class defining the permitted serialization properties.
+     * Names prefixed SAXON are extension properties defined at
+     * https://www.saxonica.com/documentation/index.html#!extensions/output-extras/serialization-parameters
      */
 
     public enum Property {
         /**
-         * Serialization method: xml, html, xhtml, text, json, adaptive; or <code>Q{uri}local</code>
+         * Set to "yes" or "no" to indicate whether duplicate names are to be allowed
+         * in JSON output (the main reason to set this to "yes" is to avoid the cost of
+         * checking for duplicates when it is known there will be none)
          */
-        METHOD(OutputKeys.METHOD),
+        ALLOW_DUPLICATE_NAMES(SaxonOutputKeys.ALLOW_DUPLICATE_NAMES),
+
         /**
-         * Version of output method, for example "1.0" or "1.1" for XML
+         * Set to "yes" or "no" to indicate whether a byte order mark is to be written
          */
-        VERSION(OutputKeys.VERSION),
+        BYTE_ORDER_MARK(SaxonOutputKeys.BYTE_ORDER_MARK),
+
         /**
-         * Character encoding of output stream
+         * Set to "yes" or "no" to indicate whether a byte order mark is to be written
          */
-        ENCODING(OutputKeys.ENCODING),
-        /**
-         * Set to "yes" if the XML declaration is to be omitted from the output file
-         */
-        OMIT_XML_DECLARATION(OutputKeys.OMIT_XML_DECLARATION),
-        /**
-         * Set to "yes", "no", or "omit" to indicate the required value of the standalone attribute
-         * in the XML declaration of the output file
-         */
-        STANDALONE(OutputKeys.STANDALONE),
-        /**
-         * Set to any string to indicate that the output is to include a DOCTYPE declaration with this public id
-         */
-        DOCTYPE_PUBLIC(OutputKeys.DOCTYPE_PUBLIC),
-        /**
-         * Set to any string to indicate that the output is to include a DOCTYPE declaration with this system id
-         */
-        DOCTYPE_SYSTEM(OutputKeys.DOCTYPE_SYSTEM),
+        CANONICAL(SaxonOutputKeys.CANONICAL),
+
         /**
          * Space-separated list of QNames (in Clark form or EQName form) of elements
          * whose content is to be wrapped in CDATA sections
          */
         CDATA_SECTION_ELEMENTS(OutputKeys.CDATA_SECTION_ELEMENTS),
+
         /**
-         * Set to "yes" or "no" to indicate whether indentation is required
+         * Set to any string to indicate that the output is to include a DOCTYPE declaration with this public id
          */
-        INDENT(OutputKeys.INDENT),
+        DOCTYPE_PUBLIC(OutputKeys.DOCTYPE_PUBLIC),
+
         /**
-         * Set to indicate the media type (MIME type) of the output
+         * Set to any string to indicate that the output is to include a DOCTYPE declaration with this system id
          */
-        MEDIA_TYPE(OutputKeys.MEDIA_TYPE),
+        DOCTYPE_SYSTEM(OutputKeys.DOCTYPE_SYSTEM),
+
         /**
-         * List of names of character maps to be used. Character maps can only be specified in an XSLT
-         * stylesheet. Supplied as a space-separated list of QNames in Clark or EQName format.
+         * Character encoding of output stream
          */
-        USE_CHARACTER_MAPS(SaxonOutputKeys.USE_CHARACTER_MAPS),
+        ENCODING(OutputKeys.ENCODING),
+
         /**
-         * For HTML and XHTML, set to "yes" or "no" to indicate whether a &lt;meta&gt; element is to be
-         * written to indicate the content type and encoding
+         * Set to "yes" or "no" to indicate whether a solidus (forwards slash) is to be escaped with a backslash
+         * in JSON output. (The backslash is only really needed when the JSON is to be embedded in HTML, but the
+         * values is "yes" by default.) New in 4.0
          */
-        INCLUDE_CONTENT_TYPE(SaxonOutputKeys.INCLUDE_CONTENT_TYPE),
-        /**
-         * Set to "yes" or "no" to indicate (for XML 1.1) whether namespaces that go out of scope should
-         * be undeclared
-         */
-        UNDECLARE_PREFIXES(SaxonOutputKeys.UNDECLARE_PREFIXES),
+        ESCAPE_SOLIDUS(SaxonOutputKeys.ESCAPE_SOLIDUS),
+
         /**
          * Set to "yes" or "no" to indicate (for HTML and XHTML) whether URI-valued attributes should be
          * percent-encoded
          */
         ESCAPE_URI_ATTRIBUTES(SaxonOutputKeys.ESCAPE_URI_ATTRIBUTES),
+
         /**
-         * Set to "yes" or "no" to indicate whether a byte order mark is to be written
+         * HTML version number
          */
-        BYTE_ORDER_MARK(SaxonOutputKeys.BYTE_ORDER_MARK),
+        HTML_VERSION(SaxonOutputKeys.HTML_VERSION),
+
+        /**
+         * For HTML and XHTML, set to "yes" or "no" to indicate whether a &lt;meta&gt; element is to be
+         * written to indicate the content type and encoding
+         */
+        INCLUDE_CONTENT_TYPE(SaxonOutputKeys.INCLUDE_CONTENT_TYPE),
+
+        /**
+         * Set to "yes" or "no" to indicate whether indentation is required
+         */
+        INDENT(OutputKeys.INDENT),
+
+        /**
+         * Set to a string that will be used to separate adjacent items in an XQuery result sequence
+         */
+        ITEM_SEPARATOR(SaxonOutputKeys.ITEM_SEPARATOR),
+
+        /**
+         * Indicates output in JSON Lines format - one JSON record per line of the output file, newline-separated
+         */
+        JSON_LINES(SaxonOutputKeys.JSON_LINES),
+
+        /**
+         * Output method to be used when nodes are embedded in maps or arrays output using the JSON output method
+         */
+        JSON_NODE_OUTPUT_METHOD(SaxonOutputKeys.JSON_NODE_OUTPUT_METHOD),
+
+        /**
+         * Set to indicate the media type (MIME type) of the output
+         */
+        MEDIA_TYPE(OutputKeys.MEDIA_TYPE),
+
+        /**
+         * Serialization method: xml, html, xhtml, text, json, adaptive; or <code>Q{uri}local</code>
+         */
+        METHOD(OutputKeys.METHOD),
+
         /**
          * Set to the name of a Unicode normalization form: "NFC", "NFD", "NFKC", or "NFKD", or
          * "none" to indicate no normalization
          */
         NORMALIZATION_FORM(SaxonOutputKeys.NORMALIZATION_FORM),
+
         /**
-         * Set to a string used to separate adjacent items in an XQuery result sequence
+         * Set to "yes" if the XML declaration is to be omitted from the output file
          */
-        ITEM_SEPARATOR(SaxonOutputKeys.ITEM_SEPARATOR),
+        OMIT_XML_DECLARATION(OutputKeys.OMIT_XML_DECLARATION),
+
         /**
-         * HTML version number
+         * Set to "yes", "no", or "omit" to indicate the required value of the standalone attribute
+         * in the XML declaration of the output file
          */
-        HTML_VERSION(SaxonOutputKeys.HTML_VERSION),
+        STANDALONE(OutputKeys.STANDALONE),
+
+        /**
+         * Set to a space-separated list of element names (in Clark or EQName notation),
+         * identifying elements (such as <code>para</code>) within which no content is to be indented.
+         * This is typically because the element contains mixed content in which whitespace is significant.
+         * <p>
+         * This was originally a Saxon extension to the W3C specifications, but it then became
+         * a standard serialization attribute. In previous versions of this API it was therefore
+         * named {@code SAXON_SUPPRESS_INDENTATION}
+         */
+        SUPPRESS_INDENTATION(SaxonOutputKeys.SUPPRESS_INDENTATION),
+
+        /**
+         * Set to "yes" or "no" to indicate (for XML 1.1) whether namespaces that go out of scope should
+         * be undeclared
+         */
+        UNDECLARE_PREFIXES(SaxonOutputKeys.UNDECLARE_PREFIXES),
+
+        /**
+         * List of names of character maps to be used. Character maps can only be specified in an XSLT
+         * stylesheet. Supplied as a space-separated list of QNames in Clark or EQName format.
+         */
+        USE_CHARACTER_MAPS(SaxonOutputKeys.USE_CHARACTER_MAPS),
+
+        /**
+         * Version of output method, for example "1.0" or "1.1" for XML
+         */
+        VERSION(OutputKeys.VERSION),
+
         /**
          * Build-tree option (XSLT only), "yes" or "no"
          */
         BUILD_TREE(SaxonOutputKeys.BUILD_TREE),
-        /**
-         * Saxon extension: set to an integer (represented as a string) giving the number of spaces
-         * by which each level of nesting should be indented. Default is 3.
-         */
-        SAXON_INDENT_SPACES(SaxonOutputKeys.INDENT_SPACES),
-        /**
-         * Saxon extension: set to a string containing the internal DTD subset, which is output "as is",
-         * without any checking. The content should correspond to the rules for the <code>intSubset</code>
-         * production in the XML 1.1 grammar (note that this excludes the square-bracket delimiters).
-         * See also the <code>saxon:doctype</code> instruction, which allows the internal subset to be
-         * constructed programmatically.
-         */
-        SAXON_INTERNAL_DTD_SUBSET(SaxonOutputKeys.INTERNAL_DTD_SUBSET),
-        /**
-         * Saxon extension: set to an integer (represented as a string) giving the desired maximum
-         * length of lines when indenting. Default is 80.
-         */
-        SAXON_LINE_LENGTH(SaxonOutputKeys.LINE_LENGTH),
+
         /**
          * Saxon extension: set to a space-separated list of attribute names, in Clark or EQName notation,
          * followed optionally by "*" and then another space-separated list of attribute names
@@ -200,66 +245,106 @@ public class Serializer extends AbstractDestination {
          * and finally specific attributes listed after the "*", in the order specified.
          */
         SAXON_ATTRIBUTE_ORDER(SaxonOutputKeys.ATTRIBUTE_ORDER),
+
         /**
-         * Saxon extension: request canonical XML output. Value is "yes" or "no"
+         * Saxon extension (now in 4.0): request canonical XML output. Value is "yes" or "no"
          */
         SAXON_CANONICAL(SaxonOutputKeys.CANONICAL),
+
         /**
-         * Saxon extension: set to any string. Indicates the sequence of characters used to represent
-         * a newline in the text output method, and in newlines used for indentation in any output
-         * methods that use indentation.
+         * Saxon extension to indicate how characters outside the encoding should be represented,
+         * for example "hex" for hexadecimal character references, "decimal" for decimal character references
          */
-        SAXON_NEWLINE(SaxonOutputKeys.NEWLINE),
+        SAXON_CHARACTER_REPRESENTATION(SaxonOutputKeys.CHARACTER_REPRESENTATION),
+
         /**
-         * Set to a space-separated list of element names (in Clark or EQName notation),
-         * identifying elements (such as <code>para</code>) within which no content is to be indented.
-         * This is typically because the element contains mixed content in which whitespace is significant.
-         * <p>
-         * This was originally a Saxon extension to the W3C specifications, but it then became
-         * a standard serialization attribute. The "SAXON_" prefix on the name of the enumeration
-         * constant reflects this history; the name is retained to avoid disrupting existing
-         * applications.
+         * Saxon extension for use in conjunction with {@code CDATA_SECTION_ELEMENTS}: when an element is
+         * named in {@code CDATA_SECTION_ELEMENTS}, and this property is set, then CDATA tags are output
+         * around a text node only if it includes an ampersand or less-than sign.
          */
-        SAXON_SUPPRESS_INDENTATION(SaxonOutputKeys.SUPPRESS_INDENTATION),
+        SAXON_CONDITIONAL_CDATA(SaxonOutputKeys.CONDITIONAL_CDATA),
+            
         /**
          * Saxon extension: set to a space-separated list of element names, in Clark or EQName notation,
          * representing elements that will be preceded by an extra blank line in the output in addition
          * to normal indentation.
          */
         SAXON_DOUBLE_SPACE(SaxonOutputKeys.DOUBLE_SPACE),
+
         /**
-         * Saxon extension for internal use: used in XSLT to tell the serializer whether the
-         * stylesheet used version="1.0" or version="2.0" (etc). Needed primarily because the
-         * algorithm for selecting a default output method is version-sensitive.
+         * Saxon extension: set to an integer (represented as a string) giving the number of spaces
+         * by which each level of nesting should be indented. Default is 3.
          */
-        SAXON_STYLESHEET_VERSION(SaxonOutputKeys.STYLESHEET_VERSION),
+        SAXON_INDENT_SPACES(SaxonOutputKeys.INDENT_SPACES),
+
         /**
-         * Saxon extension to indicate how characters outside the encoding should be represented,
-         * for example "hex" for hexadecimal character references, "decimal" for decimal character references
+         * Saxon extension: set to a string containing the internal DTD subset, which is output "as is",
+         * without any checking. The content should correspond to the rules for the <code>intSubset</code>
+         * production in the XML 1.1 grammar (note that this excludes the square-bracket delimiters).
+         * See also the <code>saxon:doctype</code> instruction, which allows the internal subset to be
+         * constructed programmatically.
          */
-        SAXON_CHARACTER_REPRESENTATION(SaxonOutputKeys.CHARACTER_REPRESENTATION),
+        SAXON_INTERNAL_DTD_SUBSET(SaxonOutputKeys.INTERNAL_DTD_SUBSET),
+
+        /**
+         * Saxon extension: set to an integer (represented as a string) giving the desired maximum
+         * length of lines when indenting. Default is 80.
+         */
+        SAXON_LINE_LENGTH(SaxonOutputKeys.LINE_LENGTH),
+
+          /**
+         * Saxon extension: set to any string. Indicates the sequence of characters used to represent
+         * a newline in the text output method, and in newlines used for indentation in any output
+         * methods that use indentation.
+         */
+        SAXON_NEWLINE(SaxonOutputKeys.NEWLINE),
+
+        /**
+         * Saxon extension: set to a space-separated list of strings,
+         * followed optionally by "*" and then another space-separated list of strings
+         * indicating that keys present in a map should be serialized in the order
+         * indicated: specific keys listed before the "*" come first in the order specified;
+         * then keys not present in the list (these are sorted alphabetically,
+         * and finally specific keys listed after the "*", in the order specified. It is not
+         * possible to include keys that contain whitespace.
+         */
+        SAXON_PROPERTY_ORDER (SaxonOutputKeys.PROPERTY_ORDER),
+
         /**
          * Saxon extension for use when writing to the text output method; this option causes the processing
          * instructions hex and b64 to be recognized as containing hexBinary or base64 data respectively.
          */
         SAXON_RECOGNIZE_BINARY(SaxonOutputKeys.RECOGNIZE_BINARY),
+
         /**
          * Saxon extension for use when output is sent to a SAX ContentHandler: indicates that the output
          * is required to be well-formed (exactly one top-level element, no top-level text nodes)
          */
         SAXON_REQUIRE_WELL_FORMED(SaxonOutputKeys.REQUIRE_WELL_FORMED),
+
         /**
-         * Saxon extension, indicates that the output of a query is to be wrapped before serialization,
-         * such that each item in the result sequence is enclosed in an element indicating its type
+         * Set to "yes" or "no" to indicate whether attribute values should be delimited where possible
+         * using single quotes (apostrophes) rather than double quotes.
          */
-        SAXON_WRAP(SaxonOutputKeys.WRAP),
+        SAXON_SINGLE_QUOTES(SaxonOutputKeys.SINGLE_QUOTES),
+
+        /**
+         * Set to the version of the serialization specification to be used, for example
+         * "3.1" or "4.0". Defaults to 3.1.
+         */
+        SAXON_SPEC_VERSION(SaxonOutputKeys.SPEC_VERSION),
 
         /**
          * Saxon extension for interfacing with debuggers; indicates that location information is
          * available for events in this output stream
          */
-        SAXON_SUPPLY_SOURCE_LOCATOR(SaxonOutputKeys.SUPPLY_SOURCE_LOCATOR);
+        SAXON_SUPPLY_SOURCE_LOCATOR(SaxonOutputKeys.SUPPLY_SOURCE_LOCATOR),
 
+        /**
+         * Saxon extension, indicates that the output of a query is to be wrapped before serialization,
+         * such that each item in the result sequence is enclosed in an element indicating its type
+         */
+        SAXON_WRAP(SaxonOutputKeys.WRAP);
 
         private final String name;
 
@@ -301,6 +386,13 @@ public class Serializer extends AbstractDestination {
             return null;
         }
 
+
+    }
+
+    public static String propertyClarkName(Property prop) {
+        String propName;
+        propName = prop.toString();
+        return propName;
     }
 
     /**
@@ -345,7 +437,7 @@ public class Serializer extends AbstractDestination {
 
     public void setOutputProperties(Properties suppliedProperties) {
         for (String name : suppliedProperties.stringPropertyNames()) {
-            properties.put(StructuredQName.fromClarkName(name), suppliedProperties.getProperty(name));
+            properties.put(name, suppliedProperties.getProperty(name));
         }
     }
 
@@ -369,11 +461,15 @@ public class Serializer extends AbstractDestination {
 
 
     /**
-     * Say if the output stream should be closed on completion
-     * By default the close method closes the output stream only when the serializer created the output stream itself
-     * that is when the destination has been supplied as a file rather than a stream.
-     * @param value - if true the output file will be closed when the close method is called
-     *              if false the close method has no effect.
+     * Say whether the output stream or writer should be closed on completion
+     * By default the close method closes the output stream only when the serializer created the output stream itself,
+     * that is, when the destination has been supplied as a file rather than a stream.
+     * <p>Note that this method causes a call on <code>close()</code>, but it does not cause a call on
+     * <code>flush()</code>. With most implementations of <code>OutputStream</code>, and with all
+     * conformant implementations of <code>Writer</code>, a call on <code>close()</code>
+     * does an implicit <code>flush()</code>, but this cannot be guaranteed.</p>
+     * @param value - if true the output stream or writer will be closed when the serialization is complete;
+     *              if false it is left open.
      */
 
     public void setCloseOnCompletion(boolean value) {
@@ -410,7 +506,7 @@ public class Serializer extends AbstractDestination {
      * Get the character map index in use
      * @return a set of named character maps.
      */
-
+    
     public CharacterMapIndex getCharacterMapIndex() {
         if (characterMapIndex == null) {
             characterMapIndex = new CharacterMapIndex();
@@ -443,14 +539,14 @@ public class Serializer extends AbstractDestination {
     public void setOutputProperty(Property property, /*@Nullable*/ String value) {
         SerializerFactory sf = processor.getUnderlyingConfiguration().getSerializerFactory();
         try {
-            value = sf.checkOutputProperty(property.toString(), value);
+            value = sf.checkOutputProperty(propertyClarkName(property), value);
         } catch (XPathException e) {
             throw new IllegalArgumentException(e.getMessage());
         }
         if (value == null) {
-            properties.remove(property.getQName().getStructuredQName());
+            properties.remove(propertyClarkName(property));
         } else {
-            properties.put(property.getQName().getStructuredQName(), value);
+            properties.put(propertyClarkName(property), value);
         }
     }
 
@@ -465,7 +561,7 @@ public class Serializer extends AbstractDestination {
      */
 
     public String getOutputProperty(Property property) {
-        return properties.get(property.getQName().getStructuredQName());
+        return properties.get(propertyClarkName(property));
     }
 
     /**
@@ -507,10 +603,11 @@ public class Serializer extends AbstractDestination {
                 throw new IllegalArgumentException("saxon:next-in-chain is not a valid serialization property");
             }
         }
+        String clarkName = property.getClarkName();
         if (value == null) {
-            properties.remove(property.getStructuredQName());
+            properties.remove(clarkName);
         } else {
-            properties.put(property.getStructuredQName(), value);
+            properties.put(clarkName, value);
         }
     }
 
@@ -528,7 +625,7 @@ public class Serializer extends AbstractDestination {
      */
 
     public String getOutputProperty(QName property) {
-        return properties.get(property.getStructuredQName());
+        return properties.get(property.getClarkName());
     }
 
     /**
@@ -694,6 +791,34 @@ public class Serializer extends AbstractDestination {
     }
 
     /**
+     * Serialize an arbitrary value using this serializer
+     *
+     * <p>The default serialization properties used by this method correspond to the properties used
+     * by an XSLT 3.0 stylesheet with no <code>xsl:output</code> declaration. In particular, the default output
+     * method (always one of XML, XHTML, or HTML) depends on the name of the first element node
+     * encountered.</p>
+     *
+     * @param value The value to be serialized
+     * @return the serialized representation of the value
+     * @throws SaxonApiException if a serialization error occurs
+     * @since 13.0
+     */
+
+    public String serializeToString(XdmValue value) throws SaxonApiException {
+        StringWriter sw = new StringWriter();
+        StreamResult sr = new StreamResult(sw);
+        Configuration config = processor.getUnderlyingConfiguration();
+        SerializationProperties props = new SerializationProperties(getLocallyDefinedProperties(), characterMapIndex);
+        try {
+            QueryResult.serializeSequence(value.getUnderlyingValue().iterate(), config, sr, props);
+        } catch (XPathException e) {
+            throw new SaxonApiException(e);
+        }
+        return sw.toString();
+    }
+
+
+    /**
      * Serialize an XdmNode to a string using this serializer
      *
      * <p>The default serialization properties used by this method correspond to the properties used
@@ -716,7 +841,8 @@ public class Serializer extends AbstractDestination {
 
     private void serializeNodeToResult(XdmNode node, Result res) throws SaxonApiException {
         try {
-            QueryResult.serialize(node.getUnderlyingNode(), res, getLocallyDefinedProperties());
+            SerializationProperties props = new SerializationProperties(getLocallyDefinedProperties(), characterMapIndex);
+            QueryResult.serialize(node.getUnderlyingNode(), res, props);
         } catch (XPathException e) {
             throw new SaxonApiException(e);
         }
@@ -846,9 +972,9 @@ public class Serializer extends AbstractDestination {
 
     public Properties getCombinedOutputProperties(Properties defaultOutputProperties) {
         Properties props = defaultOutputProperties == null ? new Properties() : new Properties(defaultOutputProperties);
-        for (StructuredQName p : properties.keySet()) {
-            String value = properties.get(p);
-            props.setProperty(p.getClarkName(), value);
+        for (String key : properties.keySet()) {
+            String value = properties.get(key);
+            props.setProperty(key, value);
         }
         return props;
     }
@@ -864,9 +990,9 @@ public class Serializer extends AbstractDestination {
 
     protected Properties getLocallyDefinedProperties() {
         Properties props = new Properties();
-        for (StructuredQName p : properties.keySet()) {
-            String value = properties.get(p);
-            props.setProperty(p.getClarkName(), value);
+        for (String key : properties.keySet()) {
+            String value = properties.get(key);
+            props.setProperty(key, value);
         }
         return props;
     }
@@ -914,7 +1040,7 @@ public class Serializer extends AbstractDestination {
                     throw new SaxonApiException("Failed while closing output file", err);
                 }
             }
-            Writer writer = result.getWriter();
+            Writer writer = result.getWriter();  
             if (writer != null) {
                 try {
                     writer.close();

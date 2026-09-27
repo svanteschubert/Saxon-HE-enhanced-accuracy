@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,11 +13,10 @@ import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NameTest;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NamedXNodeType;
 import net.sf.saxon.value.QNameValue;
 import net.sf.saxon.value.StringValue;
 
@@ -72,9 +71,9 @@ public class Error extends SystemFunction implements Callable {
             if (errorObject.getLength() == 1) {
                 Item root = errorObject.head();
                 if ((root instanceof NodeInfo) && ((NodeInfo) root).getNodeKind() == Type.DOCUMENT) {
-                    AxisIterator iter = ((NodeInfo) root).iterateAxis(AxisInfo.CHILD,
-                            new NameTest(Type.ELEMENT, NamespaceUri.NULL, "error", context.getConfiguration().getNamePool()));
-                    NodeInfo errorElement = iter.next();
+                    SequenceIterator iter = ((NodeInfo) root).iterateChildAxis(
+                            NamedXNodeType.make(Type.ELEMENT, NamespaceUri.NULL, "error", context.getConfiguration()));
+                    NodeInfo errorElement = (NodeInfo)iter.next();
                     if (errorElement != null) {
                         String module = errorElement.getAttributeValue(NamespaceUri.NULL, "module");
                         String lineVal = errorElement.getAttributeValue(NamespaceUri.NULL, "line");

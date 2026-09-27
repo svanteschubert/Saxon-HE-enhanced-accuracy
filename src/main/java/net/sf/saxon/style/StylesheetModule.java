@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,6 +13,7 @@ import net.sf.saxon.event.*;
 import net.sf.saxon.expr.parser.Loc;
 import net.sf.saxon.lib.*;
 import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.XmlProcessingError;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.packages.IPackageLoader;
 import net.sf.saxon.transpile.CSharpReplaceBody;
@@ -63,27 +64,22 @@ public class StylesheetModule {
     /**
      * Build the tree representation of a stylesheet module
      *
-     *
      * @param styleSource the source of the module
      * @param topLevelModule true if this module is the outermost module of a package
      * @param compilation the XSLT compilation episode
      * @param precedence the import precedence for static variables declared
      * in the module. (This is handled differently from the precedence of other components
      * because it needs to be allocated purely sequentially).
-     * @return the tree representation of the XML document containing the stylesheet module
-     * @throws net.sf.saxon.trans.XPathException
-     *          if XML parsing or tree
-     *          construction fails
+     * @return the tree representation of the XML document containing the stylesheet module, or null if it is to be ignored
+     * @throws net.sf.saxon.trans.XPathException if XML parsing or tree construction fails
      */
     public static DocumentImpl loadStylesheetModule(
             Source styleSource, boolean topLevelModule, Compilation compilation, NestedIntegerValue precedence) throws XPathException {
 
-        String systemId = styleSource.getSystemId();
-        DocumentKey docURI = systemId == null ? null : new DocumentKey(systemId);
-        if (systemId != null && compilation.getImportStack().contains(docURI)) {
-            throw new XPathException("The stylesheet module includes/imports itself directly or indirectly", "XTSE0180");
+        boolean use = pushAndCheck(styleSource, compilation, precedence);
+        if (!use) {
+            return null;
         }
-        compilation.getImportStack().push(docURI);
 
         Configuration config = compilation.getConfiguration();
         PipelineConfiguration pipe = config.makePipelineConfiguration();
@@ -113,7 +109,7 @@ public class StylesheetModule {
             sendStylesheetSource(styleSource, config, commentStripper, options);
             doc = (DocumentImpl)styleBuilder.getCurrentRoot();
             styleBuilder.reset();
-            compilation.getImportStack().pop();
+            compilation.popModule();
             return doc;
         } catch (XPathException err) {
             if (topLevelModule && !err.hasBeenReported()) {   // bug 2244
@@ -127,6 +123,33 @@ public class StylesheetModule {
         }
     }
 
+    /**
+     * Push a module onto the include/import stack, checking that it is not already there (which implies a circularity).
+     * But in 4.0, a circular include within a stylesheet level is permitted, and causes the include to be ignored
+     * @param styleSource the source of the included stylesheet module
+     * @param compilation the compilation, which holds the module stack
+     * @param precedence the import precedence at which the module is to be loaded
+     * @return true if the module is to be processed, false if it is to be ignored (4.0 only)
+     * @throws XPathException if a disallowed circularity is detected
+     */
+    private static boolean pushAndCheck(Source styleSource, Compilation compilation, NestedIntegerValue precedence) throws XPathException {
+        String systemId = styleSource.getSystemId();
+        DocumentKey docURI = systemId == null ? null : new DocumentKey(systemId);
+        if (systemId != null) {
+            NestedIntegerValue prevPrecedence = compilation.stackContainsModule(docURI);
+            if (prevPrecedence != null) {
+                // Implies a cycle; in 4.0 this is OK provided it's within a stylesheet level
+                if (compilation.getCompilerInfo().getXsltVersion() >= 40 && prevPrecedence.equals(precedence)) {
+                    // Simply ignore the xsl:include
+                    return false;
+                }
+                throw new XPathException("The stylesheet module includes/imports itself directly or indirectly", "XTSE0180");
+            }
+        }
+        compilation.pushModule(docURI, precedence);
+        return true;
+    }
+
     private static ParseOptions makeStylesheetParseOptions(Source styleSource, PipelineConfiguration pipe) {
         ParseOptions options;
         if (styleSource instanceof AugmentedSource) {
@@ -137,7 +160,7 @@ public class StylesheetModule {
         options = options.withSchemaValidationMode(Validation.STRIP)
                 .withDTDValidationMode(Validation.STRIP)
                 .withLineNumbering(true)
-                .withSpaceStrippingRule(NoElementsSpaceStrippingRule.getInstance())
+                .withSpaceStrippingRule(NoElementsSpaceStrippingRule.INSTANCE)
                 .withErrorReporter(pipe.getErrorReporter());
         return options;
     }
@@ -181,12 +204,7 @@ public class StylesheetModule {
             ((SAXSource) styleSource).setXMLReader(null);
         }
 
-        String systemId = styleSource.getSystemId();
-        DocumentKey docURI = systemId == null ? null : new DocumentKey(systemId);
-        if (systemId != null && compilation.getImportStack().contains(docURI)) {
-            throw new XPathException("The stylesheet module includes/imports itself directly or indirectly", "XTSE0180");
-        }
-        compilation.getImportStack().push(docURI);
+        pushAndCheck(styleSource, compilation, NestedIntegerValue.TWO);
         compilation.setMinimalPackageData();
 
         Configuration config = compilation.getConfiguration();
@@ -213,6 +231,7 @@ public class StylesheetModule {
             final NamePool pool = config.getNamePool();
             commentStripper.setSkippedElementTest(name -> name.obtainFingerprint(pool) == StandardNames.XSL_NOTE);
         }
+        //LineNumberRetainer lineNumberer = new LineNumberRetainer(commentStripper);
 
         // Pipeline for compiled XSLT code
 
@@ -248,12 +267,17 @@ public class StylesheetModule {
                 // We loaded source XSLT (could be xsl:package or xsl:stylesheet or an LRE...
                 doc = styleBuilder.getCurrentRoot();
                 styleBuilder.reset();
-                compilation.getImportStack().pop();
+                compilation.popModule();
 
                 PreparedStylesheet pss = new PreparedStylesheet(compilation);
                 PrincipalStylesheetModule psm = compilation.compilePackage(doc.asActiveSource());
                 if (compilation.getErrorCount() > 0) {
-                    XPathException e = new XPathException("Errors were reported during stylesheet compilation");
+                    String message = "Errors were reported during stylesheet compilation";
+                    if (compilation.getCompilerInfo().getErrorReporter() instanceof StandardErrorReporter rep) {
+                        XmlProcessingError first = rep.getFirstError();
+                        message += ". " + first.getMessage();
+                    }
+                    XPathException e = new XPathException(message);
                     e.setHasBeenReported(true); // only intended as an exception message, not something to report to ErrorListener
                     throw e;
                 }
@@ -448,7 +472,7 @@ public class StylesheetModule {
 
     public void spliceIncludes() throws XPathException {
 
-        if (topLevel == null || topLevel.size() == 0) {
+        if (topLevel == null || topLevel.isEmpty()) {
             topLevel = new ArrayList<>(50);
         }
         minImportPrecedence = precedence;
@@ -483,7 +507,7 @@ public class StylesheetModule {
                     StylesheetModule inc =
                             xslinc.getIncludedStylesheet(this, precedence);
                     if (inc == null) {
-                        return;  // error has been reported
+                        continue;  // error has been reported, or module is to be ignored
                     }
                     errors = ((XSLGeneralIncorporate) child).getCompilation().getErrorCount() - errors;
                     if (errors > 0) {

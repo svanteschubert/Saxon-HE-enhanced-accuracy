@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,19 +7,21 @@
 
 package net.sf.saxon.s9api;
 
+import net.sf.saxon.lib.NamespaceConstant;
+
 /**
  * A {@code Message} represents the output of an {@code xsl:message} or
  * {@code xsl:assert} instruction.
- * The content of a message is always an XDM document node (in the common case
+ * <p>The content of a message is always an XDM document node (in the common case
  * of purely textual messages, the document node will have a single text node
- * child).
+ * child).</p>
  */
 
 public class Message {
 
     private final XdmNode _content;
     private final QName _errorCode;
-    private final boolean _terminate;
+    private boolean _terminate;
     private final Location _location;
 
     /**
@@ -73,11 +75,24 @@ public class Message {
      * Get the error code associated with the message. If no error
      * code was supplied in the call of {@code xsl:message} or {@code xsl:assert},
      * the default code {@code XTMM9000} or {@code XTMM9001} is used.
+     * System-defined error codes use the namespace {@link NamespaceConstant#ERR}.
      * @return the error code
      */
 
     public QName getErrorCode() {
         return _errorCode;
+    }
+
+    /**
+     * Indicate that the message is to be treated as terminal (causing the transformation to fail).
+     * A user-written message handler can call this method to indicate that Saxon should treat
+     * the message as if {@code terminate=yes} had been specified in the {@code xsl:message}
+     * instruction. The effect is that the {@code xsl:message} instruction fails with a dynamic
+     * error; note that the stylesheet can catch this error using {@code xsl:catch}.
+     */
+
+    public void raiseDynamicError() {
+        _terminate = true;
     }
 
     /**

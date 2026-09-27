@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -187,7 +187,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
         if (errorCode == null) {
             return null;
         }
-        return new QName(StructuredQName.fromEQName((errorCode)));
+        return new QName(StructuredQName.fromEQName40((errorCode)));
     }
 
     public void setErrorCodeAsEQName(String code) {
@@ -336,7 +336,7 @@ public class XmlProcessingIncident implements XmlProcessingError {
     }
 
     public static void maybeSetLocation(XmlProcessingError error, Location loc) {
-        if (error.getLocation() == null) {
+        if (error.getLocation() == null || error.getLocation() == Loc.NONE) {
             if (error instanceof XmlProcessingIncident) {
                 ((XmlProcessingIncident) error).setLocation(loc);
             } else if (error instanceof XmlProcessingException) {

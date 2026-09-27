@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,20 +24,20 @@ public class AscendingRangeIterator extends RangeIterator implements AtomicItera
         LookaheadIterator,
         GroundedIterator {
 
-    long start;
-    long step;
-    long currentValue;
-    long limit;
+    private final long start;
+    private final long step;
+    private long currentValue;
+    private final long limit;
 
     // TODO: the step is currently always +1.
 
     public static AtomicIterator makeRangeIterator(IntegerValue start, IntegerValue step, IntegerValue end) throws XPathException {
         if (start == null || step == null || end == null) {
-            return EmptyIterator.ofAtomic();
+            return EmptyAtomicIterator.INSTANCE;
         } else {
             int direction = step.compareTo(Int64Value.ZERO);
             if (direction == 0 || start.compareTo(end) > 0) {
-                return EmptyIterator.ofAtomic();
+                return EmptyAtomicIterator.INSTANCE;
             }
             if (start instanceof BigIntegerValue || step instanceof BigIntegerValue || end instanceof BigIntegerValue) {
                 if (direction < 0) {
@@ -74,10 +74,7 @@ public class AscendingRangeIterator extends RangeIterator implements AtomicItera
         this.start = start;
         this.step = step;
         currentValue = start - step;
-        limit = end;
-        if (step != 1L) {
-            limit = start + ((end - start)/step) * step;
-        }
+        limit = step == 1L ? end : start + ((end - start)/step) * step;
     }
 
     @Override

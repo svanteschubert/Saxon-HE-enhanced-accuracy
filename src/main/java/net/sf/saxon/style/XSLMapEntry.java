@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,7 +22,7 @@ import net.sf.saxon.type.ItemType;
  * Handler for xsl:map-entry instructions in an XSLT 3.0 stylesheet. <br>
  */
 
-public class XSLMapEntry extends StyleElement {
+public class XSLMapEntry extends StyleElement implements AutoDocumentInhibitor {
 
     Expression key = null;
     Expression select = null;
@@ -36,6 +36,11 @@ public class XSLMapEntry extends StyleElement {
     @Override
     public boolean isInstruction() {
         return true;
+    }
+
+    @Override
+    public ItemType getItemType() {
+        return MapType.ANY_MAP_TYPE;
     }
 
     /**

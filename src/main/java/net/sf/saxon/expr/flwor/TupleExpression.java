@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,10 +14,15 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.JavaExternalObjectType;
+import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.EmptySequence;
+import net.sf.saxon.value.StringValue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -90,8 +95,9 @@ public class TupleExpression extends Expression {
 
     /*@NotNull*/
     @Override
+    @CSharpReplaceBody(code="return Saxon.Hej.type.JavaExternalObjectType.of(typeof(Saxon.Hej.expr.flwor.FlworTuple<Saxon.Hej.om.Sequence>));")
     public ItemType getItemType() {
-        return JavaExternalObjectType.of(Tuple.class);
+        return JavaExternalObjectType.of(FlworTuple.class);
     }
 
     /*@NotNull*/
@@ -192,13 +198,32 @@ public class TupleExpression extends Expression {
 
 
     @Override
-    public Tuple evaluateItem(XPathContext context) throws XPathException {
+    public FlworTuple<Sequence> evaluateItem(XPathContext context) throws XPathException {
         final int n = getSize();
         Sequence[] tuple = new Sequence[n];
         for (int i=0; i<n; i++) {
             tuple[i] = getSlot(i).evaluateVariable(context);
         }
-        return new Tuple(tuple);
+        return new FlworTuple<>(tuple);
+    }
+
+    public FlworTuple<AtomicValue> evaluateItemAllAtomic(XPathContext context) throws XPathException {
+        final int n = getSize();
+        AtomicValue[] tuple = new AtomicValue[n];
+        for (int i = 0; i < n; i++) {
+            Sequence v = getSlot(i).evaluateVariable(context);
+            if (!(v instanceof EmptySequence || v instanceof AtomicValue)) {
+                v = SequenceTool.toGroundedValue(Atomizer.getAtomizingIterator(v.iterate(), false));
+                if (SequenceTool.getLength(v) > 1) {
+                    throw new XPathException("Grouping key value cannot be a sequence of more than one item", "XPTY0004");
+                }
+            }
+            if (v instanceof StringValue) {
+                v = ((StringValue) v).economize(); // bug 6446
+            }
+            tuple[i] = v instanceof AtomicValue ? (AtomicValue) v : null;
+        }
+        return new FlworTuple<>(tuple);
     }
 
     /**
@@ -222,8 +247,8 @@ public class TupleExpression extends Expression {
      * @throws XPathException if any error occurs
      */
 
-    public void setCurrentTuple(XPathContext context, Tuple tuple) throws XPathException {
-        Sequence[] members = tuple.getMembers();
+    public void setCurrentTuple(XPathContext context, FlworTuple<Sequence> tuple) throws XPathException {
+        Sequence[] members = tuple.getValues();
         int n = getSize();
         for (int i = 0; i < n; i++) {
             context.setLocalVariable(getSlot(i).getBinding().getLocalSlotNumber(), members[i]);

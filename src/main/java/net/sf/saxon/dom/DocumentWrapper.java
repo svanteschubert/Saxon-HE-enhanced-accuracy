@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,12 +9,11 @@ package net.sf.saxon.dom;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.functions.ResolveURI;
-import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.GenericTreeInfo;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.NodeInfo;
-import net.sf.saxon.pattern.NodeKindTest;
-import net.sf.saxon.tree.iter.AxisIterator;
+import net.sf.saxon.om.SequenceIterator;
+import net.sf.saxon.type.gnode.NodeKindType;
 import org.w3c.dom.*;
 
 import java.net.URI;
@@ -130,9 +129,9 @@ public class DocumentWrapper extends GenericTreeInfo {
                 return idIndex.get(id);
             } else {
                 idIndex = new HashMap<>();
-                AxisIterator iter = getRootNode().iterateAxis(AxisInfo.DESCENDANT, NodeKindTest.ELEMENT);
+                SequenceIterator iter = getRootNode().iterateDescendantAxis(NodeKindType.ELEMENT);
                 NodeInfo e;
-                while ((e = iter.next()) != null) {
+                while ((e = (NodeInfo)iter.next()) != null) {
                     String xmlId = e.getAttributeValue(NamespaceUri.XML, "id");
                     if (xmlId != null) {
                         idIndex.put(xmlId, e);

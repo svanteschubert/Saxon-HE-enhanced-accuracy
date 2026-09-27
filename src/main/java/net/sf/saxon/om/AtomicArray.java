@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -66,7 +66,6 @@ public class AtomicArray implements AtomicSequence {
 
     @Override
     public AtomicIterator iterate() {
-        //noinspection Convert2Diamond
         return new ListIterator.OfAtomic<AtomicValue>(content);
     }
 
@@ -195,7 +194,7 @@ public class AtomicArray implements AtomicSequence {
     public GroundedValue reduce() {
         int len = getLength();
         if (len == 0) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else if (len == 1) {
             return itemAt(0);
         } else {

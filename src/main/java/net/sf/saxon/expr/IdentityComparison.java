@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,7 @@ import net.sf.saxon.expr.elab.ItemElaborator;
 import net.sf.saxon.expr.elab.ItemEvaluator;
 import net.sf.saxon.expr.parser.*;
 import net.sf.saxon.expr.sort.GlobalOrderComparer;
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ItemType;
@@ -46,7 +46,7 @@ public final class IdentityComparison extends BinaryExpression {
      * @param p2 the right-hand operand
      */
 
-    public IdentityComparison(Expression p1, int op, Expression p2) {
+    public IdentityComparison(Expression p1, OperatorSymbol op, Expression p2) {
         super(p1, op, p2);
     }
 
@@ -93,13 +93,13 @@ public final class IdentityComparison extends BinaryExpression {
         }
 
         Supplier<RoleDiagnostic> role0 =
-                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 0);
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 0);
         TypeChecker tc = visitor.getConfiguration().getTypeChecker(false);
-        setLhsExpression(tc.staticTypeCheck(getLhsExpression(), SequenceType.OPTIONAL_NODE, role0, visitor));
+        setLhsExpression(tc.staticTypeCheck(getLhsExpression(), SequenceType.OPTIONAL_GNODE, role0, visitor));
 
         Supplier<RoleDiagnostic> role1 =
-                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, Token.tokens[operator], 1);
-        setRhsExpression(tc.staticTypeCheck(getRhsExpression(), SequenceType.OPTIONAL_NODE, role1, visitor));
+                () -> new RoleDiagnostic(RoleDiagnostic.BINARY_EXPR, operator.toString(), 1);
+        setRhsExpression(tc.staticTypeCheck(getRhsExpression(), SequenceType.OPTIONAL_GNODE, role1, visitor));
 
         if (!Cardinality.allowsZero(getLhsExpression().getCardinality()) && !Cardinality.allowsZero(getRhsExpression().getCardinality())) {
             generateIdEmulation = false;
@@ -166,12 +166,15 @@ public final class IdentityComparison extends BinaryExpression {
      */
     @Override
     protected String tag() {
-        switch (operator) {
-            case Token.IS: return "is";
-            case Token.PRECEDES: return "precedes";
-            case Token.FOLLOWS: return "follows";
-            default: return "?";
-        }
+        return switch (operator) {
+            case IS -> "is";
+            case IS_NOT -> "is-not";
+            case PRECEDES -> "precedes";
+            case FOLLOWS -> "follows";
+            case PRECEDES_OR_IS -> "precedes-or-is";
+            case FOLLOWS_OR_IS -> "follows-or-is";
+            default -> "?";
+        };
     }
 
     /**
@@ -181,7 +184,7 @@ public final class IdentityComparison extends BinaryExpression {
     /*@Nullable*/
     @Override
     public BooleanValue evaluateItem(XPathContext context) throws XPathException {
-        NodeInfo node0 = getNode(getLhsExpression(), context);
+        GNode node0 = getNode(getLhsExpression(), context);
         if (node0 == null) {
             if (generateIdEmulation) {
                 return BooleanValue.get(getNode(getRhsExpression(), context) == null);
@@ -189,7 +192,7 @@ public final class IdentityComparison extends BinaryExpression {
             return null;
         }
 
-        NodeInfo node1 = getNode(getRhsExpression(), context);
+        GNode node1 = getNode(getRhsExpression(), context);
         if (node1 == null) {
             if (generateIdEmulation) {
                 return BooleanValue.FALSE;
@@ -202,32 +205,31 @@ public final class IdentityComparison extends BinaryExpression {
 
     @Override
     public boolean effectiveBooleanValue(XPathContext context) throws XPathException {
-        NodeInfo node0 = getNode(getLhsExpression(), context);
+        GNode node0 = getNode(getLhsExpression(), context);
         if (node0 == null) {
             return generateIdEmulation && getNode(getRhsExpression(), context) == null;
         }
 
-        NodeInfo node1 = getNode(getRhsExpression(), context);
+        GNode node1 = getNode(getRhsExpression(), context);
         return node1 != null && compareIdentity(node0, node1);
 
     }
 
-    private boolean compareIdentity(NodeInfo node0, NodeInfo node1) {
+    private boolean compareIdentity(GNode node0, GNode node1) {
 
-        switch (operator) {
-            case Token.IS:
-                return node0.equals(node1);
-            case Token.PRECEDES:
-                return GlobalOrderComparer.getInstance().compare(node0, node1) < 0;
-            case Token.FOLLOWS:
-                return GlobalOrderComparer.getInstance().compare(node0, node1) > 0;
-            default:
-                throw new UnsupportedOperationException("Unknown node identity test");
-        }
+        return switch (operator) {
+            case IS -> node0.equals(node1);
+            case IS_NOT -> !node0.equals(node1);
+            case PRECEDES -> GlobalOrderComparer.getInstance().compare(node0, node1) < 0;
+            case FOLLOWS -> GlobalOrderComparer.getInstance().compare(node0, node1) > 0;
+            case PRECEDES_OR_IS -> GlobalOrderComparer.getInstance().compare(node0, node1) <= 0;
+            case FOLLOWS_OR_IS -> GlobalOrderComparer.getInstance().compare(node0, node1) >= 0;
+            default -> throw new UnsupportedOperationException("Unknown node identity test");
+        };
     }
 
-    private static NodeInfo getNode(Expression exp, XPathContext c) throws XPathException {
-        return (NodeInfo) exp.evaluateItem(c);
+    private static GNode getNode(Expression exp, XPathContext c) throws XPathException {
+        return (GNode) exp.evaluateItem(c);
     }
 
 
@@ -267,6 +269,19 @@ public final class IdentityComparison extends BinaryExpression {
     }
 
     /**
+     * Display the operator used by this binary expression
+     *
+     * @return String representation of the operator (for diagnostic display only)
+     */
+    @Override
+    protected String displayOperator() {
+        if (generateIdEmulation) {
+            return "is-g";
+        }
+        return super.displayOperator();
+    }
+
+    /**
      * Make an elaborator for this expression
      *
      * @return a suitable elaborator
@@ -289,29 +304,91 @@ public final class IdentityComparison extends BinaryExpression {
             final ItemEvaluator p1 = exp.getRhsExpression().makeElaborator().elaborateForItem();
             final boolean nullable0 = Cardinality.allowsZero(exp.getLhsExpression().getCardinality());
             final boolean nullable1 = Cardinality.allowsZero(exp.getRhsExpression().getCardinality());
-            final int operator = exp.getOperator();
+            final OperatorSymbol operator = exp.getOperator();
+            final boolean generateIdEmulation = exp.isGenerateIdEmulation();
 
-            return context -> {
-                NodeInfo v0 = (NodeInfo)p0.eval(context);
-                if (nullable0 && v0 == null) {
-                    return false;
+            switch (operator) {
+                case IS -> {
+                    if (nullable0 || nullable1) {
+                        if (generateIdEmulation) {
+                            return context -> {
+                                GNode v0 = (GNode) p0.eval(context);
+                                GNode v1 = (GNode) p1.eval(context);
+                                if (v0 == null) {
+                                    return v1 == null;
+                                }
+                                return v0.equals(v1);
+                            };
+                        } else {
+                            return context -> {
+                                GNode v0 = (GNode) p0.eval(context);
+                                GNode v1 = (GNode) p1.eval(context);
+                                if (v0 == null || v1 == null) {
+                                    return false;
+                                }
+                                return v0.equals(v1);
+                            };
+                        }
+                    } else {
+                        return context -> p0.eval(context).equals(p1.eval(context));
+                    }
                 }
-                NodeInfo v1 = (NodeInfo)p1.eval(context);
-                if (nullable1 && v1 == null) {
-                    return false;
+                case IS_NOT -> {
+                    if (nullable0 || nullable1) {
+                        return context -> {
+                            GNode v0 = (GNode) p0.eval(context);
+                            GNode v1 = (GNode) p1.eval(context);
+                            if (v0 == null || v1 == null) {
+                                return false;
+                            }
+                            return !v0.equals(v1);
+                        };
+                    } else {
+                        return context -> !p0.eval(context).equals(p1.eval(context));
+                    }
                 }
-                switch (operator) {
-                    case Token.IS:
-                        return v0.equals(v1);
-                    case Token.PRECEDES:
+                case PRECEDES -> {
+                    return context -> {
+                        GNode v0 = (GNode) p0.eval(context);
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v0 == null || v1 == null) {
+                            return false;
+                        }
                         return GlobalOrderComparer.getInstance().compare(v0, v1) < 0;
-                    case Token.FOLLOWS:
-                        return GlobalOrderComparer.getInstance().compare(v0, v1) > 0;
-                    default:
-                        throw new UnsupportedOperationException("Unknown node identity test");
+                    };
                 }
-            };
-
+                case PRECEDES_OR_IS -> {
+                    return context -> {
+                        GNode v0 = (GNode) p0.eval(context);
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v0 == null || v1 == null) {
+                            return false;
+                        }
+                        return GlobalOrderComparer.getInstance().compare(v0, v1) <= 0;
+                    };
+                }
+                case FOLLOWS -> {
+                    return context -> {
+                        GNode v0 = (GNode) p0.eval(context);
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v0 == null || v1 == null) {
+                            return false;
+                        }
+                        return GlobalOrderComparer.getInstance().compare(v0, v1) > 0;
+                    };
+                }
+                case FOLLOWS_OR_IS -> {
+                    return context -> {
+                        GNode v0 = (GNode) p0.eval(context);
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v0 == null || v1 == null) {
+                            return false;
+                        }
+                        return GlobalOrderComparer.getInstance().compare(v0, v1) >= 0;
+                    };
+                }
+                default -> throw new IllegalStateException();
+            }
         }
 
         public ItemEvaluator elaborateForItem() {
@@ -320,42 +397,116 @@ public final class IdentityComparison extends BinaryExpression {
             final ItemEvaluator p1 = exp.getRhsExpression().makeElaborator().elaborateForItem();
             final boolean nullable0 = Cardinality.allowsZero(exp.getLhsExpression().getCardinality());
             final boolean nullable1 = Cardinality.allowsZero(exp.getRhsExpression().getCardinality());
-            final int operator = exp.getOperator();
+            final OperatorSymbol operator = exp.getOperator();
+            final boolean generateIdEmulation = exp.isGenerateIdEmulation();
 
             switch (operator) {
-                case Token.IS:
+                case IS -> {
                     if (nullable0 || nullable1) {
-                        return context -> {
-                            NodeInfo v0 = (NodeInfo) p0.eval(context);
-                            NodeInfo v1 = (NodeInfo) p1.eval(context);
-                            if (v0 == null || v1 == null) {
-                                return null;
-                            }
-                            return BooleanValue.get(v0.equals(v1));
-                        };
+                        if (generateIdEmulation) {
+                            return context -> {
+                                GNode v0 = (GNode) p0.eval(context);
+                                GNode v1 = (GNode) p1.eval(context);
+                                if (v0 == null) {
+                                    if (v1 == null) {
+                                        // generate-id(()) = generate-id(()) is true: bug 6279
+                                        return BooleanValue.TRUE;
+                                    } else {
+                                        return BooleanValue.FALSE;
+                                    }
+                                }
+                                if (v1 == null) {
+                                    return BooleanValue.FALSE;
+                                }
+                                return BooleanValue.get(v0.equals(v1));
+                            };
+                        } else {
+                            return context -> {
+                                GNode v0 = (GNode) p0.eval(context);
+                                if (v0 == null) {
+                                    return null;
+                                }
+                                GNode v1 = (GNode) p1.eval(context);
+                                if (v1 == null) {
+                                    return null;
+                                }
+                                return BooleanValue.get(v0.equals(v1));
+                            };
+                        }
                     } else {
                         return context -> BooleanValue.get(p0.eval(context).equals(p1.eval(context)));
                     }
-                case Token.PRECEDES:
+                }
+                case IS_NOT -> {
+                    if (nullable0 || nullable1) {
+                        return context -> {
+                            GNode v0 = (GNode) p0.eval(context);
+                            if (v0 == null) {
+                                return null;
+                            }
+                            GNode v1 = (GNode) p1.eval(context);
+                            if (v1 == null) {
+                                return null;
+                            }
+                            return BooleanValue.get(!v0.equals(v1));
+                        };
+                    } else {
+                        return context -> BooleanValue.get(!p0.eval(context).equals(p1.eval(context)));
+                    }
+                }
+                case PRECEDES -> {
                     return context -> {
-                        NodeInfo v0 = (NodeInfo) p0.eval(context);
-                        NodeInfo v1 = (NodeInfo) p1.eval(context);
-                        if (v0 == null || v1 == null) {
+                        GNode v0 = (GNode) p0.eval(context);
+                        if (v0 == null) {
+                            return null;
+                        }
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v1 == null) {
                             return null;
                         }
                         return BooleanValue.get(GlobalOrderComparer.getInstance().compare(v0, v1) < 0);
                     };
-                case Token.FOLLOWS:
+                }
+                case FOLLOWS -> {
                     return context -> {
-                        NodeInfo v0 = (NodeInfo) p0.eval(context);
-                        NodeInfo v1 = (NodeInfo) p1.eval(context);
-                        if (v0 == null || v1 == null) {
+                        GNode v0 = (GNode) p0.eval(context);
+                        if (v0 == null) {
+                            return null;
+                        }
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v1 == null) {
                             return null;
                         }
                         return BooleanValue.get(GlobalOrderComparer.getInstance().compare(v0, v1) > 0);
                     };
-                default:
-                    throw new IllegalStateException();
+                }
+                case PRECEDES_OR_IS -> {
+                    return context -> {
+                        GNode v0 = (GNode) p0.eval(context);
+                        if (v0 == null) {
+                            return null;
+                        }
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v1 == null) {
+                            return null;
+                        }
+                        return BooleanValue.get(GlobalOrderComparer.getInstance().compare(v0, v1) <= 0);
+                    };
+                }
+                case FOLLOWS_OR_IS -> {
+                    return context -> {
+                        GNode v0 = (GNode) p0.eval(context);
+                        if (v0 == null) {
+                            return null;
+                        }
+                        GNode v1 = (GNode) p1.eval(context);
+                        if (v1 == null) {
+                            return null;
+                        }
+                        return BooleanValue.get(GlobalOrderComparer.getInstance().compare(v0, v1) >= 0);
+                    };
+                }
+                default -> throw new IllegalStateException();
             }
 
         }

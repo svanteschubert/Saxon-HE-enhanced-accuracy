@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,17 +10,13 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.Controller;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.elab.PushEvaluator;
 import net.sf.saxon.expr.elab.SequenceEvaluator;
-import net.sf.saxon.expr.parser.ContextItemStaticInfo;
-import net.sf.saxon.expr.parser.ExpressionTool;
-import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.parser.RoleDiagnostic;
-import net.sf.saxon.expr.sort.AtomicComparer;
-import net.sf.saxon.functions.DeepEqual40;
+import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.sort.AtomicMatcher;
+import net.sf.saxon.functions.DeepEqual;
 import net.sf.saxon.functions.registry.FunctionDefinition;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.style.StylesheetPackage;
@@ -65,8 +61,7 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
     private UserFunctionParameter[] parameterDefinitions;
     private SequenceType resultType;
     private SequenceType declaredResultType;
-    protected SequenceEvaluator bodyEvaluator = null;
-    protected PushEvaluator pushEvaluator = null;
+    protected volatile SequenceEvaluator bodyEvaluator = null;
     private boolean updating = false;
     private boolean ixslUpdating = false;
     private int inlineable = -1; // 0:no 1:yes -1:don't know
@@ -202,6 +197,23 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
     }
 
     /**
+     * Get the type of the function when invoked with a specific number of arguments
+     *
+     * @return the function type
+     */
+
+    public FunctionItemType getFunctionItemType(int arity) {
+        SequenceType[] argTypes = new SequenceType[arity];
+        for (int i = 0; i < arity; i++) {
+            UserFunctionParameter ufp = parameterDefinitions[i];
+            argTypes[i] = ufp.getRequiredType();
+        }
+
+        return new SpecificFunctionType(argTypes, resultType, annotations);
+    }
+
+
+    /**
      * Get the roles of the arguments, for the purposes of streaming
      *
      * @return an array of OperandRole objects, one for each argument
@@ -251,7 +263,7 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
     public boolean acceptsNodesWithoutAtomization() {
         for (int i = 0; i < getArity(); i++) {
             ItemType type = getArgumentType(i).getPrimaryType();
-            if (type instanceof NodeTest || type == AnyItemType.getInstance()) {
+            if (type instanceof NodeTest || type == AnyItemType.INSTANCE) {
                 return true;
             }
         }
@@ -414,6 +426,14 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
         return parameterDefinitions;
     }
 
+    public StructuredQName[] getParameterNames() {
+        StructuredQName[] names = new StructuredQName[parameterDefinitions.length];
+        for (int i=0; i<names.length; i++) {
+            names[i] = getParameterName(i);
+        }
+        return names;
+    }
+
     /**
      * Get the minumum arity of this function, that is, the number of mandatory parameters
      *
@@ -501,17 +521,18 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
     /**
      * Set the declared streamability (XSLT 3.0 attribute)
      *
-     * @param streamability the declared streamability (defaults to "unclassified")
+     * @param streamability the declared streamability. Must not be null; use the
+     *                      value {@link FunctionStreamability#UNCLASSIFIED} if not specified
      */
 
     public void setDeclaredStreamability(FunctionStreamability streamability) {
-        this.declaredStreamability = streamability == null ? FunctionStreamability.UNCLASSIFIED : streamability;
+        this.declaredStreamability = streamability;
     }
 
     /**
      * Get the declared streamability (XSLT 3.0 attribute)
      *
-     * @return the declared streamability (defaults to "unclassified")
+     * @return the declared streamability (defaults to {@link FunctionStreamability#UNCLASSIFIED})
      */
 
     public FunctionStreamability getDeclaredStreamability() {
@@ -603,7 +624,7 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
     /**
      * Get the arity of this function
      *
-     * @return the number of arguments
+     * @return the number of parameter definitions in the function. This is the maximum arity.
      */
 
     @Override
@@ -638,12 +659,12 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
             // level because we have more information now.
             ContextItemStaticInfo info = ContextItemStaticInfo.ABSENT;
             exp2 = exp.typeCheck(visitor, info);
-            if (resultType != null) {
+            if (declaredResultType != null && !declaredResultType.equals(SequenceType.ANY_SEQUENCE)) {
                 Supplier<RoleDiagnostic> role = () ->
                         new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT,
                                            functionName == null ? "" : functionName.getDisplayName() + "#" + getArity(), 0,
                                            getPackageData().isXSLT() && getFunctionName() != null ? "XTTE0780" : "XPTY0004");
-                exp2 = visitor.getConfiguration().getTypeChecker(false).staticTypeCheck(exp2, resultType, role, visitor);
+                exp2 = visitor.getConfiguration().getTypeChecker(false).staticTypeCheck(exp2, declaredResultType, role, visitor);
             }
         } catch (XPathException err) {
             throw err.maybeWithLocation(getLocation());
@@ -672,12 +693,12 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
         return c2;
     }
 
-
     /**
      * Call this function to return a value.
      *
      * @param context    This provides the run-time context for evaluating the function. This should be created
-     *                   using {@link FunctionItem#makeNewContext(XPathContext, ContextOriginator)}. It must be an instance of XPathContextMajor.
+     *                   using {@link FunctionItem#makeNewContext(XPathContext, ContextOriginator)}.
+     *                   It must be an instance of XPathContextMajor.
      * @param actualArgs the arguments supplied to the function. These must have the correct
      *                   types required by the function signature (it is the caller's responsibility to check this).
      *                   It is acceptable to supply a {@link net.sf.saxon.value.Closure} to represent a value whose
@@ -690,10 +711,12 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
     @Override
     public Sequence call(XPathContext context, Sequence[] actualArgs)
             throws XPathException {
-        synchronized (this) {
-            if (bodyEvaluator == null) {
-                // first time through
-                computeEvaluationMode();
+        if (bodyEvaluator == null) {
+            synchronized(this) {
+                if (bodyEvaluator == null) {
+                    // first time through
+                    computeEvaluationMode();
+                }
             }
         }
 
@@ -845,6 +868,10 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
             presenter.startElement("arg");
             presenter.emitAttribute("name", p.getVariableQName());
             presenter.emitAttribute("as", p.getRequiredType().toAlphaCode());
+            Supplier<Expression> def = p.getDefaultValueExpression();
+            if (def != null && def.get() != null) {
+                def.get().export(presenter);
+            }
             presenter.endElement();
         }
         presenter.setChildRole("body");
@@ -906,17 +933,15 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
      * @throws net.sf.saxon.trans.XPathException if the comparison cannot be performed
      */
     @Override
-    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicMatcher comparer, int flags) throws XPathException {
         throw new XPathException("Cannot compare functions using deep-equal", "FOTY0015")
                 .asTypeError()
                 .withXPathContext(context);
     }
 
     @Override
-    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) throws XPathException {
-        throw new XPathException("Cannot compare functions using deep-equal", "FOTY0015")
-                .asTypeError()
-                .withXPathContext(context);
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual.DeepEqualOptions options) throws XPathException {
+        return this == other;
     }
 
     /**
@@ -945,7 +970,7 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
     @Override
     public GroundedValue subsequence(int start, int length) {
         //noinspection RedundantCast
-        return start <= 0 && (start + length) > 0 ? (GroundedValue) this : (GroundedValue) EmptySequence.getInstance();
+        return start <= 0 && (start + length) > 0 ? (GroundedValue) this : (GroundedValue) EmptySequence.INSTANCE;
     }
 
     /**
@@ -1008,7 +1033,8 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
      */
     @Override
     public UnicodeString getUnicodeStringValue() {
-        throw new UnsupportedOperationException("A function has no string value");
+        throw new UncheckedXPathException(
+                new XPathException("The string value of a function is not defined", "FOTY0014"));
     }
 
     /**
@@ -1063,7 +1089,7 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
      * @return the expression for computing the value of the Nth parameter, or null if there is none
      */
     @Override
-    public Expression getDefaultValueExpression(int i) {
+    public Supplier<Expression> getDefaultValueExpression(int i) {
         return getParameterDefinitions()[i].getDefaultValueExpression();
     }
 
@@ -1119,7 +1145,7 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
                 }
                 if (paramPos < positionalArgs) {
                     throw new XPathException("Parameter " + key + " of function " + fd.getFunctionName() +
-                                                     " is supplied both by position and by keyword", "XPST0141");
+                                                     " is supplied both by position and by keyword", "XPST0017");
                 }
                 Expression supplied = arguments[argPos];
                 expandedArgs[paramPos] = supplied;
@@ -1129,14 +1155,7 @@ public class UserFunction extends Actor implements FunctionItem, FunctionDefinit
         }
         for (int a = 0; a < maxArity; a++) {
             if (expandedArgs[a] == null) {
-                Expression defaultVal = new DefaultedArgumentExpression(); // to be fixed up later
-                expandedArgs[a] = defaultVal;
-//                Expression defaultVal = fd.getDefaultValueExpression(a);
-//                if (defaultVal == null) {
-//                    defaultVal = new DefaultedArgumentExpression(); // to be fixed up later
-//                }
-//                expandedArgs[a] = defaultVal.copy(new RebindingMap());
-                //expandedArgs[a] = new ErrorExpression("UseDefault", "UseDefault", false); // for now
+                expandedArgs[a] = new DefaultedArgumentExpression(); // to be fixed up later;
             }
         }
         return expandedArgs;

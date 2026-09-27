@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -44,7 +44,7 @@ public class RawDestination extends AbstractDestination {
 
     @Override
     public Receiver getReceiver(PipelineConfiguration pipe, SerializationProperties params) {
-        // The Receiver returned by this method is a SequenceOutputter. The SequenceOutputter
+        // The Receiver returned by this method wraps a SequenceOutputter. The SequenceOutputter
         // builds a list of all top-level items passed to it. A top-level document or element
         // node can be passed as a sequence of events, in which case a ComplexContentOutputter
         // is created to build the tree represented by these events; the root document or element

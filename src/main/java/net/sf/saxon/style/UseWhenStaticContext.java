@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,6 @@ package net.sf.saxon.style;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
-import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.parser.RetainedStaticContext;
 import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
@@ -27,9 +26,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.type.ItemType;
 
-import java.util.Collections;
-import java.util.Set;
-
 /**
  * This class implements the static context used for evaluating use-when and other
  * static expressions in XSLT 3.0
@@ -39,7 +35,7 @@ import java.util.Set;
  * is created for the purpose.
  */
 
-public class UseWhenStaticContext extends AbstractStaticContext implements StaticContext {
+public class UseWhenStaticContext extends AbstractStaticContext {
 
     private final NamespaceResolver namespaceContext;
     private final FunctionLibrary functionLibrary;
@@ -170,34 +166,6 @@ public class UseWhenStaticContext extends AbstractStaticContext implements Stati
     @Override
     public boolean isInBackwardsCompatibleMode() {
         return false;
-    }
-
-    /**
-     * Determine whether a Schema for a given target namespace has been imported. Note that the
-     * in-scope element declarations, attribute declarations and schema types are the types registered
-     * with the (schema-aware) configuration, provided that their namespace URI is registered
-     * in the static context as being an imported schema namespace. (A consequence of this is that
-     * within a Configuration, there can only be one schema for any given namespace, including the
-     * null namespace).
-     *
-     * @param namespace the target namespace in question
-     * @return true if the given namespace has been imported
-     */
-
-    @Override
-    public boolean isImportedSchema(NamespaceUri namespace) {
-        return false;
-    }
-
-    /**
-     * Get the set of imported schemas
-     *
-     * @return a Set, the set of URIs representing the names of imported schemas
-     */
-
-    @Override
-    public Set<NamespaceUri> getImportedSchemaNamespaces() {
-        return Collections.emptySet();
     }
 
     /**

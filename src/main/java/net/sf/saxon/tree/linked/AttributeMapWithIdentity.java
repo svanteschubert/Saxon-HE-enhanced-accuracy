@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,8 +10,7 @@ package net.sf.saxon.tree.linked;
 
 import net.sf.saxon.om.*;
 import net.sf.saxon.transpile.CSharpInjectMembers;
-import net.sf.saxon.tree.iter.AxisIterator;
-import net.sf.saxon.tree.iter.NodeListIterator;
+import net.sf.saxon.tree.iter.ListIterator;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -66,7 +65,7 @@ public class AttributeMapWithIdentity implements AttributeMap {
         return count;
     }
 
-    public AxisIterator iterateAttributes(ElementImpl owner) {
+    public SequenceIterator iterateAttributes(ElementImpl owner) {
         List<NodeInfo> list = new ArrayList<>(attributes.size());
         for (int i=0; i<attributes.size(); i++) {
             AttributeInfo att = attributes.get(i);
@@ -74,7 +73,7 @@ public class AttributeMapWithIdentity implements AttributeMap {
                 list.add(new AttributeImpl(owner, i));
             }
         }
-        return new NodeListIterator(list);
+        return new ListIterator.Of<>(list);
     }
 
     private boolean isDeleted(AttributeInfo info) {

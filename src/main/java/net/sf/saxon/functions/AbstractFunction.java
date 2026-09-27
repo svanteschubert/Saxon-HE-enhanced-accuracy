@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,7 @@ import net.sf.saxon.expr.OperandUsage;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
-import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.AtomicMatcher;
 import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.query.AnnotationList;
@@ -21,6 +21,7 @@ import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 
 import java.util.Arrays;
 
@@ -28,6 +29,20 @@ import java.util.Arrays;
  * Abstract superclass (and factory class) for implementations of Function
  */
 public abstract class AbstractFunction implements FunctionItem {
+
+    private String uuid = null;
+
+    public synchronized String getUniqueIdentifier() {
+        if (uuid == null) {
+            uuid = randomUUID();
+        }
+        return uuid.toString();
+    }
+
+    @CSharpReplaceBody(code = "return System.Guid.NewGuid().ToString();")
+    private static String randomUUID() {
+        return java.util.UUID.randomUUID().toString();
+    }
 
     /**
      * Get the roles of the arguments, for the purposes of streaming
@@ -141,16 +156,16 @@ public abstract class AbstractFunction implements FunctionItem {
      * @param other the other function item
      */
     @Override
-    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicMatcher comparer, int flags) throws XPathException {
         throw new XPathException("Argument to deep-equal() contains a function item", "FOTY0015");
     }
 
     @Override
-    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) throws XPathException {
-        if (options.falseOnError) {
-            return false;
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual.DeepEqualOptions options) throws XPathException {
+        if (options.version < 40) {
+            throw new XPathException("Cannot compare function items using deep-equal()", "FOTY0015");
         }
-        throw new XPathException("Argument to deep-equal() contains a function item", "FOTY0015");
+        return this.equals(other);
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -11,8 +11,8 @@ import net.sf.saxon.expr.Callable;
 import net.sf.saxon.expr.ContextOriginator;
 import net.sf.saxon.expr.OperandRole;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.AtomicComparer;
-import net.sf.saxon.functions.DeepEqual40;
+import net.sf.saxon.expr.sort.AtomicMatcher;
+import net.sf.saxon.functions.DeepEqual;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
@@ -118,9 +118,20 @@ public interface FunctionItem extends Item, Callable, GroundedValue {
      * @throws XPathException if the comparison cannot be performed
      */
 
-    boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException;
+    boolean deepEquals(FunctionItem other, XPathContext context, AtomicMatcher comparer, int flags) throws XPathException;
 
-    boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) throws XPathException;
+    /**
+     * Test whether this FunctionItem is deep-equal to another function item,
+     * under the rules of the deep-equal function in XPath 4.0
+     *
+     * @param other    the other function item
+     * @param context  the dynamic evaluation context
+     * @param options  the options supplied to the deep-equal function
+     * @return true if the two function items are deep-equal
+     * @throws XPathException if the comparison cannot be performed
+     */
+
+    boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual.DeepEqualOptions options) throws XPathException;
 
     /**
      * Get a description of this function for use in error messages. For named functions, the description
@@ -166,6 +177,6 @@ public interface FunctionItem extends Item, Callable, GroundedValue {
     default Genre getGenre() {
         return Genre.FUNCTION;
     }
-
+    
 }
 

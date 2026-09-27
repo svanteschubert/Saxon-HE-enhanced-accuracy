@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -96,7 +96,7 @@ public class XSLItemType extends StyleElement {
         checkEmpty();
         checkTopLevel("XTSE0010", false);
         getConfiguration().checkLicensedFeature(Configuration.LicenseFeature.PROFESSIONAL_EDITION,
-                                                "saxon:item-type",
+                                                "xsl:item-type",
                                                 getPackageData().getLocalLicenseId());
     }
 
@@ -116,7 +116,7 @@ public class XSLItemType extends StyleElement {
             XPathParser parser =
                     getConfiguration().newExpressionParser("XP", false, env);
             QNameParser qp = new QNameParser(env.getNamespaceResolver())
-                    .withAcceptEQName(true)
+                    .withAcceptEQName(true, env.getXPathVersion())
                     .withErrorOnBadSyntax("XPST0003")
                     .withErrorOnUnresolvedPrefix("XPST0081");
             parser.setQNameParser(qp);
@@ -125,7 +125,7 @@ public class XSLItemType extends StyleElement {
                 reportAbsence("as");
                 typeAtt = "item()";
             }
-            SequenceType st = parser.parseExtendedSequenceType(typeAtt, env);
+            SequenceType st = parser.parseSequenceType(typeAtt, env);
             if (st.getCardinality() != StaticProperty.ALLOWS_ONE) {
                 compileError("Item type must not include an occurrence indicator");
             }
@@ -172,7 +172,7 @@ public class XSLItemType extends StyleElement {
             ItemType resolved = super.resolveTypeAlias(typeName);
             if (resolved == null) {
                 ((XSLItemType)getStyleElement()).markUnresolved();
-                return AnyItemType.getInstance();
+                return AnyItemType.INSTANCE;
             } else {
                 return resolved;
             }

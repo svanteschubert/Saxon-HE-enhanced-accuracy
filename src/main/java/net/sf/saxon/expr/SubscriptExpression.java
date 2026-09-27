@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -24,7 +24,7 @@ import net.sf.saxon.value.NumericValue;
 
 /**
  * A SubscriptExpression represents a FilterExpression of the form EXPR[n]
- * where n is known to be singleton numeric and to be independent of the focus; it does not need to be constant
+ * where n is known to be of type xs:numeric? and to be independent of the focus; it does not need to be constant
  */
 public class SubscriptExpression extends SingleItemFilter {
 
@@ -39,7 +39,7 @@ public class SubscriptExpression extends SingleItemFilter {
 
     public SubscriptExpression(Expression base, Expression subscript) {
         super(base);
-        subscriptOp = new Operand(this, subscript, OperandRole.SINGLE_ATOMIC);
+        subscriptOp = new Operand(this, subscript, OperandRole.SINGLE_ATOMIC);   // TODO: should be OPTIONAL_NUMERIC?
     }
 
 

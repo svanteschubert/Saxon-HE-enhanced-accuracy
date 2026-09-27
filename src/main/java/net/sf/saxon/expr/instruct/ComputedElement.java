@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,8 +22,9 @@ import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.StandardURIChecker;
 import net.sf.saxon.lib.Validation;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.ContentTypeTest;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NamedXNodeType;
+import net.sf.saxon.type.gnode.NodeKindType;
+import net.sf.saxon.pattern.qname.AnyQNameTest;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpInnerClass;
@@ -52,11 +53,13 @@ public class ComputedElement extends ElementCreator {
 
     /**
      * Create an instruction that creates a new element node
-     *  @param elementName       Expression that evaluates to produce the name of the
+     *
+     * @param elementName       Expression that evaluates to produce the name of the
      *                          element node as a lexical QName
      * @param namespace         Expression that evaluates to produce the namespace URI of
      *                          the element node. Set to null if the namespace is to be deduced from the prefix
      *                          of the elementName.
+     * @param schema            The schema to be used for validation. Can be null if not validating.
      * @param schemaType        The required schema type for the content
      * @param validation        Required validation mode (e.g. STRICT, LAX, SKIP)
      * @param inheritNamespaces true if child elements automatically inherit the namespaces of their parent
@@ -64,6 +67,7 @@ public class ComputedElement extends ElementCreator {
      */
     public ComputedElement(Expression elementName,
                            Expression namespace,
+                           Schema schema,
                            SchemaType schemaType,
                            int validation,
                            boolean inheritNamespaces,
@@ -73,7 +77,7 @@ public class ComputedElement extends ElementCreator {
         if (namespace != null) {
             namespaceOp = new Operand(this, namespace, OperandRole.SINGLE_ATOMIC);
         }
-        setValidationAction(validation, schemaType);
+        setValidationAction(schema, validation, schemaType);
         preservingTypes = schemaType == null && validation == Validation.PRESERVE;
         this.bequeathNamespacesToChildren = inheritNamespaces;
         allowNameAsQName = allowQName;
@@ -139,14 +143,14 @@ public class ComputedElement extends ElementCreator {
 
         final SchemaType schemaType = getSchemaType();
         if (schemaType != null) {
-            itemType = new ContentTypeTest(Type.ELEMENT, schemaType, config, false);
-            schemaType.analyzeContentExpression(getContentExpression(), Type.ELEMENT);
+            itemType = new NamedXNodeType(Type.ELEMENT, AnyQNameTest.getInstance(), schemaType, false, config);
+            schemaType.analyzeContentExpression(getContentExpression(), Type.ELEMENT, getRetainedStaticContext().getImportedSchema());
         } else if (getValidationAction() == Validation.STRIP || !schemaAware) {
-            itemType = new ContentTypeTest(Type.ELEMENT, Untyped.getInstance(), config, false);
+            itemType = new NamedXNodeType(Type.ELEMENT, AnyQNameTest.getInstance(), Untyped.INSTANCE, false, config);
         } else {
             // paradoxically, we know less about the type if validation="strict" is specified!
             // We know that it won't be untyped, but we have no way of representing that.
-            itemType = NodeKindTest.ELEMENT;
+            itemType = NodeKindType.ELEMENT;
         }
         return super.simplify();
     }
@@ -160,7 +164,7 @@ public class ComputedElement extends ElementCreator {
 
         if (allowNameAsQName) {
             // Can only happen in XQuery
-            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.INSTRUCTION, "element/name", 0);
+            Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(RoleDiagnostic.SUBEXPRESSION, "computed element/name", 0);
             setNameExp(config.getTypeChecker(false).staticTypeCheck(
                     getNameExp(), SequenceType.SINGLE_ATOMIC, role, visitor));
             ItemType supplied = getNameExp().getItemType();
@@ -214,10 +218,12 @@ public class ComputedElement extends ElementCreator {
     /*@NotNull*/
     @Override
     public Expression copy(RebindingMap rebindings) {
+        Schema schema = getSchema();
         ComputedElement ce = new ComputedElement(
                 getNameExp().copy(rebindings), getNamespaceExp() == null ? null : getNamespaceExp().copy(rebindings),
-                /*defaultNamespace,*/ getSchemaType(),
+                /*defaultNamespace,*/ schema, getSchemaType(),
                 getValidationAction(), bequeathNamespacesToChildren, allowNameAsQName);
+        ce.preservingTypes = preservingTypes;
         ExpressionTool.copyLocationInfo(this, ce);
         ce.setContentExpression(getContentExpression().copy(rebindings));
         return ce;
@@ -418,10 +424,6 @@ public class ComputedElement extends ElementCreator {
                 return getStaticBaseURIString();
             }
 
-            @Override
-            public void processContent(Outputter outputter, XPathContext context) throws XPathException {
-                getContentExpression().process(outputter, context);
-            }
         };
     }
 
@@ -468,6 +470,10 @@ public class ComputedElement extends ElementCreator {
         if (getNamespaceExp() != null) {
             out.setChildRole("namespace");
             getNamespaceExp().export(out);
+        }
+        String schemaRole = getRetainedStaticContext().getImportedSchemaRoleName();
+        if (!schemaRole.isEmpty()) {
+            out.emitAttribute("schemaRole", schemaRole);
         }
         out.setChildRole("content");
         getContentExpression().export(out);
@@ -614,10 +620,9 @@ public class ComputedElement extends ElementCreator {
                 return new QNameValue(prefix, uri, localName);
             };
 
-            SchemaType typeCode = expr.getValidationAction() == Validation.PRESERVE
-                    ? AnyType.getInstance()
-                    : Untyped.getInstance();
-
+            SchemaType typeCode;
+            typeCode = expr.getValidationAction() == Validation.PRESERVE ? AnyType.INSTANCE : Untyped.INSTANCE;
+            Schema schema = expr.getRetainedStaticContext().getImportedSchema();
             return (out, context) -> {
                 try {
 
@@ -628,7 +633,7 @@ public class ComputedElement extends ElementCreator {
                         ParseOptions options = expr.getValidationOptions()
                                 .withTopLevelElement(elemName.getStructuredQName());
                         context.getConfiguration().prepareValidationReporting(context, options);
-                        Receiver validator = context.getConfiguration().getElementValidator(
+                        Receiver validator = schema.getElementValidator(
                                 elemOut, options, expr.getLocation());
 
                         if (validator != elemOut) {

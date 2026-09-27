@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,14 +9,11 @@ package net.sf.saxon.tree.wrapper;
 
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.AnyNodeTest;
-import net.sf.saxon.pattern.NodePredicate;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
+import net.sf.saxon.pattern.nodetest.NodePredicate;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
-import net.sf.saxon.tree.NamespaceNode;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.type.Type;
@@ -29,7 +26,7 @@ import net.sf.saxon.value.StringValue;
  *
  */
 
-public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
+public abstract class AbstractNodeWrapper implements VirtualNode {
 
     protected TreeInfo treeInfo;
 
@@ -91,7 +88,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      *        not implement the correct semantics. It is safer to use isSameNodeInfo() for this reason.
      *        The equals() method has been defined because it is useful in contexts such as a Java Set or HashMap.
      */
-
+    
     public boolean equals(Object other) {
         if (!(other instanceof AbstractNodeWrapper)) {
             return false;
@@ -157,7 +154,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
         }
         NodeInfo n = this;
         if (getNodeKind() != Type.ELEMENT) {
-            n = getParent();
+            n = (NodeInfo)getParent();
         }
         // Look for an xml:base attribute
         while (n != null) {
@@ -165,7 +162,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
             if (xmlbase != null) {
                 return xmlbase;
             }
-            n = n.getParent();
+            n = (NodeInfo)n.getParent();
         }
         // if not found, return the base URI of the document node
         return getRoot().getSystemId();
@@ -243,133 +240,6 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
 
 
     /**
-     * Return an iteration over the nodes reached by the given axis from this node
-     *
-     * @param axisNumber the axis to be used
-     * @return a SequenceIterator that scans the nodes reached by the axis in turn.
-     */
-
-    @Override
-    @CSharpModifiers(code={"public", "virtual"})
-    public AxisIterator iterateAxis(int axisNumber) {
-        return iterateAxis(axisNumber, AnyNodeTest.getInstance());
-    }
-
-    /**
-     * Return an iteration over the nodes reached by the given axis from this node.
-     * <p>This superclass provides implementations of the ancestor, ancestor-or-self,
-     * following, namespace, parent, preceding, self, and preceding-or-ancestor axes.
-     * The other axes are implemented by calling methods iterateAttributes(),
-     * iterateChildren(), iterateDescendants(), and iterateSiblings(), which must
-     * be provided in a subclass.</p>
-     *
-     * @param axisNumber the axis to be used
-     * @param predicate   A pattern to be matched by the returned nodes
-     * @return a SequenceIterator that scans the nodes reached by the axis in turn.
-     */
-
-    @Override
-    @CSharpModifiers(code = {"public", "virtual"})
-    public AxisIterator iterateAxis(int axisNumber, NodePredicate predicate) {
-        NodeTest nodeTest = Navigator.nodeTestFromPredicate(predicate);
-        int nodeKind = getNodeKind();
-        switch (axisNumber) {
-            case AxisInfo.ANCESTOR:
-                if (nodeKind == Type.DOCUMENT) {
-                    return EmptyIterator.ofNodes();
-                }
-                return new Navigator.AxisFilter(
-                        new Navigator.AncestorEnumeration(this, false),
-                        nodeTest);
-
-            case AxisInfo.ANCESTOR_OR_SELF:
-                if (nodeKind == Type.DOCUMENT) {
-                    return Navigator.filteredSingleton(this, nodeTest);
-                }
-                return new Navigator.AxisFilter(
-                        new Navigator.AncestorEnumeration(this, true),
-                        nodeTest);
-
-            case AxisInfo.ATTRIBUTE:
-                if (nodeKind != Type.ELEMENT) {
-                    return EmptyIterator.ofNodes();
-                }
-                return iterateAttributes(nodeTest);
-
-            case AxisInfo.CHILD:
-                if (nodeKind == Type.ELEMENT || nodeKind == Type.DOCUMENT) {
-                    return iterateChildren(nodeTest);
-                } else {
-                    return EmptyIterator.ofNodes();
-                }
-
-            case AxisInfo.DESCENDANT:
-                if (nodeKind == Type.ELEMENT || nodeKind == Type.DOCUMENT) {
-                    return iterateDescendants(nodeTest, false);
-                } else {
-                    return EmptyIterator.ofNodes();
-                }
-
-            case AxisInfo.DESCENDANT_OR_SELF:
-                if (nodeKind == Type.ELEMENT || nodeKind == Type.DOCUMENT) {
-                    return iterateDescendants(nodeTest, true);
-                } else {
-                    return Navigator.filteredSingleton(this, nodeTest);
-                }
-
-            case AxisInfo.FOLLOWING:
-                return new Navigator.AxisFilter(
-                        new Navigator.FollowingEnumeration(this),
-                        nodeTest);
-
-            case AxisInfo.FOLLOWING_SIBLING:
-                switch (nodeKind) {
-                    case Type.DOCUMENT:
-                    case Type.ATTRIBUTE:
-                    case Type.NAMESPACE:
-                        return EmptyIterator.ofNodes();
-                    default:
-                        return iterateSiblings(nodeTest, true);
-                }
-
-            case AxisInfo.NAMESPACE:
-                if (nodeKind != Type.ELEMENT) {
-                    return EmptyIterator.ofNodes();
-                }
-                return NamespaceNode.makeIterator(this, nodeTest);
-
-            case AxisInfo.PARENT:
-                return Navigator.filteredSingleton(getParent(), nodeTest);
-
-            case AxisInfo.PRECEDING:
-                return new Navigator.AxisFilter(
-                        new Navigator.PrecedingEnumeration(this, false),
-                        nodeTest);
-
-            case AxisInfo.PRECEDING_SIBLING:
-                switch (nodeKind) {
-                    case Type.DOCUMENT:
-                    case Type.ATTRIBUTE:
-                    case Type.NAMESPACE:
-                        return EmptyIterator.ofNodes();
-                    default:
-                        return iterateSiblings(nodeTest, false);
-                }
-
-            case AxisInfo.SELF:
-                return Navigator.filteredSingleton(this, nodeTest);
-
-            case AxisInfo.PRECEDING_OR_ANCESTOR:
-                return new Navigator.AxisFilter(
-                        new Navigator.PrecedingEnumeration(this, true),
-                        nodeTest);
-
-            default:
-                throw new IllegalArgumentException("Unknown axis number " + axisNumber);
-        }
-    }
-
-    /**
      * Return an iterator over the attributes of this element node.
      * This method is only called after checking that the node is an element.
      *
@@ -378,7 +248,19 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      *         although arbitrary, must be consistent with document order.
      */
 
-    protected abstract AxisIterator iterateAttributes(NodeTest nodeTest);
+    protected abstract SequenceIterator iterateAttributes(NodePredicate nodeTest);
+
+    /**
+     * Get an iterator over the attribute axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateAttributeAxis(NodePredicate predicate) {
+        return iterateAttributes(predicate);
+    }
 
     /**
      * Return an iterator over the children of this node.
@@ -388,7 +270,19 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * @return an iterator over the child nodes, in document order.
      */
 
-    protected abstract AxisIterator iterateChildren(NodeTest nodeTest);
+    protected abstract SequenceIterator iterateChildren(NodePredicate nodeTest);
+
+    /**
+     * Get an iterator over the child axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateChildAxis(NodePredicate predicate) {
+        return iterateChildren(predicate);
+    }
 
     /**
      * Return an iterator over the siblings of this node.
@@ -399,27 +293,93 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
      * @return an iterator over the sibling nodes, in axis order.
      */
 
-    protected abstract AxisIterator iterateSiblings(NodeTest nodeTest, boolean forwards);
+    protected abstract SequenceIterator iterateSiblings(NodePredicate nodeTest, boolean forwards);
+
+    /**
+     * Get an iterator over the following-sibling axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateFollowingSiblingAxis(NodePredicate predicate) {
+        switch (getNodeKind()) {
+            case Type.DOCUMENT:
+            case Type.ATTRIBUTE:
+            case Type.NAMESPACE:
+                return EmptyIterator.INSTANCE;
+            default:
+                return iterateSiblings(predicate, true);
+        }
+    }
+
+    /**
+     * Get an iterator over the preceding-sibling axis, starting at this node; the nodes will
+     * be in reverse document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iteratePrecedingSiblingAxis(NodePredicate predicate) {
+        switch (getNodeKind()) {
+            case Type.DOCUMENT:
+            case Type.ATTRIBUTE:
+            case Type.NAMESPACE:
+                return EmptyIterator.INSTANCE;
+            default:
+                return iterateSiblings(predicate, false);
+        }
+    }
 
     /**
      * Return an iterator over the descendants of this node.
      * This method is only called after checking that the node is an element or document node.
      *
-     * @param nodeTest    a test that the returned descendants must satisfy
+     * @param predicate    a test that the returned descendants must satisfy
      * @param includeSelf true if this node is to be included in the result
      * @return an iterator over the sibling nodes, in axis order.
      */
 
     @CSharpModifiers(code={"protected", "virtual"})
-    protected AxisIterator iterateDescendants(NodeTest nodeTest, boolean includeSelf) {
-        AxisIterator iter = new Navigator.DescendantEnumeration(this, includeSelf, true);
-        if (!(nodeTest instanceof AnyNodeTest)) {
-            iter = new Navigator.AxisFilter(iter, nodeTest);
+    protected SequenceIterator iterateDescendants(NodePredicate predicate, boolean includeSelf) {
+        SequenceIterator iter = new Navigator.DescendantIterator(this, includeSelf, true);
+        if (predicate != null && predicate != AnyGNode.TEST) {
+            iter = Navigator.filter(iter, predicate);
         }
         return iter;
     }
 
+    /**
+     * Get an iterator over the descendant axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantAxis(NodePredicate predicate) {
+        if (getNodeKind() == Type.DOCUMENT || getNodeKind() == Type.ELEMENT) {
+            return iterateDescendants(predicate, false);
+        }
+        return EmptyIterator.INSTANCE;
+    }
 
+    /**
+     * Get an iterator over the descendant or self axis, starting at this node; the nodes will
+     * be in document order.
+     *
+     * @param predicate a condition that the nodes must satisfy, or null
+     * @return the required iterator
+     */
+    @Override
+    public SequenceIterator iterateDescendantOrSelfAxis(NodePredicate predicate) {
+        if (getNodeKind() == Type.DOCUMENT || getNodeKind() == Type.ELEMENT) {
+            return iterateDescendants(predicate, true);
+        }
+        return EmptyIterator.INSTANCE;
+    }
 
     /**
      * Get all namespace declarations and undeclarations defined on this element.
@@ -442,7 +402,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
     @Override
     @CSharpModifiers(code = {"public", "virtual"})
     public NamespaceBinding[] getDeclaredNamespaces(NamespaceBinding[] buffer) {
-        return new NamespaceBinding[0];
+        return NamespaceBinding.EMPTY_ARRAY;
     }
 
     /**
@@ -474,7 +434,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
     public NodeInfo getRoot() {
         NodeInfo p = this;
         while (true) {
-            NodeInfo q = p.getParent();
+            NodeInfo q = (NodeInfo)p.getParent();
             if (q==null) {
                 return p;
             }
@@ -495,7 +455,7 @@ public abstract class AbstractNodeWrapper implements NodeInfo, VirtualNode {
         switch (getNodeKind()) {
             case Type.DOCUMENT:
             case Type.ELEMENT:
-                return iterateAxis(AxisInfo.CHILD).next() != null;
+                return iterateChildAxis(AnyGNode.TEST).next() != null;
             default:
                 return false;
         }

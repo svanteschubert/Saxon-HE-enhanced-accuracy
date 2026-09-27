@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,14 +12,14 @@ import net.sf.saxon.expr.elab.*;
 import net.sf.saxon.expr.instruct.Block;
 import net.sf.saxon.expr.instruct.TailCall;
 import net.sf.saxon.expr.instruct.UserFunction;
-import net.sf.saxon.expr.parser.*;
+import net.sf.saxon.expr.parser.ContextItemStaticInfo;
+import net.sf.saxon.expr.parser.ExpressionTool;
+import net.sf.saxon.expr.parser.ExpressionVisitor;
+import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.*;
-import net.sf.saxon.query.UnboundFunctionLibrary;
 import net.sf.saxon.trace.ExpressionPresenter;
-import net.sf.saxon.trans.SaxonErrorCode;
-import net.sf.saxon.trans.SymbolicName;
-import net.sf.saxon.trans.Visibility;
-import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.*;
+import net.sf.saxon.transpile.CSharpUsing;
 import net.sf.saxon.tree.iter.EmptyIterator;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
@@ -34,7 +34,7 @@ import java.util.List;
 /**
  * This class represents a call to a user-defined function in the stylesheet or query.
  */
-
+@CSharpUsing(code="Saxon.Hej.trans")
 public class UserFunctionCall extends FunctionCall implements UserFunctionResolvable, ComponentInvocation, ContextOriginator {
 
     private SequenceType staticType;
@@ -44,7 +44,6 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
     private StructuredQName name;
     private boolean beingInlined = false;
     private SequenceEvaluator[] argumentEvaluators = null;
-    private UnboundFunctionLibrary.UnboundFunctionCallDetails unboundCallDetails;
 
 
 
@@ -68,14 +67,6 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
     }
 
     /**
-     * Create an unbound function call (typically, a forwards reference in XQuery)
-     */
-
-    public UserFunctionCall(UnboundFunctionLibrary.UnboundFunctionCallDetails details) {
-        this.unboundCallDetails = details;
-    }
-
-    /**
      * Copy details from another user function call
      */
 
@@ -87,7 +78,6 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         name = ufc2.name;
         beingInlined = false;
         argumentEvaluators = ufc2.argumentEvaluators;
-        unboundCallDetails = null;
     }
 
 
@@ -173,10 +163,6 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         }
     }
 
-    public UnboundFunctionLibrary.UnboundFunctionCallDetails getUnboundCallDetails() {
-        return unboundCallDetails;
-    }
-
     /**
      * Determine whether this is a tail call (not necessarily a recursive tail call)
      *
@@ -192,7 +178,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
     }
 
     /**
-     * Get the qualified of the function being called
+     * Get the qualified name of the function being called
      *
      * @return the qualified name
      */
@@ -200,14 +186,14 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
     @Override
     public final StructuredQName getFunctionName() {
         if (name == null) {
-            return function.getFunctionName();
+            return function == null ? null : function.getFunctionName();
         } else {
             return name;
         }
     }
 
     @Override
-    public SymbolicName getSymbolicName() {
+    public SymbolicName.F getSymbolicName() {
         return new SymbolicName.F(getFunctionName(), getArity());
     }
 
@@ -228,10 +214,10 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         for (Operand o : operands()) {
             Expression arg = o.getChildExpression();
             if (arg instanceof ErrorExpression && ((ErrorExpression)arg).getErrorCodeLocalPart().equals("UseDefault")) {
-                arg = target.getDefaultValueExpression(i).copy(new RebindingMap());
+                arg = target.getDefaultValueExpression(i).get();
                 o.setChildExpression(arg);
             }
-            if (i == 0 && target.getDeclaredStreamability().isConsuming()) {
+            if (i == 0 && FunctionStreamabilityHelper.isConsuming(target.getDeclaredStreamability())) {
                 argumentEvaluators[i] = new StreamingArgumentEvaluator(arg);
             } else if (target.getParameterDefinitions()[i].isIndexedVariable()) {
                 PullEvaluator argPull = arg.makeElaborator().elaborateForPull();
@@ -260,7 +246,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
                 // appending to the sequence.
                 argumentEvaluators[i] = new SharedAppendEvaluator((Block) arg);
             } else {
-                argumentEvaluators[i] = new LearningEvaluator(
+                argumentEvaluators[i] = LearningEvaluator.makeLearningEvaluator(
                         arg, arg.makeElaborator().lazily(true, false));
             }
             i++;
@@ -271,34 +257,6 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         return argumentEvaluators;
     }
 
-//    public static class ArgumentEvaluationModeAdjuster implements Consumer<MemoClosure.MemoClosureStatistics> {
-//
-//        private final UserFunctionCall functionCall;
-//        private final int argument;
-//        private int completed;
-//        private int abandoned;
-//
-//        public ArgumentEvaluationModeAdjuster(UserFunctionCall functionCall, int argument) {
-//            this.functionCall = functionCall;
-//            this.argument = argument;
-//        }
-//
-//        @Override
-//        public void accept(MemoClosure.MemoClosureStatistics statistics) {
-//            if (functionCall.argumentEvaluators[argument].getCode() == Evaluators.MAKE_MEMO_CLOSURE) {
-//                if (statistics.allRead) {
-//                    completed++;
-//                } else {
-//                    abandoned++;
-//                }
-//                if (completed > 10 && abandoned == 0) {
-//                    //System.err.println("Argument evaluator set to eager");
-//                    functionCall.argumentEvaluators[argument] = Evaluator.EagerSequence.INSTANCE;
-//                }
-//            }
-//        }
-//
-//    }
 
 
     /**
@@ -324,7 +282,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
     public ItemType getItemType() {
         if (staticType == null) {
             // the actual type is not known yet, so we return an approximation
-            return AnyItemType.getInstance();
+            return AnyItemType.INSTANCE;
         } else {
             return staticType.getPrimaryType();
         }
@@ -479,31 +437,6 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
     }
 
     /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the PathMapNodeSet to which the paths embodied in this expression should be added
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     * expression is the first operand of a path expression or filter expression. For an expression that does
-     * navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     * expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        return addExternalFunctionCallToPathMap(pathMap, pathMapNodeSet);
-    }
-
-    /**
      * Mark tail-recursive calls on stylesheet functions. This marks the function call as tailRecursive if
      * if is a call to the containing function, and in this case it also returns "true" to the caller to indicate
      * that a tail call was found.
@@ -603,11 +536,6 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
     public Sequence[] evaluateArguments(XPathContext c, boolean streamed) throws XPathException {
         int numArgs = getArity();
         Sequence[] actualArgs = SequenceTool.makeSequenceArray(numArgs);
-        synchronized(this) {
-            if (argumentEvaluators == null) {
-                allocateArgumentEvaluators();
-            }
-        }
         for (int i = 0; i < numArgs; i++) {
             SequenceEvaluator eval = argumentEvaluators[i];
             if (eval == null || (eval instanceof StreamingArgumentEvaluator && !streamed)) {
@@ -681,7 +609,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
 
         public PullEvaluator elaborateForPull() {
             final UserFunctionCall expr = (UserFunctionCall) getExpression();
-
+            expr.allocateArgumentEvaluators();
             if (expr.bindingSlot >= 0) {
                 return context -> {
                     TailCallLoop.TailCallComponent info = new TailCallLoop.TailCallComponent();
@@ -695,7 +623,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
                     }
                     Sequence[] actualArgs = expr.evaluateArguments(context, false);
                     ((XPathContextMajor) context).requestTailCall(info, actualArgs);
-                    return EmptyIterator.getInstance();
+                    return EmptyIterator.INSTANCE;
                 };
             } else {
                 TailCallLoop.TailCallFunction info = new TailCallLoop.TailCallFunction();
@@ -703,7 +631,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
                 return context -> {
                     Sequence[] actualArgs = expr.evaluateArguments(context, false);
                     ((XPathContextMajor) context).requestTailCall(info, actualArgs);
-                    return EmptyIterator.getInstance();
+                    return EmptyIterator.INSTANCE;
                 };
             }
         }
@@ -733,6 +661,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         @Override
         public PullEvaluator elaborateForPull() {
             final UserFunctionCall expr = (UserFunctionCall) getExpression();
+            expr.allocateArgumentEvaluators();
             if (expr.bindingSlot >= 0) {
                 // XSLT packages in general need dynamic binding
                 return context -> {
@@ -773,7 +702,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         @Override
         public ItemEvaluator elaborateForItem() {
             final UserFunctionCall expr = (UserFunctionCall) getExpression();
-
+            expr.allocateArgumentEvaluators();
             if (expr.bindingSlot >= 0) {
                 // XSLT packages in general need dynamic binding
                 return context -> {
@@ -815,6 +744,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         public PushEvaluator elaborateForPush() {
 
             final UserFunctionCall expr = (UserFunctionCall) getExpression();
+            expr.allocateArgumentEvaluators();
             if (expr.isTailCall()) {
                 throw new AssertionError("Not using tail call path");
             }
@@ -850,7 +780,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
                     return null;
                 };
             }
-
+            
         }
 
 //        /**
@@ -886,6 +816,7 @@ public class UserFunctionCall extends FunctionCall implements UserFunctionResolv
         @Override
         public UpdateEvaluator elaborateForUpdate() {
             final UserFunctionCall expr = (UserFunctionCall) getExpression();
+            expr.allocateArgumentEvaluators();
             UserFunction targetFunction = expr.getFunction(); // This is XQuery: target function is known
             return (context, pul) -> {
                 Sequence[] actualArgs = expr.evaluateArguments(context, false);

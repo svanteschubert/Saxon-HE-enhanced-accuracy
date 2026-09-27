@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,7 +13,6 @@ import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.instruct.GlobalParameterSet;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeKindTest;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
 import net.sf.saxon.s9api.XmlProcessingError;
@@ -23,8 +22,9 @@ import net.sf.saxon.trans.packages.PackageDetails;
 import net.sf.saxon.trans.packages.PackageLibrary;
 import net.sf.saxon.trans.packages.UsePack;
 import net.sf.saxon.trans.packages.VersionedPackageName;
-
+import net.sf.saxon.tree.util.IndexedStack;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.NestedIntegerValue;
 
@@ -36,6 +36,25 @@ import java.util.*;
  */
 public class Compilation {
 
+    /**
+     * Information about a stylesheet module
+     * @param key URI-based unique identifier for the module
+     * @param precedence precedence of the module
+     */
+    private record ModuleInfo(DocumentKey key, NestedIntegerValue precedence) {
+    }
+
+    /**
+     * Information about a static variable or parameter
+     * @param value the value of the variable
+     * @param precedence the import precedence of the variable
+     * @param isParam true if this is a parameter, falso for a variable.
+     */
+    private record ValueAndPrecedence(GroundedValue value,
+                                      NestedIntegerValue precedence,
+                                      boolean isParam) {
+    }
+
     // diagnostic switch to control output of timing information
     public static boolean TIMING = false;
     private final Configuration config;
@@ -46,7 +65,7 @@ public class Compilation {
     private final QNameParser qNameParser;
     private final Map<StructuredQName, ValueAndPrecedence> staticVariables = new HashMap<>();
     private final Map<DocumentKey, TreeInfo> stylesheetModules = new HashMap<>();
-    private final Stack<DocumentKey> importStack = new Stack<>(); // handles both include and import
+    private final IndexedStack<ModuleInfo> importStack = new IndexedStack<>(); // handles both include and import
     private PackageData packageData;
     private boolean preScan = true;
     private boolean createsSecondaryResultDocuments = false;
@@ -58,18 +77,9 @@ public class Compilation {
     private boolean fallbackToNonStreaming = false;
     private Set<StructuredQName> referencedModes = new HashSet<>();
     public Timer timer = null;
+    private HashSet<ModuleInfo> loadedModules = new HashSet<>();
 
-    private static class ValueAndPrecedence {
-        public ValueAndPrecedence(GroundedValue v, NestedIntegerValue p, boolean isParam) {
-            this.value = v;
-            this.precedence = p;
-            this.isParam = isParam;
-        }
 
-        public GroundedValue value;
-        public NestedIntegerValue precedence;
-        public boolean isParam;
-    }
 
     /**
      * Create a compilation object ready to perform an XSLT compilation
@@ -87,7 +97,7 @@ public class Compilation {
         referencedModes.add(Mode.UNNAMED_MODE_NAME);
 
         qNameParser = new QNameParser(null)
-                .withAcceptEQName(true)
+                .withAcceptEQName(true, info.getXsltVersion())
                 .withErrorOnBadSyntax("XTSE0020")
                 .withErrorOnUnresolvedPrefix("XTSE0280");
 
@@ -204,8 +214,9 @@ public class Compilation {
             try {
                 List<VersionedPackageName> disallowed = new ArrayList<>(usingPackages);
                 disallowed.add(details.nameAndVersion);
-                library.obtainLoadedPackage(details, disallowed);
+                library.obtainLoadedPackage(details, disallowed, getCompilerInfo().getPreLoadedSchemata());
             } catch (XPathException err) {
+                err.maybeSetErrorCode("XTSE3000");
                 if (!err.hasBeenReported()) {
                     reportError(err);
                 }
@@ -241,7 +252,7 @@ public class Compilation {
         if (root != null) {
             if (root.getNodeKind() == Type.DOCUMENT) {
                 document = root;
-                outermost = document.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+                outermost = (NodeInfo)document.iterateChildAxis(NodeKindType.ELEMENT).next();
             } else if (root.getNodeKind() == Type.ELEMENT) {
                 document = root.getRoot();
                 outermost = root;
@@ -250,15 +261,18 @@ public class Compilation {
 
         if (!(outermost instanceof XSLPackage)) {
             document = StylesheetModule.loadStylesheetModule(source, true, this, NestedIntegerValue.TWO);
-            outermost = document.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+            outermost = (NodeInfo)document.iterateChildAxis(NodeKindType.ELEMENT).next();
         }
         if (outermost == null) {
             throw new XPathException("No stylesheet element found at " + source.getSystemId(), "XPST0010");
         }
 
-        if (outermost instanceof LiteralResultElement) {
-            document = ((LiteralResultElement) outermost).makeStylesheet(true);
-            outermost = document.iterateAxis(AxisInfo.CHILD, NodeKindTest.ELEMENT).next();
+        if (outermost instanceof LiteralResultElement lre) {
+            document = LiteralResultElement.makeStylesheet(lre, true);
+            outermost = (NodeInfo)document.iterateChildAxis(NodeKindType.ELEMENT).next();
+        } else if (compilerInfo.getXsltVersion() >= 40 && outermost instanceof StyleElement se && se.isInstruction()) {
+            document = LiteralResultElement.makeStylesheet(se, true);
+            outermost = (NodeInfo) document.iterateChildAxis(NodeKindType.ELEMENT).next();
         }
 
         XSLPackage xslpackage;
@@ -290,6 +304,9 @@ public class Compilation {
         pack.setSchemaAware(info.isSchemaAware() || isSchemaAware());
         pack.setLanguageVersion(info.getXsltVersion());
         pack.createFunctionLibrary();
+        if (compilerInfo.getStubFunctionLibrary() != null) {
+            pack.getFunctionLibrary().addFunctionLibrary(compilerInfo.getStubFunctionLibrary());
+        }
         psm.getRuleManager().setCompilerInfo(info);
         setPrincipalStylesheetModule(psm);
         packageData = null;
@@ -331,7 +348,7 @@ public class Compilation {
         if (TIMING) {
             timer.report("Combine attribute sets");
         }
-
+        
         // Compile the stylesheet package
         if (getErrorCount() == 0) {
             try {
@@ -631,13 +648,36 @@ public class Compilation {
     }
 
     /**
-     * Get the stack of include/imports, used to detect circularities
-     *
-     * @return the include/import stack
+     * Push details of a new included/imported module onto the module stack
+     * @param key represents the normalized URI of the module
+     * @param precedence the import precedence of the module
      */
 
-    public Stack<DocumentKey> getImportStack() {
-        return importStack;
+    public void pushModule(DocumentKey key, NestedIntegerValue precedence) {
+        importStack.push(new ModuleInfo(key, precedence));
+    }
+
+    /**
+     * Pop details of an included/imported module off the stack
+     */
+    public void popModule() {
+        importStack.pop();
+    }
+
+    /**
+     * Determine whether the include/import stack contains a stylesheet module with a given URI,
+     * and if so, return the precedence of the topmost such occurrence
+     * @param key the document key of the required stylesheet module
+     * @return the import precedence of the module if found, or null otherwise
+     */
+    public NestedIntegerValue stackContainsModule(DocumentKey key) {
+        for (int pos = importStack.size()-1; pos>=0; pos--) {
+            DocumentKey dKey = importStack.get(pos).key;
+            if (dKey != null && dKey.equals(key)) {
+                return importStack.get(pos).precedence;
+            }
+        }
+        return null;
     }
 
     /**
@@ -782,6 +822,14 @@ public class Compilation {
      */
     public Set<StructuredQName> getAllKnownModeNames() {
         return referencedModes;
+    }
+
+    public void addLoadedModule(DocumentKey key, NestedIntegerValue precedence) {
+        loadedModules.add(new ModuleInfo(key, precedence));
+    }
+
+    public boolean existsLoadedModule(DocumentKey key, NestedIntegerValue precedence) {
+        return loadedModules.contains(new ModuleInfo(key, precedence));
     }
 
 

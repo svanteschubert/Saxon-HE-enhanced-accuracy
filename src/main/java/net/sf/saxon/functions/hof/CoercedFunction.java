@@ -7,6 +7,7 @@
 
 package net.sf.saxon.functions.hof;
 
+import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.FunctionCall;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ContextItemStaticInfo;
@@ -21,9 +22,8 @@ import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.FunctionItemType;
-import net.sf.saxon.type.SpecificFunctionType;
-import net.sf.saxon.type.TypeHierarchy;
+import net.sf.saxon.type.*;
+import net.sf.saxon.type.coercion.CoercionRules;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.function.Supplier;
@@ -36,7 +36,8 @@ public class CoercedFunction extends AbstractFunction {
 
     private FunctionItem targetFunction;
     private final SpecificFunctionType requiredType;
-    private final boolean allowReducedArity;
+    private final boolean allow40;
+    private final boolean acceptReducedArity;
 
     /**
      * Create a CoercedFunction as a wrapper around a target function
@@ -44,21 +45,22 @@ public class CoercedFunction extends AbstractFunction {
      * @param targetFunction    the function to be wrapped by a type-checking layer
      * @param requiredType      the type of the coerced function, that is the type required
      *                          by the context in which the target function is being used
-     * @param allowReducedArity true if the 4.0 rules apply: the supplied function may have lower arity
+     * @param allow40 true if the 4.0 rules apply: the supplied function may have lower arity
      *                          than the required type
      * @throws XPathException if the arity of the supplied function does not match the arity of the required type
      */
 
-    public CoercedFunction(FunctionItem targetFunction, SpecificFunctionType requiredType, boolean allowReducedArity) throws XPathException {
+    public CoercedFunction(FunctionItem targetFunction, SpecificFunctionType requiredType, boolean allow40, boolean acceptReducedArity) throws XPathException {
         if (targetFunction.getArity() != requiredType.getArity()) {
-            if (targetFunction.getArity() > requiredType.getArity() || !allowReducedArity) {
+            if (targetFunction.getArity() > requiredType.getArity() || !allow40) {
                 throw new XPathException(
                         wrongArityMessage(targetFunction, requiredType.getArity()), "XPTY0004");
             }
         }
         this.targetFunction = targetFunction;
         this.requiredType = requiredType;
-        this.allowReducedArity = allowReducedArity;
+        this.allow40 = allow40;
+        this.acceptReducedArity = acceptReducedArity;
     }
 
     /**
@@ -69,7 +71,8 @@ public class CoercedFunction extends AbstractFunction {
 
     public CoercedFunction(SpecificFunctionType requiredType) {
         this.requiredType = requiredType;
-        this.allowReducedArity = false;
+        this.allow40 = false;
+        this.acceptReducedArity = false;
     }
 
     /**
@@ -80,7 +83,7 @@ public class CoercedFunction extends AbstractFunction {
 
     public void setTargetFunction(FunctionItem targetFunction) throws XPathException {
         if (targetFunction.getArity() != requiredType.getArity()) {
-            if (targetFunction.getArity() > requiredType.getArity() || !allowReducedArity) {
+            if (targetFunction.getArity() > requiredType.getArity() || !allow40) {
                 throw new XPathException(
                         wrongArityMessage(targetFunction, requiredType.getArity()), "XPTY0004");
             }
@@ -135,7 +138,11 @@ public class CoercedFunction extends AbstractFunction {
      */
     @Override
     public String getDescription() {
-        return targetFunction.getDescription() + " (used where the required type is " + requiredType + ")";
+        if (targetFunction instanceof CoercedFunction) {
+            return targetFunction.getDescription();
+        } else {
+            return targetFunction.getDescription() + " (used where the required type is " + requiredType + ")";
+        }
     }
 
     /**
@@ -146,7 +153,7 @@ public class CoercedFunction extends AbstractFunction {
 
     @Override
     public int getArity() {
-        return targetFunction.getArity();
+        return requiredType.getArity();
     }
 
     /**
@@ -173,27 +180,28 @@ public class CoercedFunction extends AbstractFunction {
         SpecificFunctionType req = requiredType;
         SequenceType[] argTypes = targetFunction.getFunctionItemType().getArgumentTypes();
         int suppliedArity = Math.min(args.length, argTypes.length);
-        TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
+        Configuration config = context.getConfiguration();
+        CoercionRules coercionRules = CoercionRules.forVersion(config, allow40 ? 40 : 31);
         Sequence[] targetArgs = new Sequence[suppliedArity];
         for (int i = 0; i < suppliedArity; i++) {
             GroundedValue gVal = args[i].materialize();
-            if (argTypes[i].matches(gVal, th)) {
+            if (argTypes[i].matches(gVal)) {
                 targetArgs[i] = gVal;
             } else {
                 final int pos = i;
                 Supplier<RoleDiagnostic> role =
                         () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION, targetFunction.getDescription(), pos);
-                targetArgs[i] = th.applyFunctionConversionRules(gVal, argTypes[i], role, Loc.NONE);
+                targetArgs[i] = coercionRules.coerce(gVal, argTypes[i], SequenceType.ANY_SEQUENCE, config, role, Loc.NONE).makeRepeatable();
             }
         }
         // TODO: don't materialize the result if static type checking tells us the result will be OK
         GroundedValue rawResult = targetFunction.call(context, targetArgs).materialize();
-        if (req.getResultType().matches(rawResult, th)) {
+        if (req.getResultType().matches(rawResult)) {
             return rawResult;
         } else {
             Supplier<RoleDiagnostic> role =
                     () -> new RoleDiagnostic(RoleDiagnostic.FUNCTION_RESULT, getDescription(), 0);
-            return th.applyFunctionConversionRules(rawResult, req.getResultType(), role, Loc.NONE);
+            return coercionRules.coerce(rawResult, req.getResultType(), SequenceType.ANY_SEQUENCE, config, role, Loc.NONE);
         }
     }
 
@@ -218,4 +226,4 @@ public class CoercedFunction extends AbstractFunction {
 
 }
 
-// Copyright (c) 2009-2023 Saxonica Limited
+// Copyright (c) 2009-2026 Saxonica Limited

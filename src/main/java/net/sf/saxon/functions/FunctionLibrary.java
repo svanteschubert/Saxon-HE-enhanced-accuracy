@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,10 +10,12 @@ package net.sf.saxon.functions;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
+import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.FunctionItem;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 
 import java.util.List;
 import java.util.Map;
@@ -41,14 +43,16 @@ public interface FunctionLibrary {
      * Test whether a function with a given name and arity is available
      * <p>This supports the function-available() function in XSLT.</p>
      *
-     * @param functionName the qualified name of the function being called, together with its arity.
-     *                     For legacy reasons, the arity may be set to -1 to mean any arity will do
+     * @param functionName  the qualified name of the function being called, together with its arity.
+     *                      For legacy reasons, the arity may be set to -1 to mean any arity will do
+     * @param schema the in-scope schema definitions: this affects what constructor functions
+     *               are available for user-defined atomic types
      * @param languageLevel the XPath language level (times 10, e.g. 31 for XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
 
     /*@Nullable*/
-    boolean isAvailable(SymbolicName.F functionName, int languageLevel);
+    boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel);
 
 
     /**
@@ -96,13 +100,18 @@ public interface FunctionLibrary {
     /**
      * Test whether a function with a given name and arity is available; if so, return a function
      * item that can be dynamically called.
-     * <p>This supports the function-lookup() function in XPath 3.0.</p>
+     * <p>This supports function references and the function-lookup() function in XPath 3.0.</p>
      *
-     * @param functionName  the qualified name of the function being called
+     * @param functionName  the symbolic name of the function being called, which includes
+     *                      its qualified name and its arity
      * @param staticContext the static context to be used by the function, in the event that
      *                      it is a system function with dependencies on the static context
-     * @return if a function of this name and arity is available for calling, then a corresponding
-     *         function item; or null if the function does not exist
+     * @return if a function with the required name and arity is available, returns that function;
+     * otherwise null. If the required function is context-sensitive (for example, {@code fn:name#0}
+     * or {@code fn:lang#1} or {@code fn:position#0}, then the result will be a function item
+     * that implements the interface {@link IContextAccessorFunction}, which means that the
+     * returned function item can be turned into a non-context-sensitive function item by calling
+     * the method {@link IContextAccessorFunction#bindContext(XPathContext)}.
      * @throws XPathException in the event of certain errors, for example attempting to get a function
      *                        that is private
      */
@@ -110,7 +119,6 @@ public interface FunctionLibrary {
     /*@Nullable*/
     FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext staticContext)
             throws XPathException;
-
 
 
 }

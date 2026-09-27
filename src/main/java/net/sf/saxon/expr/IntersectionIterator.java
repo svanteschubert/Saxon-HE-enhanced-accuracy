@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,9 @@
 
 package net.sf.saxon.expr;
 
-import net.sf.saxon.om.NodeInfo;
+import net.sf.saxon.om.GNode;
 import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.trans.UncheckedXPathException;
-import net.sf.saxon.trans.XPathException;
 
 import java.util.Comparator;
 
@@ -24,9 +23,9 @@ public class IntersectionIterator implements SequenceIterator {
 
     private final SequenceIterator e1;
     private final SequenceIterator e2;
-    private NodeInfo nextNode1;
-    private NodeInfo nextNode2;
-    private final Comparator<? super NodeInfo> comparer;
+    private GNode nextNode1;
+    private GNode nextNode2;
+    private final Comparator<? super GNode> comparer;
 
     /**
      * Form an enumeration of the intersection of the nodes in two nodesets
@@ -34,11 +33,10 @@ public class IntersectionIterator implements SequenceIterator {
      * @param p1       the first operand: must be in document order
      * @param p2       the second operand: must be in document order
      * @param comparer Comparer to be used for putting nodes in document order
-     * @throws XPathException if an error occurs, for example reading from the input sequence
      */
 
     public IntersectionIterator(SequenceIterator p1, SequenceIterator p2,
-                                Comparator<? super NodeInfo> comparer) throws XPathException {
+                                Comparator<? super GNode> comparer)  {
         e1 = p1;
         e2 = p2;
         this.comparer = comparer;
@@ -58,13 +56,13 @@ public class IntersectionIterator implements SequenceIterator {
      * @throws UncheckedXPathException if a failure occurs reading from the input sequence
      */
 
-    private NodeInfo nextNode(SequenceIterator iter) {
-        return (NodeInfo)iter.next();
+    private GNode nextNode(SequenceIterator iter) {
+        return (GNode)iter.next();
         // rely on type-checking to prevent a ClassCastException
     }
 
     @Override
-    public NodeInfo next() {
+    public GNode next() {
         // main merge loop: iterate whichever sequence has the lower value, returning when a pair
         // is found that match.
 
@@ -85,7 +83,7 @@ public class IntersectionIterator implements SequenceIterator {
             } else if (c > 0) {
                 nextNode2 = nextNode(e2);
             } else {            // keys are equal
-                NodeInfo current = nextNode2;    // which is the same as next1
+                GNode current = nextNode2;    // which is the same as next1
                 nextNode2 = nextNode(e2);
                 nextNode1 = nextNode(e1);
                 return current;

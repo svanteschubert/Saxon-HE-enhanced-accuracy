@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,6 +7,7 @@
 
 package net.sf.saxon.type;
 
+//import com.saxonica.ee.schema.UserSimpleType;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.NamespaceConstant;
@@ -28,6 +29,10 @@ public enum AnySimpleType implements SimpleType {
     // private constructor or an enum type).
 
     INSTANCE;
+
+    public static AnySimpleType getInstance() {
+        return INSTANCE;
+    }
 
     /**
      * Get the local name of this type
@@ -98,6 +103,8 @@ public enum AnySimpleType implements SimpleType {
         return false;
     }
 
+
+
     /**
      * Get the redefinition level. This is zero for a component that has not been redefined;
      * for a redefinition of a level-0 component, it is 1; for a redefinition of a level-N
@@ -126,17 +133,6 @@ public enum AnySimpleType implements SimpleType {
     }
 
     /**
-     * Get the singular instance of this class
-     *
-     * @return the singular object representing xs:anyType
-     */
-
-    /*@NotNull*/
-    public static AnySimpleType getInstance() {
-        return INSTANCE;
-    }
-
-    /**
      * Get the validation status - always valid
      */
     @Override
@@ -152,7 +148,7 @@ public enum AnySimpleType implements SimpleType {
 
     @Override
     public SchemaType getBaseType() {
-        return AnyType.getInstance();
+        return AnyType.INSTANCE;
     }
 
     /**
@@ -427,11 +423,12 @@ public enum AnySimpleType implements SimpleType {
      *
      * @param expression the expression that delivers the content
      * @param kind       the node kind whose content is being delivered: {@link Type#ELEMENT},
-*                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
+     *                   {@link Type#ATTRIBUTE}, or {@link Type#DOCUMENT}
+     * @param schema
      */
 
     @Override
-    public void analyzeContentExpression(Expression expression, int kind) {
+    public void analyzeContentExpression(Expression expression, int kind, Schema schema) {
         //return;
     }
 
@@ -461,6 +458,17 @@ public enum AnySimpleType implements SimpleType {
     @Override
     public UnicodeString postprocess(UnicodeString input) throws ValidationException {
         return input;
+    }
+
+    /**
+     * Ask whether this type only allows zero-length content
+     *
+     * @return true if this is a list type with a length or maxLength of zero, or an atomic type
+     * that restricts the content to be empty
+     */
+    @Override
+    public boolean isZeroLength() {
+        return false;
     }
 
 

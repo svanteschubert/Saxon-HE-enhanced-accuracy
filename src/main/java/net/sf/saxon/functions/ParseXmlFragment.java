@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,6 +19,7 @@ import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.Validation;
+import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.resource.ActiveSAXSource;
 import net.sf.saxon.s9api.Location;
@@ -28,17 +29,27 @@ import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.tree.tiny.TinyBuilder;
 import net.sf.saxon.type.SchemaType;
-import net.sf.saxon.value.EmptySequence;
-import net.sf.saxon.value.StringValue;
+import net.sf.saxon.value.*;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
 
 import javax.xml.transform.sax.SAXSource;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class ParseXmlFragment extends SystemFunction implements Callable {
+
+    public static OptionsParameter makeOptionsParameter(int version) {
+        OptionsParameter parseOptions = new OptionsParameter(version);
+        parseOptions.addAllowedOption("base-uri", SequenceType.SINGLE_ANY_URI);
+        parseOptions.addAllowedOption("strip-space", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
+        return parseOptions;
+    }
 
     /**
      * Evaluate the expression
@@ -50,20 +61,46 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    @CSharpReplaceBody(code="return Saxon.Hej.value.EmptySequence.getInstance(); // TODO: implement me!")
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-        StringValue input = (StringValue) arguments[0].head();
+        AtomicValue input = (AtomicValue) arguments[0].head();
         if (input == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         } else {
-            return evalParseXml(input, context);
+            Map<String, GroundedValue> checkedOptions = Collections.emptyMap();
+            if (getArity() >= 2) {
+                MapItem options = (MapItem) arguments[1].head();
+                if (options != null) {
+                    checkedOptions = getDetails().optionDetails.processSuppliedOptions(options, context, 40);
+                }
+            }
+            String baseUri = getStaticBaseUriString();
+            if (checkedOptions.containsKey("base-uri")) {
+                baseUri = checkedOptions.get("base-uri").getStringValue();
+            }
+            boolean stripSpace = false;
+            if (checkedOptions.containsKey("strip-space")) {
+                stripSpace = checkedOptions.get("strip-space").effectiveBooleanValue();
+            }
+            return evalParseXmlFragment(input, baseUri, stripSpace, context);
         }
     }
 
-    private NodeInfo evalParseXml(StringValue inputArg, XPathContext context) throws XPathException {
+
+
+    @CSharpReplaceBody(code="return Saxon.Impl.Helpers.ParseXmlFragment.eval(inputArg, baseUri, stripSpace, context);")
+    private NodeInfo evalParseXmlFragment(
+            AtomicValue inputArg, String baseUri, boolean stripSpace, XPathContext context)
+            throws XPathException {
         NodeInfo node = null;
-        final String baseURI = getStaticBaseUriString();
         ParseXml.RetentiveErrorHandler errorHandler = new ParseXml.RetentiveErrorHandler();
+
+        if (inputArg instanceof StringValue) {
+            String inputXml = inputArg.getStringValue();
+            if (!inputXml.isEmpty() && inputXml.charAt(0) == 0xFEFF) {  // Strip a leading BOM
+                inputXml = inputXml.substring(1);
+            }
+            inputArg = new StringValue(inputXml);
+        }
 
         int attempt = 0;
         while (attempt++ < 3) {
@@ -73,13 +110,12 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
                     throw new XPathException("parse-xml-fragment() function is not available in this environment");
                 }
                 Configuration configuration = controller.getConfiguration();
-                final StringReader fragmentReader = new StringReader(inputArg.getStringValue());
 
-                String skeleton = "<!DOCTYPE z [<!ENTITY e SYSTEM \"http://www.saxonica.com/parse-xml-fragment/actual.xml\">]>\n<z>&e;</z>";
+                String skeleton = "<!DOCTYPE z [<!ENTITY e SYSTEM \"http://www.saxonica.com/parse-xml-fragment/actual.xml\">]><z>&e;</z>";
                 StringReader skeletonReader = new StringReader(skeleton);
 
                 InputSource is = new InputSource(skeletonReader);
-                is.setSystemId(baseURI);
+                is.setSystemId(baseUri);
                 SAXSource source = new SAXSource(is);
                 XMLReader reader;
                 if (attempt == 1) {
@@ -95,7 +131,7 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
 
                 ActiveSAXSource.configureParser(reader);
                 source.setXMLReader(reader);
-                source.setSystemId(baseURI);
+                source.setSystemId(baseUri);
 
                 Builder b = controller.makeBuilder();
                 b.setDurability(Durability.TEMPORARY);
@@ -107,24 +143,46 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
                         .withSchemaValidationMode(Validation.SKIP)
                         .withDTDValidationMode(Validation.SKIP);
                 List<Boolean> safetyCheck = new ArrayList<>();
-                reader.setEntityResolver((publicId, systemId) -> {
-                    if ("http://www.saxonica.com/parse-xml-fragment/actual.xml".equals(systemId)) {
-                        safetyCheck.add(true);
-                        InputSource is1 = new InputSource(fragmentReader);
-                        is1.setSystemId(baseURI);
-                        return is1;
-                    } else {
-                        return null;
-                    }
-                });
-                PackageData pd = getRetainedStaticContext().getPackageData();
-                if (pd instanceof StylesheetPackage) {
-                    options = options.withSpaceStrippingRule(((StylesheetPackage) pd).getSpaceStrippingRule());
-                    if (((StylesheetPackage) pd).isStripsTypeAnnotations()) {
-                        s = configuration.getAnnotationStripper(s);
-                    }
+
+                if (inputArg instanceof StringValue) {
+                    String xml = inputArg.getStringValue();
+                    reader.setEntityResolver((publicId, systemId) -> {
+                        if ("http://www.saxonica.com/parse-xml-fragment/actual.xml".equals(systemId)) {
+                            safetyCheck.add(true);
+                            StringReader fragmentReader = new StringReader(xml);
+                            InputSource is1 = new InputSource(fragmentReader);
+                            is1.setSystemId(baseUri);
+                            return is1;
+                        } else {
+                            return null;
+                        }
+                    });
+                } else if (inputArg instanceof BinaryValue) {
+                    byte[] xml = ((BinaryValue)inputArg).getBinaryValue();
+                    InputStream stream = new ByteArrayInputStream(xml);
+                    reader.setEntityResolver((publicId, systemId) -> {
+                        if ("http://www.saxonica.com/parse-xml-fragment/actual.xml".equals(systemId)) {
+                            safetyCheck.add(true);
+                            InputSource is1 = new InputSource(stream);
+                            is1.setSystemId(baseUri);
+                            return is1;
+                        } else {
+                            return null;
+                        }
+                    });
+                }
+                if (stripSpace) {
+                    options = options.withSpaceStrippingRule(AllElementsSpaceStrippingRule.INSTANCE);
                 } else {
-                    options = options.withSpaceStrippingRule(IgnorableSpaceStrippingRule.getInstance());
+                    PackageData pd = getRetainedStaticContext().getPackageData();
+                    if (pd instanceof StylesheetPackage) {
+                        options = options.withSpaceStrippingRule(((StylesheetPackage) pd).getSpaceStrippingRule());
+                        if (((StylesheetPackage) pd).isStripsTypeAnnotations()) {
+                            s = configuration.getAnnotationStripper(s);
+                        }
+                    } else {
+                        options = options.withSpaceStrippingRule(IgnorableSpaceStrippingRule.INSTANCE);
+                    }
                 }
                 options = options.withErrorHandler(errorHandler);
 
@@ -164,6 +222,7 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
         }
         return node;
     }
+    
 
     /**
      * Filter to remove the element wrapper added to the document to satisfy the XML parser
@@ -176,7 +235,6 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
         }
 
         private int level = 0;
-        private final boolean suppressStartContent = false;
 
         /**
          * Notify the start of an element
@@ -202,4 +260,4 @@ public class ParseXmlFragment extends SystemFunction implements Callable {
     }
 }
 
-// Copyright (c) 2012-2023 Saxonica Limited
+// Copyright (c) 2012-2026 Saxonica Limited

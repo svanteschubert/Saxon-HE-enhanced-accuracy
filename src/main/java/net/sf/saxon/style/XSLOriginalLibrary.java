@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -16,6 +16,7 @@ import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.om.*;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 
 import java.util.List;
 import java.util.Map;
@@ -30,9 +31,7 @@ public class XSLOriginalLibrary implements FunctionLibrary {
     public static XSLOriginalLibrary getInstance() {
         return THE_INSTANCE;
     }
-
-    public static StructuredQName XSL_ORIGINAL = new StructuredQName("xsl", NamespaceUri.XSLT, "original");
-
+    
     private XSLOriginalLibrary() {}
 
     @Override
@@ -51,7 +50,7 @@ public class XSLOriginalLibrary implements FunctionLibrary {
     }
 
     @Override
-    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
+    public boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel) {
         // xsl:original is not recognized by function-available() - W3C bug 28122
         return false;
     }
@@ -63,12 +62,11 @@ public class XSLOriginalLibrary implements FunctionLibrary {
 
     @Override
     public FunctionItem getFunctionItem(SymbolicName.F functionName, StaticContext env) throws XPathException {
+        StyleElement containingElement = ExpressionContext.getXsltElement(env);
         if (functionName.getComponentKind() == StandardNames.XSL_FUNCTION &&
                 functionName.getComponentName().hasURI(NamespaceUri.XSLT) &&
                 functionName.getComponentName().getLocalPart().equals("original") &&
-                env instanceof ExpressionContext) {
-            ExpressionContext expressionContext = (ExpressionContext) env;
-            StyleElement containingElement = expressionContext.getStyleElement();
+                containingElement != null) {
             XSLFunction overridingFunction = (XSLFunction)containingElement.findAncestorElement(StandardNames.XSL_FUNCTION);
             if (overridingFunction == null) {
                 throw new XPathException("Function name xsl:original can only be used within xsl:function", "XTSE3058");

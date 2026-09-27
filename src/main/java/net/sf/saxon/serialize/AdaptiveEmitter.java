@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -13,20 +13,20 @@ import net.sf.saxon.event.SequenceWriter;
 import net.sf.saxon.functions.FormatNumber;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.jnode.JNode;
 import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.*;
 import net.sf.saxon.query.QueryResult;
 import net.sf.saxon.regex.ARegularExpression;
-import net.sf.saxon.str.BMPString;
-import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.str.UnicodeWriter;
+import net.sf.saxon.str.*;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.QualifiedNameValue;
 
+import javax.xml.transform.OutputKeys;
 import javax.xml.transform.stream.StreamResult;
 import java.io.IOException;
 import java.io.StringWriter;
@@ -45,10 +45,16 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
     private String itemSeparator = "\n";
     private boolean started = false;
     private boolean mustClose = true;
+    private int hostLanguageVersion = 31;
+    private boolean indenting = false;
+    private int indentLevel = 0;
+    private static String indentString = "\n                                                               ";
+    private boolean afterColon = false;
 
     public AdaptiveEmitter(PipelineConfiguration pipe, UnicodeWriter writer)  {
         super(pipe);
         this.writer = writer;
+        this.hostLanguageVersion = pipe.getHostLanguageVersion();
     }
 
     public void setOutputProperties(Properties props) {
@@ -57,6 +63,7 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
         if (sep != null && !"#absent".equals(sep)) {
             itemSeparator = sep;
         }
+        indenting = "yes".equals(props.getProperty(OutputKeys.INDENT));
     }
 
     /**
@@ -126,10 +133,13 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
     }
 
     private void serializeItem(Item item) throws XPathException {
+        item = Type.unlabelItem(item);
         if (item instanceof AtomicValue) {
             emit(serializeAtomicValue((AtomicValue) item));
         } else if (item instanceof NodeInfo) {
             serializeNode((NodeInfo) item);
+        } else if (item instanceof JNode) {
+            serializeJNode((JNode) item);
         } else if (item instanceof MapItem) {
             serializeMap((MapItem) item);
         } else if (item instanceof ArrayItem) {
@@ -139,26 +149,30 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
         }
     }
 
-    static ARegularExpression QUOTES = ARegularExpression.compile("\"", "");
+    private final static ARegularExpression MATCH_DOUBLE_QUOTATION_MARK = ARegularExpression.compile("\"", "");
+    private final static UnicodeString TWO_DOUBLE_QUOTATION_MARKS = new Twine8("\"\"");
+    private final static UnicodeString ONE_DOUBLE_QUOTATION_MARK = new UnicodeChar('"');
+    private final static UnicodeString TRUE_CALL = new Twine8("true()");
+    private final static UnicodeString FALSE_CALL = new Twine8("false()");
 
-    private String serializeAtomicValue(AtomicValue value) throws XPathException {
+    private UnicodeString serializeAtomicValue(AtomicValue value) throws XPathException {
         switch(value.getPrimitiveType().getFingerprint()) {
             case StandardNames.XS_STRING:
             case StandardNames.XS_ANY_URI:
             case StandardNames.XS_UNTYPED_ATOMIC: {
                 UnicodeString s = value.getUnicodeStringValue();
-                s = QUOTES.replace(s, BMPString.of("\"\""));
+                s = MATCH_DOUBLE_QUOTATION_MARK.replace(s, TWO_DOUBLE_QUOTATION_MARKS);
                 if (characterMap != null) {
                     s = characterMap.map(s, false);
                 }
-                return "\"" + s.toString() + "\"";
+                return ONE_DOUBLE_QUOTATION_MARK.concat(s).concat(ONE_DOUBLE_QUOTATION_MARK);
             }
             case StandardNames.XS_BOOLEAN:
-                return value.effectiveBooleanValue() ? "true()" : "false()";
+                return value.effectiveBooleanValue() ? TRUE_CALL : FALSE_CALL;
 
             case StandardNames.XS_DECIMAL:
             case StandardNames.XS_INTEGER:
-                return value.getStringValue();
+                return value.getUnicodeStringValue();
 
             case StandardNames.XS_DOUBLE:
                 return FormatNumber.formatExponential((DoubleValue)value);
@@ -175,17 +189,30 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
             case StandardNames.XS_G_DAY:
             case StandardNames.XS_HEX_BINARY:
             case StandardNames.XS_BASE64_BINARY:
-                return value.getPrimitiveType().getDisplayName() + "(\"" + value.getUnicodeStringValue() + "\")";
+                return new Twine8(value.getPrimitiveType().getDisplayName())
+                        .concat(new UnicodeChar('('))
+                        .concat(ONE_DOUBLE_QUOTATION_MARK)
+                        .concat(value.getUnicodeStringValue())
+                        .concat(ONE_DOUBLE_QUOTATION_MARK)
+                        .concat(new UnicodeChar(')'));
 
             case StandardNames.XS_DAY_TIME_DURATION:
             case StandardNames.XS_YEAR_MONTH_DURATION:
-                return "xs:duration(\"" + value.getUnicodeStringValue() + "\")";
+                return new Twine8("xs:duration(\"")
+                        .concat(value.getUnicodeStringValue())
+                        .concat(ONE_DOUBLE_QUOTATION_MARK)
+                        .concat(new UnicodeChar(')'));
 
             case StandardNames.XS_QNAME:
             case StandardNames.XS_NOTATION:
-                return ((QualifiedNameValue)value).getStructuredQName().getEQName();
+                StructuredQName sq = ((QualifiedNameValue) value).getStructuredQName();
+                if (hostLanguageVersion >= 40) {
+                    return StringView.of("#" + (sq.hasURI(NamespaceUri.NULL) ? sq.getLocalPart() : sq.getEQName()));
+                } else {
+                    return StringView.of(sq.getEQName());
+                }
             default:
-                return "***";
+                return new Twine8("***");
         }
     }
 
@@ -234,6 +261,9 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
                 props.setProperty(SaxonOutputKeys.UNFAILING, "yes");
                 CharacterMapIndex cmi = null;
                 if (characterMap != null) {
+                    // If several character maps have been combined, this name will have been generated.
+                    // If only a single map was provided in the first place, this will be the name of that map.
+                    props.setProperty("use-character-maps", characterMap.getName().getClarkName());
                     cmi = new CharacterMapIndex();
                     cmi.putCharacterMap(characterMap.getName(), characterMap);
                 }
@@ -279,7 +309,22 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
         return sb.toString();
     }
 
+    private void indent(int level) throws XPathException {
+        if (indenting) {
+            if (level*2 < indentString.length()) {
+                indentString += "                ";
+            }
+            emit(indentString.substring(0, level*2));
+        }
+    }
+
     private void serializeArray(ArrayItem array) throws XPathException {
+        if (afterColon) {
+            indentLevel++;
+        } else {
+            indent(indentLevel++);
+            afterColon = false;
+        }
         emit("[");
         boolean first = true;
         for (Sequence seq: array.members()) {
@@ -287,28 +332,66 @@ public class AdaptiveEmitter extends SequenceWriter implements ReceiverWithOutpu
                 first = false;
             } else {
                 emit(",");
+                indent(indentLevel);
             }
             outputInternalSequence(seq);
         }
+        indent(--indentLevel);
         emit("]");
     }
 
     private void serializeMap(MapItem map) throws XPathException {
-        emit("map{");
+        if (afterColon) {
+            indentLevel++;
+        } else {
+            indent(indentLevel++);
+            afterColon = false;
+        }
+        emit(hostLanguageVersion >= 40 ? "{" : "map{");
         boolean first = true;
         for (KeyValuePair pair : map.keyValuePairs()) {
             if (first) {
                 first = false;
             } else {
                 emit(",");
+                indent(indentLevel);
             }
-            serializeItem(pair.key);
+            serializeItem(pair.key());
             emit(":");
-            Sequence value = pair.value;
+            afterColon = true;
+            Sequence value = pair.value();
             outputInternalSequence(value);
+            afterColon = false;
         }
+        indent(--indentLevel);
         emit("}");
     }
+
+
+    private void serializeJNode(JNode jNode) throws XPathException {
+        if (afterColon) {
+            indentLevel++;
+        } else {
+            indent(indentLevel++);
+            afterColon = false;
+        }
+        if (jNode.getSelector() == null) {
+            emit("jtree(");
+            outputInternalSequence(jNode.getContent());
+            afterColon = false;
+            indent(--indentLevel);
+            emit(")");
+        } else {
+            emit("jnode(");
+            outputInternalSequence(jNode.getSelector());
+            emit(":");
+            outputInternalSequence(jNode.getContent());
+            afterColon = false;
+            indent(--indentLevel);
+            emit(")");
+        }
+    }
+
 
     private void outputInternalSequence(Sequence value) throws XPathException {
         boolean first = true;

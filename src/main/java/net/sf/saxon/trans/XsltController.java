@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,6 @@ import net.sf.saxon.lib.*;
 import net.sf.saxon.om.*;
 import net.sf.saxon.s9api.Destination;
 import net.sf.saxon.s9api.Message;
-import net.sf.saxon.serialize.MessageEmitter;
 import net.sf.saxon.serialize.PrincipalOutputGatekeeper;
 import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trace.TemplateRuleTraceListener;
@@ -39,7 +38,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Stack;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 /**
  * This class is an extension of the Controller class, used when executing XSLT stylesheets.
@@ -114,7 +112,7 @@ public class XsltController extends Controller {
 
         setModel(config.getParseOptions().getModel());
 
-        globalContextItem = null;
+        globalContextValue = null;
         initialMode = null;
         clearPerTransformationData();
     }
@@ -348,107 +346,7 @@ public class XsltController extends Controller {
     public Consumer<Message> getMessageHandler() {
         return messageHandler;
     }
-
-    /**
-     * Supply a factory function that is called every time xsl:message is executed.
-     * @param messageReceiverFactory a factory function whose job it is to create a {@link Outputter} for
-     *                               xsl:message output.
-     * @deprecated since Saxon 11. The method has no effect. Use {@link #setMessageHandler}
-     */
-    @Deprecated
-    public void setMessageFactory(Supplier<Receiver> messageReceiverFactory) {
-
-    }
-
-    /**
-     * Set the message receiver class name. This is an alternative way (retained for compatibility)
-     * of providing a factory for message receivers; it causes a message factory to be established
-     * that instantiates the supplied class
-     *
-     * @param name the full name of the class to be instantiated to provide a receiver for xsl:message output. The name must
-     *             be the name of a class that implements the {@link Receiver} interface, and that has a zero-argument public
-     *             constructor.
-     * @deprecated since Saxon 11. The method has no effect. Use {@link #setMessageHandler}
-     */
-    @Deprecated
-    public void setMessageReceiverClassName(String name) {
-        // No actioin
-    }
-
-    /**
-     * Make a Receiver to be used for xsl:message output.
-     * <p>This method is intended for internal use only. From 9.9.0.2 (bug 3979) this method
-     * is called to obtain a new Receiver each time an xsl:message instruction is evaluated.</p>
-     *
-     * @return The newly constructed message Receiver
-     * @deprecated since Saxon 11. The method returns null. Use {@link #setMessageHandler}
-     */
-
-    /*@NotNull*/
-    @Deprecated
-    public Receiver makeMessageReceiver() {
-        return null;
-    }
-
-    /**
-     * Set the Receiver to be used for xsl:message output.
-     * <p>
-     * Recent versions of the JAXP interface specify that by default the
-     * output of xsl:message is sent to the registered ErrorListener. Saxon
-     * does not implement this convention. Instead, the output is sent
-     * to a default message emitter, which is a slightly customised implementation
-     * of the standard Saxon Emitter interface.</p>
-     * <p>
-     * This interface can be used to change the way in which Saxon outputs
-     * xsl:message output.</p>
-     * <p>
-     * It is not necessary to use this interface in order to change the destination
-     * to which messages are written: that can be achieved by obtaining the standard
-     * message emitter and calling its {@link MessageEmitter#setWriter} method.</p>
-     * <p>
-     * Although any <code>Receiver</code> can be supplied as the destination for messages,
-     * applications may find it convenient to implement a subclass of {@link SequenceWriter},
-     * in which only the abstract <code>write()</code> method is implemented. This will have the effect that the
-     * <code>write()</code> method is called to output each message as it is generated, with the <code>Item</code>
-     * that is passed to the <code>write()</code> method being the document node at the root of an XML document
-     * containing the contents of the message.
-     * <p>
-     * This method is intended for use by advanced applications. The Receiver interface
-     * itself is subject to change in new Saxon releases.</p>
-     * <p>
-     * The supplied Receiver will have its open() method called once at the start of
-     * the transformation, and its close() method will be called once at the end of the
-     * transformation. Each individual call of an xsl:message instruction is wrapped by
-     * calls of startDocument() and endDocument(). If terminate="yes" is specified on the
-     * xsl:message call, the properties argument of the startDocument() call will be set
-     * to the value {@link ReceiverOption#TERMINATE}.</p>
-     *
-     * @param receiver The receiver to receive xsl:message output.
-     * @since 8.4; changed in 8.9 to supply a Receiver rather than an Emitter. Changed
-     * in 9.9.0.2 so it is no longer supported in a configuration that allows multi-threading.
-     * @deprecated since Saxon 11. The method has no effect. Use {@link #setMessageHandler}
-     */
-    @Deprecated
-    public void setMessageEmitter(Receiver receiver) {
-        // No action
-    }
-
-    /**
-     * Get the Receiver used for xsl:message output. This returns the emitter
-     * previously supplied to the {@link #setMessageEmitter} method, or the
-     * default message emitter otherwise.
-     *
-     * @return the Receiver being used for xsl:message output
-     * @since 8.4; changed in 8.9 to return a Receiver rather than an Emitter
-     * @deprecated since 9.9.0.2; always returns null.
-     */
-
-    /*@Nullable*/
-    @Deprecated
-    public Receiver getMessageEmitter() {
-        return null;
-    }
-
+    
     /**
      * Increment a counter in the message counters. This method is called automatically
      * when xsl:message is executed, to increment the counter associated with a given
@@ -702,9 +600,6 @@ public class XsltController extends Controller {
             handleXPathException(err);
         } finally {
             inUse = false;
-            if (traceListener != null) {
-                traceListener.close();
-            }
             principalResultURI = null;
         }
     }
@@ -770,7 +665,7 @@ public class XsltController extends Controller {
                     throw new XPathException("Cannot use a schema-validated source document unless the stylesheet is schema-aware");
                 }
 
-                if (isStylesheetStrippingTypeAnnotations() && node != globalContextItem) {
+                if (isStylesheetStrippingTypeAnnotations() && node != globalContextValue) {
                     TreeInfo docInfo = node.getTreeInfo();
                     if (docInfo.isTyped()) {
                         TypeStrippedDocument strippedDoc = new TypeStrippedDocument(docInfo);
@@ -780,11 +675,11 @@ public class XsltController extends Controller {
 
                 SpaceStrippingRule spaceStrippingRule = getSpaceStrippingRule();
                 if (isStylesheetContainingStripSpace() && isStripSourceTree() && !(node instanceof SpaceStrippedNode)
-                        && node != globalContextItem && node.getTreeInfo().getSpaceStrippingRule() != spaceStrippingRule) {
+                        && node != globalContextValue && node.getTreeInfo().getSpaceStrippingRule() != spaceStrippingRule) {
                     SpaceStrippedDocument strippedDoc = new SpaceStrippedDocument(node.getTreeInfo(), spaceStrippingRule);
                     // Edge case: the item might itself be a whitespace text node that is stripped
-                    if (!SpaceStrippedNode.isPreservedNode(node, strippedDoc, node.getParent())) {
-                        return EmptyIterator.getInstance();
+                    if (!SpaceStrippedNode.isPreservedNode(node, strippedDoc, (NodeInfo)node.getParent())) {
+                        return EmptyIterator.INSTANCE;
                     }
                     node = strippedDoc.wrap(node);
                 }
@@ -835,8 +730,8 @@ public class XsltController extends Controller {
             initialContext.createThreadManager();
             initialContext.setOrigin(this);
 
-            if (globalContextItem != null) {
-                initialContext.setCurrentIterator(new ManualIterator(globalContextItem));
+            if (globalContextValue != null) {
+                initialContext.setCurrentIterator(new ManualIterator(globalContextValue.head()));
             }
 
             // Process the source document by invoking the initial named template
@@ -881,9 +776,6 @@ public class XsltController extends Controller {
         } catch (XPathException err) {
             handleXPathException(err);
         } finally {
-            if (traceListener != null) {
-                traceListener.close();
-            }
             inUse = false;
         }
     }
@@ -924,7 +816,10 @@ public class XsltController extends Controller {
                 underSource = ((AugmentedSource) source).getContainedSource();
             }
             Configuration config = getConfiguration();
-            Source s2 = config.getSourceResolver().resolveSource(underSource, config);
+            ParseOptions options = config.getParseOptions()
+                    .withSchemaValidationMode(validationMode)
+                    .withSchema(getExecutable().getTopLevelPackage().getImportedSchema(""));
+            Source s2 = config.getSourceResolver().resolveSource(underSource, options, config);
             if (s2 != null) {
                 underSource = s2;
             }
@@ -960,7 +855,7 @@ public class XsltController extends Controller {
                 despatcher = makeStripper(despatcher);
             }
             PipelineConfiguration pipe = despatcher.getPipelineConfiguration();
-            pipe.setParseOptions(pipe.getParseOptions().withSchemaValidationMode(this.validationMode));
+            pipe.setParseOptions(options);
             boolean verbose = getConfiguration().isTiming();
             if (verbose) {
                 getConfiguration().getLogger().info("Streaming " + source.getSystemId());
@@ -1028,7 +923,7 @@ public class XsltController extends Controller {
         initialContext.setOrigin(this);
         //initialContext.setReceiver(dest);
 
-        globalContextItem = null;
+        globalContextValue = null;
 
         // Process the source document by applying template rules to the initial context node
 
@@ -1052,7 +947,9 @@ public class XsltController extends Controller {
                 if (traceListener != null) {
                     traceListener.close();
                 }
-                finalResult.close();
+                if (inUse) {   // Bug 6624
+                    finalResult.close();
+                }
                 inUse = false;
             }
         };

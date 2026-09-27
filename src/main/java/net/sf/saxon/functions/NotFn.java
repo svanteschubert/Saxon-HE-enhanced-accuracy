@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,7 +19,7 @@ import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.parser.ExpressionVisitor;
 import net.sf.saxon.expr.parser.TypeChecker;
 import net.sf.saxon.om.Sequence;
-import net.sf.saxon.pattern.NodeTest;
+import net.sf.saxon.pattern.nodetest.NodeTest;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.TypeHierarchy;
@@ -30,15 +30,12 @@ import net.sf.saxon.value.BooleanValue;
  */
 
 
-public class NotFn extends SystemFunction {
+public class NotFn extends SystemFunction implements ArityOneFunction {
 
 
     @Override
     public void supplyTypeInformation(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType, Expression[] arguments) throws XPathException {
-        XPathException err = TypeChecker.ebvError(arguments[0], visitor.getConfiguration().getTypeHierarchy());
-        if (err != null) {
-            throw err;
-        }
+        TypeChecker.ebvTypeCheck(arguments[0], visitor);
     }
 
     /**
@@ -53,6 +50,11 @@ public class NotFn extends SystemFunction {
     @Override
     public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
         return BooleanValue.get(!ExpressionTool.effectiveBooleanValue(arguments[0].iterate()));
+    }
+
+    @Override
+    public BooleanValue call1(XPathContext context, Sequence arg0) throws XPathException {
+        return BooleanValue.get(!ExpressionTool.effectiveBooleanValue(arg0.iterate()));
     }
 
     /**

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,24 +10,27 @@ package net.sf.saxon.ma.json;
 import net.sf.saxon.event.PipelineConfiguration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.functions.SystemFunction;
 import net.sf.saxon.om.*;
+import net.sf.saxon.regex.ARegularExpression;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.serialize.charcode.UTF16CharacterSet;
 import net.sf.saxon.str.*;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.StringConverter;
 import net.sf.saxon.value.DoubleValue;
 import net.sf.saxon.value.StringToDouble11;
-import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.Whitespace;
+import net.sf.saxon.z.IntIterator;
+import net.sf.saxon.z.IntPredicateLambda;
+import net.sf.saxon.z.IntPredicateProxy;
 
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.Stack;
-import java.util.function.IntPredicate;
 
 /**
  * A Receiver which receives a stream of XML events using the vocabulary defined for the XML representation
@@ -39,14 +42,27 @@ public class JsonReceiver implements Receiver {
     private final XPathContext context;
     private PipelineConfiguration pipe;
     private UniStringConsumer output;
-    private final StringBuilder textBuffer = new StringBuilder(128);
+    private final UnicodeBuilder textBuffer = new UnicodeBuilder(128);
     private final Stack<NodeName> stack = new Stack<>();
     private boolean atStart = true;
     private boolean indenting = false;
+    private boolean escapeSolidus = true;
     private boolean escaped = false;
-    private final Stack<Set<String>> keyChecker = new Stack<>();
-    private FunctionItem numberFormatter = null;
+    private boolean retainNumberFormat = false;
+    private final Stack<Set<UnicodeString>> keyChecker = new Stack<>();
     private static final String ERR_INPUT = "FOJS0006";
+
+    private final static UnicodeString U_LSQB_SPACE = Latin1.of("[ ");
+    private final static UnicodeString U_LSQB = new UnicodeChar('[');
+    private final static UnicodeString U_SPACE_RSQB = Latin1.of(" ]");
+    private final static UnicodeString U_RSQB = new UnicodeChar(']');
+    private final static UnicodeString U_LCURLY_SPACE = Latin1.of("{ ");
+    private final static UnicodeString U_LCURLY = new UnicodeChar('{');
+    private final static UnicodeString U_SPACE_RCURLY = Latin1.of(" }");
+    private final static UnicodeString U_RCURLY = new UnicodeChar('}');
+    private final static UnicodeString U_NULL = Latin1.of("null");
+    private final static UnicodeString U_QUOT = new UnicodeChar('"');
+    private final static UnicodeString U_NL = StringConstants.NEWLINE;
 
     public JsonReceiver(PipelineConfiguration pipe, XPathContext context, UniStringConsumer output) {
         Objects.requireNonNull(pipe);
@@ -79,13 +95,16 @@ public class JsonReceiver implements Receiver {
         return indenting;
     }
 
-    public void setNumberFormatter(FunctionItem formatter) {
-        assert formatter.getArity() == 1;
-        this.numberFormatter = formatter;
+    public void setEscapeSolidus(boolean escape) {
+        this.escapeSolidus = escape;
     }
 
-    public FunctionItem getNumberFormatter() {
-        return this.numberFormatter;
+    public boolean isEscapeSolidus() {
+        return this.escapeSolidus;
+    }
+
+    public void setRetainNumberFormat(boolean flag) {
+        this.retainNumberFormat = flag;
     }
 
     @Override
@@ -123,9 +142,9 @@ public class JsonReceiver implements Receiver {
                                              elemName.getStructuredQName().getEQName(), ERR_INPUT);
         }
 
-        String key = null;
-        String escapedAtt = null;
-        String escapedKey = null;
+        UnicodeString key = null;
+        UnicodeString escapedAtt = null;
+        UnicodeString escapedKey = null;
         for (AttributeInfo att : attributes) {
             NodeName attName = att.getNodeName();
             if (attName.hasURI(NamespaceUri.NULL)) {
@@ -135,14 +154,14 @@ public class JsonReceiver implements Receiver {
                             throw new XPathException(
                                     "xml-to-json: The key attribute is allowed only on elements within a map", ERR_INPUT);
                         }
-                        key = att.getValue();
+                        key = StringView.of(att.getValue());
                         break;
                     case "escaped-key":
                         if (!inMap) {
                             throw new XPathException(
                                     "xml-to-json: The escaped-key attribute is allowed only on elements within a map", ERR_INPUT);
                         }
-                        escapedKey = att.getValue();
+                        escapedKey = StringView.of(att.getValue());
                         break;
                     case "escaped":
                         boolean allowed = stack.size() == 1 || elemName.getLocalPart().equals("string");
@@ -153,7 +172,7 @@ public class JsonReceiver implements Receiver {
                                     "xml-to-json: The escaped attribute is allowed only on the <string> element",
                                     ERR_INPUT);
                         }
-                        escapedAtt = att.getValue();
+                        escapedAtt = StringView.of(att.getValue());
                         break;
                     default:
                         throw new XPathException("xml-to-json: Disallowed attribute in input: " + attName.getDisplayName(), ERR_INPUT);
@@ -165,7 +184,7 @@ public class JsonReceiver implements Receiver {
         }
 
         if (!atStart) {
-            output.accept(BMPString.of(","));
+            output.accept(StringConstants.COMMA);
             if (indenting) {
                 indent(stack.size());
             }
@@ -178,24 +197,26 @@ public class JsonReceiver implements Receiver {
             if (escapedKey != null) {
                 try {
                     alreadyEscaped = StringConverter.StringToBoolean.INSTANCE
-                            .convertString(StringView.tidy(escapedKey)).asAtomic().effectiveBooleanValue();
+                            .convertString(escapedKey).asAtomic().effectiveBooleanValue();
                 } catch (XPathException e) {
                     throw new XPathException("xml-to-json: Value of escaped-key attribute '" + Err.wrap(escapedKey) +
                                                      "' is not a valid xs:boolean", ERR_INPUT);
                 }
             }
-            key = (alreadyEscaped ? handleEscapedString(key) : escape(key, false, false, isControlChar));
+            key = (alreadyEscaped ?
+                           handleEscapedString(key) :
+                           escape(key, new EscapeOptions(false, !escapeSolidus, true, isControlChar)));
 
-            String normalizedKey = alreadyEscaped ? unescape(key) : key;
+            UnicodeString normalizedKey = alreadyEscaped ? unescape(key) : key;
             boolean added = keyChecker.peek().add(normalizedKey);
             if (!added) {
                 throw new XPathException("xml-to-json: duplicate key value " + Err.wrap(key), ERR_INPUT);
             }
 
             String base = indenting ? " : " : ":";
-            output.accept(BMPString.of("\""))
-                    .accept(StringView.of(key))
-                    .accept(BMPString.of("\""))
+            output.accept(new UnicodeChar('"'))
+                    .accept(key)
+                    .accept(new UnicodeChar('"'))
                     .accept(BMPString.of(base));
         }
         String local = elemName.getLocalPart();
@@ -204,31 +225,31 @@ public class JsonReceiver implements Receiver {
             case "array":
                 if (indenting) {
                     indent(stack.size());
-                    output.accept(BMPString.of("[ "));
+                    output.accept(U_LSQB_SPACE);
                 } else {
-                    output.accept(BMPString.of("["));
+                    output.accept(U_LSQB);
                 }
                 atStart = true;
                 break;
             case "map":
                 if (indenting) {
                     indent(stack.size());
-                    output.accept(BMPString.of("{ "));
+                    output.accept(U_LCURLY_SPACE);
                 } else {
-                    output.accept(BMPString.of("{"));
+                    output.accept(U_LCURLY);
                 }
                 atStart = true;
                 keyChecker.push(new HashSet<>());
                 break;
             case "null":
                 //checkParent(local, parent);
-                output.accept(BMPString.of("null"));
+                output.accept(U_NULL);
                 atStart = false;
                 break;
             case "string":
                 if (escapedAtt != null) {
                     try {
-                        escaped = StringConverter.StringToBoolean.INSTANCE.convertString(StringView.tidy(escapedAtt))
+                        escaped = StringConverter.StringToBoolean.INSTANCE.convertString(escapedAtt)
                                 .asAtomic().effectiveBooleanValue();
                     } catch (XPathException e) {
                         throw new XPathException("xml-to-json: value of escaped attribute (" +
@@ -246,7 +267,7 @@ public class JsonReceiver implements Receiver {
             default:
                 throw new XPathException("xml-to-json: unknown element <" + local + ">", ERR_INPUT);
         }
-        textBuffer.setLength(0);
+        textBuffer.clear();
     }
 
     private void checkParent(String child, String parent) throws XPathException {
@@ -256,22 +277,69 @@ public class JsonReceiver implements Receiver {
         }
     }
 
+    private final static IntPredicateProxy isControlChar =
+            IntPredicateLambda.of(c -> c < 31 || (c >= 127 && c <= 159));
+
+    private final static UnicodeString ZERO = new UnicodeChar('0');
+    private final static UnicodeString MINUS_ZERO = new Twine8("-0");
+//    private final static EscapeOptions XmlToJsonEscapeOptions =
+//            new EscapeOptions(false, !escapeSolidus, true, isControlChar);
+
     @Override
     public void endElement() throws XPathException {
         NodeName name = stack.pop();
         String local = name.getLocalPart();
-        String content = textBuffer.toString();
-        UnicodeString uContent = StringView.tidy(content);
+        UnicodeString content = textBuffer.toUnicodeString();
+        UnicodeString uContent = content;
         if (local.equals("boolean")) {
             try {
                 boolean b = StringConverter.StringToBoolean.INSTANCE.convertString(uContent).asAtomic().effectiveBooleanValue();
-                String base = b ? "true" : "false";
-                output.accept(BMPString.of(base));
+                output.accept(b ? StringConstants.TRUE : StringConstants.FALSE);
             } catch (XPathException e) {
                 throw new XPathException("xml-to-json: Value of <boolean> element is not a valid xs:boolean", ERR_INPUT);
             }
         } else if (local.equals("number")) {
-            if (numberFormatter == null) {
+            if (retainNumberFormat) {
+                // 4.0 path
+                try {
+                    double d = StringToDouble11.getInstance().stringToNumber(uContent);
+                    if (Double.isNaN(d) || Double.isInfinite(d)) {
+                        throw new XPathException("xml-to-json: Infinity and NaN are not allowed", ERR_INPUT);
+                    }
+                } catch (NumberFormatException e) {
+                    throw new XPathException("xml-to-json: Invalid number: " + textBuffer, ERR_INPUT);
+                }
+                uContent = Whitespace.trim(uContent);
+                boolean negative = false;
+                if (uContent.codePointAt(0) == '+') {
+                    uContent = uContent.substring(1);
+                } else if (uContent.codePointAt(0) == '-') {
+                    uContent = uContent.substring(1);
+                    negative = true;
+                }
+                // Strip unnecessary leading zeros
+                while (uContent.codePointAt(0) == '0' && uContent.length() > 1 &&
+                        uContent.codePointAt(1) != '.' &&
+                        uContent.codePointAt(1) != 'e' && uContent.codePointAt(1) != 'E') {
+                    uContent = uContent.substring(1);
+                }
+                if (uContent.codePointAt(0) == '.') {
+                    uContent = new UnicodeChar('0').concat(uContent);
+                }
+                if (negative) {
+                    uContent = new UnicodeChar('-').concat(uContent);
+                }
+                long point = uContent.indexOf('.');
+                if (point >= 0) {
+                    if (point == uContent.length() - 1) {
+                        uContent = uContent.concat(new UnicodeChar('0'));
+                    } else if (uContent.codePointAt(point + 1) == 'e' || uContent.codePointAt(point + 1) == 'E') {
+                        uContent = uContent.substring(0, point + 1).concat(new UnicodeChar('0').concat(uContent.substring(point + 1)));
+                    }
+                }
+                output.accept(uContent);
+            } else {
+                // 3.1 path
                 try {
                     double d = StringToDouble11.getInstance().stringToNumber(uContent);
                     if (Double.isNaN(d) || Double.isInfinite(d)) {
@@ -281,34 +349,34 @@ public class JsonReceiver implements Receiver {
                 } catch (NumberFormatException e) {
                     throw new XPathException("xml-to-json: Invalid number: " + textBuffer, ERR_INPUT);
                 }
-            } else {
-                Sequence result = SystemFunction.dynamicCall(
-                        numberFormatter, context, new StringValue(uContent));
-                output.accept(((StringValue)result).getUnicodeStringValue());
             }
 
         } else if (local.equals("string")) {
-            output.accept(BMPString.of("\""));
+            output.accept(U_QUOT);
             if (escaped) {
-                output.accept(StringView.of(handleEscapedString(content)));
+                output.accept(handleEscapedString(content));
             } else {
-                output.accept(StringView.of(escape(content, false, false, isControlChar)));
+                output.accept(escape(content, new EscapeOptions(false, !escapeSolidus, true, isControlChar)));
             }
-            output.accept(BMPString.of("\""));
+            output.accept(U_QUOT);
         } else if (!Whitespace.isAllWhite(uContent)) {
             throw new XPathException("xml-to-json: Element " + name.getDisplayName() + " must have no text content", ERR_INPUT);
         }
-        textBuffer.setLength(0);
+        textBuffer.clear();
         escaped = false;
         if (local.equals("array")) {
-            String base = indenting ? " ]" : "]";
-            output.accept(BMPString.of(base));
+            output.accept(indenting ? U_SPACE_RSQB : U_RSQB);
         } else if (local.equals("map")) {
             keyChecker.pop();
-            String base = indenting ? " }" : "}";
-            output.accept(BMPString.of(base));
+            output.accept(indenting ? U_SPACE_RCURLY : U_RCURLY);
         }
         atStart = false;
+    }
+
+    private final static ARegularExpression stripper = ARegularExpression.compile("^(-?)(\\+?0*)([0-9].*)", "");
+    private final static UnicodeString replacement = new Twine8("$1$3");
+    private UnicodeString stripLeadingZeros(UnicodeString str) throws XPathException {
+        return stripper.replace(str, replacement);
     }
 
     /**
@@ -320,103 +388,120 @@ public class JsonReceiver implements Receiver {
      * @throws XPathException if the input contains invalid escape sequences
      */
 
-    private static String handleEscapedString(String str) throws XPathException {
+    private static UnicodeString handleEscapedString(UnicodeString str) throws XPathException {
         // check that escape sequences are valid
         unescape(str);
-        StringBuilder out = new StringBuilder(str.length() * 2);
+        TwineBuilder tb = TwineBuilder.make(str.length32());
+        IntIterator cp = str.codePoints();
         boolean afterEscapeChar = false;
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
+        while(cp.hasNext()) {
+            int c = cp.next();
             if (c == '"' && !afterEscapeChar) {
-                out.append("\\\"");
+                tb = tb.append('\\').append('"');
             } else if (c < 32 || (c >= 127 && c < 160)) {
                 if (c == '\b') {
-                    out.append("\\b");
+                    tb = tb.append('\\').append('b');
                 } else if (c == '\f') {
-                    out.append("\\f");
+                    tb = tb.append('\\').append('f');
                 } else if (c == '\n') {
-                    out.append("\\n");
+                    tb = tb.append('\\').append('n');
                 } else if (c == '\r') {
-                    out.append("\\r");
+                    tb = tb.append('\\').append('r');
                 } else if (c == '\t') {
-                    out.append("\\t");
+                    tb = tb.append('\\').append('t');
                 } else {
-                    out.append("\\u");
-                    out.append(hex4(c));
+                    tb = tb.append('\\').append('u').append(hex4(c, true));
                 }
             } else if (c == '/' && !afterEscapeChar) {
-                out.append("\\/");
+                tb = tb.append('\\').append('/');
             } else {
-                out.appendCodePoint(c);
+                tb = tb.append(c);
             }
             afterEscapeChar = c == '\\' && !afterEscapeChar;
         }
-        return out.toString();
+        return tb.toUnicodeString();
     }
 
+    /**
+     * @param retainQuot true if the quotation marks should not be escaped
+     * @param retainSlash true if solidus (forwards slash) should not be escaped
+     * @param upperCaseHex true if hexadecimal digits are to be uppercase
+     * @param hexEscapes a predicate identifying characters that should be output as hex escapes using \ u XXXX notation.
+     *
+     */
+    public record EscapeOptions (
+        boolean retainQuot,
+        boolean retainSlash,
+        boolean upperCaseHex,
+        IntPredicateProxy hexEscapes
+    ) {};
 
     /**
      * Escape a string using backslash escape sequences as defined in JSON
      *
      * @param in         the input string
-     * @param retainQuot true if the quotation marks should not be escaped
-     * @param retainSlash true if solidus (forwards slash) should not be escaped
-     * @param hexEscapes a predicate identifying characters that should be output as hex escapes using \ u XXXX notation.
+     * @param options    options controlling escaping
      * @return the escaped string
-     * @throws XPathException if the input contains invalid escape sequences
      */
 
-    public static String escape(String in, boolean retainQuot, boolean retainSlash, IntPredicate hexEscapes) throws XPathException {
-        StringBuilder out = new StringBuilder(in.length());
-        for (int i=0; i<in.length(); i++) {
-            int c = in.charAt(i);
+    public static UnicodeString escape(UnicodeString in, EscapeOptions options)  {
+        TwineBuilder tb = TwineBuilder.make(in.length32());
+        IntIterator cp = in.codePoints();
+        while (cp.hasNext()) {
+            int c = cp.next();
             switch (c) {
                 case '"':
-                    out.append(retainQuot ? "\"" : "\\\"");
+                    if (!options.retainQuot()) {
+                        tb = tb.append('\\');
+                    }
+                    tb = tb.append('"');
                     break;
                 case '\b':
-                    out.append("\\b");
+                    tb = tb.append('\\').append('b');
                     break;
                 case '\f':
-                    out.append("\\f");
+                    tb = tb.append('\\').append('f');
                     break;
                 case '\n':
-                    out.append("\\n");
+                    tb = tb.append('\\').append('n');
                     break;
                 case '\r':
-                    out.append("\\r");
+                    tb = tb.append('\\').append('r');
                     break;
                 case '\t':
-                    out.append("\\t");
+                    tb = tb.append('\\').append('t');
                     break;
                 case '/':
-                    out.append(retainSlash ? "/" : "\\/");  // spec bug 29665, saxon bug 2849
+                    if (!options.retainSlash()) {
+                        tb = tb.append('\\');
+                    }
+                    tb = tb.append('/');  // spec bug 29665, saxon bug 2849
                     break;
                 case '\\':
-                    out.append("\\\\");
+                    tb = tb.append('\\').append('\\');
                     break;
                 default:
-                    if (hexEscapes.test(c)) {
-                        out.append("\\u");
-                        out.append(hex4(c));
+                    if (options.hexEscapes().test(c)) {
+                        boolean uc = options.upperCaseHex();
+                        if (c > 65535) {
+                            tb = tb.append('\\').append('u').append(hex4(UTF16CharacterSet.highSurrogate(c), uc));
+                            tb = tb.append('\\').append('u').append(hex4(UTF16CharacterSet.lowSurrogate(c), uc));
+                        } else {
+                            tb = tb.append('\\').append('u').append(hex4(c, uc));
+                        }
                     } else {
-                        out.appendCodePoint(c);
+                        tb = tb.append(c);
                     }
                     break;
             }
         }
-        return out.toString();
+        return tb.toUnicodeString();
     }
 
-    private static StringBuilder hex4(int c) {
-        StringBuilder hex = new StringBuilder(Integer.toHexString(c).toUpperCase());
-        while (hex.length() < 4) {
-            hex.insert(0, "0");
-        }
-        return hex;
+    @CSharpReplaceBody(code="return c.ToString(upperCase ? \"X4\" : \"x4\");")
+    public static String hex4(int c, boolean upperCase) {
+        return String.format(upperCase ? "%04X" : "%04x", c);
     }
-
-    private final static IntPredicate isControlChar = c -> c < 31 || (c >= 127 && c <= 159);
 
     @Override
     public void characters(UnicodeString chars, Location locationId, int properties) throws XPathException {
@@ -465,7 +550,7 @@ public class JsonReceiver implements Receiver {
      */
 
     private void indent(int depth) throws XPathException {
-        output.accept(BMPString.of("\n"));
+        output.accept(StringConstants.NEWLINE);
         for (int i = 0; i < depth; i++) {
             output.accept(StringConstants.SINGLE_SPACE);
         }
@@ -479,18 +564,18 @@ public class JsonReceiver implements Receiver {
      * @throws net.sf.saxon.trans.XPathException if the input contains invalid escape sequences
      */
 
-    private static String unescape(String literal) throws XPathException {
+    private static UnicodeString unescape(UnicodeString literal) throws XPathException {
         if (literal.indexOf('\\') < 0) {
             return literal;
         }
-        StringBuilder buffer = new StringBuilder(literal.length());
+        UnicodeBuilder buffer = new UnicodeBuilder();
         for (int i = 0; i < literal.length(); i++) {
-            char c = literal.charAt(i);
+            int c = literal.codePointAt(i);
             if (c == '\\') {
                 if (i++ == literal.length() - 1) {
                     throw new XPathException("String '" + Err.wrap(literal) + "' ends in backslash ", "FOJS0007");
                 }
-                switch (literal.charAt(i)) {
+                switch (literal.codePointAt(i)) {
                     case '"':
                         buffer.append('"');
                         break;
@@ -517,7 +602,7 @@ public class JsonReceiver implements Receiver {
                         break;
                     case 'u':
                         try {
-                            String hex = literal.substring(i + 1, i + 5);
+                            String hex = literal.substring(i + 1, i + 5).toString();
                             int code = Integer.parseInt(hex, 16);
                             buffer.append((char)code);
                             i += 4;
@@ -526,7 +611,7 @@ public class JsonReceiver implements Receiver {
                         }
                         break;
                     default:
-                        int next = literal.charAt(i);
+                        int next = literal.codePointAt(i);
                         String xx = next < 256 ? next + "" : "x" + Integer.toHexString(next);
                         throw new XPathException("Unknown escape sequence \\" + xx, "FOJS0007");
                 }
@@ -534,8 +619,8 @@ public class JsonReceiver implements Receiver {
                 buffer.append(c);
             }
         }
-        return buffer.toString();
+        return buffer.toUnicodeString();
     }
 }
 
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited

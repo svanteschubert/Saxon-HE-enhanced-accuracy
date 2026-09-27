@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,9 +10,8 @@ package net.sf.saxon.expr.instruct;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.Expression;
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.elab.PushEvaluator;
+import net.sf.saxon.expr.parser.Optionality;
 import net.sf.saxon.expr.parser.RoleDiagnostic;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.StandardNames;
@@ -50,10 +49,11 @@ public class NamedTemplate extends Actor implements TraceableComponent {
     private StructuredQName templateName;
     private SequenceType requiredType;
     private ItemType requiredContextItemType = AnyItemType.getInstance();
-    private boolean mayOmitContextItem = true;
-    private boolean absentFocus = false;
+    private Optionality contextItemOptionality = Optionality.OPTIONAL;
+//    private boolean mayOmitContextItem = true;
+//    private boolean absentFocus = false;
     private List<LocalParamInfo> localParamDetails = new ArrayList<>(4);
-    private PushEvaluator bodyEvaluator;
+
 
     /**
      * Create a named template
@@ -80,14 +80,12 @@ public class NamedTemplate extends Actor implements TraceableComponent {
      * Set the required context item type. Used when there is an xsl:context-item child element
      *
      * @param type          the required context item type
-     * @param mayBeOmitted  true if the context item may be absent
-     * @param absentFocus true if the context item is treated as absent even if supplied (use=absent)
+     * @param optionality   indicates whether a context item is required, optional, or prohibited
      */
 
-    public void setContextItemRequirements(ItemType type, boolean mayBeOmitted, boolean absentFocus) {
+    public void setContextItemRequirements(ItemType type, Optionality optionality) {
         requiredContextItemType = type;
-        mayOmitContextItem = mayBeOmitted;
-        this.absentFocus = absentFocus;
+        contextItemOptionality = optionality;
     }
 
     @Override
@@ -176,12 +174,8 @@ public class NamedTemplate extends Actor implements TraceableComponent {
         return requiredContextItemType;
     }
 
-    public boolean isMayOmitContextItem() {
-        return mayOmitContextItem;
-    }
-
-    public boolean isAbsentFocus() {
-        return absentFocus;
+    public Optionality getContextItemOptionality() {
+        return contextItemOptionality;
     }
 
 
@@ -219,32 +213,27 @@ public class NamedTemplate extends Actor implements TraceableComponent {
     public TailCall expand(Outputter output, XPathContext context) throws XPathException {
         Item contextItem = context.getContextItem();
         if (contextItem == null) {
-            if (!mayOmitContextItem) {
+            if (contextItemOptionality == Optionality.REQUIRED) {
                 throw new XPathException("The template requires a context item, but none has been supplied", "XTTE3090")
                                 .withLocation(getLocation()).asTypeError();
             }
         } else {
             TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
-            if (requiredContextItemType != AnyItemType.getInstance() &&
-                    !requiredContextItemType.matches(contextItem, th)) {
+            if (requiredContextItemType != AnyItemType.INSTANCE &&
+                    !requiredContextItemType.matches(contextItem)) {
                 RoleDiagnostic role = new RoleDiagnostic(
                         RoleDiagnostic.MISC, "context item for the named template", 0);
                 String message = role.composeErrorMessage(requiredContextItemType, contextItem, th);
                 throw new XPathException(message, "XTTE0590")
                         .withLocation(getLocation()).asTypeError();
             }
-            if (absentFocus) {
+            if (contextItemOptionality == Optionality.PROHIBITED) {
                 context = context.newMinorContext();
                 context.setCurrentIterator(null);
             }
         }
-        synchronized(this) {
-            if (bodyEvaluator == null) {
-                bodyEvaluator = getBody().makeElaborator().elaborateForPush();
-            }
-        }
-
-        return bodyEvaluator.processLeavingTail(output, context);
+        makeBodyEvaluator();
+        return pushEvaluator.processLeavingTail(output, context);
     }
 
 
@@ -267,18 +256,24 @@ public class NamedTemplate extends Actor implements TraceableComponent {
         presenter.endElement();
     }
 
-    public void explainProperties(ExpressionPresenter presenter) throws XPathException {
-        if (getRequiredContextItemType() != AnyItemType.getInstance()) {
-            SequenceType st = SequenceType.makeSequenceType(getRequiredContextItemType(), StaticProperty.EXACTLY_ONE);
+    public void explainProperties(ExpressionPresenter presenter) {
+        if (getRequiredContextItemType() != AnyItemType.INSTANCE) {
+            SequenceType st = SequenceType.one(getRequiredContextItemType());
             presenter.emitAttribute("cxt", st.toAlphaCode());
         }
 
         String flags = "";
-        if (mayOmitContextItem) {
-            flags = "o";
-        }
-        if (!absentFocus) {
-            flags += "s";
+        switch (contextItemOptionality) {
+            // 'o' = may be absent; 's' = may be present
+            case OPTIONAL:
+                flags = "os";
+                break;
+            case REQUIRED:
+                flags = "s";
+                break;
+            case PROHIBITED:
+                flags = "o";
+                break;
         }
         presenter.emitAttribute("flags", flags);
         if (getRequiredType() != SequenceType.ANY_SEQUENCE) {

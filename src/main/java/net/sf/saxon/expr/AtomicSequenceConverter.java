@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -54,12 +54,6 @@ public class AtomicSequenceConverter extends UnaryExpression {
     public AtomicSequenceConverter(Expression sequence, PlainType requiredItemType) {
         super(sequence);
         this.requiredItemType = requiredItemType;
-    }
-
-    public static AtomicSequenceConverter makeDownCaster(Expression sequence, AtomicType requiredItemType, Configuration config) {
-        AtomicSequenceConverter asc = new AtomicSequenceConverter(sequence, requiredItemType);
-        asc.setConverter(new Converter.DownCastingConverter(requiredItemType, config.getConversionRules(), "XPTY0004"));
-        return asc;
     }
 
     public void allocateConverterStatically(Configuration config, boolean allowNull) {
@@ -228,30 +222,26 @@ public class AtomicSequenceConverter extends UnaryExpression {
         if (e != this) {
             return e;
         }
-        if (getBaseExpression() instanceof UntypedSequenceConverter) {
-            UntypedSequenceConverter asc = (UntypedSequenceConverter) getBaseExpression();
-            ItemType ascType = asc.getItemType();
+        if (getBaseExpression() instanceof UntypedSequenceConverter usc) {
+            ItemType ascType = usc.getItemType();
             if (ascType == requiredItemType) {
                 return getBaseExpression();
             } else if ((requiredItemType == BuiltInAtomicType.STRING || requiredItemType == BuiltInAtomicType.UNTYPED_ATOMIC) &&
                     (ascType == BuiltInAtomicType.STRING || ascType == BuiltInAtomicType.UNTYPED_ATOMIC)) {
-                UntypedSequenceConverter old = (UntypedSequenceConverter) getBaseExpression();
-                UntypedSequenceConverter asc2 = new UntypedSequenceConverter(
-                        old.getBaseExpression(),
+                UntypedSequenceConverter usc2 = new UntypedSequenceConverter(
+                        usc.getBaseExpression(),
                         requiredItemType);
-                return asc2.typeCheck(visitor, contextInfo)
+                return usc2.typeCheck(visitor, contextInfo)
                         .optimize(visitor, contextInfo);
             }
-        } else if (getBaseExpression() instanceof AtomicSequenceConverter) {
-            AtomicSequenceConverter asc = (AtomicSequenceConverter) getBaseExpression();
+        } else if (getBaseExpression() instanceof AtomicSequenceConverter asc) {
             ItemType ascType = asc.getItemType();
             if (ascType == requiredItemType) {
                 return getBaseExpression();
             } else if ((requiredItemType == BuiltInAtomicType.STRING || requiredItemType == BuiltInAtomicType.UNTYPED_ATOMIC) &&
                     (ascType == BuiltInAtomicType.STRING || ascType == BuiltInAtomicType.UNTYPED_ATOMIC)) {
-                AtomicSequenceConverter old = (AtomicSequenceConverter) getBaseExpression();
                 AtomicSequenceConverter asc2 = new AtomicSequenceConverter(
-                        old.getBaseExpression(),
+                        asc.getBaseExpression(),
                         requiredItemType
                 );
                 return asc2.typeCheck(visitor, contextInfo)
@@ -332,27 +322,41 @@ public class AtomicSequenceConverter extends UnaryExpression {
             return new ItemMappingIterator(base, TO_STRING_MAPPER, true);
         } else {
             AtomicSequenceMappingFunction mapper = new AtomicSequenceMappingFunction();
+            mapper.setXPathContext(context);
             mapper.setConverter(conv);
-            if (roleSupplier != null) {
-                String errorCode = roleSupplier.get().getErrorCode();
-                if (!"XPTY0004".equals(errorCode)) {
-                    mapper.setErrorCode(errorCode);
-                }
-            }
+            mapper.setRoleSupplier(roleSupplier);
+            mapper.setRequiredItemType(requiredItemType);
             return new ItemMappingIterator(base, mapper, true);
         }
     }
 
     /**
      * Mapping function wrapped around a converter
-     */
+     */                                                                                                       
 
     public static class AtomicSequenceMappingFunction implements ItemMappingFunction {
         private Converter converter;
         private String errorCode;
+        private Supplier<RoleDiagnostic> roleSupplier;
+        private XPathContext context;
+        private ItemType requiredItemType;
+
+        public AtomicSequenceMappingFunction() {}
 
         public void setConverter(Converter converter) {
             this.converter = converter;
+        }
+
+        public void setRoleSupplier(Supplier<RoleDiagnostic> roleSupplier) {
+            this.roleSupplier = roleSupplier;
+        }
+
+        public void setXPathContext(XPathContext context) {
+            this.context = context;
+        }
+
+        public void setRequiredItemType(ItemType required) {
+            this.requiredItemType = required;
         }
 
         public void setErrorCode(String code) {
@@ -361,8 +365,16 @@ public class AtomicSequenceConverter extends UnaryExpression {
 
         public AtomicValue mapItem(Item item) throws XPathException {
             ConversionResult result = converter.convert((AtomicValue)item);
-            if (errorCode != null && result instanceof ValidationFailure) {
-                ((ValidationFailure)result).setErrorCode(errorCode);
+            if (result instanceof ValidationFailure) {
+                if (roleSupplier != null && context != null) {
+                    RoleDiagnostic role = roleSupplier.get();
+                    TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
+                    String message = role.composeErrorMessage(requiredItemType, item, th);
+                    String code = errorCode != null ? errorCode : role.getErrorCode();
+                    throw new XPathException(message, code);
+                } else if (errorCode != null) {
+                    ((ValidationFailure) result).setErrorCode(errorCode);
+                }
             }
             return result.asAtomic();
         }
@@ -397,8 +409,11 @@ public class AtomicSequenceConverter extends UnaryExpression {
         Converter conv = getConverterDynamically(context);
         ConversionResult result = conv.convert(item);
         if (result instanceof ValidationFailure && roleSupplier != null) {
-            // TODO: use more of the information in the roleDiagnostic to form the error message
-            ((ValidationFailure)result).setErrorCode(roleSupplier.get().getErrorCode());
+            RoleDiagnostic role = roleSupplier.get();
+            TypeHierarchy th = context.getConfiguration().getTypeHierarchy();
+            String message = role.composeErrorMessage(requiredItemType, item, th);
+            String code = role.getErrorCode();
+            throw new XPathException(message, code);
         }
         return result.asAtomic();
     }
@@ -483,11 +498,13 @@ public class AtomicSequenceConverter extends UnaryExpression {
         destination.emitAttribute("from", AlphaCode.fromItemType(getBaseExpression().getItemType()));
         destination.emitAttribute("to", AlphaCode.fromItemType(requiredItemType));
         String flags = "";
-        if (converter.isPromoter()) {
-            flags = "p";
-        }
-        if (converter instanceof Converter.DownCastingConverter) {
-            flags = "d";
+        if (converter != null) {
+            if (converter.isPromoter()) {
+                flags = "p";
+            }
+            if (converter instanceof Converter.DownCastingConverter) {
+                flags = "d";
+            }
         }
         if (!flags.isEmpty()) {
             destination.emitAttribute("flags", flags);
@@ -495,7 +512,8 @@ public class AtomicSequenceConverter extends UnaryExpression {
         if (getRoleSupplier() != null) {
             destination.emitAttribute("diag", getRoleSupplier().get().save());
         }
-        if (converter.isPromoter() && "JS".equals(destination.getOptions().target) && destination.getOptions().targetVersion == 2) {
+        if (converter != null && converter.isPromoter()
+                && "JS".equals(destination.getOptions().target) && destination.getOptions().targetVersion >= 2) {
             // See bug 6239. For backwards compatibility, output a cvUntyped instruction. This is no longer needed for SaxonJ
             // because the promoting converter does promotion and conversion from untypedAtomic in a single operation.
             destination.startElement("cvUntyped");

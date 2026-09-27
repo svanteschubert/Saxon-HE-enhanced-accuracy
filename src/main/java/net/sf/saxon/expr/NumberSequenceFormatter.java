@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -140,7 +140,8 @@ public class NumberSequenceFormatter extends Expression {
                     ValidationFailure vf = StringConverter.StringToLanguage.INSTANCE.validate(StringView.tidy(language));
                     if (vf != null) {
                         langOp.setChildExpression(new StringLiteral(StringValue.EMPTY_STRING));
-                        throw new XPathException("The lang attribute must be a valid language code", "XTDE0030");
+                        throw new XPathException("The lang attribute must be a valid language code", "XTDE0030")
+                                .withLocation(getLocation());
                     }
                 }
                 numberer = config.makeNumberer(language, null);
@@ -314,7 +315,7 @@ public class NumberSequenceFormatter extends Expression {
 
         @Override
         public UnicodeStringEvaluator elaborateForUnicodeString(boolean zeroLengthWhenAbsent) {
-
+            
             NumberSequenceFormatter expr = (NumberSequenceFormatter) getExpression();
             StringEvaluator startAtEvaluator = expr.startAtOp.getChildExpression().makeElaborator().elaborateForString(true);
             PullEvaluator valueEvaluator = expr.valueOp.getChildExpression().makeElaborator().elaborateForPull();

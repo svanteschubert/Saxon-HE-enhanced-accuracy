@@ -14,8 +14,8 @@ import java.util.NoSuchElementException;
 
 /**
  * An immutable list implementation that only supports sequential traversal using an iterator,
- * prepending an item to the start, and extraction of the head()/tail() of the list. Unlike
- * {@link net.sf.saxon.ma.parray.ImmList}, it is optimized for sequential access rather than
+ * prepending an item to the start, and extraction of the head()/tail() of the list.
+ * It is optimized for sequential access rather than
  * direct access.
  * @param <T> the type of the elements in the list
  */

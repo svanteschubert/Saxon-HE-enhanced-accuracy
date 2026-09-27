@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,6 +17,7 @@ import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AnyURIValue;
 import net.sf.saxon.value.EmptySequence;
+import net.sf.saxon.value.SequenceType;
 
 /**
 * This class implements the XSLT 3.0 function current-output-uri()
@@ -43,11 +44,10 @@ public class CurrentOutputUri extends ContextAccessorFunction implements Callabl
     @Override
     public FunctionItem bindContext(XPathContext context) {
         String uri = context.getCurrentOutputUri();
-        ConstantFunction fn = new ConstantFunction(
-                uri==null ? EmptySequence.getInstance() : new AnyURIValue(uri));
-        fn.setDetails(getDetails());
-        fn.setRetainedStaticContext(getRetainedStaticContext());
-        return fn;
+        return new ConstantFunction(
+                getFunctionName(),
+                uri==null ? EmptySequence.INSTANCE : new AnyURIValue(uri),
+                SequenceType.OPTIONAL_ANY_URI);
     }
 
 

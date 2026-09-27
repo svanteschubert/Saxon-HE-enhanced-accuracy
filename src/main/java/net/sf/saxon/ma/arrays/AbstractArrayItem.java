@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,10 +7,10 @@
 
 package net.sf.saxon.ma.arrays;
 
+import net.sf.saxon.functions.SaxonDeepEqual;
 import net.sf.saxon.expr.*;
-import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.AtomicMatcher;
 import net.sf.saxon.functions.DeepEqual;
-import net.sf.saxon.functions.DeepEqual40;
 import net.sf.saxon.om.*;
 import net.sf.saxon.query.AnnotationList;
 import net.sf.saxon.str.UnicodeString;
@@ -18,10 +18,7 @@ import net.sf.saxon.trace.ExpressionPresenter;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
-import net.sf.saxon.value.AtomicValue;
-import net.sf.saxon.value.Cardinality;
-import net.sf.saxon.value.IntegerValue;
-import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.value.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -167,14 +164,14 @@ public abstract class AbstractArrayItem extends ArrayItem {
 
 
     @Override
-    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicComparer comparer, int flags) throws XPathException {
+    public boolean deepEquals(FunctionItem other, XPathContext context, AtomicMatcher comparer, int flags) throws XPathException {
         if (other instanceof ArrayItem) {
             ArrayItem that = (ArrayItem) other;
             if (this.arrayLength() != that.arrayLength()) {
                 return false;
             }
             for (int i = 0; i < this.arrayLength(); i++) {
-                if (!DeepEqual.deepEqual(this.get(i).iterate(), that.get(i).iterate(), comparer, context, flags)) {
+                if (!SaxonDeepEqual.deepEqual(this.get(i).iterate(), that.get(i).iterate(), comparer, context, flags)) {
                     return false;
                 }
             }
@@ -185,14 +182,14 @@ public abstract class AbstractArrayItem extends ArrayItem {
     }
 
     @Override
-    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual40.DeepEqualOptions options) throws XPathException {
+    public boolean deepEqual40(FunctionItem other, XPathContext context, DeepEqual.DeepEqualOptions options) throws XPathException {
         if (other instanceof ArrayItem) {
             ArrayItem that = (ArrayItem) other;
             if (this.arrayLength() != that.arrayLength()) {
                 return false;
             }
             for (int i = 0; i < this.arrayLength(); i++) {
-                if (!DeepEqual40.deepEqual(this.get(i).iterate(), that.get(i).iterate(), context, options)) {
+                if (!DeepEqual.deepEqual(this.get(i).iterate(), that.get(i).iterate(), context, options)) {
                     return false;
                 }
             }
@@ -278,7 +275,7 @@ public abstract class AbstractArrayItem extends ArrayItem {
         //try {
             if (memberType == null) {
                 if (isEmpty()) {
-                    memberType = SequenceType.makeSequenceType(ErrorType.getInstance(), StaticProperty.EXACTLY_ONE);
+                    memberType = SequenceType.one(ErrorType.getInstance());
                 } else {
                     ItemType contentType = null;
                     int contentCard = StaticProperty.EXACTLY_ONE;

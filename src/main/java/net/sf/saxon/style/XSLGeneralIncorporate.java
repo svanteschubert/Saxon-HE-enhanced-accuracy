@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -84,7 +84,8 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
      *
      * @param importer   the module that requested the include or import (used to check for cycles)
      * @param precedence the import precedence to be allocated to the included or imported module
-     * @return the xsl:stylesheet element at the root of the included/imported module
+     * @return the xsl:stylesheet element at the root of the included/imported module, or null if
+     * it is to be ignored
      */
 
     /*@Nullable*/
@@ -94,17 +95,19 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
             // error already reported
             return null;
         }
-
-        //checkEmpty();
-        //checkTopLevel((this instanceof XSLInclude ? "XTSE0170" : "XTSE0190"));
-
+        
         try {
             PrincipalStylesheetModule psm = importer.getPrincipalStylesheetModule();
             //PreparedStylesheet pss = psm.getPreparedStylesheet();
             XSLStylesheet includedSheet;
             StylesheetModule incModule;
 
-            DocumentKey key = DocumentFn.computeDocumentKey(href, getBaseURI(), getCompilation().getPackageData(), false);
+            if (targetDoc == null) {
+                // This implies that the xsl:include is redundant
+                return null;
+            }
+
+            DocumentKey key = DocumentFn.computeStylesheetDocumentKey(href, getBaseURI(), getCompilation().getPackageData());
             includedSheet = (XSLStylesheet)psm.getStylesheetDocument(key);
             if (includedSheet != null) {
                 // we already have the stylesheet document in cache; but we need to create a new module,
@@ -112,21 +115,30 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
                 incModule = new StylesheetModule(includedSheet, precedence);
                 incModule.setImporter(importer);
 
+                // in 4.0, ignore the xsl:include if the import precedence is the same as
+                // the one that was loaded previously
+                if (!isImport()
+                        && getCompilation().getCompilerInfo().getXsltVersion() == 40
+                        && psm.containsModuleWithPrecedence(key, precedence)) {
+                    return null;
+                }
+
                 // check for recursion
                 if (checkForRecursion(importer, incModule.getRootElement().asActiveSource())) {
                     return null;
                 }
 
             } else {
-
-//                Map<DocumentURI, TreeInfo> map = getCompilation().getStylesheetModules();
-//                DocumentImpl includedDoc = (DocumentImpl)map.get(key);
+                
                 DocumentImpl includedDoc = targetDoc;
-                assert includedDoc != null;
+                // In 4.0 this is null if the xsl:include was redundant
+                if (includedDoc == null) {
+                    return null;
+                }
                 ElementImpl outermost = includedDoc.getDocumentElement();
 
-                if (outermost instanceof LiteralResultElement) {
-                    includedDoc = ((LiteralResultElement) outermost).makeStylesheet(false);
+                if (outermost instanceof LiteralResultElement lre) {
+                    includedDoc = LiteralResultElement.makeStylesheet(lre, false);
                     outermost = includedDoc.getDocumentElement();
                 }
 
@@ -154,6 +166,7 @@ public abstract class XSLGeneralIncorporate extends StyleElement {
                 }
             }
 
+            psm.registerModule(key, precedence);
             incModule.spliceIncludes();          // resolve any nested imports and includes;
 
             // Check the consistency of input-type-annotations

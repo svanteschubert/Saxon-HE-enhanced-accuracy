@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2023 Saxonica Limited
+// Copyright (c) 2013-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -26,6 +26,7 @@ public class QNameParser {
     private String errorOnBadSyntax = "XPST0003";
     private String errorOnUnresolvedPrefix = "XPST0081";
     private XQueryParser.Unescaper unescaper = null;
+    private int specVersion = 31;
 
     public QNameParser(NamespaceResolver resolver) {
         this.resolver = resolver;
@@ -49,12 +50,10 @@ public class QNameParser {
      * @return a new QNameParser with the requested properties
      */
 
-    public QNameParser withAcceptEQName(boolean acceptEQName) {
-        if (acceptEQName == this.acceptEQName) {
-            return this;
-        }
+    public QNameParser withAcceptEQName(boolean acceptEQName, int specVersion) {
         QNameParser qp2 = copy();
         qp2.acceptEQName = acceptEQName;
+        qp2.specVersion = specVersion;
         return qp2;
     }
 
@@ -103,6 +102,7 @@ public class QNameParser {
     private QNameParser copy() {
         QNameParser qp2 = new QNameParser(resolver);
         qp2.acceptEQName = acceptEQName;
+        qp2.specVersion = specVersion;
         qp2.errorOnBadSyntax = errorOnBadSyntax;
         qp2.errorOnUnresolvedPrefix = errorOnUnresolvedPrefix;
         qp2.unescaper = unescaper;
@@ -137,19 +137,34 @@ public class QNameParser {
             if (uri.contains("{")) {
                 throw new XPathException("Invalid EQName: URI contains opening brace", errorOnBadSyntax);
             }
-            if (unescaper != null && uri.contains("&")) {
-                uri = unescaper.unescape(uri).toString();
+            if (unescaper != null && uri.indexOf('&') >= 0) {
+                uri = unescaper.unescape(uri);
             }
             if (uri.equals(NamespaceConstant.XMLNS)) {
                 throw new XPathException("The string '" + NamespaceConstant.XMLNS + "' cannot be used as a namespace URI", "XQST0070");
             }
-            String local = lexicalName.substring(endBrace + 1);
-            checkLocalName(local);
-            return new StructuredQName("", NamespaceUri.of(uri), local);
+            String prefixPlusLocal = lexicalName.substring(endBrace + 1);
+            int colon = prefixPlusLocal.indexOf(':');
+            if (colon >= 0) {
+                if (specVersion < 40) {
+                    throw new XPathException("URIQualifiedName including prefix requires 4.0 to be enabled");
+                }
+                String prefix = prefixPlusLocal.substring(0, colon);
+                String local = prefixPlusLocal.substring(colon+1);
+                checkNCName(prefix);
+                checkNCName(local);
+                if (uri.isEmpty()) {
+                    throw new XPathException("URI in URIQualifiedName cannot be empty if prefix is supplied", "XPST0154");
+                }
+                return new StructuredQName(prefix, NamespaceUri.of(uri), local);
+            } else {
+                checkNCName(prefixPlusLocal);
+                return new StructuredQName("", NamespaceUri.of(uri), prefixPlusLocal);
+            }
         }
         try {
             String[] parts = NameChecker.getQNameParts(lexicalName);
-            checkLocalName(parts[1]);
+            checkNCName(parts[1]);
             if (parts[0].isEmpty()) {
                 return new StructuredQName("", defaultNS, parts[1]);
             }
@@ -163,7 +178,7 @@ public class QNameParser {
         }
     }
 
-    private void checkLocalName(String local) throws XPathException {
+    private void checkNCName(String local) throws XPathException {
         if (!NameChecker.isValidNCName(local)) {
             throw new XPathException("Invalid EQName: local part is not a valid NCName", errorOnBadSyntax);
         }

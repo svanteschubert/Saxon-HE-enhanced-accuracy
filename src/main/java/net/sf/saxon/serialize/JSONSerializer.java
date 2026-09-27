@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,6 +12,7 @@ import net.sf.saxon.event.ReceiverWithOutputProperties;
 import net.sf.saxon.event.SequenceWriter;
 import net.sf.saxon.lib.SaxonOutputKeys;
 import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.jnode.JNode;
 import net.sf.saxon.ma.map.KeyValuePair;
 import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.GroundedValue;
@@ -19,10 +20,10 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.query.QueryResult;
-import net.sf.saxon.serialize.charcode.CharacterSet;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.StringValue;
 
@@ -47,8 +48,8 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
 
     private final JSONEmitter emitter;
     private Properties outputProperties;
-    private CharacterSet characterSet;
     private boolean isIndenting;
+    private boolean isJsonLines;
     private Comparator<AtomicValue> propertySorter;
 
     private boolean unfailing = false;
@@ -73,6 +74,9 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
         if ("yes".equals(details.getProperty(OutputKeys.INDENT))) {
             isIndenting = true;
         }
+        if ("yes".equals(details.getProperty(SaxonOutputKeys.JSON_LINES))) {
+            isJsonLines = true;
+        }
         if ("yes".equals(details.getProperty(SaxonOutputKeys.UNFAILING))) {
             unfailing = true;
             allowDuplicateKeys = true;
@@ -93,6 +97,16 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
 
     public void setPropertySorter(Comparator<AtomicValue> sorter) {
         this.propertySorter = sorter;
+    }
+
+    /**
+     * Set property sorting as required by canonical JSON: this sorts by UTF-16 code units,
+     * which happens to be the same as Java's so-called "natural" order for strings
+     */
+
+    @CSharpReplaceBody(code="setPropertySorter(new Saxon.Impl.Helpers.CanonicalJsonKeyComparer());")
+    public void setCanonicalPropertySorter() {
+        setPropertySorter(Comparator.comparing(Item::getStringValue));
     }
 
     /**
@@ -135,13 +149,17 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
     @Override
     public void write(Item item) throws XPathException {
         if (level == 0 && ++topLevelCount >= 2) {
-            throw new XPathException("JSON output method cannot handle sequences of two or more items", "SERE0023");
+            if (isJsonLines) {
+                emitter.newLine();
+            } else {
+                throw new XPathException("JSON output method cannot handle sequences of two or more items", "SERE0023");
+            }
         }
 
         if (item instanceof AtomicValue) {
             emitter.writeAtomicValue((AtomicValue) item);
         } else if (item instanceof MapItem) {
-            Set<String> keys = null;
+            Set<UnicodeString> keys = null;
             if (!allowDuplicateKeys) {
                 keys = new HashSet<>();
             }
@@ -149,13 +167,13 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
             emitter.startMap(oneLiner);
             ArrayList<AtomicValue> keyList = new ArrayList<>(); // Needs to be ArrayList for sort() to work in C#
             for (KeyValuePair pair : ((MapItem) item).keyValuePairs()) {
-                keyList.add(pair.key);
+                keyList.add(pair.key());
             }
             if (propertySorter != null) {
                 keyList.sort(propertySorter);
             }
             for (AtomicValue key : keyList) {
-                String stringKey = key.getStringValue();
+                UnicodeString stringKey = key.getUnicodeStringValue();
                 emitter.writeKey(stringKey);
                 if (!allowDuplicateKeys && !keys.add(stringKey)) {
                     throw new XPathException("Key value \"" + stringKey + "\" occurs more than once in JSON map", "SERE0022");
@@ -174,6 +192,8 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
         } else if (item instanceof NodeInfo) {
             String s = serializeNode((NodeInfo) item);
             emitter.writeAtomicValue(new StringValue(s));
+        } else if (item instanceof JNode) {
+            writeSequence(((JNode) item).getContent());
         } else if (unfailing) {
             UnicodeString s = item.getUnicodeStringValue();
             emitter.writeAtomicValue(new StringValue(s));
@@ -206,10 +226,10 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
             return true;
         }
         for (KeyValuePair entry : map.keyValuePairs()) {
-            if (entry.value instanceof AtomicValue) {
-                totalSize += (int)entry.key.getUnicodeStringValue().estimatedLength() + ((AtomicValue) entry.value).getUnicodeStringValue().estimatedLength() + 4;
-            } else if (entry.value.getLength() == 0) {
-                totalSize += (int)entry.key.getUnicodeStringValue().estimatedLength() + 6; // ": null"
+            if (entry.value() instanceof AtomicValue) {
+                totalSize += (int)entry.key().getUnicodeStringValue().estimatedLength() + ((AtomicValue) entry.value()).getUnicodeStringValue().estimatedLength() + 4;
+            } else if (entry.value().getLength() == 0) {
+                totalSize += (int)entry.key().getUnicodeStringValue().estimatedLength() + 6; // ": null"
             } else {
                 return false;
             }
@@ -250,7 +270,7 @@ public class JSONSerializer extends SequenceWriter implements ReceiverWithOutput
      */
     @Override
     public void close() throws XPathException {
-        if (topLevelCount == 0) {
+        if (topLevelCount == 0 && !isJsonLines) {
             emitter.writeAtomicValue(null);
         }
         emitter.close();

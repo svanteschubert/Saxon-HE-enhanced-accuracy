@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.expr.parser;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.Literal;
-import net.sf.saxon.expr.StaticProperty;
 import net.sf.saxon.om.AxisInfo;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.Err;
@@ -51,12 +50,12 @@ public class RoleDiagnostic {
     public static final int OPTION = 15;
     public static final int CHARACTER_MAP_EXPANSION = 16;
     public static final int FOR_MEMBER = 17;
-
-    //public static final int DOCUMENT_ORDER = 17;  // 9.8 and earlier
-    //public static final int MAP_CONSTRUCTOR = 18;  // 9.8 and earlier
+    public static final int SUBEXPRESSION = 18;
     public static final int MATCH_PATTERN = 19;
     public static final int MISC = 20;
     public static final int DYNAMIC_FUNCTION = 21;
+    public static final int PARTIAL_APPLY = 22;
+    public static final int MAP_CONSTRUCTOR = 23;
 
 
     /**
@@ -79,11 +78,11 @@ public class RoleDiagnostic {
         this.operand = operand;
     }
 
-    public RoleDiagnostic(int kind, String operation, int operand, String errorCode) {
+    public RoleDiagnostic(int kind, String operation, int operand, String errorCodeIn) {
         this.kind = kind;
         this.operation = operation;
         this.operand = operand;
-        this.errorCode = errorCode;
+        this.errorCode = errorCodeIn;
     }
 
     /**
@@ -148,16 +147,29 @@ public class RoleDiagnostic {
                 if (name.equals("saxon:context-item")) {
                     return "context item";
                 } else {
-                    return "value of variable $" + name;
+                    return "supplied value for variable $" + name;
                 }
-            case INSTRUCTION:
+            case INSTRUCTION: {
                 int slash = name.indexOf('/');
                 String attributeName = "";
                 if (slash >= 0) {
                     attributeName = name.substring(slash + 1);
                     name = name.substring(0, slash);
                 }
-                return "@" + attributeName + " attribute of " + (name.equals("LRE") ? "a literal result element" : name);
+                String a = attributeName.equals("#content")
+                                    ? "content of "
+                                    : "@" + attributeName + " attribute of ";
+                return a + (name.equals("LRE") ? "a literal result element" : name);
+            }
+            case SUBEXPRESSION: {
+                int slash = name.indexOf('/');
+                String operandName = "";
+                if (slash >= 0) {
+                    operandName = name.substring(slash + 1);
+                    name = name.substring(0, slash);
+                }
+                return operandName + " sub-expression of the " + name + " expression";
+            }
             case FUNCTION_RESULT:
                 if (name.isEmpty()) {
                     return "result of the anonymous function";
@@ -190,6 +202,20 @@ public class RoleDiagnostic {
                 return "target of a dynamic function call {" + name + "}";
             case MISC:
                 return operation;
+            case PARTIAL_APPLY:
+                if (name.equals("saxon:call") || name.equals("saxon:apply")) {
+                    if (operand == 0) {
+                        return "target of the partial function application";
+                    } else {
+                        return ordinal(operand) + " argument of the partial function application";
+                    }
+                } else {
+                    return ordinal(operand + 1) + " argument of the partial application of " +
+                            (name.isEmpty() ? "the anonymous function" : name + "()");
+                }
+            case MAP_CONSTRUCTOR:
+                return ordinal(operand) + " entry in the map constructor";
+
             default:
                 return "";
         }
@@ -234,7 +260,7 @@ public class RoleDiagnostic {
     public String composeErrorMessage(ItemType requiredItemType, Expression supplied, TypeHierarchy th) {
         if (supplied instanceof Literal) {
             String s = composeRequiredMessage(requiredItemType);
-            Optional<String> more = SequenceType.makeSequenceType(requiredItemType, StaticProperty.ALLOWS_ZERO_OR_MORE)
+            Optional<String> more = SequenceType.zeroOrMore(requiredItemType)
                     .explainMismatch(((Literal)supplied).getGroundedValue(), th);
             if (more.isPresent()) {
                 s = s + ". " + more.get();
@@ -242,7 +268,7 @@ public class RoleDiagnostic {
             return s;
         }
         return composeRequiredMessage(requiredItemType) +
-                ", but the supplied expression {" + supplied.toShortString() + "} has item type " +
+                ", but the supplied expression {" + supplied.toShortString() + "} delivers items of type " +
                 supplied.getItemType();
     }
 

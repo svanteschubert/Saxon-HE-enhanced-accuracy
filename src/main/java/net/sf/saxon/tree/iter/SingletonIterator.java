@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -33,7 +33,6 @@ public class SingletonIterator implements SequenceIterator, FocusIterator,
 
     public SingletonIterator(Item value) {
         assert value != null;
-        //Instrumentation.count("SINGLETON ITERATOR");
         this.item = value;
     }
 
@@ -48,7 +47,7 @@ public class SingletonIterator implements SequenceIterator, FocusIterator,
     /*@NotNull*/
     public static SequenceIterator makeIterator(Item item) {
         if (item == null) {
-            return EmptyIterator.getInstance();
+            return EmptyIterator.INSTANCE;
         } else {
             return new SingletonIterator(item);
         }
@@ -135,7 +134,7 @@ public class SingletonIterator implements SequenceIterator, FocusIterator,
 
     @Override
     public GroundedValue getResidue() {
-        return currentPosition < 0 ? item : EmptySequence.getInstance();
+        return currentPosition < 0 ? item : EmptySequence.INSTANCE;
     }
 
 }
