@@ -827,7 +827,7 @@ public abstract class Calculator {
                 return ((IntegerValue) a).times((IntegerValue) b);
             } else {
                 return new BigDecimalValue(
-                        ((NumericValue) a).getDecimalValue().setScale(BigDecimalValue.DIVIDE_PRECISION, RoundingMode.HALF_UP).multiply(((NumericValue) b).getDecimalValue().setScale(BigDecimalValue.DIVIDE_PRECISION, RoundingMode.HALF_UP)));
+                        ((NumericValue) a).getDecimalValue().multiply(((NumericValue) b).getDecimalValue()));
             }
         }
 
@@ -864,10 +864,15 @@ public abstract class Calculator {
 
     }
 
-    @CSharpReplaceBody(code="return Singulink.Numerics.BigDecimal.Divide(A, B, 18, Singulink.Numerics.RoundingMode.MidpointToZero);")
     private static BigDecimal internalDecimalDivide(BigDecimal A, BigDecimal B) {
-        //int scale = Math.max(BigDecimalValue.DIVIDE_PRECISION, A.scale() - B.scale());
-        return A.divide(B, BigDecimalValue.DIVIDE_PRECISION, RoundingMode.HALF_UP);
+        try {
+            // Preserve all digits when the quotient terminates.
+            return A.divide(B);
+        } catch (ArithmeticException nonTerminating) {
+            int scale = Math.max(BigDecimalValue.DIVIDE_PRECISION,
+                    Math.addExact(Math.subtractExact(A.scale(), B.scale()), BigDecimalValue.DIVIDE_PRECISION));
+            return A.divide(B, scale, RoundingMode.HALF_UP);
+        }
     }
 
     /**

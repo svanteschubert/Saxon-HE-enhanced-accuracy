@@ -109,13 +109,13 @@ round(0.8450, 2) should be 0.85 and is 0.85!
 round(0.8451, 2) should be 0.85 and is 0.85!
 round(0.8452, 2) should be 0.85 and is 0.85!
 round(-0.8449, 2) should be -0.84 and is -0.84!
-round(-0.8450, 2) should be -0.84 and is -0.84!
+round(-0.8450, 2) should be -0.85 and is -0.85!
 round(-0.8451, 2) should be -0.85 and is -0.85!
 round(-0.8452, 2) should be -0.85 and is -0.85!
 round(8452, -2) should be 8500 and is 8500!
 round(-8452, -2) should be -8500 and is -8500!
-round(-9552.245, 2) should be -9552.24 and is -9552.24!
-round(-9552.255, 2) should be -9552.25 and is -9552.25!
+round(-9552.245, 2) should be -9552.25 and is -9552.25!
+round(-9552.255, 2) should be -9552.26 and is -9552.26!
 round(-9552.255, -2) should be -9600 and is -9600!
 round(-0.5000000000000) should be  -1 and is -1!
 round(-0.5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001) should be 

@@ -45,7 +45,14 @@ public abstract class NumericValue extends AtomicValue
 
     /*@NotNull*/
     public static NumericValue parseNumber(/*@NotNull*/ String in) {
-        if (in.indexOf('e') >= 0 || in.indexOf('E') >= 0 || in.indexOf('.') >= 0) {
+        if (in.indexOf('e') >= 0 || in.indexOf('E') >= 0) {
+            try {
+                // This fork keeps scientific-notation literals in decimal arithmetic.
+                return new BigDecimalValue(new BigDecimal(in));
+            } catch (NumberFormatException e) {
+                return DoubleValue.NaN;
+            }
+        } else if (in.indexOf('.') >= 0) {
             ConversionResult v = BigDecimalValue.makeDecimalValue(in, true);
             if (v instanceof ValidationFailure) {
                 return DoubleValue.NaN;
@@ -180,20 +187,38 @@ public abstract class NumericValue extends AtomicValue
 
     public abstract NumericValue round(int scale, Round.RoundingRule roundingRule);
 
-    
     /**
-     * Implement the round-half-away-from-zero() function
-     *
-     * @param scale the decimal position for rounding: e.g. 2 rounds to a
-     *              multiple of 0.01, while -2 rounds to a multiple of 100
-     * @return a value, of the same type as the original, rounded towards the
-     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor" 
-     *         unless both neighbors are equidistant, in which case round up. 
-     *         Note that this is the rounding mode commonly taught at school.
+     * Round ties away from zero, preserving the primitive numeric type.
+     * A common decimal implementation avoids overflow in integer rounding and
+     * avoids multiplication by binary powers of ten for float/double values.
      */
+    public NumericValue roundHalfAwayFromZero(int scale) throws XPathException {
+        if (isNaN() || ((this instanceof DoubleValue || this instanceof FloatValue)
+                && Double.isInfinite(getDoubleValue())) || signum() == 0) {
+            return this;
+        }
+        BigDecimal decimal = getDecimalValue();
+        if (scale >= decimal.scale()) {
+            return this;
+        }
+        // Avoid constructing huge powers of ten for very negative precisions.
+        BigDecimal rounded = (long) scale < (long) decimal.scale() - decimal.precision()
+                ? BigDecimal.ZERO
+                : decimal.setScale(scale, java.math.RoundingMode.HALF_UP);
+        if (this instanceof DoubleValue) {
+            return rounded.signum() == 0 && signum() < 0
+                    ? DoubleValue.NEGATIVE_ZERO : new DoubleValue(rounded.doubleValue());
+        } else if (this instanceof FloatValue) {
+            return new FloatValue(rounded.signum() == 0 && signum() < 0
+                    ? -0.0f : rounded.floatValue());
+        } else if (this instanceof IntegerValue) {
+            return IntegerValue.makeIntegerValue(rounded.toBigIntegerExact());
+        } else {
+            return new BigDecimalValue(rounded);
+        }
+    }
 
-    public abstract NumericValue roundHalfAwayFromZero(int scale);    
-    
+
     /**
      * Ask whether the value is negative, zero, or positive
      *

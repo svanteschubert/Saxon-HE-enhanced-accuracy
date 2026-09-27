@@ -309,17 +309,6 @@ public final class FloatValue extends NumericValue {
         d = (DoubleValue) d.round(scale, roundingRule);
         return new FloatValue(d.getFloatValue());
     }
-    
-    
-    /**
-     * Implement the round-half-up() function
-     */
-
-    @Override
-    public NumericValue roundHalfAwayFromZero(int scale) {
-        DoubleValue d = new DoubleValue(getDoubleValue());
-        return new FloatValue(d.getFloatValue());
-    }    
 
     /**
      * Determine whether the value is negative, zero, or positive

@@ -24,7 +24,6 @@ import net.sf.saxon.type.ValidationFailure;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.math.RoundingMode;
 
 /**
  * An integer value: note this is a subtype of decimal in XML Schema, not a primitive type.
@@ -414,8 +413,8 @@ public final class Int64Value extends IntegerValue {
      *
      * @param scale the scale (for example scale=2 rounds to 2 decimal places, scale=-2
      *              rounds to a multiple of 100); default value is zero which rounds to an integer
-     * @return if the scale is gt;=0, return this value unchanged. Otherwise
-     *          round value to a multiple of 10**-scale
+     * @return if the scale is &gt;=0, return this value unchanged. Otherwise
+     *         round value to a multiple of 10**-scale
      */
 
     @Override
@@ -512,23 +511,6 @@ public final class Int64Value extends IntegerValue {
         }
     }
 
-    /**
-     * Implement the XPath round-half-up() function
-     *
-     * @param scale number of digits required after the decimal point; the
-     *              value -2 (for example) means round to a multiple of 100
-     * @return if the scale is &gt;=0, return this value unchanged. Otherwise
-     *         round it to a multiple of 10**-scale
-     */
-
-    @Override
-    public NumericValue roundHalfAwayFromZero(int scale) {
-        if (scale >= 0 || value == 0) {   
-            return this;
-        }             
-        return new Int64Value(BigDecimal.valueOf(value).divide(BigDecimal.ONE, scale, RoundingMode.HALF_UP).longValue());
-   }
-    
     /**
      * Determine whether the value is negative, zero, or positive
      *

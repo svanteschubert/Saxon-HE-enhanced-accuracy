@@ -16,7 +16,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.NumericValue;
 
 /**
- * This class supports the round-half-up() function
+ * Implements this fork's round() and round-half-away-from-zero() functions
  */
 
 public final class RoundHalfAwayFromZero extends SystemFunction {
@@ -40,7 +40,7 @@ public final class RoundHalfAwayFromZero extends SystemFunction {
      *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
-    public ZeroOrOne call(XPathContext context, Sequence[] arguments) throws XPathException {
+    public ZeroOrOne<NumericValue> call(XPathContext context, Sequence[] arguments) throws XPathException {
         NumericValue val0 = (NumericValue) arguments[0].head();
         if (val0 == null) {
             return ZeroOrOne.empty();
@@ -50,14 +50,14 @@ public final class RoundHalfAwayFromZero extends SystemFunction {
         if (arguments.length == 2) {
             NumericValue scaleVal = (NumericValue) arguments[1].head();
             if (scaleVal.compareTo(Integer.MAX_VALUE) > 0) {
-                return new ZeroOrOne(val0);
+                return new ZeroOrOne<>(val0);
             } else if (scaleVal.compareTo(Integer.MIN_VALUE) < 0) {
                 scale = Integer.MIN_VALUE;
             } else {
                 scale = (int) scaleVal.longValue();
             }
         }
-        return new One(val0.roundHalfAwayFromZero(scale));
+        return new One<>(val0.roundHalfAwayFromZero(scale));
     }
 }
 

@@ -23,7 +23,6 @@ import net.sf.saxon.type.ValidationFailure;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.math.RoundingMode;
 
 /**
  * An integer value: note this is a subtype of decimal in XML Schema, not a primitive type.
@@ -413,27 +412,6 @@ public final class BigIntegerValue extends IntegerValue {
             }
         }
     }
-    
-    /**
-     * Implement the round-half-up() function
-     *
-     * @param scale the decimal position for rounding: e.g. 2 rounds to a
-     *              multiple of 0.01, while -2 rounds to a multiple of 100
-     * @return a value, of the same type as the original, rounded towards the
-     *         nearest multiple of 10**(-scale), with rounding towards "nearest neighbor" 
-     *         unless both neighbors are equidistant, in which case round up. 
-     *         Note that this is the rounding mode commonly taught at school.
-     */
-
-    @Override
-    public NumericValue roundHalfAwayFromZero(int scale){
-        if (scale >= 0) {
-            return this;
-        } else {        
-            BigDecimal scaledValue = new BigDecimal(value).setScale(scale, RoundingMode.HALF_UP);
-            return new BigIntegerValue(scaledValue.stripTrailingZeros().toBigInteger());
-        }
-    }        
 
     /**
      * Determine whether the value is negative, zero, or positive

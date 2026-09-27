@@ -227,7 +227,7 @@ public class XPath30FunctionSet extends BuiltInFunctionSet {
         register("path", 1, e -> e.populate(PathFn::new, BuiltInAtomicType.STRING, OPT, 0)
                 .arg(0, AnyXNodeType.getInstance(), OPT | NAV, null));
 
-        register("round", 2, e -> e.populate(Round::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
+        register("round", 2, e -> e.populate(RoundHalfAwayFromZero::new, NumericType.getInstance(), OPT, AS_NUM_ARG0)
                 .arg(0, NumericType.getInstance(), OPT, EMPTY)
                 .arg(1, BuiltInAtomicType.INTEGER, ONE, null));
 

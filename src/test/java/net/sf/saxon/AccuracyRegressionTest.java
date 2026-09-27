@@ -18,16 +18,16 @@ import org.junit.jupiter.api.Test;
  * Differential tests for the two accuracy features of this fork.
  *
  * {@link DecimalBasedFloatingPoint} and {@link CommercialRounding} hold the proofs.
- * Six of their eight tests fail on stock Saxon-HE 12.4 and pass here; the two marked
+ * Six of their eight tests were checked to fail on stock Saxon-HE 12.4 and pass here; the two marked
  * "contrast case" pass on both and are kept as the baseline the others are read
  * against. Each assertion carries the stock result in a comment, so the file doubles
  * as the specification of what this fork changes. Unlike the golden-file comparison in
  * {@link DecimalBasedFloatingPointTest}, a failure names the one expression that
  * regressed instead of a whole-file diff.
  *
- * {@link KnownGaps} is the opposite: expressions where the fork still behaves like
- * stock Saxon although the accuracy goal says it should not. Those tests are disabled
- * and hold the *intended* result, so enabling one is the definition of done for its fix.
+ * {@link KnownGaps} records the original audit. The precision-argument rounding
+ * and scientific-notation cases now run as regressions. The remaining four tests
+ * stay individually disabled because they require a different numeric policy.
  */
 public class AccuracyRegressionTest {
 
@@ -77,7 +77,7 @@ public class AccuracyRegressionTest {
     class DecimalBasedFloatingPoint {
 
         @Test
-        @DisplayName("Division keeps 34 significant digits, not Saxon's 18")
+        @DisplayName("One-third division keeps 34 decimal places, not Saxon's 18")
         void divisionPrecision() throws SaxonApiException {
             // stock Saxon-HE: 0.333333333333333333 (BigDecimalValue.DIVIDE_PRECISION = 18)
             Assertions.assertEquals("0.3333333333333333333333333333333333", eval("1 div 3"));
@@ -85,8 +85,8 @@ public class AccuracyRegressionTest {
         }
 
         @Test
-        @DisplayName("The precision is IEEE 754 decimal128 (34 digits)")
-        void decimal128Precision() throws SaxonApiException {
+        @DisplayName("One-third division has 34 fractional digits (not a decimal128 implementation)")
+        void oneThirdDivisionScale() throws SaxonApiException {
             // stock Saxon-HE: 18
             Assertions.assertEquals("34", eval("string-length(substring-after(string(1 div 3), '.'))"));
         }
@@ -118,7 +118,7 @@ public class AccuracyRegressionTest {
     class CommercialRounding {
 
         @Test
-        @DisplayName("round() rounds away from zero, as EU VAT law requires")
+        @DisplayName("round() rounds ties away from zero")
         void roundGoesAwayFromZero() throws SaxonApiException {
             Assertions.assertEquals("-2", eval("round(-1.5)"));   // stock Saxon-HE: -1
             Assertions.assertEquals("-1", eval("round(-0.5)"));   // stock Saxon-HE: 0
@@ -153,11 +153,11 @@ public class AccuracyRegressionTest {
     }
 
     @Nested
-    @DisplayName("Known gaps - disabled until fixed; each holds the intended result")
-    @Disabled("Accuracy goals not yet met by the fork - see the audit in the README")
+    @DisplayName("Accuracy audit - resolved regressions and remaining numeric-policy gaps")
     class KnownGaps {
 
         @Test
+        @Disabled("Untyped sum() still promotes values to xs:double; cast inputs to xs:decimal")
         @DisplayName("GAP 1: sum() over untyped element content must not use xs:double")
         void untypedSum() throws SaxonApiException {
             // Today (fork and stock alike): xs:double, 0.30000000000000004.
@@ -168,6 +168,7 @@ public class AccuracyRegressionTest {
         }
 
         @Test
+        @Disabled("Untyped arithmetic still promotes values to xs:double; cast inputs to xs:decimal")
         @DisplayName("GAP 2: arithmetic on untyped element content must not use xs:double")
         void untypedArithmetic() throws SaxonApiException {
             // Today: ArithmeticExpression inserts an UntypedSequenceConverter to
@@ -178,6 +179,7 @@ public class AccuracyRegressionTest {
         }
 
         @Test
+        @Disabled("Untyped numeric comparisons still use XPath binary promotion")
         @DisplayName("GAP 3: comparing untyped content with a number must not use xs:double")
         void untypedComparison() throws SaxonApiException {
             // Today: UntypedNumericComparer parses the content to double and uses
@@ -188,9 +190,9 @@ public class AccuracyRegressionTest {
         }
 
         @Test
-        @DisplayName("GAP 4: round() with a precision argument must round away from zero too")
+        @DisplayName("Resolved GAP 4: round() with a precision argument must round away from zero too")
         void roundWithPrecisionIsInconsistent() throws SaxonApiException {
-            // Today: round(-1.5) is -2 but round(-1.5, 0) is -1, because only the
+            // Previously: round(-1.5) is -2 but round(-1.5, 0) is -1, because only the
             // 1-argument form was re-registered in XPath20FunctionSet; the 2-argument
             // form is registered separately in XPath30FunctionSet and still uses Round.
             Assertions.assertEquals("-2", eval("round(-1.5, 0)"));
@@ -198,9 +200,9 @@ public class AccuracyRegressionTest {
         }
 
         @Test
-        @DisplayName("GAP 5: exponent notation must stay compilable")
+        @DisplayName("Resolved GAP 5: exponent notation must stay compilable")
         void exponentLiteralsMustCompile() throws SaxonApiException {
-            // Today: XPST0003 "Invalid numeric literal", because NumericValue.parseNumber
+            // Previously: XPST0003 "Invalid numeric literal", because NumericValue.parseNumber
             // routes the exponent form into BigDecimalValue.makeDecimalValue, whose XSD
             // decimal lexical rules forbid an exponent. Any stylesheet using scientific
             // notation fails to compile - valid XPath 2.0/3.1 that stock Saxon accepts.
@@ -210,12 +212,14 @@ public class AccuracyRegressionTest {
         }
 
         @Test
+        @Disabled("Exact multiplication does not undo rounding in a nonterminating quotient")
         @DisplayName("GAP 6: the README's own example is still not satisfied")
         void readmeGoalNotReached() throws SaxonApiException {
             // The README states both bracketings should give the same result. They still
-            // differ - stock at the 9th decimal, the fork at the 25th. The scale of a
-            // decimal multiplication is the sum of the operand scales, so the division
-            // precision has to be re-applied after the multiplication for these to agree.
+            // differ - stock at the 9th decimal, the fork at the 25th. A shared
+            // significant-digit context could make this example agree, but cannot
+            // guarantee associativity in general. This fork preserves exact products
+            // and only approximates nonterminating quotients.
             Assertions.assertEquals("true",
                     eval("(1000000000.0 * (1.0 div 3)) = (1000000000.0 * 1.0 div 3)"));
         }

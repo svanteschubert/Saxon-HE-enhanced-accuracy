@@ -302,13 +302,13 @@
     <xsl:message>round(0.8451, 2) should be 0.85 and is <xsl:value-of select="round(0.8451, 2)"/>!</xsl:message>
     <xsl:message>round(0.8452, 2) should be 0.85 and is <xsl:value-of select="round(0.8452, 2)"/>!</xsl:message>
     <xsl:message>round(-0.8449, 2) should be -0.84 and is <xsl:value-of select="round(-0.8449, 2)"/>!</xsl:message>
-    <xsl:message>round(-0.8450, 2) should be -0.84 and is <xsl:value-of select="round(-0.8450, 2)"/>!</xsl:message>
+    <xsl:message>round(-0.8450, 2) should be -0.85 and is <xsl:value-of select="round(-0.8450, 2)"/>!</xsl:message>
     <xsl:message>round(-0.8451, 2) should be -0.85 and is <xsl:value-of select="round(-0.8451, 2)"/>!</xsl:message>
     <xsl:message>round(-0.8452, 2) should be -0.85 and is <xsl:value-of select="round(-0.8452, 2)"/>!</xsl:message>
     <xsl:message>round(8452, -2) should be 8500 and is <xsl:value-of select="round(8452, -2)"/>!</xsl:message>
     <xsl:message>round(-8452, -2) should be -8500 and is <xsl:value-of select="round(-8452, -2)"/>!</xsl:message>
-    <xsl:message>round(-9552.245, 2) should be -9552.24 and is <xsl:value-of select="round(-9552.245, 2)"/>!</xsl:message>
-    <xsl:message>round(-9552.255, 2) should be -9552.25 and is <xsl:value-of select="round(-9552.255, 2)"/>!</xsl:message>
+    <xsl:message>round(-9552.245, 2) should be -9552.25 and is <xsl:value-of select="round(-9552.245, 2)"/>!</xsl:message>
+    <xsl:message>round(-9552.255, 2) should be -9552.26 and is <xsl:value-of select="round(-9552.255, 2)"/>!</xsl:message>
     <xsl:message>round(-9552.255, -2) should be -9600 and is <xsl:value-of select="round(-9552.255, -2)"/>!</xsl:message>
     <xsl:message>round(-0.5000000000000) should be  -1 and is <xsl:value-of select="round(-0.5000000000000)"/>!</xsl:message>
     <xsl:message>round(-0.5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001) should be 
