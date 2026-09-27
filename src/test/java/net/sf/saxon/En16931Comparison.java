@@ -191,7 +191,7 @@ public class En16931Comparison {
                 "decimal-literals", List.of("true", "true"),
                 "exponent-literals", List.of("false", "true"),
                 "explicit-decimal-xml", List.of("true", "true"),
-                "untyped-xml", List.of("false", "false"),
+                "untyped-xml", List.of("false", "true"),
                 "number-function", List.of("false", "false"),
                 "division-precision", List.of("false", "true"),
                 "line-binary-floating-point", List.of("1", "1.01"),

@@ -13,8 +13,6 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.XPathException;
-import net.sf.saxon.type.BuiltInAtomicType;
-import net.sf.saxon.type.StringConverter;
 import net.sf.saxon.value.*;
 
 
@@ -53,13 +51,11 @@ public class Average extends FoldingFunction {
         private AtomicValue data;
         private boolean atStart = true;
         private final ConversionRules rules;
-        private final StringConverter toDouble;
         private int count = 0;
 
         public AverageFold(XPathContext context) {
             this.context = context;
             this.rules = context.getConfiguration().getConversionRules();
-            this.toDouble = BuiltInAtomicType.DOUBLE.getStringConverter(rules);
         }
 
         /**
@@ -72,7 +68,8 @@ public class Average extends FoldingFunction {
         public void processItem(Item item) throws XPathException {
             AtomicValue next = (AtomicValue)item;
             if (next.isUntypedAtomic()) {
-                next = toDouble.convert(next).asAtomic();
+                // This fork: xs:decimal for decimal input, otherwise xs:double
+                next = NumericValue.convertUntypedToNumeric(next.getUnicodeStringValue(), rules).asAtomic();
             }
             count++;
             if (atStart) {

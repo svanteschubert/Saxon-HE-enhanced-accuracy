@@ -164,9 +164,10 @@ rules typically sum values already restricted to two decimal places, so rounding
 those sums to cents does not expose a negative half-cent either.
 
 CII also contains untyped arithmetic, including the rate in `BR-S-09` and some
-sums. The current fork does **not** replace all of that implicit binary arithmetic.
-Merely validating the XML separately with an XSD does not change the values seen
-by these subsequent Saxon-HE transformations.
+sums. Stock Saxon evaluates it in binary; the fork evaluates it in decimal. Merely
+validating the XML separately with an XSD does not change the values seen by these
+subsequent Saxon-HE transformations. With amounts limited to two decimal places and
+the tolerances above, both give the same verdicts for all cases here.
 
 Thus neither choosing a negative VAT midpoint nor carrying the workbook's extra
 VAT cent creates a defensible “stock rejects, fork accepts” result with these
@@ -186,7 +187,7 @@ Saxon's different result is often correct under standard XPath semantics.
 | `0.1 + 0.2 = 0.3` | true | true | true |
 | `0.1E0 + 0.2E0 = 0.3E0` | true | false | true |
 | Explicit decimal XML operands: 0.1 + 0.2 = 0.3 | true | true | true |
-| Untyped XML operands: 0.1 + 0.2 = 0.3 | true | false | false |
+| Untyped XML operands: 0.1 + 0.2 = 0.3 | true | false | true |
 | `number()` operands: 0.1 + 0.2 = 0.3 | true | false | false |
 | `(1.0 div 3.0) * 10^20` equals 33333333333333333333.33333333333333 | true | false | true |
 | Line amount, untyped XML: `round(1 × 1.005, 2)` | 1.01 | 1 | 1.01 |
@@ -197,8 +198,8 @@ official rules never recalculate. Each isolates one cause. As `xs:double`, 1.005
 stored as 1.00499999999999989…, so stock rounds the binary value down; the fork rounds
 the decimal value. In contrast, −6.375 is exact in binary, and stock rounds its negative
 midpoint toward positive infinity, as XPath specifies; the fork rounds away from zero.
-The idiom `round(x * 100) div 100` still yields 1 on both engines for untyped input,
-because the multiplication by 100 already produces 100.49999999999999.
+On stock Saxon the idiom `round(x * 100) div 100` yields 1 as well, because the
+multiplication by 100 already produces 100.49999999999999; the fork yields 1.01.
 
 For a meaningful strict VAT comparison, use a supplemental Schematron rule that
 requires the **signed**, rounded tax to equal the declared tax, with decimal casts
@@ -213,9 +214,9 @@ prices, line totals and taxes from source quantities/prices, then validate the
 result. A validator that trusts rounded line amounts cannot reveal every error
 in the calculation that produced them. Exponent literals expose one current fork
 benefit; explicit `xs:decimal` XML casts show the portable decimal baseline.
-Untyped arithmetic and `number()` remain useful failing probes for a future
-numeric-policy change, rather than reasons to claim the current fork is wholly
-decimal or implements IEEE decimal128.
+`number()` remains a failing probe: it is specified to return `xs:double`, and
+the fork keeps that. Neither probe makes the fork wholly decimal or an IEEE
+decimal128 implementation.
 
 ## Provenance
 

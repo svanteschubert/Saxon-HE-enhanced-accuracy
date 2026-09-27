@@ -11,10 +11,13 @@ import net.sf.saxon.expr.sort.AtomicMatchKey;
 import net.sf.saxon.expr.sort.TransitiveNumericComparable;
 import net.sf.saxon.expr.sort.XPathComparable;
 import net.sf.saxon.functions.Round;
+import net.sf.saxon.lib.ConversionRules;
 import net.sf.saxon.lib.StringCollator;
+import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.AtomicMetadata;
+import net.sf.saxon.type.BuiltInAtomicType;
 import net.sf.saxon.type.ConversionResult;
 import net.sf.saxon.type.ValidationException;
 import net.sf.saxon.type.ValidationFailure;
@@ -67,6 +70,86 @@ public abstract class NumericValue extends AtomicValue
                 return (NumericValue) v;
             }
         }
+    }
+
+    /**
+     * Largest exponent magnitude for which scientific notation in untyped input stays
+     * xs:decimal. Beyond it, xs:double yields the same INF or zero as stock Saxon,
+     * instead of a decimal whose plain string form could have millions of digits.
+     */
+    private static final int MAX_UNTYPED_DECIMAL_EXPONENT = 400;
+
+    /**
+     * Convert the string value of an xs:untypedAtomic value that is used as a number,
+     * in arithmetic, aggregation, comparison with a number, or as an xs:numeric argument.
+     * XPath casts such values to xs:double. This fork casts a decimal lexical form,
+     * optionally in scientific notation, to xs:decimal instead, so that XML input is not
+     * approximated in binary. Any other input (NaN, INF, -INF or invalid) follows the
+     * standard xs:double conversion, including its errors.
+     *
+     * @param input the string value of the untyped atomic value
+     * @param rules the conversion rules
+     * @return an xs:decimal or xs:double value, or a ValidationFailure
+     */
+
+    public static ConversionResult convertUntypedToNumeric(UnicodeString input, ConversionRules rules) {
+        String trimmed = Whitespace.trim(input.toString());
+        if (isDecimalLexical(trimmed)) {
+            return new BigDecimalValue(new BigDecimal(trimmed));
+        }
+        return BuiltInAtomicType.DOUBLE.getStringConverter(rules).convertString(input);
+    }
+
+    /**
+     * Test for the xs:double lexical form without the special values NaN and INF, and with a
+     * bounded exponent: (+|-)?([0-9]+(.[0-9]*)?|.[0-9]+)([Ee](+|-)?[0-9]+)?
+     * Only ASCII digits are accepted, unlike BigDecimal, which also accepts other Unicode digits.
+     */
+
+    private static boolean isDecimalLexical(String s) {
+        int i = 0;
+        int n = s.length();
+        if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-')) {
+            i++;
+        }
+        int digits = 0;
+        while (i < n && isAsciiDigit(s.charAt(i))) {
+            i++;
+            digits++;
+        }
+        if (i < n && s.charAt(i) == '.') {
+            i++;
+            while (i < n && isAsciiDigit(s.charAt(i))) {
+                i++;
+                digits++;
+            }
+        }
+        if (digits == 0) {
+            return false;
+        }
+        if (i < n && (s.charAt(i) == 'e' || s.charAt(i) == 'E')) {
+            i++;
+            if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-')) {
+                i++;
+            }
+            int exponent = 0;
+            int start = i;
+            while (i < n && isAsciiDigit(s.charAt(i))) {
+                exponent = exponent * 10 + (s.charAt(i) - '0');
+                if (exponent > MAX_UNTYPED_DECIMAL_EXPONENT) {
+                    return false;
+                }
+                i++;
+            }
+            if (i == start) {
+                return false;
+            }
+        }
+        return i == n;
+    }
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     /**

@@ -45,7 +45,8 @@ public class Sum extends FoldingFunction {
         TypeHierarchy th = getRetainedStaticContext().getConfiguration().getTypeHierarchy();
         ItemType base = Atomizer.getAtomizedItemType(args[0], false);
         if (base.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
-            base = BuiltInAtomicType.DOUBLE;
+            // This fork: xs:decimal for decimal input, otherwise xs:double
+            base = NumericType.getInstance();
         }
         if (Cardinality.allowsZero(args[0].getCardinality())) {
             if (getArity() == 1) {
@@ -113,13 +114,11 @@ public class Sum extends FoldingFunction {
         private AtomicValue data;
         private boolean atStart = true;
         private final ConversionRules rules;
-        private final StringConverter toDouble;
 
         public SumFold(XPathContext context, AtomicValue zeroValue) {
             this.context = context;
             this.zeroValue = zeroValue;
             this.rules = context.getConfiguration().getConversionRules();
-            this.toDouble = BuiltInAtomicType.DOUBLE.getStringConverter(rules);
         }
 
         /**
@@ -134,7 +133,7 @@ public class Sum extends FoldingFunction {
             if (atStart) {
                 atStart = false;
                 if (next.isUntypedAtomic()) {
-                    data = toDouble.convert(next).asAtomic();
+                    data = NumericValue.convertUntypedToNumeric(next.getUnicodeStringValue(), rules).asAtomic();
                     return;
                 } else if (next instanceof NumericValue || next instanceof DayTimeDurationValue || next instanceof YearMonthDurationValue) {
                     data = next;
@@ -150,7 +149,7 @@ public class Sum extends FoldingFunction {
 
             if (data instanceof NumericValue) {
                 if (next.isUntypedAtomic()) {
-                    next = toDouble.convert(next).asAtomic();
+                    next = NumericValue.convertUntypedToNumeric(next.getUnicodeStringValue(), rules).asAtomic();
                 } else if (!(next instanceof NumericValue)) {
                     throw new XPathException("Input to sum() contains a mix of numeric and non-numeric values")
                             .withXPathContext(context).withErrorCode("FORG0006");

@@ -86,10 +86,11 @@ public abstract class Minimax extends CollatingFunctionFixed {
     public void supplyTypeInformation(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType, Expression[] arguments) {
         ItemType type = arguments[0].getItemType();
         argumentType = type.getAtomizedItemType();
+        if (argumentType == BuiltInAtomicType.UNTYPED_ATOMIC) {
+            // This fork: xs:decimal for decimal input, otherwise xs:double, so no comparer is preallocated
+            argumentType = NumericType.getInstance();
+        }
         if (argumentType instanceof AtomicType) {
-            if (argumentType == BuiltInAtomicType.UNTYPED_ATOMIC) {
-                argumentType = BuiltInAtomicType.DOUBLE;
-            }
             preAllocateComparer((AtomicType) argumentType, (AtomicType) argumentType, visitor.getStaticContext());
         }
     }
@@ -100,7 +101,8 @@ public abstract class Minimax extends CollatingFunctionFixed {
         TypeHierarchy th = getRetainedStaticContext().getConfiguration().getTypeHierarchy();
         ItemType base = Atomizer.getAtomizedItemType(args[0], false);
         if (base.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
-            base = BuiltInAtomicType.DOUBLE;
+            // This fork: xs:decimal for decimal input, otherwise xs:double
+            base = NumericType.getInstance();
         }
         return base.getPrimitiveItemType();
     }
@@ -128,7 +130,7 @@ public abstract class Minimax extends CollatingFunctionFixed {
                 TypeHierarchy th = visitor.getConfiguration().getTypeHierarchy();
                 if (th.relationship(it, BuiltInAtomicType.UNTYPED_ATOMIC) != Affinity.DISJOINT) {
                     return UntypedSequenceConverter.makeUntypedSequenceConverter(
-                            visitor.getConfiguration(), arguments[0], BuiltInAtomicType.DOUBLE).typeCheck(visitor, contextInfo);
+                            visitor.getConfiguration(), arguments[0], NumericType.getInstance()).typeCheck(visitor, contextInfo);
                 } else {
                     return arguments[0];
                 }
@@ -160,7 +162,8 @@ public abstract class Minimax extends CollatingFunctionFixed {
         }
         PlainType type = argumentType.getPrimitiveItemType();
         if (type.equals(BuiltInAtomicType.UNTYPED_ATOMIC)) {
-            type = BuiltInAtomicType.DOUBLE;
+            // This fork: untyped values may become xs:decimal or xs:double
+            type = BuiltInAtomicType.ANY_ATOMIC;
         }
         BuiltInAtomicType prim = (BuiltInAtomicType) type;
         int version = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
@@ -189,7 +192,6 @@ public abstract class Minimax extends CollatingFunctionFixed {
             throws XPathException {
 
         ConversionRules rules = context.getConfiguration().getConversionRules();
-        StringToDouble converter = context.getConfiguration().getConversionRules().getStringToDoubleConverter();
         boolean foundDouble = false;
         boolean foundFloat = false;
         boolean foundNaN = false;
@@ -218,10 +220,11 @@ public abstract class Minimax extends CollatingFunctionFixed {
             prim = min;
             if (min.isUntypedAtomic()) {
                 try {
-                    min = new DoubleValue(converter.stringToNumber(min.getUnicodeStringValue()));
+                    // This fork: xs:decimal for decimal input, otherwise xs:double
+                    min = NumericValue.convertUntypedToNumeric(min.getUnicodeStringValue(), rules).asAtomic();
                     prim = min;
-                    foundDouble = true;
-                } catch (NumberFormatException e) {
+                    foundDouble = min instanceof DoubleValue;
+                } catch (XPathException e) {
                     throw new XPathException("Failure converting " + Err.wrap(min.getUnicodeStringValue()) + " to a number")
                             .withErrorCode("FORG0001").withXPathContext(context);
                 }
@@ -268,14 +271,17 @@ public abstract class Minimax extends CollatingFunctionFixed {
             prim = test2;
             if (test.isUntypedAtomic()) {
                 try {
-                    test2 = new DoubleValue(converter.stringToNumber(test.getUnicodeStringValue()));
-                    if (foundNaN) {
-                        iter.close();
-                        return DoubleValue.NaN;
+                    // This fork: xs:decimal for decimal input, otherwise xs:double
+                    test2 = NumericValue.convertUntypedToNumeric(test.getUnicodeStringValue(), rules).asAtomic();
+                    if (test2 instanceof DoubleValue) {
+                        if (foundNaN) {
+                            iter.close();
+                            return DoubleValue.NaN;
+                        }
+                        foundDouble = true;
                     }
                     prim = test2;
-                    foundDouble = true;
-                } catch (NumberFormatException e) {
+                } catch (XPathException e) {
                     throw new XPathException("Failure converting " + Err.wrap(test.getStringValue()) + " to a number")
                             .withErrorCode("FORG0001").withXPathContext(context);
                 }

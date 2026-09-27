@@ -17,6 +17,7 @@ import net.sf.saxon.om.Item;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.NumericValue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -70,6 +71,11 @@ public class UnionCoercionPlan extends AtomicCoercionPlan {
                 }
             }
             throw new AssertionError("Item matches the choice type but doesn't match any of the alternatives");
+        }
+        if (requiredType == NumericType.getInstance() && BuiltInAtomicType.UNTYPED_ATOMIC.matches(item)) {
+            // This fork converts untyped decimal input to xs:decimal rather than xs:double
+            return NumericValue.convertUntypedToNumeric(
+                    ((AtomicValue) item).getUnicodeStringValue(), request.config.getConversionRules()).asAtomic();
         }
         if (version >= 40 || BuiltInAtomicType.UNTYPED_ATOMIC.matches(item) ) {
             List<XPathException> errors = null;

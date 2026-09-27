@@ -120,12 +120,12 @@ public class ArithmeticExpression extends BinaryExpression {
         }
         AtomicType type0 = (AtomicType) itemType0.getPrimitiveItemType();
         if (type0.getFingerprint() == StandardNames.XS_UNTYPED_ATOMIC) {
-            setLhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getLhsExpression(), BuiltInAtomicType.DOUBLE));
-            type0 = BuiltInAtomicType.DOUBLE;
+            setLhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getLhsExpression(), NumericType.getInstance()));
+            type0 = BuiltInAtomicType.ANY_ATOMIC; // xs:decimal or xs:double, decided at run time
         } else if (/*!(operand0 instanceof UntypedAtomicConverter)*/
                 (getLhsExpression().getSpecialProperties() & StaticProperty.NOT_UNTYPED_ATOMIC) == 0 &&
                         th.relationship(type0, BuiltInAtomicType.UNTYPED_ATOMIC) != Affinity.DISJOINT) {
-            setLhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getLhsExpression(), BuiltInAtomicType.DOUBLE));
+            setLhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getLhsExpression(), NumericType.getInstance()));
             type0 = (AtomicType) getLhsExpression().getItemType().getPrimitiveItemType();
         }
 
@@ -139,12 +139,12 @@ public class ArithmeticExpression extends BinaryExpression {
         }
         AtomicType type1 = (AtomicType) itemType1.getPrimitiveItemType();
         if (type1.getFingerprint() == StandardNames.XS_UNTYPED_ATOMIC) {
-            setRhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getRhsExpression(), BuiltInAtomicType.DOUBLE));
-            type1 = BuiltInAtomicType.DOUBLE;
+            setRhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getRhsExpression(), NumericType.getInstance()));
+            type1 = BuiltInAtomicType.ANY_ATOMIC; // xs:decimal or xs:double, decided at run time
         } else if (/*!(operand1 instanceof UntypedAtomicConverter) &&*/
                 (getRhsExpression().getSpecialProperties() & StaticProperty.NOT_UNTYPED_ATOMIC) == 0 &&
                         th.relationship(type1, BuiltInAtomicType.UNTYPED_ATOMIC) != Affinity.DISJOINT) {
-            setRhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getRhsExpression(), BuiltInAtomicType.DOUBLE));
+            setRhsExpression(UntypedSequenceConverter.makeUntypedSequenceConverter(config, getRhsExpression(), NumericType.getInstance()));
             type1 = (AtomicType) getRhsExpression().getItemType().getPrimitiveItemType();
         }
 

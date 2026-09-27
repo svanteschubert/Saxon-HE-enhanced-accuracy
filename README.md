@@ -94,12 +94,19 @@ These are `BigDecimal` arithmetic rules, not an IEEE 754 decimal128 implementati
 example above describes a goal; different orders of operations can still give
 different results after nonterminating division.
 
-Untyped XML arithmetic, aggregation and comparisons can still introduce binary
-floating-point, as can `number()`, `xs:float` and `xs:double`. Cast XML inputs to
-`xs:decimal` before calculating, for example
-`sum(cac:InvoiceLine/cbc:LineExtensionAmount/xs:decimal(.))`. These broader policy
-gaps remain individually disabled in `AccuracyRegressionTest`; the two fixed gaps
-(rounding with precision and exponent literals) are now enabled.
+Untyped XML content, as in every Schematron validation without a schema, is no longer
+converted to `xs:double` when it is used as a number. Arithmetic, `sum()`, `avg()`,
+`min()`, `max()`, comparisons with a decimal or integer, and `xs:numeric` arguments
+such as `round(cbc:PriceAmount, 2)` convert a decimal lexical form (including
+scientific notation up to exponent 400) to `xs:decimal`. `NaN`, `INF`, larger
+exponents and invalid input keep the standard `xs:double` conversion. As with decimal
+literals, dividing untyped input by zero now raises `FOAR0001` instead of returning `INF`.
+
+Binary floating-point remains wherever a stylesheet asks for it: `number()`,
+`xs:double`, `xs:float`, comparisons with such values, and arithmetic operators in
+XPath 1.0 backwards-compatible mode (`version="1.0"` stylesheets), which XPath 1.0
+defines in terms of `number()`. Use `xs:decimal(.)` instead of `number(.)`.
+Only the associativity example stays disabled in `AccuracyRegressionTest`.
 
 The additional tests exercise XPath with optimization enabled/disabled, runtime
 variables, XQuery, JAXP and the CLI. A test-only SchXslt dependency compiles

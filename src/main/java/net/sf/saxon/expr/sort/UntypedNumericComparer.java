@@ -147,6 +147,11 @@ public class UntypedNumericComparer implements AtomicComparer {
     private static int quickComparison31(
             StringValue a0, NumericValue a1, ConversionRules rules)
             throws XPathException {
+        if (!(a1 instanceof DoubleValue || a1 instanceof FloatValue)) {
+            // This fork compares untyped input with a decimal or integer as xs:decimal,
+            // as XPath 4.0 does, instead of converting both to xs:double
+            return quickComparison40(a0, a1, rules);
+        }
         double d1 = a1.getDoubleValue();
         UnicodeString cs = Whitespace.trim(a0.getUnicodeStringValue());
 

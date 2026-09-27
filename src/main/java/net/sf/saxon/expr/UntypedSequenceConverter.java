@@ -24,6 +24,7 @@ import net.sf.saxon.transpile.CSharpInnerClass;
 import net.sf.saxon.transpile.CSharpModifiers;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
+import net.sf.saxon.value.NumericValue;
 import net.sf.saxon.value.Cardinality;
 
 /**
@@ -72,9 +73,8 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
         if (requiredItemType.isAtomicType()) {
             untypedConverter = rules.getConverter(BuiltInAtomicType.UNTYPED_ATOMIC, (AtomicType) requiredItemType);
         } else if (requiredItemType == NumericType.getInstance()) {
-            // converting untyped to numeric is common, and is effectively the same as converting to double
-            untypedConverter = rules.getConverter(BuiltInAtomicType.UNTYPED_ATOMIC, BuiltInAtomicType.DOUBLE);
-            atomicSeqConverter.requiredItemType = BuiltInAtomicType.DOUBLE;
+            // This fork converts untyped decimal input to xs:decimal rather than xs:double
+            untypedConverter = new UntypedToNumericConverter(rules);
         } else {
             untypedConverter = new StringConverter.StringToUnionConverter(requiredItemType, rules);
         }
@@ -115,6 +115,23 @@ public final class UntypedSequenceConverter extends AtomicSequenceConverter {
             } else {
                 return input;
             }
+        }
+    }
+
+    /**
+     * A Converter for untypedAtomic values that are used as numbers: xs:decimal for a decimal
+     * lexical form, otherwise xs:double. See {@link NumericValue#convertUntypedToNumeric}.
+     */
+
+    public static class UntypedToNumericConverter extends Converter {
+
+        public UntypedToNumericConverter(ConversionRules rules) {
+            super(rules);
+        }
+
+        @Override
+        public ConversionResult convert(AtomicValue input) {
+            return NumericValue.convertUntypedToNumeric(input.getUnicodeStringValue(), getConversionRules());
         }
     }
 

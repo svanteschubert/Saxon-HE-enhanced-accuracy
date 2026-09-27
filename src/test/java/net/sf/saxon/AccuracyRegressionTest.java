@@ -25,9 +25,9 @@ import org.junit.jupiter.api.Test;
  * {@link DecimalBasedFloatingPointTest}, a failure names the one expression that
  * regressed instead of a whole-file diff.
  *
- * {@link KnownGaps} records the original audit. The precision-argument rounding
- * and scientific-notation cases now run as regressions. The remaining four tests
- * stay individually disabled because they require a different numeric policy.
+ * {@link KnownGaps} records the original audit. The untyped-input, precision-argument
+ * rounding and scientific-notation cases now run as regressions. Only the
+ * associativity example stays disabled: no finite division precision can guarantee it.
  */
 public class AccuracyRegressionTest {
 
@@ -157,36 +157,57 @@ public class AccuracyRegressionTest {
     class KnownGaps {
 
         @Test
-        @Disabled("Untyped sum() still promotes values to xs:double; cast inputs to xs:decimal")
-        @DisplayName("GAP 1: sum() over untyped element content must not use xs:double")
+        @DisplayName("Resolved GAP 1: sum() over untyped element content must not use xs:double")
         void untypedSum() throws SaxonApiException {
-            // Today (fork and stock alike): xs:double, 0.30000000000000004.
+            // Previously (and on stock Saxon): xs:double, 0.30000000000000004.
             // F&O 15.4.5 prescribes the cast to xs:double, so this is a deliberate
             // deviation - the same kind as replacing fn:round().
             Assertions.assertEquals("true", evalOnDoc("sum(/invoice/line) instance of xs:decimal"));
             Assertions.assertEquals("0.3", evalOnDoc("string(sum(/invoice/line))"));
+            Assertions.assertEquals("0.15", evalOnDoc("string(avg(/invoice/line))"));
+            Assertions.assertEquals("true", evalOnDoc("max(/invoice/line) instance of xs:decimal"));
         }
 
         @Test
-        @Disabled("Untyped arithmetic still promotes values to xs:double; cast inputs to xs:decimal")
-        @DisplayName("GAP 2: arithmetic on untyped element content must not use xs:double")
+        @DisplayName("Resolved GAP 2: arithmetic on untyped element content must not use xs:double")
         void untypedArithmetic() throws SaxonApiException {
-            // Today: ArithmeticExpression inserts an UntypedSequenceConverter to
-            // BuiltInAtomicType.DOUBLE, so this is 0.30000000000000004 and compares false.
+            // Previously: ArithmeticExpression inserted an UntypedSequenceConverter to
+            // BuiltInAtomicType.DOUBLE, so this was 0.30000000000000004 and compared false.
             Assertions.assertEquals("true", evalOnDoc("/invoice/line[1] + /invoice/line[2] = 0.3"));
-            // Today: 13369.999999999998
+            // Previously: 13369.999999999998
             Assertions.assertEquals("13370", evalOnDoc("string(/invoice/amount * 100)"));
+            // Previously: 1, because xs:double stores 1.005 as 1.00499999999999989...
+            Assertions.assertEquals("1.01", evalOnDoc("string(round(/invoice/price, 2))"));
         }
 
         @Test
-        @Disabled("Untyped numeric comparisons still use XPath binary promotion")
-        @DisplayName("GAP 3: comparing untyped content with a number must not use xs:double")
+        @DisplayName("Resolved GAP 3: comparing untyped content with a number must not use xs:double")
         void untypedComparison() throws SaxonApiException {
-            // Today: UntypedNumericComparer parses the content to double and uses
-            // Double.compare, so the boundary case below is decided in binary.
+            // Previously: UntypedNumericComparer parsed the content to double and used
+            // Double.compare, so the boundary case below was decided in binary.
             Assertions.assertEquals("true", evalOnDoc("/invoice/price = 1.005"));
             Assertions.assertEquals("true",
                     evalOnDoc("round(/invoice/price * 100) div 100 = 1.01"));
+        }
+
+        @Test
+        @DisplayName("Untyped input that is not a decimal keeps its xs:double semantics")
+        void untypedSpecialValuesStayDouble() throws SaxonApiException {
+            Assertions.assertEquals("NaN", eval("string(xs:untypedAtomic('NaN') + 1)"));
+            Assertions.assertEquals("-INF", eval("string(xs:untypedAtomic('-INF') + 1)"));
+            // Beyond the exponent bound, the value is converted as xs:double, as on stock Saxon
+            Assertions.assertEquals("INF", eval("string(xs:untypedAtomic('1e999') + 0)"));
+            Assertions.assertEquals("1500", eval("string(xs:untypedAtomic('1.5E3') + 0)"));
+            // An explicit xs:double operand still makes the operation binary
+            Assertions.assertEquals("true",
+                    eval("(xs:untypedAtomic('0.1') + xs:double('0.2')) instance of xs:double"));
+            SaxonApiException invalid = Assertions.assertThrows(SaxonApiException.class,
+                    () -> eval("xs:untypedAtomic('abc') + 1"));
+            Assertions.assertEquals("FORG0001", invalid.getErrorCode().getLocalName());
+            // Decimal division by zero is an error, as for decimal literals (stock: INF)
+            SaxonApiException zero = Assertions.assertThrows(SaxonApiException.class,
+                    () -> eval("xs:untypedAtomic('1') div xs:untypedAtomic('0')"));
+            Assertions.assertEquals("FOAR0001", zero.getErrorCode().getLocalName());
         }
 
         @Test
