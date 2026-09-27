@@ -80,6 +80,12 @@
   </mailingLists>
   <dependencies>
     <dependency>
+      <groupId>name.dmaus.schxslt</groupId>
+      <artifactId>schxslt</artifactId>
+      <version>1.10.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>nu.validator</groupId>
       <artifactId>htmlparser</artifactId>
       <version>1.4.16</version>
@@ -254,6 +260,8 @@
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>3.5.0</version>
           <configuration>
+            <!-- Upstream comments reference PE/EE classes absent from this HE build. -->
+            <doclint>none</doclint>
             <doctitle>${project.artifactId}</doctitle>
             <links>
               <link>https://docs.oracle.com/en/java/javase/${java.version}/docs/api/</link>
@@ -315,6 +323,8 @@
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>3.5.0</version>
           <configuration>
+            <!-- Upstream comments reference PE/EE classes absent from this HE build. -->
+            <doclint>none</doclint>
             <doctitle>${project.artifactId}</doctitle>
             <minmemory>512m</minmemory>
             <maxmemory>1024m</maxmemory>
