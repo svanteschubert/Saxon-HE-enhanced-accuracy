@@ -6,9 +6,9 @@ set -e -v
 
 # !!! PLEASE UPDATE BOTH VARIABLES!!!
 # !! -> 1. Version number of the Saxon release to be downloaded/merged with!
-SAXON_NEXT_VERSION="12.4"
+SAXON_NEXT_VERSION="13.0"
 # !! -> 2. Version number of the Saxon release currently used to add feature branch before rebase!
-SAXON_CURRENT_VERSION="10.9"
+SAXON_CURRENT_VERSION="12.4"
 
 
 # Do not change below the line...

@@ -86,7 +86,7 @@ To make the JAR become useable, further artifacts had to be copied from the publ
 * src/main/resources/net/sf/saxon/data/
 
 I have added a [smoke test case](https://github.com/svanteschubert/Saxon-HE/blob/main/src/test/java/net/sf/saxon/DecimalBasedFloatingPointTest.java) to ease debugging from the IDE. The output XML file will be generated as target/generated-sources/out.xml file.
-[JDK 1.8](https://openjdk.java.net/install/) is required by the original [Saxon of Saxonica](http://saxon.sourceforge.net/) and [Maven](https://maven.apache.org/download.cgi?Preferred=ftp://ftp.osuosl.org/pub/apache/) as build environment.
+[JDK 25](https://adoptium.net/) (enforced by the pom.xml and pinned for [jenv](https://www.jenv.be/) via the '.java-version' file) and [Maven](https://maven.apache.org/download.cgi) are required as build environment. The original [Saxon of Saxonica](http://saxon.sourceforge.net/) 13 requires at least JDK 17.
 Build & smoke test can be executed via command-line by calling: **mvn clean install**
 
 ## Updating Saxon Version

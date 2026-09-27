@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>net.sf.saxon</groupId>
   <artifactId>Saxon-HE-accuracy</artifactId>
-  <version>12.4</version>
+  <version>13.0</version>
   <name>Saxon-HE - enhanced accuracy using decimal-based floating-point arithmetic</name>
   <packaging>jar</packaging>
   <description>The XSLT and XQuery Processor is using the far more accurate decimal-based floating-point arithmetic and half-up rounding. Reason was the European Norm 16931: where arithmetic should come same results and VAT has to be rounded often by national law half-up.</description>
@@ -67,6 +67,7 @@
     <skipTests>false</skipTests>
     <maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss</maven.build.timestamp.format>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <java.version>25</java.version>
     <maven.javadoc.skip>false</maven.javadoc.skip>
     <maven.javadoc.failOnError>false</maven.javadoc.failOnError>
   </properties>
@@ -79,15 +80,33 @@
   </mailingLists>
   <dependencies>
     <dependency>
-      <groupId>org.xmlresolver</groupId>
-      <artifactId>xmlresolver</artifactId>
-      <version>5.2.2</version>
+      <groupId>nu.validator</groupId>
+      <artifactId>htmlparser</artifactId>
+      <version>1.4.16</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.xmlresolver</groupId>
       <artifactId>xmlresolver</artifactId>
-      <version>5.2.2</version>
+      <version>6.0.23</version>
+    </dependency>
+    <dependency>
+      <groupId>org.xmlresolver</groupId>
+      <artifactId>xmlresolver</artifactId>
+      <version>6.0.23</version>
       <classifier>data</classifier>
+    </dependency>
+    <dependency>
+      <groupId>org.nineml</groupId>
+      <artifactId>coffeegrinder</artifactId>
+      <version>3.3.8</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.nineml</groupId>
+      <artifactId>coffeefilter</artifactId>
+      <version>3.3.8</version>
+      <optional>true</optional>
     </dependency><!-- not required
     <dependency>
       <groupId>org.jdom</groupId>
@@ -139,9 +158,10 @@
       <optional>true</optional>
     </dependency>-->
     <dependency>
+      <!-- 1.3.0 is the latest release still providing org.apache.axiom.om.impl.llom.OMDocumentImpl (imported by Saxon 13) -->
       <groupId>org.apache.ws.commons.axiom</groupId>
       <artifactId>axiom-impl</artifactId>
-      <version>1.4.0</version>
+      <version>1.3.0</version>
       <optional>true</optional>
     </dependency>
       <!-- https://mvnrepository.com/artifact/org.jetbrains/annotations -->
@@ -177,11 +197,31 @@
     <build>
       <plugins>
         <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <version>3.6.1</version>
+          <executions>
+            <execution>
+              <id>enforce-java</id>
+              <goals>
+                <goal>enforce</goal>
+              </goals>
+              <configuration>
+                <rules>
+                  <requireJavaVersion>
+                    <version>[${java.version},)</version>
+                    <message>Building Saxon-HE-accuracy requires JDK ${java.version} or newer (e.g. 'jenv local ${java.version}').</message>
+                  </requireJavaVersion>
+                </rules>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.11.0</version>
+          <version>3.14.0</version>
           <configuration>
-            <source>11</source>
-            <target>11</target>
+            <release>${java.version}</release>
           </configuration>
         </plugin>
         <plugin>
@@ -216,8 +256,8 @@
           <configuration>
             <doctitle>${project.artifactId}</doctitle>
             <links>
-              <link>http://docs.oracle.com/javase/8/docs/api/</link>
-              <link>http://xerces.apache.org/xerces-j/apiDocs/</link>
+              <link>https://docs.oracle.com/en/java/javase/${java.version}/docs/api/</link>
+              <link>https://xerces.apache.org/xerces-j/apiDocs/</link>
             </links>
             <splitindex>true</splitindex>
             <windowtitle>${project.artifactId} API v${project.version} - ${project.scm.url}</windowtitle>
@@ -279,7 +319,7 @@
             <minmemory>512m</minmemory>
             <maxmemory>1024m</maxmemory>
             <links>
-              <link>https://docs.oracle.com/en/java/javase/11/docs/api/</link>
+              <link>https://docs.oracle.com/en/java/javase/${java.version}/docs/api/</link>
               <link>https://xerces.apache.org/xerces-j/apiDocs/</link>
             </links>
             <splitindex>true</splitindex>
