@@ -34,6 +34,7 @@
     <xs:element name="match" type="fn:match-type"/>
     <xs:element name="non-match" type="xs:string"/>
     <xs:element name="group" type="fn:group-type"/>
+    <xs:element name="lookahead-group" type="fn:lookahead-group-type"/>
     
     <xs:complexType name="analyze-string-result-type" mixed="true">
         <xs:choice minOccurs="0" maxOccurs="unbounded">
@@ -45,6 +46,7 @@
     <xs:complexType name="match-type" mixed="true">
         <xs:sequence>
             <xs:element ref="fn:group" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element ref="fn:lookahead-group" minOccurs="0" maxOccurs="unbounded"/>
         </xs:sequence>
     </xs:complexType>
     
@@ -54,6 +56,13 @@
         </xs:sequence>
         <xs:attribute name="nr" type="xs:positiveInteger"/>
     </xs:complexType>
+    
+    <xs:complexType name="lookahead-group-type">
+        <xs:attribute name="nr" type="xs:positiveInteger"/>
+        <xs:attribute name="value" type="xs:string"/>
+        <xs:attribute name="position" type="xs:positiveInteger"/>
+    </xs:complexType>
+ 
     
     <!-- <xs:include schemaLocation="json.xsd"/> -->
     
@@ -121,7 +130,7 @@
         </xs:simpleContent>
     </xs:complexType>
     
-    <xs:complexType name="arrayType">
+    <xs:complexType name="arrayType" block="extension">
         <xs:choice minOccurs="0" maxOccurs="unbounded">
             <xs:element ref="j:map"/>
             <xs:element ref="j:array"/>
