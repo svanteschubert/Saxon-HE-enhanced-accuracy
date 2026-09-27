@@ -77,6 +77,36 @@ This Saxon update is achieved by several minor enhancements:
 3. [Adding highest Java precision decimal-based floating-point support to multiplication and division of BigDecimals](https://github.com/svanteschubert/Saxon-HE/commit/68c538a364e8bfd8aa5598077521ad87fb297e88).
 4. Added [round-half-away-from-zero() function (in Java half-up)](https://docs.oracle.com/javase/8/docs/api/java/math/RoundingMode.html) as integrated extension functions of SAXON, as half-away-from-zero rounding is the default rounding in EU e-commerce - the rounding that we had likely learned in school - and now also added as default rounding to the EN16931 specification. The  [W3C XPath round() function](https://www.w3.org/TR/xpath-functions-31/#func-round) is different by always rounding in the direction of positives, e.g. -1.5 becomes -1.
 
+## Saxon 13.0 accuracy fixes and remaining limits
+
+Both `round(value)` and `round(value, precision)` use ties away from zero,
+including dynamic function calls. Float rounding, large integer overflow, signed
+zero, and extreme rounding precisions are covered by regression tests. The original
+XPath rule remains available as `round-half-to-positive-infinity()`.
+
+Scientific-notation literals such as `1e-40` now parse as decimals. Decimal
+multiplication is exact; it no longer truncates operands to 34 decimal places.
+Terminating decimal division is exact. Nonterminating division uses `HALF_UP`
+with scale `max(34, dividend.scale - divisor.scale + 34)`.
+
+These are `BigDecimal` arithmetic rules, not an IEEE 754 decimal128 implementation:
+34 decimal places are different from 34 significant digits. The historical invoice
+example above describes a goal; different orders of operations can still give
+different results after nonterminating division.
+
+Untyped XML arithmetic, aggregation and comparisons can still introduce binary
+floating-point, as can `number()`, `xs:float` and `xs:double`. Cast XML inputs to
+`xs:decimal` before calculating, for example
+`sum(cac:InvoiceLine/cbc:LineExtensionAmount/xs:decimal(.))`. These broader policy
+gaps remain individually disabled in `AccuracyRegressionTest`; the two fixed gaps
+(rounding with precision and exponent literals) are now enabled.
+
+The additional tests exercise XPath with optimization enabled/disabled, runtime
+variables, XQuery, JAXP and the CLI. A test-only SchXslt dependency compiles
+[invoice.sch](src/test/resources/schematron/invoice.sch) into XSLT and validates
+positive and negative VAT midpoint cases. This focused fixture is not a complete
+EN16931/XRechnung ruleset.
+
 ## Building Saxon from latest Sources
 
 As the Saxon HE sources do not exist on GitHub, I downloaded the sources and the pom.xml from the [Maven Repository](https://mvnrepository.com/artifact/net.sf.saxon/Saxon-HE) into a Maven directory structure.
