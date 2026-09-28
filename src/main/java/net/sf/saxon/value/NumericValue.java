@@ -104,9 +104,12 @@ public abstract class NumericValue extends AtomicValue
      * Test for the xs:double lexical form without the special values NaN and INF, and with a
      * bounded exponent: (+|-)?([0-9]+(.[0-9]*)?|.[0-9]+)([Ee](+|-)?[0-9]+)?
      * Only ASCII digits are accepted, unlike BigDecimal, which also accepts other Unicode digits.
+     *
+     * @param s the string, with leading and trailing whitespace already removed
+     * @return true if {@code new BigDecimal(s)} gives the value this string denotes
      */
 
-    private static boolean isDecimalLexical(String s) {
+    public static boolean isDecimalLexical(String s) {
         int i = 0;
         int n = s.length();
         if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-')) {

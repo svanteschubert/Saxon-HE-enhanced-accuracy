@@ -16,6 +16,31 @@ It sounds like a Swedish furniture series, which fits: a Saxon that you assemble
 
 After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as a recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
 
+### Deliberate deviation from the W3C specifications
+
+This fork deliberately deviates from the XPath and XSLT specifications. It is meant for
+XSLT used in commercial applications, such as e-invoicing, that expect commercial
+rounding and decimal floating-point:
+
+* `round()` rounds halves away from zero by default (commercial rounding, "kaufmännisches
+  Runden"): `round(-2.5)` is −3, not −2. The specified rule remains available as
+  `round-half-to-positive-infinity()`.
+* Numbers are calculated in decimal floating-point only. Untyped XML values, `number()`,
+  scientific-notation literals and the arithmetic of `version="1.0"` stylesheets use
+  `xs:decimal`. Binary floating-point remains only where a stylesheet asks for it
+  explicitly with `xs:double` or `xs:float`, and for `NaN` and `INF`, which have no
+  decimal equivalent.
+
+Stylesheets that rely on the specified binary behaviour get different results with this
+fork.
+
+To make this behaviour available in every conforming processor without such a deviation,
+[qt4cg/qtspecs#2935](https://github.com/qt4cg/qtspecs/issues/2935) proposes it for
+XPath, XQuery and XSLT 4.0 as an opt-in per stylesheet or query: a default rounding mode
+for `round()` and a decimal conversion of untyped values
+([draft](docs/qt4cg-proposal-commercial-arithmetic.md)).
+
+
 ## Proof: simple invoice calculations that are incorrect in Saxon-HE 13.0
 
 ### The official EU validator accepts an incorrect VAT taxable amount
@@ -59,7 +84,7 @@ and here to extend the proof.
 
 #### Binary floating-point: the numbers come from XML
 
-Without a schema every XML value is untyped, as in each Schematron validation. Stock Saxon turns it into a binary `xs:double`; the fork into an `xs:decimal`. The same happens to scientific notation such as `0.1e0`.
+Without a schema every XML value is untyped, as in each Schematron validation. Stock Saxon turns it into a binary `xs:double`; the fork into an `xs:decimal`. The same happens to scientific notation such as `0.1e0` and to `number()`.
 
 | # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | This fork (all correct) |
 | --- | --- | --- | ---: | ---: |
@@ -81,6 +106,7 @@ Without a schema every XML value is untyped, as in each Schematron validation. S
 | B16 | `<v qty="1" price="1.005"/>` | `round(@qty * @price, 2)` | $\color{red}\texttt{1}$ | $\color{green}\texttt{1.01}$ |
 | B17 | – | `0.1e0 + 0.2e0` | $\color{red}\texttt{0.30000000000000004}$ | $\color{green}\texttt{0.3}$ |
 | B18 | – | `round(1.005e0, 2)` | $\color{red}\texttt{1}$ | $\color{green}\texttt{1.01}$ |
+| B19 | `<v a="0.1" b="0.2"/>` | `number(@a) + number(@b)` | $\color{red}\texttt{0.30000000000000004}$ | $\color{green}\texttt{0.3}$ |
 
 #### Rounding: negative halves
 
@@ -109,13 +135,12 @@ Stock Saxon stops a nonterminating decimal division after 18 decimal places, the
 
 #### Same result on both engines
 
-Explicit `xs:decimal` casts are the portable workaround for binary floating-point; positive halves round the same way; `number()` is binary by definition.
+Explicit `xs:decimal` casts are the portable workaround for binary floating-point, and positive halves round the same way on both engines.
 
 | # | XML input | XPath | Saxon-HE 13.0 | This fork |
 | --- | --- | --- | ---: | ---: |
 | S01 | `<v a="0.1" b="0.2"/>` | `xs:decimal(@a) + xs:decimal(@b)` | $\color{green}\texttt{0.3}$ | $\color{green}\texttt{0.3}$ |
 | S02 | – | `round(2.5)` | $\color{green}\texttt{3}$ | $\color{green}\texttt{3}$ |
-| S03 | `<v a="0.1" b="0.2"/>` | `number(@a) + number(@b)` | $\color{red}\texttt{0.30000000000000004}$ | $\color{red}\texttt{0.30000000000000004}$ |
 
 ## Try it: Maven snapshot release
 
@@ -205,9 +230,10 @@ places go along with high quantities, so such errors quickly reach cent level.
    rounded intermediate values, as the EN16931 amendments recommend.
 3. **Round commercially.** Round halves away from zero, as German VAT law requires:
    −0.665 becomes −0.67, not −0.66.
-4. **Calculate in decimal, not in binary.** Cast XML input with `xs:decimal(.)` instead of
-   `number(.)`, and avoid `xs:double` and `xs:float`: binary floating-point cannot even
-   store 0.1 exactly. This fork calculates untyped XML input in decimal already.
+4. **Calculate in decimal, not in binary.** Avoid `xs:double` and `xs:float`: binary
+   floating-point cannot even store 0.1 exactly. This fork calculates XML input and
+   `number()` in decimal; on other XSLT processors, cast XML input with `xs:decimal(.)`
+   instead of `number(.)`.
 
 ## For further information on decimal-based floating-point
 
@@ -251,10 +277,12 @@ scientific notation up to exponent 400) to `xs:decimal`. `NaN`, `INF`, larger
 exponents and invalid input keep the standard `xs:double` conversion. As with decimal
 literals, dividing untyped input by zero now raises `FOAR0001` instead of returning `INF`.
 
-Binary floating-point remains wherever a stylesheet asks for it: `number()`,
-`xs:double`, `xs:float`, comparisons with such values, and arithmetic operators in
-XPath 1.0 backwards-compatible mode (`version="1.0"` stylesheets), which XPath 1.0
-defines in terms of `number()`. Use `xs:decimal(.)` instead of `number(.)`.
+`number()` returns an `xs:decimal` for a decimal or integer argument and for a string or
+untyped value with a decimal lexical form, and the integer 1 or 0 for a boolean. Invalid
+input still gives `NaN`. XPath 1.0 backwards-compatible mode (`version="1.0"`
+stylesheets) defines its arithmetic and comparisons in terms of `number()`, so it
+calculates in decimal, too. Binary floating-point remains only where a stylesheet asks
+for it explicitly: `xs:double`, `xs:float`, and comparisons with such values.
 Only the associativity example stays disabled in `AccuracyRegressionTest`.
 
 The additional tests exercise XPath with optimization enabled/disabled, runtime
@@ -329,7 +357,11 @@ There are two GitHub Actions
    2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
 *Note*: The overwrite function does not work a release has to be manually deleted for the same version from pom.xml!
 
-## Reports to Saxonica
+## Reports to Saxonica and the QT4 Community Group
 
 * [https://saxonica.plan.io/issues/4823](https://saxonica.plan.io/issues/4823)
 * [https://saxonica.plan.io/issues/5195](https://saxonica.plan.io/issues/5195)
+* [https://saxonica.plan.io/issues/6408](https://saxonica.plan.io/issues/6408), which led to the
+  rounding modes of `fn:round` in XPath 4.0 ([qt4cg/qtspecs#1187](https://github.com/qt4cg/qtspecs/issues/1187))
+* [qt4cg/qtspecs#2935](https://github.com/qt4cg/qtspecs/issues/2935): proposal for opt-in commercial
+  arithmetic in XPath, XQuery and XSLT 4.0

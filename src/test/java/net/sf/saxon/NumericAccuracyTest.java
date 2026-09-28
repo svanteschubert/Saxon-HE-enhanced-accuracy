@@ -89,8 +89,11 @@ class NumericAccuracyTest {
                 "round(xs:double('-2.5')) instance of xs:double",
                 "round(-25, -1) instance of xs:integer",
                 "1 div round(xs:double('-0.1')) = xs:double('-INF')",
-                // Binary types remain binary: callers must cast invoice inputs to xs:decimal.
-                "number('0.1') instance of xs:double",
+                // number() keeps decimal input in decimal; explicit binary types remain binary.
+                "number('0.1') instance of xs:decimal",
+                "number('0.1') + number('0.2') = 0.3",
+                "number('abc') ne number('abc')",
+                "number('INF') instance of xs:double",
                 "xs:double('0.1') + xs:double('0.2') ne xs:double('0.3')",
                 "not('1e2' castable as xs:decimal)"
         };

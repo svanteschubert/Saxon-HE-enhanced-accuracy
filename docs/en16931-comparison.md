@@ -224,8 +224,8 @@ prices, line totals and taxes from source quantities/prices, then validate the
 result. A validator that trusts rounded line amounts cannot reveal every error
 in the calculation that produced them. Exponent literals expose one current fork
 benefit; explicit `xs:decimal` XML casts show the portable decimal baseline.
-`number()` stays binary (example S03): it is specified to return `xs:double`, and
-the fork keeps that. None of the examples makes the fork wholly decimal or an IEEE
+The fork also deliberately deviates from the specified `xs:double` result of `number()`
+(example B19). It calculates in decimal floating-point, but it is not an IEEE 754
 decimal128 implementation.
 
 ## Provenance

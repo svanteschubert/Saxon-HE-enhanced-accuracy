@@ -24,6 +24,8 @@ import net.sf.saxon.type.Converter;
 import net.sf.saxon.type.ValidationFailure;
 import net.sf.saxon.value.*;
 
+import java.math.BigDecimal;
+
 /**
  * Implements the XPath fn:number() function when called with one argument.
  * Note: this function accepts the value "+INF" whether or not XSD 1.1 is enabled.
@@ -33,7 +35,7 @@ public class Number_1 extends ScalarSystemFunction {
 
     @Override
     public AtomicValue evaluate(Item arg, XPathContext context) throws XPathException {
-        return toNumber((AtomicValue)arg);
+        return toNumeric((AtomicValue)arg);
     }
 
     @Override
@@ -80,8 +82,45 @@ public class Number_1 extends ScalarSystemFunction {
     }
 
     /**
-     * Static method to perform the same conversion as the number() function. This is different from the
-     * convert(Type.DOUBLE) in that it produces NaN rather than an error for non-numeric operands.
+     * The number() function of this fork. XPath specifies xs:double; this fork keeps decimal values in
+     * decimal instead: an xs:decimal or xs:integer argument is returned unchanged, a boolean becomes the
+     * integer 1 or 0, and a string or untyped value with a decimal lexical form, optionally in scientific
+     * notation, becomes an xs:decimal. xs:double and xs:float arguments, "NaN", "INF" and invalid strings
+     * keep the xs:double result of {@link #toNumber}, so invalid input still gives NaN.
+     *
+     * @param arg0 the atomic value to be converted
+     * @return the result of the conversion
+     */
+
+    public static NumericValue toNumeric(AtomicValue arg0) {
+        if (arg0 instanceof BooleanValue) {
+            return ((BooleanValue) arg0).getBooleanValue() ? Int64Value.PLUS_ONE : Int64Value.ZERO;
+        } else if (arg0 instanceof DecimalValue) {
+            return (NumericValue) arg0;
+        } else if (arg0 instanceof StringValue && !(arg0 instanceof AnyURIValue)) {
+            String trimmed = Whitespace.trim(arg0.getStringValue());
+            if (NumericValue.isDecimalLexical(trimmed)) {
+                return new BigDecimalValue(new BigDecimal(trimmed));
+            }
+        }
+        return toNumber(arg0);
+    }
+
+    /**
+     * Static method to perform the same conversion as the number() function of this fork,
+     * see {@link #toNumeric}. It produces NaN rather than an error for non-numeric operands.
+     *
+     * @param value the value to be converted, or null
+     * @return the result of the conversion
+     */
+
+    public static NumericValue convertToNumeric(AtomicValue value) {
+        return value == null ? DoubleValue.NaN : toNumeric(value);
+    }
+
+    /**
+     * Static method to perform the XPath conversion of the number() function to xs:double. This is different
+     * from the convert(Type.DOUBLE) in that it produces NaN rather than an error for non-numeric operands.
      *
      * @param value  the value to be converted
      * @param config the Saxon configuration
@@ -127,7 +166,7 @@ public class Number_1 extends ScalarSystemFunction {
         public ItemEvaluator elaborateForItem() {
             SystemFunctionCall fnc = (SystemFunctionCall) getExpression();
             ItemEvaluator argEval = fnc.getArg(0).makeElaborator().elaborateForItem();
-            return context -> toNumber((AtomicValue)argEval.eval(context));
+            return context -> toNumeric((AtomicValue)argEval.eval(context));
         }
 
 

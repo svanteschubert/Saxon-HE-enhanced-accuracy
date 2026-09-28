@@ -30,7 +30,7 @@ import net.sf.saxon.tree.iter.PrependIterator;
 import net.sf.saxon.type.*;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
-import net.sf.saxon.value.DoubleValue;
+import net.sf.saxon.value.NumericValue;
 import net.sf.saxon.value.StringValue;
 
 import java.util.ArrayList;
@@ -321,8 +321,7 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
 
         if (operator == OperatorSymbol.LT || operator == OperatorSymbol.LE
                 || operator == OperatorSymbol.GT || operator == OperatorSymbol.GE) {
-            final Configuration config = context.getConfiguration();
-            ItemMappingFunction map = ItemMapper.of(item -> Number_1.convert((AtomicValue)item, config));
+            ItemMappingFunction map = ItemMapper.of(item -> Number_1.convertToNumeric((AtomicValue)item));
             iter0 = new ItemMappingIterator(iter0, map, true);
             iter1 = new ItemMappingIterator(iter1, map, true);
         }
@@ -416,8 +415,8 @@ public class GeneralComparison10 extends BinaryExpression implements Callable {
         // the rules of the number() function, and compare them
 
         if (t0.isPrimitiveNumeric() || t1.isPrimitiveNumeric()) {
-            DoubleValue v0 = Number_1.convert(a0, context.getConfiguration());
-            DoubleValue v1 = Number_1.convert(a1, context.getConfiguration());
+            NumericValue v0 = Number_1.convertToNumeric(a0);
+            NumericValue v1 = Number_1.convertToNumeric(a1);
             return ValueComparison.compare(v0, operator, v1, comparer, false);
         }
 

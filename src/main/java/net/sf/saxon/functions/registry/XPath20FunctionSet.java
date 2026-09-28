@@ -364,9 +364,9 @@ public class XPath20FunctionSet extends BuiltInFunctionSet {
                 .arg(0, BuiltInAtomicType.STRING, OPT, StringValue.EMPTY_STRING)
                 .arg(1, BuiltInAtomicType.STRING, ONE, null));
 
-        register("number", 0, e -> e.populate(ContextItemAccessorFunction.Number_0::new, BuiltInAtomicType.DOUBLE, ONE, CITEM | LATE));
+        register("number", 0, e -> e.populate(ContextItemAccessorFunction.Number_0::new, NumericType.getInstance(), ONE, CITEM | LATE));
 
-        register("number", 1, e -> e.populate(Number_1::new, BuiltInAtomicType.DOUBLE, ONE, 0)
+        register("number", 1, e -> e.populate(Number_1::new, NumericType.getInstance(), ONE, 0)
                 .arg(0, BuiltInAtomicType.ANY_ATOMIC, OPT, DoubleValue.NaN));
 
         register("one-or-more", 1, e -> e.populate(TreatFn.OneOrMore::new, Type.ITEM_TYPE, PLUS, AS_ARG0 | FILTER)

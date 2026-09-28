@@ -203,7 +203,7 @@ public class ArithmeticExpression10 extends ArithmeticExpression implements Call
                 th.isSubType(type, BuiltInAtomicType.DECIMAL)) {
             if (operand instanceof Literal) {
                 GroundedValue val = ((Literal) operand).getGroundedValue();
-                return Literal.makeLiteral(Number_1.convert((AtomicValue) val, config), this);
+                return Literal.makeLiteral(Number_1.convertToNumeric((AtomicValue) val), this);
             } else {
                 return SystemFunction.makeCall("number", getRetainedStaticContext(), operand);
             }

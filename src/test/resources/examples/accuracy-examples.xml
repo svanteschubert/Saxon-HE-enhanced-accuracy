@@ -122,6 +122,12 @@
     <stock>1</stock>
     <fork>1.01</fork>
   </example>
+  <example id="B19" cause="binary">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>number(@a) + number(@b)</xpath>
+    <stock>0.30000000000000004</stock>
+    <fork>0.3</fork>
+  </example>
   <example id="R01" cause="rounding">
     <input><v/></input>
     <xpath>round(-0.5)</xpath>
@@ -199,11 +205,5 @@
     <xpath>round(2.5)</xpath>
     <stock>3</stock>
     <fork>3</fork>
-  </example>
-  <example id="S03" cause="same">
-    <input><v a="0.1" b="0.2"/></input>
-    <xpath>number(@a) + number(@b)</xpath>
-    <stock>0.30000000000000004</stock>
-    <fork>0.30000000000000004</fork>
   </example>
 </examples>
