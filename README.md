@@ -13,9 +13,9 @@ This temporary fork of Michael Kay's Saxon is just a showcase of using Saxon in 
 
 After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as a recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
 
-## Proof: simple invoice numbers that go wrong in Saxon-HE 13.0
+## Proof: simple invoice calculations that are incorrect in Saxon-HE 13.0
 
-### The official EU validator accepts a wrong VAT taxable amount
+### The official EU validator accepts an incorrect VAT taxable amount
 
 The unchanged [official EN16931 validation XSLT](https://github.com/ConnectingEurope/eInvoicing-EN16931/releases/tag/validation-1.3.16)
 (release 1.3.16) running on stock Saxon-HE 13.0 accepts a UBL invoice whose VAT category
@@ -26,14 +26,21 @@ the same error in the other direction:
 | 19% VAT taxable amount (the lines add up to 197.37) | UBL, Saxon-HE 13.0 | UBL, this fork | CII, Saxon-HE 13.0 | CII, this fork |
 | --- | --- | --- | --- | --- |
 | 197.37, correct | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ |
-| 196.37, 1.00 too low | $\color{red}\textsf{valid (wrong)}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ |
-| 198.37, 1.00 too high | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ |
+| 196.37, 1.00 too low | $\color{red}\textsf{valid (incorrect)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ |
+| 198.37, 1.00 too high | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ |
 
 UBL BR-S-08 tests `xs:decimal(cbc:TaxableAmount + 1) > sum(…line amounts…)`. Without a
 schema `cbc:TaxableAmount` is untyped, so stock Saxon adds 1 in binary floating-point:
 196.37 + 1 = 197.37000000000000455, which is greater than 197.37. The fork adds in
 decimal, and 197.37 is not greater than 197.37. About half of all two-decimal amounts
-fall on the wrong side like this. Only this one value differs from the
+behave like this in one of the two directions.
+
+UBL and CII get different verdicts on stock Saxon because the official rules implement
+BR-S-08 differently for the two syntaxes. The CII rule compares the taxable amount
+exactly, without tolerance, with the decimal sum of the line amounts: every deviation,
+even a cent, is invalid, and binary arithmetic plays no role. Only the UBL rule has the
+tolerance, and it computes `cbc:TaxableAmount + 1` before casting to `xs:decimal`. Only
+this one value differs from the
 [UBL](src/test/resources/en16931/invoice-2017-ubl.xml) and
 [CII](src/test/resources/en16931/invoice-2017-cii.xml) baseline invoices. Run
 `mvn -Pen16931-comparison -Dmaven.javadoc.skip=true verify` to validate all variants with
@@ -126,33 +133,44 @@ Decimal-based floating-point was invented for the commercial sector.
 It missed the early [IEEE 754 standard](https://ieeexplore.ieee.org/document/8766229) in the late 80ths and still took 20 years until it was embraced by IEEE 754 in 2008.
 Now, being part of all major libraries as [Java](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/math/BigDecimal.html), [.Net](https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0), [Intel](https://software.intel.com/content/www/us/en/develop/articles/intel-decimal-floating-point-math-library.html), etc.
 
-### Invoice Example
+### Invoice Example: the order of operations matters
+
+An invoice line with a price per base quantity (EN16931 BT-146 per BT-149):
 
 ~~~ Java
-quantity = 1000000000.0 
-priceAmount = 1.0 
+quantity = 1000000000.0
+priceAmount = 1.0
 baseQuantity = 3
 ~~~
 
-#### XSLT using binary floating-point
+| Line amount | Saxon-HE 13.0 | This fork |
+| --- | --- | --- |
+| `$quantity * ($priceAmount div $baseQuantity)`, dividing first | `333333333.333333333` | `333333333.3333333333333333333333333` |
+| `$quantity * $priceAmount div $baseQuantity`, multiplying first | `333333333.333333333333333333` | `333333333.3333333333333333333333333333333333` |
 
-~~~ Java
- $quantity * ($priceAmount div $baseQuantity)) = (1000000000.0 *(1.0 div 3 )) = 333333333.333333333333333333                                                                                                                                                          
-($quantity *  $priceAmount div $baseQuantity)  = (1000000000.0 * 1.0 div 3 )  = 333333333.3333333333333333333333333333333333
-~~~
+Mathematically both are the same, but 1 ÷ 3 has no finite decimal result, so every
+division like this has to round: stock Saxon after 18 decimal places, this fork after
+34. Dividing first rounds the small value 0.333… and multiplies its rounding error by
+one billion: only 9 (stock) or 25 (fork) decimal places stay correct. Multiplying first
+and dividing last keeps all 18 or 34. The smallest example is
+`(1.0 div 3) * 3 = 0.999999999999999999`, while `3 * 1.0 div 3 = 1`. Decimal arithmetic
+makes the rounding error far smaller and predictable, but no finite precision removes it,
+so the order still matters. In the energy and pharma sectors, prices with 6 to 9 decimal
+places go along with high quantities, so such errors quickly reach cent level.
 
-##### Accuracy Problem
+#### Principles for accurate invoice calculations
 
-The above values should be the same, but differ by 0.0000000000000003333333333333333.
-In the energy & pharma sector prices with 6 to 9 decimal places are often and also going along with high quantities.
-By this, these errors show-up easily on Cent level.
-
-#### XSLT using decimal-based floating-point (IEEE 754:2008 or later)
-
-~~~ Java
- $quantity * ($priceAmount div $baseQuantity)) = (1000000000.0 *(1.0 div 3 )) = 333333333.3333333333333333333333333 
-($quantity *  $priceAmount div $baseQuantity)  = (1000000000.0 * 1.0 div 3 )  = 333333333.3333333333333333333333333 
-~~~
+1. **Multiply first, divide last.** Enlarge the value (quantity × price) before a
+   division that has to round (÷ base quantity, ÷ 1.19 from a gross to a net price,
+   ÷ exchange rate). Dividing by 100 for a percentage never rounds in decimal.
+2. **Round once, at the end.** Round each amount only when it is stated on the invoice,
+   for example the line net amount to 2 decimal places, and never calculate further with
+   rounded intermediate values, as the EN16931 amendments recommend.
+3. **Round commercially.** Round halves away from zero, as German VAT law requires:
+   −0.665 becomes −0.67, not −0.66.
+4. **Calculate in decimal, not in binary.** Cast XML input with `xs:decimal(.)` instead of
+   `number(.)`, and avoid `xs:double` and `xs:float`: binary floating-point cannot even
+   store 0.1 exactly. This fork calculates untyped XML input in decimal already.
 
 ## For further information on decimal-based floating-point
 

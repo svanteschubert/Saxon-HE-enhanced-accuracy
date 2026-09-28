@@ -137,7 +137,7 @@ All sixteen XML instances (eight cases × two syntaxes) passed their XSDs.
 | Original workbook VAT totals (`source-vat`) | PASS | PASS | PASS | PASS |
 | Negative midpoint: net −3.50, VAT −0.67 | PASS | PASS | PASS | PASS |
 | Same net, VAT −0.66 instead | PASS | PASS | PASS | PASS |
-| 19% VAT taxable amount 196.37, 1.00 too low | **PASS (wrong)** | FAIL | FAIL | FAIL |
+| 19% VAT taxable amount 196.37, 1.00 too low | **PASS (incorrect)** | FAIL | FAIL | FAIL |
 | 19% VAT taxable amount 198.37, 1.00 too high | FAIL | FAIL | FAIL | FAIL |
 | VAT overstated by 5.00; totals reconciled | FAIL | FAIL | FAIL | FAIL |
 | Payable total overstated by 1.00 | FAIL | FAIL | FAIL | FAIL |
