@@ -26,8 +26,8 @@ the same error in the other direction:
 | 19% VAT taxable amount (the lines add up to 197.37) | UBL, Saxon-HE 13.0 | UBL, this fork | CII, Saxon-HE 13.0 | CII, this fork |
 | --- | --- | --- | --- | --- |
 | 197.37, correct | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ |
-| 196.37, 1.00 too low | $\color{red}\textsf{valid (incorrect)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ |
-| 198.37, 1.00 too high | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ | $\color{green}\textsf{invalid (BR-S-08)}$ |
+| 196.37, 1.00 too low | $\color{red}\textsf{valid}$ $\color{red}\textsf{(incorrect)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ |
+| 198.37, 1.00 too high | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ |
 
 UBL BR-S-08 tests `xs:decimal(cbc:TaxableAmount + 1) > sum(…line amounts…)`. Without a
 schema `cbc:TaxableAmount` is untyped, so stock Saxon adds 1 in binary floating-point:
