@@ -25,9 +25,9 @@ the same error in the other direction:
 
 | 19% VAT taxable amount (the lines add up to 197.37) | UBL, Saxon-HE 13.0 | UBL, this fork | CII, Saxon-HE 13.0 | CII, this fork |
 | --- | --- | --- | --- | --- |
-| 197.37, correct | valid | valid | valid | valid |
-| 196.37, 1.00 too low | **valid (wrong)** | BR-S-08 | BR-S-08 | BR-S-08 |
-| 198.37, 1.00 too high | BR-S-08 | BR-S-08 | BR-S-08 | BR-S-08 |
+| 197.37, correct | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ |
+| 196.37, 1.00 too low | $\color{red}\textsf{valid (wrong)}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ |
+| 198.37, 1.00 too high | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ | $\color{green}\textsf{BR-S-08}$ |
 
 UBL BR-S-08 tests `xs:decimal(cbc:TaxableAmount + 1) > sum(…line amounts…)`. Without a
 schema `cbc:TaxableAmount` is untyped, so stock Saxon adds 1 in binary floating-point:
@@ -51,51 +51,51 @@ and here to extend the proof.
 
 Without a schema every XML value is untyped, as in each Schematron validation. Stock Saxon turns it into a binary `xs:double`; the fork into an `xs:decimal`. The same happens to scientific notation such as `0.1e0`.
 
-| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | This fork (all correct) |
 | --- | --- | --- | ---: | ---: |
-| B01 | `<v a="0.1" b="0.2"/>` | `@a + @b` | `0.30000000000000004` | `0.3` |
-| B02 | `<v a="0.1" b="0.2"/>` | `@a + @b = 0.3` | `false` | `true` |
-| B03 | `<v a="0.1" b="0.2"/>` | `@a + @b > 0.3` | `true` | `false` |
-| B04 | `<v net="0.10" vat="0.20" gross="0.30"/>` | `@net + @vat = @gross` | `false` | `true` |
-| B05 | `<v a="0.1" b="0.2"/>` | `sum((@a, @b))` | `0.30000000000000004` | `0.3` |
-| B06 | `<v a="0.1" b="0.2"/>` | `avg((@a, @b))` | `0.15000000000000002` | `0.15` |
-| B07 | `<v a="0.1"/>` | `@a * 3` | `0.30000000000000004` | `0.3` |
-| B08 | `<v x="1.1"/>` | `@x * @x` | `1.2100000000000002` | `1.21` |
-| B09 | `<v a="1.0" b="0.9"/>` | `@a - @b` | `0.09999999999999998` | `0.1` |
-| B10 | `<v a="0.3" b="0.1"/>` | `@a mod @b` | `0.09999999999999998` | `0` |
-| B11 | `<v amount="133.70"/>` | `@amount * 100` | `13369.999999999998` | `13370` |
-| B12 | `<v price="4.35"/>` | `@price * 100` | `434.99999999999994` | `435` |
-| B13 | `<v a="0.7" b="0.1"/>` | `floor((@a + @b) * 10)` | `7` | `8` |
-| B14 | `<v price="1.005"/>` | `round(@price, 2)` | `1` | `1.01` |
-| B15 | `<v price="1.005"/>` | `round(@price * 100) div 100` | `1` | `1.01` |
-| B16 | `<v qty="1" price="1.005"/>` | `round(@qty * @price, 2)` | `1` | `1.01` |
-| B17 | – | `0.1e0 + 0.2e0` | `0.30000000000000004` | `0.3` |
-| B18 | – | `round(1.005e0, 2)` | `1` | `1.01` |
+| B01 | `<v a="0.1" b="0.2"/>` | `@a + @b` | $\color{red}\texttt{0.30000000000000004}$ | $\color{green}\texttt{0.3}$ |
+| B02 | `<v a="0.1" b="0.2"/>` | `@a + @b = 0.3` | $\color{red}\texttt{false}$ | $\color{green}\texttt{true}$ |
+| B03 | `<v a="0.1" b="0.2"/>` | `@a + @b > 0.3` | $\color{red}\texttt{true}$ | $\color{green}\texttt{false}$ |
+| B04 | `<v net="0.10" vat="0.20" gross="0.30"/>` | `@net + @vat = @gross` | $\color{red}\texttt{false}$ | $\color{green}\texttt{true}$ |
+| B05 | `<v a="0.1" b="0.2"/>` | `sum((@a, @b))` | $\color{red}\texttt{0.30000000000000004}$ | $\color{green}\texttt{0.3}$ |
+| B06 | `<v a="0.1" b="0.2"/>` | `avg((@a, @b))` | $\color{red}\texttt{0.15000000000000002}$ | $\color{green}\texttt{0.15}$ |
+| B07 | `<v a="0.1"/>` | `@a * 3` | $\color{red}\texttt{0.30000000000000004}$ | $\color{green}\texttt{0.3}$ |
+| B08 | `<v x="1.1"/>` | `@x * @x` | $\color{red}\texttt{1.2100000000000002}$ | $\color{green}\texttt{1.21}$ |
+| B09 | `<v a="1.0" b="0.9"/>` | `@a - @b` | $\color{red}\texttt{0.09999999999999998}$ | $\color{green}\texttt{0.1}$ |
+| B10 | `<v a="0.3" b="0.1"/>` | `@a mod @b` | $\color{red}\texttt{0.09999999999999998}$ | $\color{green}\texttt{0}$ |
+| B11 | `<v amount="133.70"/>` | `@amount * 100` | $\color{red}\texttt{13369.999999999998}$ | $\color{green}\texttt{13370}$ |
+| B12 | `<v price="4.35"/>` | `@price * 100` | $\color{red}\texttt{434.99999999999994}$ | $\color{green}\texttt{435}$ |
+| B13 | `<v a="0.7" b="0.1"/>` | `floor((@a + @b) * 10)` | $\color{red}\texttt{7}$ | $\color{green}\texttt{8}$ |
+| B14 | `<v price="1.005"/>` | `round(@price, 2)` | $\color{red}\texttt{1}$ | $\color{green}\texttt{1.01}$ |
+| B15 | `<v price="1.005"/>` | `round(@price * 100) div 100` | $\color{red}\texttt{1}$ | $\color{green}\texttt{1.01}$ |
+| B16 | `<v qty="1" price="1.005"/>` | `round(@qty * @price, 2)` | $\color{red}\texttt{1}$ | $\color{green}\texttt{1.01}$ |
+| B17 | – | `0.1e0 + 0.2e0` | $\color{red}\texttt{0.30000000000000004}$ | $\color{green}\texttt{0.3}$ |
+| B18 | – | `round(1.005e0, 2)` | $\color{red}\texttt{1}$ | $\color{green}\texttt{1.01}$ |
 
 #### Rounding: negative halves
 
 XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. Commercial rounding (German VAT law, EN16931) takes it away from zero: −3. This hits every credit note.
 
-| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | This fork (all correct) |
 | --- | --- | --- | ---: | ---: |
-| R01 | – | `round(-0.5)` | `0` | `-1` |
-| R02 | – | `round(-1.5)` | `-1` | `-2` |
-| R03 | – | `round(-2.5)` | `-2` | `-3` |
-| R04 | – | `round(-0.665, 2)` | `-0.66` | `-0.67` |
-| R05 | – | `round(-0.665 * 100) div 100` | `-0.66` | `-0.67` |
-| R06 | `<v qty="-3" price="2.125"/>` | `round(@qty * @price, 2)` | `-6.37` | `-6.38` |
-| R07 | `<v net="-3.50" rate="19"/>` | `round(xs:decimal(@net) * xs:decimal(@rate) div 100, 2)` | `-0.66` | `-0.67` |
-| R08 | – | `format-number(round(-1.005, 2), '0.00')` | `-1.00` | `-1.01` |
+| R01 | – | `round(-0.5)` | $\color{red}\texttt{0}$ | $\color{green}\texttt{-1}$ |
+| R02 | – | `round(-1.5)` | $\color{red}\texttt{-1}$ | $\color{green}\texttt{-2}$ |
+| R03 | – | `round(-2.5)` | $\color{red}\texttt{-2}$ | $\color{green}\texttt{-3}$ |
+| R04 | – | `round(-0.665, 2)` | $\color{red}\texttt{-0.66}$ | $\color{green}\texttt{-0.67}$ |
+| R05 | – | `round(-0.665 * 100) div 100` | $\color{red}\texttt{-0.66}$ | $\color{green}\texttt{-0.67}$ |
+| R06 | `<v qty="-3" price="2.125"/>` | `round(@qty * @price, 2)` | $\color{red}\texttt{-6.37}$ | $\color{green}\texttt{-6.38}$ |
+| R07 | `<v net="-3.50" rate="19"/>` | `round(xs:decimal(@net) * xs:decimal(@rate) div 100, 2)` | $\color{red}\texttt{-0.66}$ | $\color{green}\texttt{-0.67}$ |
+| R08 | – | `format-number(round(-1.005, 2), '0.00')` | $\color{red}\texttt{-1.00}$ | $\color{green}\texttt{-1.01}$ |
 
 #### Division precision
 
 Stock Saxon stops a nonterminating decimal division after 18 decimal places, the fork after 34.
 
-| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | This fork (all correct) |
 | --- | --- | --- | ---: | ---: |
-| P01 | – | `1 div 3` | `0.333333333333333333` | `0.3333333333333333333333333333333333` |
-| P02 | – | `2 div 3` | `0.666666666666666667` | `0.6666666666666666666666666666666667` |
-| P03 | – | `1000000000.0 * (1.0 div 3)` | `333333333.333333333` | `333333333.3333333333333333333333333` |
+| P01 | – | `1 div 3` | $\color{red}\texttt{0.333333333333333333}$ | $\color{green}\texttt{0.3333333333333333333333333333333333}$ |
+| P02 | – | `2 div 3` | $\color{red}\texttt{0.666666666666666667}$ | $\color{green}\texttt{0.6666666666666666666666666666666667}$ |
+| P03 | – | `1000000000.0 * (1.0 div 3)` | $\color{red}\texttt{333333333.333333333}$ | $\color{green}\texttt{333333333.3333333333333333333333333}$ |
 
 #### Same result on both engines
 
@@ -103,9 +103,9 @@ Explicit `xs:decimal` casts are the portable workaround for binary floating-poin
 
 | # | XML input | XPath | Saxon-HE 13.0 | This fork |
 | --- | --- | --- | ---: | ---: |
-| S01 | `<v a="0.1" b="0.2"/>` | `xs:decimal(@a) + xs:decimal(@b)` | `0.3` | `0.3` |
-| S02 | – | `round(2.5)` | `3` | `3` |
-| S03 | `<v a="0.1" b="0.2"/>` | `number(@a) + number(@b)` | `0.30000000000000004` | `0.30000000000000004` |
+| S01 | `<v a="0.1" b="0.2"/>` | `xs:decimal(@a) + xs:decimal(@b)` | $\color{green}\texttt{0.3}$ | $\color{green}\texttt{0.3}$ |
+| S02 | – | `round(2.5)` | $\color{green}\texttt{3}$ | $\color{green}\texttt{3}$ |
+| S03 | `<v a="0.1" b="0.2"/>` | `number(@a) + number(@b)` | $\color{red}\texttt{0.30000000000000004}$ | $\color{red}\texttt{0.30000000000000004}$ |
 
 ## Background
 

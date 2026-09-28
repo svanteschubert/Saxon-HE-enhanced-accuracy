@@ -65,9 +65,14 @@ class AccuracyExamplesTest {
             String row = readme.stream().filter(line -> line.startsWith("| " + example.id() + " |"))
                     .findFirst().orElse(null);
             Assertions.assertNotNull(row, "README.md has no table row for " + example.id());
-            for (String value : List.of(example.xpath(), example.stock(), example.fork())) {
-                Assertions.assertTrue(row.contains("`" + value + "`"),
-                        "README.md row " + example.id() + " must show `" + value + "`");
+            Assertions.assertTrue(row.contains("`" + example.xpath() + "`"),
+                    "README.md row " + example.id() + " must show `" + example.xpath() + "`");
+            // Where the engines differ, stock Saxon's value is shown red (incorrect), the fork's green (correct)
+            boolean same = example.cause().equals("same");
+            for (String cell : List.of((same ? "" : "\\color{red}") + "\\texttt{" + example.stock() + "}$",
+                    (same ? "" : "\\color{green}") + "\\texttt{" + example.fork() + "}$")) {
+                Assertions.assertTrue(row.contains(cell),
+                        "README.md row " + example.id() + " must show " + cell);
             }
         }
     }
