@@ -206,7 +206,7 @@ priceAmount = 1.0
 baseQuantity = 3
 ~~~
 
-| Line amount | Saxon-HE 13.0 | This fork |
+| Line amount | Saxon-HE 13.0 | Svanton |
 | --- | --- | --- |
 | `$quantity * ($priceAmount div $baseQuantity)`, dividing first | `333333333.333333333` | `333333333.3333333333333333333333333` |
 | `$quantity * $priceAmount div $baseQuantity`, multiplying first | `333333333.333333333333333333` | `333333333.3333333333333333333333333333333333` |
@@ -366,3 +366,10 @@ There are two GitHub Actions
   rounding modes of `fn:round` in XPath 4.0 ([qt4cg/qtspecs#1187](https://github.com/qt4cg/qtspecs/issues/1187))
 * [qt4cg/qtspecs#2935](https://github.com/qt4cg/qtspecs/issues/2935): proposal for opt-in commercial
   arithmetic in XPath, XQuery and XSLT 4.0
+
+## Acknowledgement
+
+> [!NOTE]
+> 🇪🇺 Many thanks to [StandICT.eu](https://www.standict.eu/), whose fellowship supported this Saxon fork:
+> fellowship project 02-300 of Open Call #2, from 15 May to 15 November 2021.
+> StandICT.eu 2023 is funded by the European Union under Grant Agreement no. 951972.
