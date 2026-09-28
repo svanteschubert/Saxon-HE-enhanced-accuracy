@@ -2,10 +2,12 @@
 
 The two baseline invoices pass XML Schema validation and the unchanged official
 EN16931 1.3.16 XSLT on **both stock Saxon-HE 13.0 and this enhanced-accuracy fork**.
-The supplied example does not demonstrate a failure of stock Saxon. The official
-rules also accept both rounding outcomes at the negative VAT midpoint tested here.
-Separate arithmetic probes demonstrate the fork's changes without modifying or
-misrepresenting the official validator.
+Changing a single value shows a failure of stock Saxon: with a 19% VAT taxable amount
+of 196.37 instead of 197.37, the official UBL rules accept the invoice on stock Saxon
+and reject it (`BR-S-08`) on the fork, as they do for the CII invoice on both engines.
+The official rules accept both rounding outcomes at the negative VAT midpoint tested
+here. The [example tables in the README](../README.md#simple-calculations) show the
+fork's arithmetic changes without modifying or misrepresenting the official validator.
 
 ## Invoices and input mapping
 
@@ -101,11 +103,11 @@ skipped in the command above only to shorten the build; it does not affect valid
 The default output is `target/en16931-comparison/`:
 
 - `summary.json`: engine and stylesheet hashes, independent financial checks,
-  every assertion failure (ID, location, test, message), and numeric probe results.
+  every assertion failure (ID, location, test, message), and README example results.
 - `invoices/`: baseline copies and all diagnostic variants in both syntaxes.
-- `svrl/`: all 24 full official-validator SVRL results.
+- `svrl/`: all 32 full official-validator SVRL results.
 - `logs/`: XSD validation, exact engine versions and transformation logs.
-- `numeric-probes-stock.xml` and `numeric-probes-enhanced.xml`: supplemental results.
+- `accuracy-examples-stock.xml` and `accuracy-examples-enhanced.xml`: README example results.
 - `cache/`: verified upstream archives, schemas, unmodified stylesheets, and JARs.
 
 Failsafe also writes its integration-test results to `target/failsafe-reports/`.
@@ -118,16 +120,16 @@ SHA-256 checked. Cached archives are checked again on reuse.
 
 ## Observed official validation results
 
-Run on 27 September 2026 through the Java integration test with Temurin JDK
-25.0.4.1, stock Saxon-HE 13.0, and a fresh build of
+Run on 27 September 2026 through the Java integration test with OpenJDK 25.0.4.1,
+stock Saxon-HE 13.0, and a fresh build of
 `com.schubert-consulting:Saxon-HE-accuracy:13.0.1-SNAPSHOT` on `accuracy-feature`.
-The run started with an empty validation cache and downloaded both archives using
-Java's HTTP client. The recorded results and JAR hash below refer to that build.
-The existing Maven suite passed: 22 tests, 18 successful and 4 previously disabled.
-The additional Failsafe integration test passed all 24 official comparisons and
-20 numeric probe outcomes. With the profile disabled, this integration test was
-confirmed to be skipped.
-All twelve XML instances (six cases × two syntaxes) passed their XSDs.
+The validation cache had been downloaded with Java's HTTP client earlier that day
+and was SHA-256 checked again on reuse. The recorded results and JAR hash below refer
+to that build. The Maven suite passed: 57 tests, 56 successful and 1 disabled.
+The additional Failsafe integration test passed all 32 official comparisons and all
+64 example outcomes (32 README examples × 2 engines). With the profile disabled, this
+integration test was confirmed to be skipped.
+All sixteen XML instances (eight cases × two syntaxes) passed their XSDs.
 
 | Case | UBL stock | UBL enhanced | CII stock | CII enhanced |
 | --- | --- | --- | --- | --- |
@@ -135,13 +137,16 @@ All twelve XML instances (six cases × two syntaxes) passed their XSDs.
 | Original workbook VAT totals (`source-vat`) | PASS | PASS | PASS | PASS |
 | Negative midpoint: net −3.50, VAT −0.67 | PASS | PASS | PASS | PASS |
 | Same net, VAT −0.66 instead | PASS | PASS | PASS | PASS |
+| 19% VAT taxable amount 196.37, 1.00 too low | **PASS (wrong)** | FAIL | FAIL | FAIL |
+| 19% VAT taxable amount 198.37, 1.00 too high | FAIL | FAIL | FAIL | FAIL |
 | VAT overstated by 5.00; totals reconciled | FAIL | FAIL | FAIL | FAIL |
 | Payable total overstated by 1.00 | FAIL | FAIL | FAIL | FAIL |
 
-The VAT-overstatement control fails `BR-CO-17` and `BR-S-09` in every run.
-The payable control fails `BR-CO-16` in every run. Baseline SVRL contains 75
-fired rules for UBL and 109 for CII, with no failed assertions or successful-report
-warnings. All 24 outcomes match expectations.
+Both taxable-amount variants fail only `BR-S-08`, except the 1.00-too-low UBL invoice
+on stock Saxon, which passes. The VAT-overstatement control fails `BR-CO-17` and
+`BR-S-09` in every run. The payable control fails `BR-CO-16` in every run. Baseline
+SVRL contains 75 fired rules for UBL and 109 for CII, with no failed assertions or
+successful-report warnings. All 32 outcomes match expectations.
 
 These are **local runs of the official EU/CEN validation artefacts**, not submissions
 to an online EU service. The scope is base EN16931 plus syntax XSDs, not XRechnung,
@@ -149,7 +154,23 @@ Peppol CIUS, a historical 2017 validator release, or a legal/registration check.
 The [upstream project](https://github.com/ConnectingEurope/eInvoicing-EN16931)
 explicitly distinguishes its base rules from CIUS rules.
 
-## Why the official rules do not show the desired difference
+## Where the official rules show a difference, and where they cannot
+
+`BR-S-08` allows the declared VAT category taxable amount to deviate from the sum of
+line amounts, charges and allowances by less than 1.00. In UBL it tests
+`xs:decimal(cbc:TaxableAmount - 1) < sum(…)` and `xs:decimal(cbc:TaxableAmount + 1) > sum(…)`.
+The cast comes after the addition, and without a schema `cbc:TaxableAmount` is untyped,
+so stock Saxon adds in `xs:double`: 196.37 + 1 = 197.37000000000000455 exceeds the
+exact sum 197.37, and the invoice passes. In decimal, 197.37 does not exceed 197.37.
+For 198.37, the binary difference 198.37 − 1 does not come out below 197.37, so both
+engines reject it. About half of all two-decimal amounts behave like 196.37 in one of the two
+directions. The CII rule compares the taxable amount exactly with a decimal sum, so
+stock Saxon rejects both CII variants, and the same business data gets different
+verdicts in the two syntaxes. The CII tolerance rules `BR-AE-08`, `BR-E-08`, `BR-G-08`,
+`BR-IC-08` and `BR-Z-08` use `../ram:BasisAmount - 1` in the same way.
+
+The other effect of the fork, rounding negative halves away from zero, cannot be shown
+with the official rules, for the following reasons.
 
 In the pinned [UBL rules](https://github.com/ConnectingEurope/eInvoicing-EN16931/blob/a519ba02a59e2775436428f57ee96899feb1da8c/ubl/schematron/UBL/EN16931-UBL-model.sch),
 `BR-S-09` casts the amounts and rate to `xs:decimal`. Stock Saxon already performs
@@ -170,31 +191,20 @@ subsequent Saxon-HE transformations. With amounts limited to two decimal places 
 the tolerances above, both give the same verdicts for all cases here.
 
 Thus neither choosing a negative VAT midpoint nor carrying the workbook's extra
-VAT cent creates a defensible “stock rejects, fork accepts” result with these
-unchanged rules. No such result was observed here.
+VAT cent creates a different verdict with these unchanged rules; only the binary
+arithmetic at the tolerance boundary does.
 
 ## Supplemental arithmetic results and useful next experiments
 
-[numeric-probes.xsl](../src/test/resources/en16931/numeric-probes.xsl) is deliberately
-separate from the official XSLT. Its companion XML supplies runtime inputs.
-“Expected” means the decimal/half-away-from-zero policy being investigated; stock
-Saxon's different result is often correct under standard XPath semantics.
+The [example tables in the README](../README.md#simple-calculations) are deliberately
+separate from the official XSLT. Their source,
+[accuracy-examples.xml](../src/test/resources/examples/accuracy-examples.xml), is run on
+both engines by this integration test and on the fork by `AccuracyExamplesTest`.
+The fork's result follows the decimal/half-away-from-zero policy; stock Saxon's different
+result is often correct under standard XPath semantics.
 
-| Probe | Desired result | Stock 13.0 | Enhanced 13.0 |
-| --- | --- | --- | --- |
-| `round(-0.665 * 100) div 100` | −0.67 | −0.66 | −0.67 |
-| `round(-0.665, 2)` | −0.67 | −0.66 | −0.67 |
-| `0.1 + 0.2 = 0.3` | true | true | true |
-| `0.1E0 + 0.2E0 = 0.3E0` | true | false | true |
-| Explicit decimal XML operands: 0.1 + 0.2 = 0.3 | true | true | true |
-| Untyped XML operands: 0.1 + 0.2 = 0.3 | true | false | true |
-| `number()` operands: 0.1 + 0.2 = 0.3 | true | false | false |
-| `(1.0 div 3.0) * 10^20` equals 33333333333333333333.33333333333333 | true | false | true |
-| Line amount, untyped XML: `round(1 × 1.005, 2)` | 1.01 | 1 | 1.01 |
-| Line amount, `xs:decimal`: `round(−3 × 2.125, 2)` | −6.38 | −6.37 | −6.38 |
-
-The two line-amount probes compute quantity (BT-129) × net price (BT-146), which the
-official rules never recalculate. Each isolates one cause. As `xs:double`, 1.005 is
+The line-amount examples B16 and R06 compute quantity (BT-129) × net price (BT-146),
+which the official rules never recalculate. Each isolates one cause. As `xs:double`, 1.005 is
 stored as 1.00499999999999989…, so stock rounds the binary value down; the fork rounds
 the decimal value. In contrast, −6.375 is exact in binary, and stock rounds its negative
 midpoint toward positive infinity, as XPath specifies; the fork rounds away from zero.
@@ -214,8 +224,8 @@ prices, line totals and taxes from source quantities/prices, then validate the
 result. A validator that trusts rounded line amounts cannot reveal every error
 in the calculation that produced them. Exponent literals expose one current fork
 benefit; explicit `xs:decimal` XML casts show the portable decimal baseline.
-`number()` remains a failing probe: it is specified to return `xs:double`, and
-the fork keeps that. Neither probe makes the fork wholly decimal or an IEEE
+`number()` stays binary (example S03): it is specified to return `xs:double`, and
+the fork keeps that. None of the examples makes the fork wholly decimal or an IEEE
 decimal128 implementation.
 
 ## Provenance
@@ -235,7 +245,7 @@ EUPL 1.2. Third-party stylesheets/schemas and the workbook are not vendored.
 | UBL validation XSLT | `39f9d282867f1a49e7708d9e29a53da89643e1ee56f10cec1ebcf1277595fcbd` |
 | CII validation XSLT | `0b234dea2bbfee739b7761e607a992c17fab88773014ef56355b6158cfb1cc53` |
 | Stock Saxon-HE 13.0 JAR | `258fb4788b8e1bd986f9aed14269669412da88c7bb289b747878d4353f6168aa` |
-| Enhanced JAR used in this run | `36bac57acb90d5d423d3397fb377e4694e526f6801c4e007995148940edcfe8b` |
+| Enhanced JAR used in this run | `a19be9b187cb1cccc67c02f9e1679f9e1ab80a33fe95bc0ce4d2556438c9bb8f` |
 
 The enhanced JAR hash can vary between builds because of archive timestamps.
 Every run records its actual hash and Java version in `summary.json`.

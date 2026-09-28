@@ -13,6 +13,100 @@ This temporary fork of Michael Kay's Saxon is just a showcase of using Saxon in 
 
 After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as a recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
 
+## Proof: simple invoice numbers that go wrong in Saxon-HE 13.0
+
+### The official EU validator accepts a wrong VAT taxable amount
+
+The unchanged [official EN16931 validation XSLT](https://github.com/ConnectingEurope/eInvoicing-EN16931/releases/tag/validation-1.3.16)
+(release 1.3.16) running on stock Saxon-HE 13.0 accepts a UBL invoice whose VAT category
+taxable amount (BT-116) is off by exactly 1.00 EUR. Rule BR-S-08 only tolerates a
+deviation *below* 1.00, and stock Saxon does reject the same invoice in CII syntax and
+the same error in the other direction:
+
+| 19% VAT taxable amount (the lines add up to 197.37) | UBL, Saxon-HE 13.0 | UBL, this fork | CII, Saxon-HE 13.0 | CII, this fork |
+| --- | --- | --- | --- | --- |
+| 197.37, correct | valid | valid | valid | valid |
+| 196.37, 1.00 too low | **valid (wrong)** | BR-S-08 | BR-S-08 | BR-S-08 |
+| 198.37, 1.00 too high | BR-S-08 | BR-S-08 | BR-S-08 | BR-S-08 |
+
+UBL BR-S-08 tests `xs:decimal(cbc:TaxableAmount + 1) > sum(…line amounts…)`. Without a
+schema `cbc:TaxableAmount` is untyped, so stock Saxon adds 1 in binary floating-point:
+196.37 + 1 = 197.37000000000000455, which is greater than 197.37. The fork adds in
+decimal, and 197.37 is not greater than 197.37. About half of all two-decimal amounts
+fall on the wrong side like this. Only this one value differs from the
+[UBL](src/test/resources/en16931/invoice-2017-ubl.xml) and
+[CII](src/test/resources/en16931/invoice-2017-cii.xml) baseline invoices. Run
+`mvn -Pen16931-comparison -Dmaven.javadoc.skip=true verify` to validate all variants with
+both engines; see the [comparison report](docs/en16931-comparison.md).
+
+### Simple calculations
+
+Each row is a test. [AccuracyExamplesTest](src/test/java/net/sf/saxon/AccuracyExamplesTest.java)
+checks the fork column with `mvn test`, and the comparison above checks the Saxon-HE 13.0
+column against the original JAR. Both read
+[accuracy-examples.xml](src/test/resources/examples/accuracy-examples.xml); add a row there
+and here to extend the proof.
+
+#### Binary floating-point: the numbers come from XML
+
+Without a schema every XML value is untyped, as in each Schematron validation. Stock Saxon turns it into a binary `xs:double`; the fork into an `xs:decimal`. The same happens to scientific notation such as `0.1e0`.
+
+| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| --- | --- | --- | ---: | ---: |
+| B01 | `<v a="0.1" b="0.2"/>` | `@a + @b` | `0.30000000000000004` | `0.3` |
+| B02 | `<v a="0.1" b="0.2"/>` | `@a + @b = 0.3` | `false` | `true` |
+| B03 | `<v a="0.1" b="0.2"/>` | `@a + @b > 0.3` | `true` | `false` |
+| B04 | `<v net="0.10" vat="0.20" gross="0.30"/>` | `@net + @vat = @gross` | `false` | `true` |
+| B05 | `<v a="0.1" b="0.2"/>` | `sum((@a, @b))` | `0.30000000000000004` | `0.3` |
+| B06 | `<v a="0.1" b="0.2"/>` | `avg((@a, @b))` | `0.15000000000000002` | `0.15` |
+| B07 | `<v a="0.1"/>` | `@a * 3` | `0.30000000000000004` | `0.3` |
+| B08 | `<v x="1.1"/>` | `@x * @x` | `1.2100000000000002` | `1.21` |
+| B09 | `<v a="1.0" b="0.9"/>` | `@a - @b` | `0.09999999999999998` | `0.1` |
+| B10 | `<v a="0.3" b="0.1"/>` | `@a mod @b` | `0.09999999999999998` | `0` |
+| B11 | `<v amount="133.70"/>` | `@amount * 100` | `13369.999999999998` | `13370` |
+| B12 | `<v price="4.35"/>` | `@price * 100` | `434.99999999999994` | `435` |
+| B13 | `<v a="0.7" b="0.1"/>` | `floor((@a + @b) * 10)` | `7` | `8` |
+| B14 | `<v price="1.005"/>` | `round(@price, 2)` | `1` | `1.01` |
+| B15 | `<v price="1.005"/>` | `round(@price * 100) div 100` | `1` | `1.01` |
+| B16 | `<v qty="1" price="1.005"/>` | `round(@qty * @price, 2)` | `1` | `1.01` |
+| B17 | – | `0.1e0 + 0.2e0` | `0.30000000000000004` | `0.3` |
+| B18 | – | `round(1.005e0, 2)` | `1` | `1.01` |
+
+#### Rounding: negative halves
+
+XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. Commercial rounding (German VAT law, EN16931) takes it away from zero: −3. This hits every credit note.
+
+| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| --- | --- | --- | ---: | ---: |
+| R01 | – | `round(-0.5)` | `0` | `-1` |
+| R02 | – | `round(-1.5)` | `-1` | `-2` |
+| R03 | – | `round(-2.5)` | `-2` | `-3` |
+| R04 | – | `round(-0.665, 2)` | `-0.66` | `-0.67` |
+| R05 | – | `round(-0.665 * 100) div 100` | `-0.66` | `-0.67` |
+| R06 | `<v qty="-3" price="2.125"/>` | `round(@qty * @price, 2)` | `-6.37` | `-6.38` |
+| R07 | `<v net="-3.50" rate="19"/>` | `round(xs:decimal(@net) * xs:decimal(@rate) div 100, 2)` | `-0.66` | `-0.67` |
+| R08 | – | `format-number(round(-1.005, 2), '0.00')` | `-1.00` | `-1.01` |
+
+#### Division precision
+
+Stock Saxon stops a nonterminating decimal division after 18 decimal places, the fork after 34.
+
+| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| --- | --- | --- | ---: | ---: |
+| P01 | – | `1 div 3` | `0.333333333333333333` | `0.3333333333333333333333333333333333` |
+| P02 | – | `2 div 3` | `0.666666666666666667` | `0.6666666666666666666666666666666667` |
+| P03 | – | `1000000000.0 * (1.0 div 3)` | `333333333.333333333` | `333333333.3333333333333333333333333` |
+
+#### Same result on both engines
+
+Explicit `xs:decimal` casts are the portable workaround for binary floating-point; positive halves round the same way; `number()` is binary by definition.
+
+| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| --- | --- | --- | ---: | ---: |
+| S01 | `<v a="0.1" b="0.2"/>` | `xs:decimal(@a) + xs:decimal(@b)` | `0.3` | `0.3` |
+| S02 | – | `round(2.5)` | `3` | `3` |
+| S03 | `<v a="0.1" b="0.2"/>` | `number(@a) + number(@b)` | `0.30000000000000004` | `0.30000000000000004` |
+
 ## Background
 
 In the context of EU e-invoice standardisation the CEN Technical Committee 434 discussed for weeks, how it could be achieved that invoices created from different software could be identical in all data fields, especially the calculated amounts were often varying.
@@ -120,8 +214,8 @@ The [UBL and CII examples and comparison report](docs/en16931-comparison.md)
 use fictional German companies, 2017 dates, and 19%/7% VAT. Run
 `mvn -Pen16931-comparison -Dmaven.javadoc.skip=true verify` with JDK 25 to compare the unchanged
 EN16931 1.3.16 XSLT under stock Saxon-HE 13.0 and this fork in separate JVMs.
-Both baseline invoices pass both engines. Separate numeric probes demonstrate
-where the fork differs and where binary floating-point remains in use.
+Both baseline invoices pass both engines; the VAT basis variants above show the
+difference. The same run checks the stock column of the example tables above.
 
 ## Building Saxon from latest Sources
 

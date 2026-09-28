@@ -22,8 +22,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.zip.ZipFile;
 import javax.xml.XMLConstants;
@@ -74,7 +72,7 @@ public class En16931Comparison {
     private final Path java;
 
     private record Asset(String name, String url, String sha256) { }
-    private record InvoiceCase(String name, Path path, List<String> expectedFailures) { }
+    private record InvoiceCase(String name, Path path, Map<String, List<String>> expectedFailures) { }
     private record Svrl(int firedRules, List<Map<String, Object>> failures,
                         List<Map<String, Object>> successfulReports) { }
     private record Line(String name, BigDecimal quantity, String unit, BigDecimal price,
@@ -148,14 +146,14 @@ public class En16931Comparison {
                 "ubl", cache.resolve("xsd/maindoc/UBL-Invoice-2.1.xsd"),
                 "cii", upstream.resolve("cii/schema/D16B SCRDM (Subset)/uncoupled clm/CII/uncefact/data/standard/CrossIndustryInvoice_100pD16B.xsd"));
         List<Object> validations = new ArrayList<>();
-        Map<String, Object> probes = new LinkedHashMap<>();
+        Map<String, Object> examples = new LinkedHashMap<>();
         List<String> unexpected = new ArrayList<>();
         Map<String, Object> summary = object("release", RELEASE, "commit", COMMIT,
                 "baseline_financial_checks", "PASS (independent Java BigDecimal calculation)",
                 "baseline_business_values", invoice.values(),
                 "java", Files.readString(logs.resolve("java-version.log")).trim(),
                 "xslt_sha256", XSLT_HASHES, "engines", engineDetails, "support_jars", supportDetails,
-                "official_validation", validations, "numeric_probes", probes);
+                "official_validation", validations, "accuracy_examples", examples);
         for (String syntax : List.of("ubl", "cii")) {
             Path stylesheet = upstream.resolve(syntax + "/xslt/EN16931-" + syntax.toUpperCase(Locale.ROOT) + "-validation.xslt");
             verifyHash(stylesheet, XSLT_HASHES.get(syntax));
@@ -170,13 +168,14 @@ public class En16931Comparison {
                             "-t", "-s:" + test.path, "-xsl:" + stylesheet, "-o:" + svrlPath);
                     Svrl svrl = readSvrl(svrlPath);
                     List<String> ids = svrl.failures.stream().map(f -> (String) f.get("id")).sorted().toList();
-                    boolean matches = ids.equals(test.expectedFailures.stream().sorted().toList())
+                    List<String> expected = test.expectedFailures.get(engine.getKey());
+                    boolean matches = ids.equals(expected.stream().sorted().toList())
                             && svrl.successfulReports.isEmpty();
                     validations.add(object("case", test.name, "syntax", syntax, "engine", engine.getKey(),
                             "xsd", "PASS", "status", ids.isEmpty() ? "PASS" : "FAIL",
                             "fired_rules", svrl.firedRules, "failures", svrl.failures,
                             "successful_reports", svrl.successfulReports,
-                            "expected_failure_ids", test.expectedFailures, "matches_expectation", matches,
+                            "expected_failure_ids", expected, "matches_expectation", matches,
                             "invoice_sha256", digest(test.path), "svrl", output.relativize(svrlPath).toString()));
                     System.out.println(key + ": " + (ids.isEmpty() ? "PASS" : "FAIL " + String.join(", ", ids)));
                     if (!matches) {
@@ -185,35 +184,24 @@ public class En16931Comparison {
                 }
             }
         }
-        Map<String, List<String>> expectedProbes = Map.of(
-                "negative-vat-round-one-argument", List.of("-0.66", "-0.67"),
-                "negative-vat-round-two-arguments", List.of("-0.66", "-0.67"),
-                "decimal-literals", List.of("true", "true"),
-                "exponent-literals", List.of("false", "true"),
-                "explicit-decimal-xml", List.of("true", "true"),
-                "untyped-xml", List.of("false", "true"),
-                "number-function", List.of("false", "false"),
-                "division-precision", List.of("false", "true"),
-                "line-binary-floating-point", List.of("1", "1.01"),
-                "line-negative-midpoint", List.of("-6.37", "-6.38"));
+        // The README example table: <stock> must match stock Saxon-HE 13.0, <fork> this fork.
+        List<AccuracyExamples.Example> table = AccuracyExamples.load(root.resolve(AccuracyExamples.EXAMPLES));
         for (var engine : classpaths.entrySet()) {
-            Path result = output.resolve("numeric-probes-" + engine.getKey() + ".xml");
+            Path result = output.resolve("accuracy-examples-" + engine.getKey() + ".xml");
             Files.deleteIfExists(result);
-            run(logs.resolve("probes-" + engine.getKey() + ".log"), java, "-cp", engine.getValue(),
-                    "net.sf.saxon.Transform", "-s:" + fixtures.resolve("numeric-probes.xml"),
-                    "-xsl:" + fixtures.resolve("numeric-probes.xsl"), "-o:" + result);
-            List<Map<String, Object>> values = elements(parse(result), "/probes/probe").stream()
-                    .map(En16931Comparison::attributes).toList();
-            probes.put(engine.getKey(), values);
-            Set<Object> ids = values.stream().map(p -> p.get("id")).collect(Collectors.toSet());
-            if (!ids.equals(expectedProbes.keySet()) || values.size() != expectedProbes.size()) {
-                unexpected.add(engine.getKey() + ": missing, extra or duplicate numeric probes");
+            run(logs.resolve("examples-" + engine.getKey() + ".log"), java, "-cp", engine.getValue(),
+                    "net.sf.saxon.Transform", "-s:" + root.resolve(AccuracyExamples.EXAMPLES),
+                    "-xsl:" + root.resolve(AccuracyExamples.STYLESHEET), "-o:" + result);
+            Map<String, String> actual = AccuracyExamples.results(result);
+            examples.put(engine.getKey(), actual);
+            if (!actual.keySet().equals(table.stream().map(AccuracyExamples.Example::id).collect(Collectors.toSet()))) {
+                unexpected.add(engine.getKey() + ": missing or extra accuracy examples");
             }
-            for (Map<String, Object> probe : values) {
-                List<String> expected = expectedProbes.get(probe.get("id"));
-                if (expected == null || !Objects.equals(probe.get("actual"),
-                        expected.get(engine.getKey().equals("enhanced") ? 1 : 0))) {
-                    unexpected.add(engine.getKey() + ": " + probe.get("id") + " = " + probe.get("actual"));
+            for (AccuracyExamples.Example example : table) {
+                String expected = engine.getKey().equals("enhanced") ? example.fork() : example.stock();
+                if (!expected.equals(actual.get(example.id()))) {
+                    unexpected.add(engine.getKey() + ": " + example.id() + " " + example.xpath()
+                            + " = " + actual.get(example.id()) + ", expected " + expected);
                 }
             }
         }
@@ -294,7 +282,8 @@ public class En16931Comparison {
     private List<InvoiceCase> variants(String syntax) throws Exception {
         List<InvoiceCase> cases = new ArrayList<>();
         Path original = fixtures.resolve("invoice-2017-" + syntax + ".xml");
-        for (String name : List.of("baseline", "source-vat", "negative-half-cent", "negative-toward-positive", "invalid-vat", "invalid-payable")) {
+        for (String name : List.of("baseline", "source-vat", "negative-half-cent", "negative-toward-positive",
+                "vat-basis-1-too-low", "vat-basis-1-too-high", "invalid-vat", "invalid-payable")) {
             Path path = inputs.resolve(name + "-" + syntax + ".xml");
             if (name.equals("baseline")) {
                 // Validate the exact fixture bytes, without changing whitespace or namespace declarations.
@@ -346,6 +335,10 @@ public class En16931Comparison {
                         setText(taxTotal, vatTotalPath, "42.92");
                         values = List.of("203.44", "203.44", "246.36", "0.01", "246.37");
                     }
+                    // Only the 19% VAT category taxable amount (BT-116) changes: 197.37 is correct. The rule
+                    // BR-S-08 tolerates a deviation below 1.00, so exactly 1.00 must fail in both directions.
+                    case "vat-basis-1-too-low" -> setText(taxes.get(0), ubl ? "cbc:TaxableAmount" : "ram:BasisAmount", "196.37");
+                    case "vat-basis-1-too-high" -> setText(taxes.get(0), ubl ? "cbc:TaxableAmount" : "ram:BasisAmount", "198.37");
                     case "invalid-payable" -> setText(total, prefix + fields.getLast(), "242.37");
                     default -> throw new IllegalStateException("Unknown case: " + name);
                 }
@@ -359,11 +352,15 @@ public class En16931Comparison {
                 transformer.transform(new DOMSource(document), new StreamResult(path.toFile()));
             }
             List<String> expected = switch (name) {
+                case "vat-basis-1-too-low", "vat-basis-1-too-high" -> List.of("BR-S-08");
                 case "invalid-vat" -> List.of("BR-CO-17", "BR-S-09");
                 case "invalid-payable" -> List.of("BR-CO-16");
                 default -> List.of();
             };
-            cases.add(new InvoiceCase(name, path, expected));
+            // Stock Saxon-HE 13.0 misses this error in UBL: BR-S-08 computes xs:decimal(cbc:TaxableAmount + 1)
+            // on the untyped amount in binary, and 196.37 + 1 = 197.37000000000000455 exceeds 197.37.
+            List<String> expectedStock = name.equals("vat-basis-1-too-low") && syntax.equals("ubl") ? List.of() : expected;
+            cases.add(new InvoiceCase(name, path, Map.of("stock", expectedStock, "enhanced", expected)));
         }
         return cases;
     }

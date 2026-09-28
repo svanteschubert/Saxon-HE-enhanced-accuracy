@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simple calculations that stock Saxon-HE 13.0 gets wrong and this fork gets right.
+  Each XPath is evaluated with the element in <input> as context item; its attributes are
+  untyped, exactly like invoice XML validated by Schematron without a schema.
+
+  <stock> is checked against stock Saxon-HE 13.0 by En16931ComparisonIT
+  (mvn -Pen16931-comparison verify), <fork> against this fork by AccuracyExamplesTest (mvn test).
+  The README table must list every example with the same values; AccuracyExamplesTest checks that.
+
+  cause: binary    - binary floating-point (xs:double) instead of decimal arithmetic
+         rounding  - round() takes negative halves toward positive infinity, not away from zero
+         precision - decimal division stops at 18 instead of 34 decimal places
+         same      - contrast cases with the same result on both engines
+-->
+<examples>
+  <example id="B01" cause="binary">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>@a + @b</xpath>
+    <stock>0.30000000000000004</stock>
+    <fork>0.3</fork>
+  </example>
+  <example id="B02" cause="binary">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>@a + @b = 0.3</xpath>
+    <stock>false</stock>
+    <fork>true</fork>
+  </example>
+  <example id="B03" cause="binary">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>@a + @b &gt; 0.3</xpath>
+    <stock>true</stock>
+    <fork>false</fork>
+  </example>
+  <example id="B04" cause="binary">
+    <input><v net="0.10" vat="0.20" gross="0.30"/></input>
+    <xpath>@net + @vat = @gross</xpath>
+    <stock>false</stock>
+    <fork>true</fork>
+  </example>
+  <example id="B05" cause="binary">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>sum((@a, @b))</xpath>
+    <stock>0.30000000000000004</stock>
+    <fork>0.3</fork>
+  </example>
+  <example id="B06" cause="binary">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>avg((@a, @b))</xpath>
+    <stock>0.15000000000000002</stock>
+    <fork>0.15</fork>
+  </example>
+  <example id="B07" cause="binary">
+    <input><v a="0.1"/></input>
+    <xpath>@a * 3</xpath>
+    <stock>0.30000000000000004</stock>
+    <fork>0.3</fork>
+  </example>
+  <example id="B08" cause="binary">
+    <input><v x="1.1"/></input>
+    <xpath>@x * @x</xpath>
+    <stock>1.2100000000000002</stock>
+    <fork>1.21</fork>
+  </example>
+  <example id="B09" cause="binary">
+    <input><v a="1.0" b="0.9"/></input>
+    <xpath>@a - @b</xpath>
+    <stock>0.09999999999999998</stock>
+    <fork>0.1</fork>
+  </example>
+  <example id="B10" cause="binary">
+    <input><v a="0.3" b="0.1"/></input>
+    <xpath>@a mod @b</xpath>
+    <stock>0.09999999999999998</stock>
+    <fork>0</fork>
+  </example>
+  <example id="B11" cause="binary">
+    <input><v amount="133.70"/></input>
+    <xpath>@amount * 100</xpath>
+    <stock>13369.999999999998</stock>
+    <fork>13370</fork>
+  </example>
+  <example id="B12" cause="binary">
+    <input><v price="4.35"/></input>
+    <xpath>@price * 100</xpath>
+    <stock>434.99999999999994</stock>
+    <fork>435</fork>
+  </example>
+  <example id="B13" cause="binary">
+    <input><v a="0.7" b="0.1"/></input>
+    <xpath>floor((@a + @b) * 10)</xpath>
+    <stock>7</stock>
+    <fork>8</fork>
+  </example>
+  <example id="B14" cause="binary">
+    <input><v price="1.005"/></input>
+    <xpath>round(@price, 2)</xpath>
+    <stock>1</stock>
+    <fork>1.01</fork>
+  </example>
+  <example id="B15" cause="binary">
+    <input><v price="1.005"/></input>
+    <xpath>round(@price * 100) div 100</xpath>
+    <stock>1</stock>
+    <fork>1.01</fork>
+  </example>
+  <example id="B16" cause="binary">
+    <input><v qty="1" price="1.005"/></input>
+    <xpath>round(@qty * @price, 2)</xpath>
+    <stock>1</stock>
+    <fork>1.01</fork>
+  </example>
+  <example id="B17" cause="binary">
+    <input><v/></input>
+    <xpath>0.1e0 + 0.2e0</xpath>
+    <stock>0.30000000000000004</stock>
+    <fork>0.3</fork>
+  </example>
+  <example id="B18" cause="binary">
+    <input><v/></input>
+    <xpath>round(1.005e0, 2)</xpath>
+    <stock>1</stock>
+    <fork>1.01</fork>
+  </example>
+  <example id="R01" cause="rounding">
+    <input><v/></input>
+    <xpath>round(-0.5)</xpath>
+    <stock>0</stock>
+    <fork>-1</fork>
+  </example>
+  <example id="R02" cause="rounding">
+    <input><v/></input>
+    <xpath>round(-1.5)</xpath>
+    <stock>-1</stock>
+    <fork>-2</fork>
+  </example>
+  <example id="R03" cause="rounding">
+    <input><v/></input>
+    <xpath>round(-2.5)</xpath>
+    <stock>-2</stock>
+    <fork>-3</fork>
+  </example>
+  <example id="R04" cause="rounding">
+    <input><v/></input>
+    <xpath>round(-0.665, 2)</xpath>
+    <stock>-0.66</stock>
+    <fork>-0.67</fork>
+  </example>
+  <example id="R05" cause="rounding">
+    <input><v/></input>
+    <xpath>round(-0.665 * 100) div 100</xpath>
+    <stock>-0.66</stock>
+    <fork>-0.67</fork>
+  </example>
+  <example id="R06" cause="rounding">
+    <input><v qty="-3" price="2.125"/></input>
+    <xpath>round(@qty * @price, 2)</xpath>
+    <stock>-6.37</stock>
+    <fork>-6.38</fork>
+  </example>
+  <example id="R07" cause="rounding">
+    <input><v net="-3.50" rate="19"/></input>
+    <xpath>round(xs:decimal(@net) * xs:decimal(@rate) div 100, 2)</xpath>
+    <stock>-0.66</stock>
+    <fork>-0.67</fork>
+  </example>
+  <example id="R08" cause="rounding">
+    <input><v/></input>
+    <xpath>format-number(round(-1.005, 2), '0.00')</xpath>
+    <stock>-1.00</stock>
+    <fork>-1.01</fork>
+  </example>
+  <example id="P01" cause="precision">
+    <input><v/></input>
+    <xpath>1 div 3</xpath>
+    <stock>0.333333333333333333</stock>
+    <fork>0.3333333333333333333333333333333333</fork>
+  </example>
+  <example id="P02" cause="precision">
+    <input><v/></input>
+    <xpath>2 div 3</xpath>
+    <stock>0.666666666666666667</stock>
+    <fork>0.6666666666666666666666666666666667</fork>
+  </example>
+  <example id="P03" cause="precision">
+    <input><v/></input>
+    <xpath>1000000000.0 * (1.0 div 3)</xpath>
+    <stock>333333333.333333333</stock>
+    <fork>333333333.3333333333333333333333333</fork>
+  </example>
+  <example id="S01" cause="same">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>xs:decimal(@a) + xs:decimal(@b)</xpath>
+    <stock>0.3</stock>
+    <fork>0.3</fork>
+  </example>
+  <example id="S02" cause="same">
+    <input><v/></input>
+    <xpath>round(2.5)</xpath>
+    <stock>3</stock>
+    <fork>3</fork>
+  </example>
+  <example id="S03" cause="same">
+    <input><v a="0.1" b="0.2"/></input>
+    <xpath>number(@a) + number(@b)</xpath>
+    <stock>0.30000000000000004</stock>
+    <fork>0.30000000000000004</fork>
+  </example>
+</examples>
