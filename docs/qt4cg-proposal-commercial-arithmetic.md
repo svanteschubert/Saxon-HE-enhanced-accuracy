@@ -9,9 +9,12 @@ keeps today's behaviour:
 
 1. **Default rounding mode**, used by `fn:round` when `$mode` is absent.
    Default `half-to-ceiling`, as today.
-2. **Numeric conversion of untyped values**: `double` (default, as today) or `lexical`,
-   where an `xs:untypedAtomic` value used as a number takes the type its lexical form would
-   have as a numeric literal, as proposed in [#986](https://github.com/qt4cg/qtspecs/issues/986).
+2. **Arithmetic mode**: `double` (default, as today) or `decimal`, as Michael Kay considered
+   in [#986](https://github.com/qt4cg/qtspecs/issues/986). With `decimal`, a module calculates
+   in decimal floating-point throughout: untyped values, `fn:number`, numeric literals and
+   mixed decimal/double arithmetic give `xs:decimal`. Binary floating-point remains only for
+   values that have no decimal equivalent (`NaN`, `INF`) and for functions defined on
+   `xs:double`, such as `math:sqrt`.
 
 A stylesheet or query for commercial calculations, such as the validation of electronic
 invoices, could then declare once that it rounds commercially and calculates in decimal,
@@ -67,8 +70,8 @@ every operand is not.
   numeric to depend on the lexical form of the value, as it does for numeric literals".
   [#2218](https://github.com/qt4cg/qtspecs/pull/2218) adopted a related rule for general comparisons: an untyped value compared with a
   number is cast to the type of the numeric operand, with `xs:double` as fallback. This
-  proposal makes a conversion by lexical form available for arithmetic, as an opt-in, so that
-  existing code is not affected.
+  proposal takes the arithmetic mode further, to decimal arithmetic throughout a module, as an
+  opt-in, so that existing code is not affected.
 
 ## Proposal
 
@@ -81,42 +84,47 @@ of `fn:round`. Its default is `half-to-ceiling`.
 rounding mode of the static context of the call. Dynamic calls such as `round#1` bind it at
 the point where the function item is created, as for the default collation.
 
-### 2. Numeric conversion of untyped values
+### 2. Arithmetic mode
 
-A new static context component, **untyped numeric conversion**, with the values `double`
-(the default) and `lexical`.
+A new static context component, **arithmetic mode**, with the values `double` (the default)
+and `decimal`. The mode `double` is today's behaviour. The mode `decimal` avoids binary
+floating-point wherever a decimal value can represent the number, which gives exact results
+for every calculation that XPath can express in decimals:
 
-With `lexical`, wherever an `xs:untypedAtomic` value is converted to a number without an
-explicit required type of `xs:double` or `xs:float`, it is cast as follows:
+* **Untyped values.** Wherever an `xs:untypedAtomic` value is converted to a number without an
+  explicit required type of `xs:double` or `xs:float`, a lexical form that is valid as a
+  numeric literal (after whitespace normalization) is cast to `xs:integer` or `xs:decimal`,
+  including scientific notation such as `1.5E3`. Other values, such as `NaN` and `INF`, are
+  cast to `xs:double` as today, and invalid input raises the same errors. This applies to
+  arithmetic operators, `fn:sum`, `fn:avg`, `fn:min`, `fn:max`, and the coercion of arguments
+  whose required type is `xs:numeric` (such as `fn:round` and `fn:abs`).
+* **`fn:number`** returns an `xs:decimal` for such a lexical form, and `NaN` as today for
+  anything else.
+* **Numeric literals.** A `DoubleLiteral` such as `1.5e0` denotes an `xs:decimal`.
+* **Mixed arithmetic.** An operation with an `xs:decimal` and an `xs:double` or `xs:float`
+  operand converts the binary operand to `xs:decimal` and returns an `xs:decimal`, the reverse
+  of today's promotion, unless that operand is `NaN` or infinite.
 
-* if its lexical form (after whitespace normalization) is a valid `IntegerLiteral` or
-  `DecimalLiteral`, to `xs:integer` or `xs:decimal`;
-* otherwise to `xs:double`, as today, which covers `NaN`, `INF` and scientific notation, and
-  raises the same errors for invalid input.
-
-This applies to arithmetic operators, to `fn:sum`, `fn:avg`, `fn:min`, `fn:max`, and to the
-coercion of arguments whose required type is `xs:numeric` (such as `fn:round`, `fn:abs`).
-General comparisons keep the rules of [#2218](https://github.com/qt4cg/qtspecs/pull/2218), which already avoid `xs:double` when the other
-operand is an `xs:decimal` or `xs:integer`.
-
-Explicitly typed values keep their type: `xs:double('0.1') + xs:double('0.2')` is still
-binary. Division by zero follows the rules of the resulting type, so dividing two untyped
-decimal values by zero raises `FOAR0001` instead of returning `INF`.
+Binary floating-point then remains only where decimal cannot represent the value (`NaN`,
+positive and negative infinity), in functions defined on `xs:double` such as `math:sqrt`,
+`math:log` or `math:pow`, whose results are mostly irrational, and in operations whose
+operands are all explicitly typed as `xs:double` or `xs:float`. General comparisons keep the
+rules of [#2218](https://github.com/qt4cg/qtspecs/pull/2218).
 
 ### Syntax
 
 * **XSLT:** standard attributes `[xsl:]default-rounding-mode` and
-  `[xsl:]untyped-numeric-conversion`, allowed on any element and scoped like
+  `[xsl:]arithmetic-mode`, allowed on any element and scoped like
   `[xsl:]default-collation`:
 
   ```xml
   <xsl:stylesheet version="4.0" default-rounding-mode="half-away-from-zero"
-                  untyped-numeric-conversion="lexical" …>
+                  arithmetic-mode="decimal" …>
   ```
 
 * **XQuery:** prolog declarations such as
   `declare default rounding-mode "half-away-from-zero";` and
-  `declare untyped-numeric-conversion lexical;`
+  `declare arithmetic-mode decimal;`
 * **XPath hosted by other languages:** static context properties set by the host language
   or API. Schematron could pass them through from a rule set to the generated XSLT; that
   is a matter for ISO Schematron, not for this group.
@@ -132,20 +140,35 @@ decimal values by zero raises `FOAR0001` instead of returning `INF`.
 * **Precedent.** XPath 1.0 compatibility mode is a static context component that already
   changes the semantics of arithmetic and comparisons for a whole module.
 
-## Out of scope
+## Costs of the decimal mode
 
-* **Precision of decimal division.** `fn:divide-decimals` ([#1261](https://github.com/qt4cg/qtspecs/issues/1261)) addresses it.
-* **`fn:number`**, which is specified to return `xs:double`. Should `lexical` also apply to it?
-  Stylesheets written in the XPath 1.0 style use `number()` for every conversion.
-* **Scientific notation.** Should untyped values like `1.5E3`, or even `xs:double` literals,
-  become `xs:decimal` under `lexical`, as in the implementation below?
+Decimal floating-point is more accurate for every value that has a decimal representation,
+which is what commercial data consists of. Its main cost is performance: decimal arithmetic
+needs more memory and CPU time than hardware binary floating-point. It also changes some
+results, which is why the mode is opt-in:
+
+* **Division by zero** raises `FOAR0001` instead of returning `INF` or `NaN`.
+* **Nonterminating division**, such as 1 div 3, is rounded to an implementation-defined
+  precision, as for `xs:decimal` today, where `xs:double` gives about 17 significant digits.
+  `fn:divide-decimals` ([#1261](https://github.com/qt4cg/qtspecs/issues/1261)) gives explicit
+  control.
+* **Extreme magnitudes** such as `1e308` are exact in decimal but need correspondingly large
+  values; an implementation may convert exponents beyond a limit to `xs:double`.
+
+## Open questions
+
+* How is an `xs:double` operand converted in mixed arithmetic: to its exact binary value
+  (0.1000000000000000055511151231257827…), or to the shortest decimal that identifies it
+  (0.1)? The second matches what users see and what the value usually came from.
+* Should the decimal mode also apply to the arithmetic of XPath 1.0 compatibility mode?
 
 ## Implementation experience
 
 [Saxon-HE-enhanced-accuracy](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy),
-a fork of Saxon-HE 13.0, implements both settings as fixed defaults (half away from zero,
-and decimal conversion of untyped values, including `fn:number` and scientific notation) in
-a few hundred lines. Saxon's existing rounding modes and the [#2218](https://github.com/qt4cg/qtspecs/pull/2218) comparison code carried
+a fork of Saxon-HE 13.0, implements both settings as fixed defaults in a few hundred lines:
+half away from zero, and decimal arithmetic for untyped values, `fn:number`, scientific
+notation and XPath 1.0 compatibility mode. It keeps mixed arithmetic with explicitly typed
+`xs:double` values binary. Saxon's existing rounding modes and the [#2218](https://github.com/qt4cg/qtspecs/pull/2218) comparison code carried
 most of the work. [32 example calculations](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy#simple-calculations)
 are run as tests against both the stock and the modified processor, and the official EN 16931
 validation artefacts are run unchanged on both. The code is available under the Mozilla Public
