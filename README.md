@@ -11,6 +11,9 @@ Therefore the (in Germany for VAT) legally required rounding had been added to S
 
 This temporary fork of Michael Kay's Saxon is just a showcase of using Saxon in the e-commerce domain requiring the best numeric accuracy.
 
+In the ZUGFeRD/Factur-X community this fork is known as **Svanton**, a name coined in honour of its author by Jochen Stärk, author of the [Mustang validator](https://github.com/ZUGFeRD/mustangproject).
+It sounds like a Swedish furniture series, which fits: a Saxon that you assemble yourself.
+
 After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as a recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
 
 ## Proof: simple invoice calculations that are incorrect in Saxon-HE 13.0
