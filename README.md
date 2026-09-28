@@ -114,6 +114,40 @@ Explicit `xs:decimal` casts are the portable workaround for binary floating-poin
 | S02 | – | `round(2.5)` | $\color{green}\texttt{3}$ | $\color{green}\texttt{3}$ |
 | S03 | `<v a="0.1" b="0.2"/>` | `number(@a) + number(@b)` | $\color{red}\texttt{0.30000000000000004}$ | $\color{red}\texttt{0.30000000000000004}$ |
 
+## Try it: Maven snapshot release
+
+A snapshot of this fork is available for testing from the Maven Central snapshot
+repository:
+
+~~~ xml
+<repositories>
+  <repository>
+    <id>central-snapshots</id>
+    <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+    <releases><enabled>false</enabled></releases>
+    <snapshots><enabled>true</enabled></snapshots>
+  </repository>
+</repositories>
+
+<dependencies>
+  <dependency>
+    <groupId>com.schubert-consulting</groupId>
+    <artifactId>Saxon-HE-accuracy</artifactId>
+    <version>13.0.1-SNAPSHOT</version>
+  </dependency>
+</dependencies>
+~~~
+
+The JAR is a drop-in replacement for `net.sf.saxon:Saxon-HE:13.0`: the Java packages
+stay `net.sf.saxon`, so s9api, JAXP and the command line work unchanged. Use it
+*instead of* Saxon-HE, never next to it on the same classpath; if another dependency
+brings in Saxon-HE, exclude it there. XML Resolver 6.0.23 comes along as a dependency.
+The snapshot requires Java 25 or newer.
+
+A snapshot is for testing, not for production. Every upload replaces it under the same
+version, and Maven Central deletes snapshots after 90 days. Please report results and
+problems as [GitHub issues](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/issues).
+
 ## Background
 
 In the context of EU e-invoice standardisation the CEN Technical Committee 434 discussed for weeks, how it could be achieved that invoices created from different software could be identical in all data fields, especially the calculated amounts were often varying.
