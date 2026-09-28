@@ -11,7 +11,7 @@ Therefore the (in Germany for VAT) legally required rounding had been added to S
 
 This temporary fork of Michael Kay's Saxon is just a showcase of using Saxon in the e-commerce domain requiring the best numeric accuracy.
 
-In the ZUGFeRD/Factur-X community this fork is known as **Svanton**, a name coined in honour of its author by Jochen Stärk, author of the [Mustang validator](https://github.com/ZUGFeRD/mustangproject).
+In the ZUGFeRD/Factur-X community this **Saxon** fork is known as **Svanton**, a name coined in honour of its author by Jochen Stärk, author of the [Mustang validator](https://github.com/ZUGFeRD/mustangproject).
 It sounds like a Swedish furniture series, which fits: a Saxon that you assemble yourself.
 
 After convincing [CEN TC 434 WG1](https://standards.cen.eu/dyn/www/f?p=204:22:0::::FSP_ORG_ID,FSP_LANG_ID:1971326,25&cs=1F9CEADFE13744B476C348D55B8E70B74) to add decimal-based floating-point-support as a recommendation of the [EU e-invoice standard (EN16931)](https://ec.europa.eu/cefdigital/wiki/display/CEFDIGITAL/Compliance+with+eInvoicing+standard), this project aims to enhance [the EN16031 XSLT Schematron validation reference implementation](https://github.com/ConnectingEurope/eInvoicing-EN16931) with the support of decimal-based floating-point.
@@ -52,7 +52,7 @@ taxable amount (BT-116) is off by exactly 1.00 EUR. Rule BR-S-08 only tolerates 
 deviation *below* 1.00, and stock Saxon does reject the same invoice in CII syntax and
 the same error in the other direction:
 
-| 19% VAT taxable amount (the lines add up to 197.37) | UBL, Saxon-HE 13.0 | UBL, this fork | CII, Saxon-HE 13.0 | CII, this fork |
+| 19% VAT taxable amount (the lines add up to 197.37) | UBL, Saxon-HE 13.0 | UBL, Svanton | CII, Saxon-HE 13.0 | CII, Svanton |
 | --- | --- | --- | --- | --- |
 | 197.37, correct | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ | $\color{green}\textsf{valid}$ |
 | 196.37, 1.00 too low | $\color{red}\textsf{valid}$ $\color{red}\textsf{(incorrect)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ | $\color{green}\textsf{invalid}$ $\color{green}\textsf{(BR-S-08)}$ |
@@ -87,7 +87,7 @@ and here to extend the proof.
 
 Without a schema every XML value is untyped, as in each Schematron validation. Stock Saxon turns it into a binary `xs:double`; the fork into an `xs:decimal`. The same happens to scientific notation such as `0.1e0` and to `number()`.
 
-| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | This fork (all correct) |
+| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | Svanton (all correct) |
 | --- | --- | --- | ---: | ---: |
 | B01 | `<v a="0.1" b="0.2"/>` | `@a + @b` | $\color{red}\texttt{0.30000000000000004}$ | $\color{green}\texttt{0.3}$ |
 | B02 | `<v a="0.1" b="0.2"/>` | `@a + @b = 0.3` | $\color{red}\texttt{false}$ | $\color{green}\texttt{true}$ |
@@ -113,7 +113,7 @@ Without a schema every XML value is untyped, as in each Schematron validation. S
 
 XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. Commercial rounding (German VAT law, EN16931) takes it away from zero: −3. This hits every credit note.
 
-| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | This fork (all correct) |
+| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | Svanton (all correct) |
 | --- | --- | --- | ---: | ---: |
 | R01 | – | `round(-0.5)` | $\color{red}\texttt{0}$ | $\color{green}\texttt{-1}$ |
 | R02 | – | `round(-1.5)` | $\color{red}\texttt{-1}$ | $\color{green}\texttt{-2}$ |
@@ -128,7 +128,7 @@ XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. C
 
 Stock Saxon stops a nonterminating decimal division after 18 decimal places, the fork after 34.
 
-| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | This fork (all correct) |
+| # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | Svanton (all correct) |
 | --- | --- | --- | ---: | ---: |
 | P01 | – | `1 div 3` | $\color{red}\texttt{0.333333333333333333}$ | $\color{green}\texttt{0.3333333333333333333333333333333333}$ |
 | P02 | – | `2 div 3` | $\color{red}\texttt{0.666666666666666667}$ | $\color{green}\texttt{0.6666666666666666666666666666666667}$ |
@@ -138,7 +138,7 @@ Stock Saxon stops a nonterminating decimal division after 18 decimal places, the
 
 Explicit `xs:decimal` casts are the portable workaround for binary floating-point, and positive halves round the same way on both engines.
 
-| # | XML input | XPath | Saxon-HE 13.0 | This fork |
+| # | XML input | XPath | Saxon-HE 13.0 | Svanton |
 | --- | --- | --- | ---: | ---: |
 | S01 | `<v a="0.1" b="0.2"/>` | `xs:decimal(@a) + xs:decimal(@b)` | $\color{green}\texttt{0.3}$ | $\color{green}\texttt{0.3}$ |
 | S02 | – | `round(2.5)` | $\color{green}\texttt{3}$ | $\color{green}\texttt{3}$ |
