@@ -37,8 +37,8 @@ fork.
 To make this behaviour available in every conforming processor without such a deviation,
 [qt4cg/qtspecs#2935](https://github.com/qt4cg/qtspecs/issues/2935) proposes it for
 XPath, XQuery and XSLT 4.0 as an opt-in per stylesheet or query: a default rounding mode
-for `round()` and a decimal conversion of untyped values
-([draft](docs/qt4cg-proposal-commercial-arithmetic.md)).
+for `round()` and a decimal conversion of untyped values. A copy of the proposal is in
+[docs/qt4cg-proposal-commercial-arithmetic.md](docs/qt4cg-proposal-commercial-arithmetic.md).
 
 
 ## Proof: simple invoice calculations that are incorrect in Saxon-HE 13.0
