@@ -17,6 +17,9 @@
   </fileSets>
   <files>
     <file>
+      <source>validate-invoice-example.sh</source>
+    </file>
+    <file>
       <source>${project.build.directory}/${project.build.finalName}-standalone.jar</source>
     </file>
     <file>

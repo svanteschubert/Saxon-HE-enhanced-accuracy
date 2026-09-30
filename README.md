@@ -1,5 +1,27 @@
 # Saxon Home e-Commerce Edition
 
+## Start here: validate an EU e-invoice
+
+**Try Svanton with the bundled invoices and the unchanged official EU EN16931 validator.**
+With Java 25 or newer, run these commands from the repository root:
+
+~~~ bash
+sh validate-invoice-example.sh
+sh validate-invoice-example.sh invalid
+~~~
+
+* The first example prints **`PASS: 0 failed assertions.`**
+* The second prints **`FAIL: 1 failed assertion.`** and explains **`BR-S-08`**.
+  This is the expected result: Svanton rejects an incorrect VAT taxable amount that
+  stock Saxon-HE 13.0 accepts with the same validator XSLT.
+
+**No standalone JAR yet?** The script tells you to run `mvn clean install`, then try again.
+Both commands print the full path to their XML validation report in `target/`.
+They also work from the extracted release ZIP's directory.
+
+See [example details and the direct Java command](#try-the-bundled-eu-e-invoice-validator)
+or [the BETA status and limitations](#status-a-proof-of-concept-released-as-beta).
+
 ## Purpose
 
 This is a fork from the XSLT processor (SAXON Home) to provide accuracy and legal conformatiy in commercial calculations.
@@ -232,26 +254,41 @@ Use it on the command line.
 
 #### Try the bundled EU e-invoice validator
 
-After `mvn package` from the repository root, run this from `target/`:
+From the repository root, run:
 
 ~~~ bash
-cd target
-java -jar Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:examples/en16931/invoice-2017-ubl.xml -xsl:examples/en16931/EN16931-UBL-validation.xslt -o:invoice-validation.svrl.xml
+sh validate-invoice-example.sh
 ~~~
 
-The same `java` command works from the extracted release ZIP's directory. It needs only
-Java 25 or newer; the example XML and XSLT are bundled alongside the standalone JAR.
-The output `invoice-validation.svrl.xml` should contain no `svrl:failed-assert` elements.
+If the standalone JAR or example files are missing, the script asks you to run
+`mvn clean install` from the repository root, then try again. It prints the JAR used,
+the full report path and `PASS: 0 failed assertions.` for this valid invoice.
+The report is written to `target/invoice-validation.svrl.xml`.
+
+The same script works from the extracted release ZIP's directory, where the report is
+written alongside the JAR. Running the example needs a POSIX shell and Java 25 or newer;
+the XML and XSLT files are bundled, and no download is needed.
 
 To see a validation failure, use the bundled invoice whose VAT taxable amount is one euro too low:
 
 ~~~ bash
-java -jar Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:examples/en16931/variants/vat-basis-1-too-low-ubl.xml -xsl:examples/en16931/EN16931-UBL-validation.xslt -o:invalid-invoice-validation.svrl.xml
+sh validate-invoice-example.sh invalid
 ~~~
 
-This report should contain one `svrl:failed-assert` with `id="BR-S-08"`.
-A successful Java exit code means the transformation completed; invoice validation failures
-are recorded in the SVRL report. These examples check the EN16931 UBL business rules, not XML Schema
+This prints `FAIL: 1 failed assertion.` followed by `BR-S-08` and its explanation.
+The report is written to `target/invalid-invoice-validation.svrl.xml`. This failure is expected:
+Svanton correctly rejects the invoice that stock Saxon-HE 13.0 incorrectly accepts using the
+same EU validator XSLT.
+
+For a direct Java invocation from the repository root:
+
+~~~ bash
+java -jar target/Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:target/examples/en16931/invoice-2017-ubl.xml -xsl:target/examples/en16931/EN16931-UBL-validation.xslt -o:target/invoice-validation.svrl.xml
+~~~
+
+The direct Java command writes XML without printing a summary. A successful command or script
+exit means the transformations completed; invoice validation failures are recorded in the report
+and printed by the script. These examples check the EN16931 UBL business rules, not XML Schema
 or country-specific rules.
 
 The bundled stylesheet is unchanged from the official
