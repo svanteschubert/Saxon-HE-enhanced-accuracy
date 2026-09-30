@@ -177,6 +177,18 @@ A snapshot is for testing, not for production. Every upload replaces it under th
 version, and Maven Central deletes snapshots after 90 days. Please report results and
 problems as [GitHub issues](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/issues).
 
+### Without Maven: the standalone JAR
+
+Starting Svanton with XML Resolver 6.0.23 bundled and Java 25 or newer:
+
+~~~ bash
+java -jar Saxon-HE-accuracy-13.0.1-SNAPSHOT-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
+~~~
+
+It is in the ZIP of each [GitHub release](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/releases),
+next to the plain JAR on Maven Central with the classifier `standalone`, and in repository directory `target/` after `mvn package`.
+Use it on the command line.
+
 ## Background
 
 In the context of EU e-invoice standardisation the CEN Technical Committee 434 discussed for weeks, how it could be achieved that invoices created from different software could be identical in all data fields, especially the calculated amounts were often varying.
@@ -301,6 +313,26 @@ EN16931 1.3.16 XSLT under stock Saxon-HE 13.0 and this fork in separate JVMs.
 Both baseline invoices pass both engines; the VAT basis variants above show the
 difference. The same run checks the stock column of the example tables above.
 
+### Release check: only JARs, XML and XSLT
+
+~~~ bash
+mvn -Prelease-check verify
+~~~
+
+This validates every invoice in [cases.xml](src/test/resources/en16931/cases.xml) with the unchanged official
+validator XSLT, running each engine exactly as a user would:
+`java -jar <engine>.jar -s:<invoice> -xsl:EN16931-UBL-validation.xslt -o:<report>`.
+The two engines are Saxon-HE 13.0 as Saxonica distributes it and the standalone Svanton JAR of this build. Both engines also compute the example tables above. A stylesheet run by stock Saxon compares all results with the expected
+ones, writes `target/release-check/report.html`, and fails the build on any mismatch. No Java code of this
+project is involved. To test an already built or downloaded JAR without rebuilding:
+
+~~~ bash
+mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.1-SNAPSHOT-standalone.jar
+~~~
+
+See the [comparison report](docs/en16931-comparison.md#release-check-only-jars-xml-and-xslt) for details
+and a negative control.
+
 ## Building Saxon from latest Sources
 
 As the Saxon HE sources do not exist on GitHub, I downloaded the sources and the pom.xml from the [Maven Repository](https://mvnrepository.com/artifact/net.sf.saxon/Saxon-HE) into a Maven directory structure.
@@ -352,11 +384,13 @@ As we are rebasing our feature branch (accuracy-feature) always on top of the sa
 There are two GitHub Actions
 
 1. [Build](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/maven.yml): Triggered by every push or pull-request on the default branch.
-2. [Deployment](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/deployment.yml): Triggered whenever a tag was pushed a GitHub release is being automated made using the version number extracted from the pom.xml file, for instance:
-   1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br> 
-       e.g. "*git tag -sm v12.4 v12.4*" # using -s to sign the tag & -m is taking the next parameter as message
+2. [Deployment](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/deployment.yml): Triggered by pushing a tag `v<version>`, where `<version>` must be the version of the pom.xml.
+   It runs `mvn -Prelease-check verify` and creates a **draft** GitHub release with the ZIP, the standalone JAR and
+   the release check report. A version with `-alpha`, `-beta`, `-rc` or `-SNAPSHOT` is marked as a pre-release.
+   Review the draft on GitHub and publish it yourself. Maven Central is not touched. For instance:
+   1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
+       e.g. "*git tag -sm v13.0.1-beta-1 v13.0.1-beta-1*" # using -s to sign the tag & -m is taking the next parameter as message
    2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
-*Note*: The overwrite function does not work a release has to be manually deleted for the same version from pom.xml!
 
 ## Reports to Saxonica and the QT4 Community Group
 

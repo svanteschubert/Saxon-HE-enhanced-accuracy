@@ -27,10 +27,6 @@ import java.util.zip.ZipFile;
 import javax.xml.XMLConstants;
 import javax.xml.namespace.NamespaceContext;
 import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.transform.OutputKeys;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 import javax.xml.validation.SchemaFactory;
 import javax.xml.xpath.XPath;
@@ -68,7 +64,6 @@ public class En16931Comparison {
     private final Path cache;
     private final Path logs;
     private final Path reports;
-    private final Path inputs;
     private final Path java;
 
     private record Asset(String name, String url, String sha256) { }
@@ -96,8 +91,7 @@ public class En16931Comparison {
         cache = this.output.resolve("cache");
         logs = this.output.resolve("logs");
         reports = this.output.resolve("svrl");
-        inputs = this.output.resolve("invoices");
-        for (Path path : List.of(cache, logs, reports, inputs)) {
+        for (Path path : List.of(cache, logs, reports)) {
             Files.createDirectories(path);
         }
         // Use the same JDK for the integration test and both engine subprocesses.
@@ -280,89 +274,22 @@ public class En16931Comparison {
     }
 
     private List<InvoiceCase> variants(String syntax) throws Exception {
+        // cases.xml lists the committed invoices and the failed-assert IDs expected per engine.
+        // The release check (mvn -Prelease-check verify) reads the same file.
         List<InvoiceCase> cases = new ArrayList<>();
-        Path original = fixtures.resolve("invoice-2017-" + syntax + ".xml");
-        for (String name : List.of("baseline", "source-vat", "negative-half-cent", "negative-toward-positive",
-                "vat-basis-1-too-low", "vat-basis-1-too-high", "invalid-vat", "invalid-payable")) {
-            Path path = inputs.resolve(name + "-" + syntax + ".xml");
-            if (name.equals("baseline")) {
-                // Validate the exact fixture bytes, without changing whitespace or namespace declarations.
-                Files.copy(original, path, StandardCopyOption.REPLACE_EXISTING);
-            } else {
-                Document document = parse(original);
-                Element root = document.getDocumentElement();
-                boolean ubl = syntax.equals("ubl");
-                Element settlement = ubl ? root : find(root, "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement");
-                Element total = find(settlement, ubl ? "cac:LegalMonetaryTotal" : "ram:SpecifiedTradeSettlementHeaderMonetarySummation");
-                Element taxTotal = ubl ? find(root, "cac:TaxTotal") : total;
-                List<Element> taxes = elements(ubl ? taxTotal : settlement, ubl ? "cac:TaxSubtotal" : "ram:ApplicableTradeTax");
-                String prefix = ubl ? "cbc:" : "ram:";
-                String amountPath = ubl ? "cbc:TaxAmount" : "ram:CalculatedAmount";
-                String vatTotalPath = ubl ? "cbc:TaxAmount" : "ram:TaxTotalAmount";
-                List<String> fields = ubl
-                        ? List.of("LineExtensionAmount", "TaxExclusiveAmount", "TaxInclusiveAmount", "PayableRoundingAmount", "PayableAmount")
-                        : List.of("LineTotalAmount", "TaxBasisTotalAmount", "GrandTotalAmount", "RoundingAmount", "DuePayableAmount");
-                setText(root, ubl ? "cbc:Note" : "rsm:ExchangedDocument/ram:IncludedNote/ram:Content",
-                        "FIKTIVES TESTDOKUMENT. Diagnostische Variante: " + name + ".");
-                List<String> values = null;
-                switch (name) {
-                    case "source-vat" -> {
-                        setText(taxes.get(1), amountPath, "0.43");
-                        setText(taxTotal, vatTotalPath, "37.93");
-                        values = List.of("203.44", "203.44", "241.37", "0.00", "241.37");
-                    }
-                    case "negative-half-cent", "negative-toward-positive" -> {
-                        String vat = name.equals("negative-half-cent") ? "-0.67" : "-0.66";
-                        String gross = name.equals("negative-half-cent") ? "-4.17" : "-4.16";
-                        setText(taxes.get(0), amountPath, vat);
-                        setText(taxes.get(0), ubl ? "cbc:TaxableAmount" : "ram:BasisAmount", "-3.50");
-                        taxes.get(1).getParentNode().removeChild(taxes.get(1));
-                        setText(taxTotal, vatTotalPath, vat);
-                        values = List.of("-3.50", "-3.50", gross, "0.00", gross);
-                        Element transaction = ubl ? root : find(root, "rsm:SupplyChainTradeTransaction");
-                        List<Element> lines = elements(transaction, ubl ? "cac:InvoiceLine" : "ram:IncludedSupplyChainTradeLineItem");
-                        for (Element line : lines.subList(1, lines.size())) {
-                            transaction.removeChild(line);
-                        }
-                        setText(lines.get(0), ubl ? "cbc:InvoicedQuantity" : "ram:SpecifiedLineTradeDelivery/ram:BilledQuantity", "-1");
-                        setText(lines.get(0), ubl ? "cbc:LineExtensionAmount"
-                                : "ram:SpecifiedLineTradeSettlement/ram:SpecifiedTradeSettlementLineMonetarySummation/ram:LineTotalAmount", "-3.50");
-                        setText(lines.get(0), ubl ? "cac:Price/cbc:PriceAmount"
-                                : "ram:SpecifiedLineTradeAgreement/ram:NetPriceProductTradePrice/ram:ChargeAmount", "3.50");
-                    }
-                    case "invalid-vat" -> {
-                        setText(taxes.get(1), amountPath, "5.42");
-                        setText(taxTotal, vatTotalPath, "42.92");
-                        values = List.of("203.44", "203.44", "246.36", "0.01", "246.37");
-                    }
-                    // Only the 19% VAT category taxable amount (BT-116) changes: 197.37 is correct. The rule
-                    // BR-S-08 tolerates a deviation below 1.00, so exactly 1.00 must fail in both directions.
-                    case "vat-basis-1-too-low" -> setText(taxes.get(0), ubl ? "cbc:TaxableAmount" : "ram:BasisAmount", "196.37");
-                    case "vat-basis-1-too-high" -> setText(taxes.get(0), ubl ? "cbc:TaxableAmount" : "ram:BasisAmount", "198.37");
-                    case "invalid-payable" -> setText(total, prefix + fields.getLast(), "242.37");
-                    default -> throw new IllegalStateException("Unknown case: " + name);
-                }
-                if (values != null) {
-                    for (int i = 0; i < fields.size(); i++) {
-                        setText(total, prefix + fields.get(i), values.get(i));
-                    }
-                }
-                var transformer = TransformerFactory.newDefaultInstance().newTransformer();
-                transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
-                transformer.transform(new DOMSource(document), new StreamResult(path.toFile()));
-            }
-            List<String> expected = switch (name) {
-                case "vat-basis-1-too-low", "vat-basis-1-too-high" -> List.of("BR-S-08");
-                case "invalid-vat" -> List.of("BR-CO-17", "BR-S-09");
-                case "invalid-payable" -> List.of("BR-CO-16");
-                default -> List.of();
-            };
-            // Stock Saxon-HE 13.0 misses this error in UBL: BR-S-08 computes xs:decimal(cbc:TaxableAmount + 1)
-            // on the untyped amount in binary, and 196.37 + 1 = 197.37000000000000455 exceeds 197.37.
-            List<String> expectedStock = name.equals("vat-basis-1-too-low") && syntax.equals("ubl") ? List.of() : expected;
-            cases.add(new InvoiceCase(name, path, Map.of("stock", expectedStock, "enhanced", expected)));
+        Element manifest = parse(fixtures.resolve("cases.xml")).getDocumentElement();
+        for (Element invoice : elements(manifest, "case/invoice[@syntax = '" + syntax + "']")) {
+            String name = ((Element) invoice.getParentNode()).getAttribute("id");
+            cases.add(new InvoiceCase(name, fixtures.resolve(invoice.getAttribute("href")),
+                    Map.of("stock", ids(invoice.getAttribute("stock")),
+                            "enhanced", ids(invoice.getAttribute("svanton")))));
         }
+        require(!cases.isEmpty(), "No " + syntax + " invoices in cases.xml.");
         return cases;
+    }
+
+    private static List<String> ids(String value) {
+        return value.isBlank() ? List.of() : List.of(value.trim().split("\\s+"));
     }
 
     private Path assets() throws Exception {
@@ -509,7 +436,6 @@ public class En16931Comparison {
         return result;
     }
     private static String text(Node node, String path) throws Exception { return find(node, path).getTextContent().trim(); }
-    private static void setText(Node node, String path, String value) throws Exception { find(node, path).setTextContent(value); }
     private static BigDecimal number(String value) { return new BigDecimal(value.trim()).stripTrailingZeros(); }
     private static BigDecimal decimal(Node node, String path) throws Exception { return number(text(node, path)); }
     private static List<BigDecimal> decimals(Node node, String prefix, List<String> fields) throws Exception {

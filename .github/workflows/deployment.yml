@@ -1,13 +1,19 @@
-name: Publish JAR on tagging
+name: Draft GitHub release on tagging
+
+# Pushing a tag v<version> (the <version> of pom.xml, e.g. v13.0.1-beta-1) builds the release,
+# runs the release check, and creates a *draft* GitHub release with the files below.
+# Review and publish the draft on GitHub yourself. Maven Central is not touched.
 
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - uses: actions/checkout@v4
     - name: Set up JDK 25
@@ -16,35 +22,37 @@ jobs:
         java-version: '25'
         distribution: 'temurin'
         cache: maven
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml   
-      # This step reads the pom.xml from repo and use its version for the release
-      # This works on any self-hosted runner OS      
-    - name: Read pom.xml and use its version for new release
-      # run: |
-      # echo ::set-env name=VERSION::$(grep -a -m 1 "<version>" | sed 's/.*<version>//p' | head -1 | sed 's/<\/version>//p' | head -1)    
+    - name: Build and run the release check (EN16931 validator on Saxon-HE 13.0 and on this fork)
+      run: mvn -B -Prelease-check verify
+    - name: Create the draft release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.ref_name }}
       run: |
-        echo "release_version=$(cat pom.xml | grep -a -m 1 "<version>" | sed 's/.*<version>//p' | head -1 | sed 's/<\/version>//p' | head -1)" >> $GITHUB_ENV
-      #id: read_version
-      #shell: bash
-      #run: |
-      #  v=$(cat pom.xml)                                  # <--- Read pom.xml
-      #  v="${grep -a -m 1 "<version>" | sed 's/.*<version>//p' | head -1 | sed 's/<\/version>//p' | head -1 }"      # get version number from pom.xml        
-      #  echo "::set-output name=RELEASE_VERSION::$v"         # <--- Set environment variable
-    - name: Upload binaries to release
-      uses: svenstaro/upload-release-action@v2
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: target/Saxon-HE-accuracy-${{ env.release_version }}.jar
-        asset_name: Saxon-HE-accuracy-${{ env.release_version }}.jar
-        tag: v${{ env.release_version }}  # <--- Use environment variables that was created earlier
-        overwrite: true
-        body: "This is a Saxon v${{ env.release_version }} release using decimal-based floating-point and offers half-up rounding as an extension function.\n
-The JAR might be called as [Saxon JAR via command-line](https://www.saxonica.com/html/documentation/using-xsl/commandline/).\n
-For instance, in the root of the GitHub repository after executing a build via 'mvn clean install' the following might be executed by command line:\n
-(here using Linux file paths from Linux)\n
-\n
-~~~ Java\n 
-java -jar ./target/Saxon-HE-accuracy-${{ env.release_version }}.jar -s:src/test/resources/xml/in.xml -xsl:src/test/resources/xsl/test.xsl -o:target/generated-sources/out.xml\n
-~~~\n
-\n"
+        version=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
+        if [ "$TAG" != "v$version" ]; then
+          echo "Tag $TAG does not match the pom.xml version $version (expected v$version)."
+          exit 1
+        fi
+        prerelease=
+        case "$version" in *-alpha*|*-beta*|*-rc*|*-SNAPSHOT) prerelease=--prerelease ;; esac
+        cp target/release-check/report.html "target/Saxon-HE-accuracy-$version-release-check.html"
+        cat > target/release-notes.md <<EOF
+        Saxon-HE 13.0 with decimal arithmetic and commercial rounding ("Svanton").
+
+        **Saxon-HE-accuracy-$version.zip** contains the standalone JAR, which needs nothing but Java 25 or newer:
+
+        \`\`\`
+        java -jar Saxon-HE-accuracy-$version-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
+        \`\`\`
+
+        Maven users take \`com.schubert-consulting:Saxon-HE-accuracy:$version\` from Maven Central instead.
+
+        **Saxon-HE-accuracy-$version-release-check.html** shows the verdicts of the official EN16931 validation
+        XSLT on stock Saxon-HE 13.0 and on this release, created by \`mvn -Prelease-check verify\`.
+        EOF
+        gh release create "$TAG" --draft $prerelease --verify-tag \
+          --title "Saxon-HE-accuracy $version" --notes-file target/release-notes.md \
+          "target/Saxon-HE-accuracy-$version.zip" \
+          "target/Saxon-HE-accuracy-$version-standalone.jar" \
+          "target/Saxon-HE-accuracy-$version-release-check.html"

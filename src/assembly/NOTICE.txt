@@ -1,0 +1,14 @@
+Saxon-HE-accuracy ("Svanton")
+https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy
+
+A fork of Saxon-HE by Saxonica, licensed under the Mozilla Public License 2.0 (see LICENSE).
+
+The standalone JAR also contains, unchanged:
+
+  XML Resolver 6.0.23 (org.xmlresolver:xmlresolver and its "data" JAR)
+  https://github.com/xmlresolver/xmlresolver, by Norm Tovey-Walsh
+  Apache License 2.0 (see licenses/xmlresolver-LICENSE.txt)
+
+Run it without further JARs, for instance:
+
+  java -jar Saxon-HE-accuracy-<version>-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml

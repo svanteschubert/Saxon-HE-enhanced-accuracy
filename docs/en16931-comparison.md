@@ -13,6 +13,9 @@ fork's arithmetic changes without modifying or misrepresenting the official vali
 
 - [UBL 2.1 invoice](../src/test/resources/en16931/invoice-2017-ubl.xml)
 - [UN/CEFACT CII D16B invoice](../src/test/resources/en16931/invoice-2017-cii.xml)
+- [Diagnostic variants](../src/test/resources/en16931/variants/) of both, each changing only the
+  values named in [cases.xml](../src/test/resources/en16931/cases.xml). That file also lists the rule
+  IDs each engine is expected to report.
 
 Both encode invoice `TEST-2017-0001`, issued and delivered on 15 November 2017,
 due on 15 December 2017, in EUR. “2017” is interpreted as both EN16931:2017 and
@@ -64,7 +67,7 @@ net tax basis. This is a documented fixture-design choice, not a change to the
 spreadsheet or evidence of an engine defect. Java `BigDecimal` independently checks
 line calculations, VAT breakdowns, totals, and equivalence of the UBL/CII figures.
 
-A generated `source-vat` variant retains the workbook's original 0.43/37.93 VAT
+The `source-vat` variant retains the workbook's original 0.43/37.93 VAT
 figures and 241.37 total, with zero payable rounding. It passes the official rules
 on both engines because of their tolerances. That pass does not make 0.43 the
 rounded product of 6.07 and 7%.
@@ -88,6 +91,9 @@ through Maven Failsafe. It uses JDK APIs for downloads, hashing, ZIP extraction,
 XML Schema validation, XML processing, process execution, and JSON reports.
 There are no standalone comparison scripts or additional runtime libraries.
 
+The [release check](#release-check-only-jars-xml-and-xslt) validates the same invoices without
+this Java code.
+
 The profile in the root [pom.xml](../pom.xml) copies stock
 `net.sf.saxon:Saxon-HE:13.0` and XML Resolver into a separate directory before
 integration testing. Maven passes `${project.build.directory}/${project.build.finalName}.jar`
@@ -104,7 +110,6 @@ The default output is `target/en16931-comparison/`:
 
 - `summary.json`: engine and stylesheet hashes, independent financial checks,
   every assertion failure (ID, location, test, message), and README example results.
-- `invoices/`: baseline copies and all diagnostic variants in both syntaxes.
 - `svrl/`: all 32 full official-validator SVRL results.
 - `logs/`: XSD validation, exact engine versions and transformation logs.
 - `accuracy-examples-stock.xml` and `accuracy-examples-enhanced.xml`: README example results.
@@ -117,6 +122,37 @@ a successful Java/XSLT exit code alone does not mean an invoice passed. Intentio
 negative controls must fail with exactly the expected rule IDs. Any unexpected
 result fails the integration test and Maven build. Downloaded archives and stylesheets are
 SHA-256 checked. Cached archives are checked again on reuse.
+
+### Release check: only JARs, XML and XSLT
+
+```bash
+mvn -Prelease-check verify
+```
+
+The `release-check` profile builds the release artifacts, then runs every engine exactly as a user would,
+one `java` process per invoice:
+
+```bash
+java -jar <engine>.jar -s:<invoice>.xml -xsl:EN16931-UBL-validation.xslt -o:svrl/<engine>/<invoice>.xml
+```
+
+- **Saxon-HE 13.0** is the official `SaxonHE13-0J.zip` from Saxonica; its JAR finds XML Resolver in `lib/`.
+- **Svanton** is the `-standalone` JAR of this build. To test any other JAR, for instance one downloaded
+  from a GitHub release or Maven Central, without rebuilding:
+
+  ```bash
+  mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.1-SNAPSHOT-standalone.jar
+  ```
+
+The downloads (Saxonica ZIP, validator 1.3.16) and both validator XSLTs are SHA-256 checked. Both engines
+also compute the [accuracy examples](../src/test/resources/examples/accuracy-examples.xml).
+[verdict.xsl](../src/test/resources/release-check/verdict.xsl), run by stock Saxon so that a defect of the fork
+cannot hide itself, compares all results with [cases.xml](../src/test/resources/en16931/cases.xml) and the
+examples. It prints a summary, writes `target/release-check/report.html`, and fails the build on any mismatch.
+Ant, through `maven-antrun-plugin`, only starts the processes. The only Java code involved is Saxon.
+
+As a negative control, passing the stock JAR as `-Dsvanton.jar=target/release-check/cache/SaxonHE13-0J/saxon-he-13.0.jar`
+makes the check fail with the UBL `vat-basis-1-too-low` invoice and 30 calculations.
 
 ## Observed official validation results
 

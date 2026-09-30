@@ -260,6 +260,86 @@
             </archive>
           </configuration>
         </plugin>
+        <!-- Saxon cannot start without XML Resolver. The additional "standalone" JAR bundles it,
+             so "java -jar Saxon-HE-accuracy-<version>-standalone.jar" works without other JARs.
+             It is deployed next to the unchanged main JAR; the POM keeps its dependencies. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>3.6.2</version>
+          <executions>
+            <execution>
+              <id>standalone-jar</id>
+              <phase>package</phase>
+              <goals>
+                <goal>shade</goal>
+              </goals>
+              <configuration>
+                <shadedArtifactAttached>true</shadedArtifactAttached>
+                <shadedClassifierName>standalone</shadedClassifierName>
+                <!-- A reduced POM would drop XML Resolver from the dependencies of the main JAR. -->
+                <createDependencyReducedPom>false</createDependencyReducedPom>
+                <artifactSet>
+                  <includes>
+                    <include>org.xmlresolver:xmlresolver</include>
+                  </includes>
+                </artifactSet>
+                <filters>
+                  <filter>
+                    <artifact>*:*</artifact>
+                    <excludes>
+                      <exclude>META-INF/*.SF</exclude>
+                      <exclude>META-INF/*.DSA</exclude>
+                      <exclude>META-INF/*.RSA</exclude>
+                    </excludes>
+                  </filter>
+                  <filter>
+                    <artifact>org.xmlresolver:*</artifact>
+                    <excludes>
+                      <exclude>META-INF/MANIFEST.MF</exclude>
+                    </excludes>
+                  </filter>
+                </filters>
+                <transformers>
+                  <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                  <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                    <mainClass>net.sf.saxon.Transform</mainClass>
+                  </transformer>
+                  <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                    <resource>META-INF/licenses/xmlresolver-LICENSE.txt</resource>
+                    <file>src/assembly/licenses/xmlresolver-LICENSE.txt</file>
+                  </transformer>
+                  <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                    <resource>META-INF/NOTICE.txt</resource>
+                    <file>src/assembly/NOTICE.txt</file>
+                  </transformer>
+                </transformers>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>3.8.0</version>
+          <executions>
+            <execution>
+              <id>github-release-zip</id>
+              <phase>package</phase>
+              <goals>
+                <goal>single</goal>
+              </goals>
+              <configuration>
+                <descriptors>
+                  <descriptor>src/assembly/dist.xml</descriptor>
+                </descriptors>
+                <appendAssemblyId>false</appendAssemblyId>
+                <!-- For the GitHub release only, never uploaded to Maven Central. -->
+                <attach>false</attach>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
@@ -387,6 +467,154 @@
                   <en16931.fork.jar>${project.build.directory}/${project.build.finalName}.jar</en16931.fork.jar>
                 </systemPropertyVariables>
               </configuration>
+            </plugin>
+          </plugins>
+        </build>
+      </profile>
+      <!-- mvn -Prelease-check verify
+           Runs the unchanged official EN16931 validation XSLT on every invoice listed in
+           src/test/resources/en16931/cases.xml with "java -jar" on two engines: Saxon-HE 13.0 as
+           Saxonica distributes it, and the standalone JAR of this fork (or -Dsvanton.jar=<any JAR>).
+           No project Java code is involved: Ant only starts the java processes. verdict.xsl compares
+           the results with the expectations and fails the build on any mismatch.
+           Without rebuilding: mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=<JAR> -->
+      <profile>
+        <id>release-check</id>
+        <properties>
+          <svanton.jar>${project.build.directory}/${project.build.finalName}-standalone.jar</svanton.jar>
+          <release-check.stock.url>https://github.com/Saxonica/Saxon-HE/releases/download/SaxonHE13-0/SaxonHE13-0J.zip</release-check.stock.url>
+          <release-check.stock.sha256>4a08ac02d8ea26b769bf14274bef27b3c8bbf2557b20b7e4258d172e99638163</release-check.stock.sha256>
+          <release-check.validator.release>1.3.16</release-check.validator.release>
+          <release-check.validator.commit>a519ba02a59e2775436428f57ee96899feb1da8c</release-check.validator.commit>
+          <release-check.validator.sha256>57a52054fb5f56d06ccc8023c3f999c95fc72e392853cd9d633bfccc458105d9</release-check.validator.sha256>
+          <release-check.ubl.sha256>39f9d282867f1a49e7708d9e29a53da89643e1ee56f10cec1ebcf1277595fcbd</release-check.ubl.sha256>
+          <release-check.cii.sha256>0b234dea2bbfee739b7761e607a992c17fab88773014ef56355b6158cfb1cc53</release-check.cii.sha256>
+        </properties>
+        <build>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-antrun-plugin</artifactId>
+              <version>3.2.0</version>
+              <executions>
+                <execution>
+                  <id>release-check</id>
+                  <phase>integration-test</phase>
+                  <goals>
+                    <goal>run</goal>
+                  </goals>
+                  <configuration>
+                    <target>
+                      <property name="rc.dir" location="${project.build.directory}/release-check"/>
+                      <property name="rc.cache" location="${rc.dir}/cache"/>
+                      <property name="rc.fixtures" location="${project.basedir}/src/test/resources/en16931"/>
+                      <property name="rc.java" location="${java.home}/bin/java"/>
+                      <property name="rc.stock.jar" location="${rc.cache}/SaxonHE13-0J/saxon-he-13.0.jar"/>
+                      <property name="rc.validator" location="${rc.cache}/eInvoicing-EN16931-${release-check.validator.commit}"/>
+                      <property name="rc.svanton.jar" location="${svanton.jar}"/>
+
+                      <macrodef name="sha256">
+                        <attribute name="file"/>
+                        <attribute name="expected"/>
+                        <sequential>
+                          <local name="rc.ok"/>
+                          <checksum file="@{file}" algorithm="SHA-256" property="@{expected}" verifyproperty="rc.ok"/>
+                          <fail message="SHA-256 of @{file} is not @{expected}. Delete ${rc.cache} and retry.">
+                            <condition><not><istrue value="${rc.ok}"/></not></condition>
+                          </fail>
+                        </sequential>
+                      </macrodef>
+                      <!-- One java process per invoice:
+                           java -jar <engine> -s:<invoice> -xsl:<validator XSLT> -o:svrl/<engine>/<invoice> -->
+                      <macrodef name="validate">
+                        <attribute name="engine"/>
+                        <attribute name="jar"/>
+                        <attribute name="syntax"/>
+                        <attribute name="xslt"/>
+                        <sequential>
+                          <echo level="info" message="@{engine}: java -jar @{jar} -s:&lt;@{syntax} invoice&gt; -xsl:@{xslt} -o:svrl/@{engine}/&lt;@{syntax} invoice&gt;"/>
+                          <mkdir dir="${rc.dir}/svrl/@{engine}"/>
+                          <apply executable="${rc.java}" failonerror="true" force="true" dest="${rc.dir}/svrl/@{engine}">
+                            <arg value="-jar"/>
+                            <arg file="@{jar}"/>
+                            <srcfile prefix="-s:"/>
+                            <arg value="-xsl:@{xslt}"/>
+                            <targetfile prefix="-o:"/>
+                            <fileset dir="${rc.fixtures}" includes="invoice-2017-@{syntax}.xml variants/*-@{syntax}.xml"/>
+                            <flattenmapper/>
+                          </apply>
+                        </sequential>
+                      </macrodef>
+                      <macrodef name="calculate">
+                        <attribute name="engine"/>
+                        <attribute name="jar"/>
+                        <sequential>
+                          <exec executable="${rc.java}" failonerror="true">
+                            <arg value="-jar"/>
+                            <arg file="@{jar}"/>
+                            <arg value="-s:${project.basedir}/src/test/resources/examples/accuracy-examples.xml"/>
+                            <arg value="-xsl:${project.basedir}/src/test/resources/examples/accuracy-examples.xsl"/>
+                            <arg value="-o:${rc.dir}/accuracy-examples-@{engine}.xml"/>
+                          </exec>
+                        </sequential>
+                      </macrodef>
+
+                      <fail message="Svanton JAR not found: ${rc.svanton.jar}">
+                        <condition><not><available file="${rc.svanton.jar}"/></not></condition>
+                      </fail>
+                      <delete dir="${rc.dir}/svrl"/>
+                      <delete>
+                        <fileset dir="${rc.dir}" includes="accuracy-examples-*.xml report.html" erroronmissingdir="false"/>
+                      </delete>
+                      <mkdir dir="${rc.cache}"/>
+
+                      <!-- Stock Saxon-HE 13.0 as Saxonica distributes it: its JAR finds lib/ via its manifest. -->
+                      <get src="${release-check.stock.url}" dest="${rc.cache}/SaxonHE13-0J.zip" skipexisting="true"/>
+                      <sha256 file="${rc.cache}/SaxonHE13-0J.zip" expected="${release-check.stock.sha256}"/>
+                      <unzip src="${rc.cache}/SaxonHE13-0J.zip" dest="${rc.cache}/SaxonHE13-0J"/>
+
+                      <!-- The official EN16931 validation XSLT, unchanged. -->
+                      <get src="https://codeload.github.com/ConnectingEurope/eInvoicing-EN16931/zip/${release-check.validator.commit}"
+                           dest="${rc.cache}/eInvoicing-EN16931-${release-check.validator.commit}.zip" skipexisting="true"/>
+                      <sha256 file="${rc.cache}/eInvoicing-EN16931-${release-check.validator.commit}.zip" expected="${release-check.validator.sha256}"/>
+                      <unzip src="${rc.cache}/eInvoicing-EN16931-${release-check.validator.commit}.zip" dest="${rc.cache}">
+                        <patternset includes="*/ubl/xslt/** */cii/xslt/** */LICENSE.txt"/>
+                      </unzip>
+                      <sha256 file="${rc.validator}/ubl/xslt/EN16931-UBL-validation.xslt" expected="${release-check.ubl.sha256}"/>
+                      <sha256 file="${rc.validator}/cii/xslt/EN16931-CII-validation.xslt" expected="${release-check.cii.sha256}"/>
+
+                      <validate engine="stock" jar="${rc.stock.jar}" syntax="ubl" xslt="${rc.validator}/ubl/xslt/EN16931-UBL-validation.xslt"/>
+                      <validate engine="stock" jar="${rc.stock.jar}" syntax="cii" xslt="${rc.validator}/cii/xslt/EN16931-CII-validation.xslt"/>
+                      <validate engine="svanton" jar="${rc.svanton.jar}" syntax="ubl" xslt="${rc.validator}/ubl/xslt/EN16931-UBL-validation.xslt"/>
+                      <validate engine="svanton" jar="${rc.svanton.jar}" syntax="cii" xslt="${rc.validator}/cii/xslt/EN16931-CII-validation.xslt"/>
+                      <calculate engine="stock" jar="${rc.stock.jar}"/>
+                      <calculate engine="svanton" jar="${rc.svanton.jar}"/>
+
+                      <!-- The verdict runs on stock Saxon, so a defect of the fork cannot hide itself. -->
+                      <checksum file="${rc.stock.jar}" algorithm="SHA-256" property="rc.stock.sha256"/>
+                      <checksum file="${rc.svanton.jar}" algorithm="SHA-256" property="rc.svanton.sha256"/>
+                      <makeurl file="${rc.fixtures}/cases.xml" property="rc.cases.url"/>
+                      <makeurl file="${project.basedir}/src/test/resources/examples/accuracy-examples.xml" property="rc.examples.url"/>
+                      <makeurl file="${rc.dir}" property="rc.dir.url"/>
+                      <exec executable="${rc.java}" failonerror="true">
+                        <arg value="-jar"/>
+                        <arg file="${rc.stock.jar}"/>
+                        <arg value="-it:main"/>
+                        <arg value="-xsl:${project.basedir}/src/test/resources/release-check/verdict.xsl"/>
+                        <arg value="cases=${rc.cases.url}"/>
+                        <arg value="examples=${rc.examples.url}"/>
+                        <arg value="results=${rc.dir.url}"/>
+                        <arg value="validator=${release-check.validator.release}"/>
+                        <arg value="stock-jar=${rc.stock.jar}"/>
+                        <arg value="stock-sha256=${rc.stock.sha256}"/>
+                        <arg value="svanton-jar=${rc.svanton.jar}"/>
+                        <arg value="svanton-sha256=${rc.svanton.sha256}"/>
+                        <arg value="java-version=${java.vendor} ${java.runtime.version}"/>
+                      </exec>
+                    </target>
+                  </configuration>
+                </execution>
+              </executions>
             </plugin>
           </plugins>
         </build>

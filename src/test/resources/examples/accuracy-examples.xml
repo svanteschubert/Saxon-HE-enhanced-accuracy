@@ -6,6 +6,7 @@
 
   <stock> is checked against stock Saxon-HE 13.0 by En16931ComparisonIT
   (mvn -Pen16931-comparison verify), <fork> against this fork by AccuracyExamplesTest (mvn test).
+  The release check (mvn -Prelease-check verify) checks both columns from the command line.
   The README table must list every example with the same values; AccuracyExamplesTest checks that.
 
   cause: binary    - binary floating-point (xs:double) instead of decimal arithmetic

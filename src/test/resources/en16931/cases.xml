@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  EN16931 invoices validated with the unchanged official validation XSLT (release 1.3.16)
+  and the failed-assert IDs expected from each engine, space-separated; empty means valid.
+
+  stock   - stock Saxon-HE 13.0
+  svanton - this fork (Saxon-HE-accuracy)
+
+  Read by the release check (mvn -Prelease-check verify, verdict.xsl) and by
+  En16931ComparisonIT (mvn -Pen16931-comparison verify). Paths are relative to this file.
+  The variants differ from the baseline invoice only in the values named in "change"
+  and in the invoice note.
+-->
+<cases>
+  <case id="baseline" change="none: the correct invoice">
+    <invoice syntax="ubl" href="invoice-2017-ubl.xml" stock="" svanton=""/>
+    <invoice syntax="cii" href="invoice-2017-cii.xml" stock="" svanton=""/>
+  </case>
+  <case id="source-vat" change="7% VAT 0.43 as in the gross-first workbook, instead of 0.42; totals adjusted">
+    <invoice syntax="ubl" href="variants/source-vat-ubl.xml" stock="" svanton=""/>
+    <invoice syntax="cii" href="variants/source-vat-cii.xml" stock="" svanton=""/>
+  </case>
+  <case id="negative-half-cent" change="one line of -3.50 at 19%, VAT -0.67 (half rounded away from zero)">
+    <invoice syntax="ubl" href="variants/negative-half-cent-ubl.xml" stock="" svanton=""/>
+    <invoice syntax="cii" href="variants/negative-half-cent-cii.xml" stock="" svanton=""/>
+  </case>
+  <case id="negative-toward-positive" change="one line of -3.50 at 19%, VAT -0.66 (half rounded toward positive infinity)">
+    <invoice syntax="ubl" href="variants/negative-toward-positive-ubl.xml" stock="" svanton=""/>
+    <invoice syntax="cii" href="variants/negative-toward-positive-cii.xml" stock="" svanton=""/>
+  </case>
+  <!-- Only the 19% VAT category taxable amount (BT-116) changes: 197.37 is correct. The rule
+       BR-S-08 tolerates a deviation below 1.00, so exactly 1.00 must fail in both directions.
+       Stock Saxon-HE 13.0 misses the error in UBL: BR-S-08 computes xs:decimal(cbc:TaxableAmount + 1)
+       on the untyped amount in binary, and 196.37 + 1 = 197.37000000000000455 exceeds 197.37. -->
+  <case id="vat-basis-1-too-low" change="19% VAT taxable amount 196.37 instead of 197.37">
+    <invoice syntax="ubl" href="variants/vat-basis-1-too-low-ubl.xml" stock="" svanton="BR-S-08"/>
+    <invoice syntax="cii" href="variants/vat-basis-1-too-low-cii.xml" stock="BR-S-08" svanton="BR-S-08"/>
+  </case>
+  <case id="vat-basis-1-too-high" change="19% VAT taxable amount 198.37 instead of 197.37">
+    <invoice syntax="ubl" href="variants/vat-basis-1-too-high-ubl.xml" stock="BR-S-08" svanton="BR-S-08"/>
+    <invoice syntax="cii" href="variants/vat-basis-1-too-high-cii.xml" stock="BR-S-08" svanton="BR-S-08"/>
+  </case>
+  <case id="invalid-vat" change="7% VAT 5.42 instead of 0.42; totals adjusted">
+    <invoice syntax="ubl" href="variants/invalid-vat-ubl.xml" stock="BR-CO-17 BR-S-09" svanton="BR-CO-17 BR-S-09"/>
+    <invoice syntax="cii" href="variants/invalid-vat-cii.xml" stock="BR-CO-17 BR-S-09" svanton="BR-CO-17 BR-S-09"/>
+  </case>
+  <case id="invalid-payable" change="amount payable 242.37 instead of 241.37">
+    <invoice syntax="ubl" href="variants/invalid-payable-ubl.xml" stock="BR-CO-16" svanton="BR-CO-16"/>
+    <invoice syntax="cii" href="variants/invalid-payable-cii.xml" stock="BR-CO-16" svanton="BR-CO-16"/>
+  </case>
+</cases>
