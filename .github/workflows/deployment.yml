@@ -1,6 +1,6 @@
 name: Draft GitHub release on tagging
 
-# Pushing a tag v<version> (the <version> of pom.xml, e.g. v13.0.1-beta-1) builds the release,
+# Pushing a tag v<version> (the <version> of pom.xml, e.g. v13.0.1-BETA) builds the release,
 # runs the release check, and creates a *draft* GitHub release with the files below.
 # Review and publish the draft on GitHub yourself. Maven Central is not touched.
 
@@ -35,7 +35,7 @@ jobs:
           exit 1
         fi
         prerelease=
-        case "$version" in *-alpha*|*-beta*|*-rc*|*-SNAPSHOT) prerelease=--prerelease ;; esac
+        case "$version" in *-alpha*|*-beta*|*-BETA*|*-rc*|*-SNAPSHOT) prerelease=--prerelease ;; esac
         cp target/release-check/report.html "target/Saxon-HE-accuracy-$version-release-check.html"
         cat > target/release-notes.md <<EOF
         Saxon-HE 13.0 with decimal arithmetic and commercial rounding ("Svanton").

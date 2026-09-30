@@ -162,7 +162,7 @@ repository:
   <dependency>
     <groupId>com.schubert-consulting</groupId>
     <artifactId>Saxon-HE-accuracy</artifactId>
-    <version>13.0.1-SNAPSHOT</version>
+    <version>13.0.1-BETA</version>
   </dependency>
 </dependencies>
 ~~~
@@ -182,7 +182,7 @@ problems as [GitHub issues](https://github.com/svanteschubert/Saxon-HE-enhanced-
 Starting Svanton with XML Resolver 6.0.23 bundled and Java 25 or newer:
 
 ~~~ bash
-java -jar Saxon-HE-accuracy-13.0.1-SNAPSHOT-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
+java -jar Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
 ~~~
 
 It is in the ZIP of each [GitHub release](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/releases),
@@ -327,7 +327,7 @@ ones, writes `target/release-check/report.html`, and fails the build on any mism
 project is involved. To test an already built or downloaded JAR without rebuilding:
 
 ~~~ bash
-mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.1-SNAPSHOT-standalone.jar
+mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.1-BETA-standalone.jar
 ~~~
 
 See the [comparison report](docs/en16931-comparison.md#release-check-only-jars-xml-and-xslt) for details
@@ -386,10 +386,10 @@ There are two GitHub Actions
 1. [Build](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/maven.yml): Triggered by every push or pull-request on the default branch.
 2. [Deployment](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/blob/accuracy-feature/.github/workflows/deployment.yml): Triggered by pushing a tag `v<version>`, where `<version>` must be the version of the pom.xml.
    It runs `mvn -Prelease-check verify` and creates a **draft** GitHub release with the ZIP, the standalone JAR and
-   the release check report. A version with `-alpha`, `-beta`, `-rc` or `-SNAPSHOT` is marked as a pre-release.
+   the release check report. A version with `-alpha`, `-beta`, `-BETA`, `-rc` or `-SNAPSHOT` is marked as a pre-release.
    Review the draft on GitHub and publish it yourself. Maven Central is not touched. For instance:
    1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
-       e.g. "*git tag -sm v13.0.1-beta-1 v13.0.1-beta-1*" # using -s to sign the tag & -m is taking the next parameter as message
+       e.g. "*git tag -sm v13.0.1-BETA v13.0.1-BETA*" # using -s to sign the tag & -m is taking the next parameter as message
    2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
 
 ## Reports to Saxonica and the QT4 Community Group

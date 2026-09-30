@@ -98,7 +98,7 @@ The profile in the root [pom.xml](../pom.xml) copies stock
 `net.sf.saxon:Saxon-HE:13.0` and XML Resolver into a separate directory before
 integration testing. Maven passes `${project.build.directory}/${project.build.finalName}.jar`
 to the test, so the comparison follows the current fork coordinates and version,
-including `com.schubert-consulting:Saxon-HE-accuracy:13.0.1-SNAPSHOT`.
+including `com.schubert-consulting:Saxon-HE-accuracy:13.0.1-BETA`.
 Each engine runs in its own JVM with the same XML Resolver dependencies.
 The stock JAR and fork JAR are never put on the same classpath.
 
@@ -141,7 +141,7 @@ java -jar <engine>.jar -s:<invoice>.xml -xsl:EN16931-UBL-validation.xslt -o:svrl
   from a GitHub release or Maven Central, without rebuilding:
 
   ```bash
-  mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.1-SNAPSHOT-standalone.jar
+  mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.1-BETA-standalone.jar
   ```
 
 The downloads (Saxonica ZIP, validator 1.3.16) and both validator XSLTs are SHA-256 checked. Both engines
