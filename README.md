@@ -436,10 +436,20 @@ There are two GitHub Actions
 ## Publishing to Maven Central
 
 Maven Central accepts a release such as `13.0.1-BETA` only if every file is signed with GPG.
-The profile `central-release` signs the POM and all JARs:
+The profile `central-release` uses `maven-gpg-plugin` in the `verify` phase to sign the POM,
+main JAR, standalone JAR, sources JAR and Javadoc JAR. To build, test and sign locally:
 
 ~~~ bash
-mvn -Prelease-check,central-release deploy
+mvn -Prelease-check,central-release verify -Dgpg.keyname=YOUR_KEY_FINGERPRINT
+~~~
+
+Use the fingerprint of your existing signing key.
+You can omit `-Dgpg.keyname` if your default GPG key is correct, or if `gpg.keyname` is already
+set in an active profile in `~/.m2/settings.xml`. Detached signatures are written to `target/gpg/`.
+The `verify` command does not upload anything. To upload the signed release:
+
+~~~ bash
+mvn -Prelease-check,central-release deploy -Dgpg.keyname=YOUR_KEY_FINGERPRINT
 ~~~
 
 This builds and tests the release, runs the release check, signs the files and uploads them to the
@@ -447,6 +457,7 @@ This builds and tests the release, runs the release check, signs the files and u
 click on *Publish*. A published version can neither be replaced nor deleted.
 
 * Run the command without `-B`, so that GPG can ask for the passphrase of the key.
+  Let `gpg-agent` handle the passphrase.
 * The public key must be on a key server that Central reads, such as
   [keys.openpgp.org](https://keys.openpgp.org) or [keyserver.ubuntu.com](https://keyserver.ubuntu.com).
 * The upload needs a Central Portal token as server `central` in `~/.m2/settings.xml`.
