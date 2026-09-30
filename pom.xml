@@ -255,6 +255,30 @@
           <version>3.4.0</version>
           <executions>
             <execution>
+              <id>standalone-invoice-example</id>
+              <phase>process-resources</phase>
+              <goals>
+                <goal>copy-resources</goal>
+              </goals>
+              <configuration>
+                <outputDirectory>${project.build.directory}/examples/en16931</outputDirectory>
+                <resources>
+                  <resource>
+                    <directory>src/assembly/examples/en16931</directory>
+                    <filtering>false</filtering>
+                  </resource>
+                  <resource>
+                    <directory>src/test/resources/en16931</directory>
+                    <filtering>false</filtering>
+                    <includes>
+                      <include>invoice-2017-ubl.xml</include>
+                      <include>variants/vat-basis-1-too-low-ubl.xml</include>
+                    </includes>
+                  </resource>
+                </resources>
+              </configuration>
+            </execution>
+            <execution>
               <id>licence-into-jars</id>
               <phase>process-resources</phase>
               <goals>

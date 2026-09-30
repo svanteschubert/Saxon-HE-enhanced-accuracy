@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The ZIP for the GitHub release: the standalone JAR, which runs with "java -jar" alone,
-     and the licences. It is not attached, so it is never uploaded to Maven Central. -->
+     the invoice example and the licences. It is not attached, so it is never uploaded to Maven Central. -->
 <assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
@@ -9,6 +9,12 @@
     <format>zip</format>
   </formats>
   <baseDirectory>${project.artifactId}-${project.version}</baseDirectory>
+  <fileSets>
+    <fileSet>
+      <directory>${project.build.directory}/examples</directory>
+      <outputDirectory>examples</outputDirectory>
+    </fileSet>
+  </fileSets>
   <files>
     <file>
       <source>${project.build.directory}/${project.build.finalName}-standalone.jar</source>

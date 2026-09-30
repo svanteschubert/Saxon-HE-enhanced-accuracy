@@ -230,6 +230,36 @@ It is in the ZIP of each [GitHub release](https://github.com/svanteschubert/Saxo
 next to the plain JAR on Maven Central with the classifier `standalone`, and in repository directory `target/` after `mvn package`.
 Use it on the command line.
 
+#### Try the bundled EU e-invoice validator
+
+After `mvn package` from the repository root, run this from `target/`:
+
+~~~ bash
+cd target
+java -jar Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:examples/en16931/invoice-2017-ubl.xml -xsl:examples/en16931/EN16931-UBL-validation.xslt -o:invoice-validation.svrl.xml
+~~~
+
+The same `java` command works from the extracted release ZIP's directory. It needs only
+Java 25 or newer; the example XML and XSLT are bundled alongside the standalone JAR.
+The output `invoice-validation.svrl.xml` should contain no `svrl:failed-assert` elements.
+
+To see a validation failure, use the bundled invoice whose VAT taxable amount is one euro too low:
+
+~~~ bash
+java -jar Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:examples/en16931/variants/vat-basis-1-too-low-ubl.xml -xsl:examples/en16931/EN16931-UBL-validation.xslt -o:invalid-invoice-validation.svrl.xml
+~~~
+
+This report should contain one `svrl:failed-assert` with `id="BR-S-08"`.
+A successful Java exit code means the transformation completed; invoice validation failures
+are recorded in the SVRL report. These examples check the EN16931 UBL business rules, not XML Schema
+or country-specific rules.
+
+The bundled stylesheet is unchanged from the official
+[EN16931 validator 1.3.16](https://github.com/ConnectingEurope/eInvoicing-EN16931/tree/a519ba02a59e2775436428f57ee96899feb1da8c)
+and is supplied with its EUPL 1.2 license in `examples/en16931/LICENSE.txt`.
+Its SHA-256 is `39f9d282867f1a49e7708d9e29a53da89643e1ee56f10cec1ebcf1277595fcbd`,
+also pinned by this project's release check.
+
 ## Background
 
 In the context of EU e-invoice standardisation the CEN Technical Committee 434 discussed for weeks, how it could be achieved that invoices created from different software could be identical in all data fields, especially the calculated amounts were often varying.
