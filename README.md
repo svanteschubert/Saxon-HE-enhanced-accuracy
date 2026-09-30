@@ -41,6 +41,56 @@ for `round()` and a decimal arithmetic mode that avoids binary floating-point. A
 the proposal is in
 [docs/qt4cg-proposal-commercial-arithmetic.md](docs/qt4cg-proposal-commercial-arithmetic.md).
 
+## Status: a proof of concept, released as BETA
+
+This repository is a proof of concept. It shows that an XSLT processor can calculate
+e-commerce documents, such as e-invoices, in decimal arithmetic and with commercial
+rounding. It is not a finished product, and use in production may require further testing.
+
+Please test it; that is why this release is a BETA:
+
+* Run the stylesheets and e-commerce documents you work with, for example invoices, credit
+  notes and orders, on this fork and on your existing XSLT processor, and compare the
+  results. [Try it](#try-it-the-beta-release) describes how to get the BETA.
+* The only intended differences concern numbers: decimal instead of binary floating-point,
+  commercial rounding of negative halves and a higher division precision. The chapters
+  below explain them, and
+  [Saxon 13.0 accuracy fixes and remaining limits](#saxon-130-accuracy-fixes-and-remaining-limits)
+  lists the known limits.
+* Please report your results, and above all any other difference, as a
+  [GitHub issue](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/issues).
+
+The [release check](#release-check-only-jars-xml-and-xslt) of this repository makes such a
+comparison for the official EN16931 validator.
+
+### No warranty: use at your own risk
+
+You use this software at your own risk. It is provided "as is", without warranty of any
+kind. To the extent permitted by law, neither the author of this fork nor any other
+contributor is liable for damage that results from using it, for example from an incorrect
+calculation, an incorrect validation result, or an invoice that is wrongly accepted or
+rejected. Checking that the results are correct for your purpose remains your
+responsibility.
+
+The open-source licences under which this software is provided state these terms in full:
+
+* Saxon-HE and this fork: [Mozilla Public License 2.0](LICENSE), section 6 "Disclaimer of
+  Warranty" and section 7 "Limitation of Liability".
+* XML Resolver, which Saxon needs and the standalone JAR contains:
+  [Apache License 2.0](src/assembly/licenses/xmlresolver-LICENSE.txt), section 7
+  "Disclaimer of Warranty" and section 8 "Limitation of Liability".
+
+### Support and contributions
+
+Patches are always welcome: please send a
+[pull request](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/pulls).
+
+At present there is no support commitment for this fork. I may take on commercial support
+over several years, provided that several parties are interested; otherwise it might become
+too expensive. If you are interested, please say so in a
+[GitHub issue](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/issues).
+Such support would be a separate agreement. Without one, the terms above apply.
+
 
 ## Proof: simple invoice calculations that are incorrect in Saxon-HE 13.0
 
@@ -143,38 +193,26 @@ Explicit `xs:decimal` casts are the portable workaround for binary floating-poin
 | S01 | `<v a="0.1" b="0.2"/>` | `xs:decimal(@a) + xs:decimal(@b)` | $\color{green}\texttt{0.3}$ | $\color{green}\texttt{0.3}$ |
 | S02 | – | `round(2.5)` | $\color{green}\texttt{3}$ | $\color{green}\texttt{3}$ |
 
-## Try it: Maven snapshot release
+## Try it: the BETA release
 
-A snapshot of this fork is available for testing from the Maven Central snapshot
-repository:
+The BETA of this fork is available for testing from Maven Central:
 
 ~~~ xml
-<repositories>
-  <repository>
-    <id>central-snapshots</id>
-    <url>https://central.sonatype.com/repository/maven-snapshots/</url>
-    <releases><enabled>false</enabled></releases>
-    <snapshots><enabled>true</enabled></snapshots>
-  </repository>
-</repositories>
-
-<dependencies>
-  <dependency>
-    <groupId>com.schubert-consulting</groupId>
-    <artifactId>Saxon-HE-accuracy</artifactId>
-    <version>13.0.1-BETA</version>
-  </dependency>
-</dependencies>
+<dependency>
+  <groupId>com.schubert-consulting</groupId>
+  <artifactId>Saxon-HE-accuracy</artifactId>
+  <version>13.0.1-BETA</version>
+</dependency>
 ~~~
 
 The JAR is a drop-in replacement for `net.sf.saxon:Saxon-HE:13.0`: the Java packages
 stay `net.sf.saxon`, so s9api, JAXP and the command line work unchanged. Use it
 *instead of* Saxon-HE, never next to it on the same classpath; if another dependency
 brings in Saxon-HE, exclude it there. XML Resolver 6.0.23 comes along as a dependency.
-The snapshot requires Java 25 or newer.
+The BETA requires Java 25 or newer.
 
-A snapshot is for testing, not for production. Every upload replaces it under the same
-version, and Maven Central deletes snapshots after 90 days. Please report results and
+The BETA is for testing, not yet for production: see
+[Status](#status-a-proof-of-concept-released-as-beta). Please report results and
 problems as [GitHub issues](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/issues).
 
 ### Without Maven: the standalone JAR
