@@ -247,6 +247,34 @@
                 </systemPropertyVariables>
             </configuration>
         </plugin>
+        <!-- LICENSE and NOTICE.txt travel in META-INF of every JAR, so the licence with its
+             disclaimer of warranty reaches everyone who receives a JAR without this repository. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.4.0</version>
+          <executions>
+            <execution>
+              <id>licence-into-jars</id>
+              <phase>process-resources</phase>
+              <goals>
+                <goal>copy-resources</goal>
+              </goals>
+              <configuration>
+                <outputDirectory>${project.build.outputDirectory}/META-INF</outputDirectory>
+                <resources>
+                  <resource>
+                    <directory>${project.basedir}</directory>
+                    <includes>
+                      <include>LICENSE</include>
+                      <include>NOTICE.txt</include>
+                    </includes>
+                  </resource>
+                </resources>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
@@ -304,13 +332,10 @@
                   <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                     <mainClass>net.sf.saxon.Transform</mainClass>
                   </transformer>
+                  <!-- LICENSE and NOTICE.txt come from the main JAR; only this licence is added. -->
                   <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                     <resource>META-INF/licenses/xmlresolver-LICENSE.txt</resource>
                     <file>src/assembly/licenses/xmlresolver-LICENSE.txt</file>
-                  </transformer>
-                  <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                    <resource>META-INF/NOTICE.txt</resource>
-                    <file>src/assembly/NOTICE.txt</file>
                   </transformer>
                 </transformers>
               </configuration>
@@ -401,7 +426,8 @@
         <!-- extensions=true replaces maven-deploy-plugin. A -SNAPSHOT version is
              uploaded at once to centralSnapshotsUrl and is not validated or signed.
              A release version opens a Central Portal deployment and waits for a
-             manual Publish click, because autoPublish is false.
+             manual Publish click, because autoPublish is false. It must be signed:
+             deploy it with the profile central-release, see below.
              mvn package and mvn install do not upload anything. -->
         <plugin>
           <groupId>org.sonatype.central</groupId>
@@ -612,6 +638,35 @@
                       </exec>
                     </target>
                   </configuration>
+                </execution>
+              </executions>
+            </plugin>
+          </plugins>
+        </build>
+      </profile>
+      <!-- mvn -Prelease-check,central-release deploy
+           Maven Central accepts a release, that is every version without -SNAPSHOT, only if each
+           file is signed. This profile signs the POM and all attached JARs with GPG in the verify
+           phase, after the tests and the release check. GPG uses its default secret key, or the one
+           named by -Dgpg.keyname=<key id>, and asks for the passphrase through gpg-agent: do not
+           run Maven with -B, which forbids that question. The public key must be on a key server
+           that Central reads, such as keys.openpgp.org or keyserver.ubuntu.com.
+           Ordinary builds and the GitHub workflows do not select this profile and need no key. -->
+      <profile>
+        <id>central-release</id>
+        <build>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-gpg-plugin</artifactId>
+              <version>3.2.8</version>
+              <executions>
+                <execution>
+                  <id>sign-artifacts</id>
+                  <phase>verify</phase>
+                  <goals>
+                    <goal>sign</goal>
+                  </goals>
                 </execution>
               </executions>
             </plugin>

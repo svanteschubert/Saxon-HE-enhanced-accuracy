@@ -80,6 +80,9 @@ The open-source licences under which this software is provided state these terms
   [Apache License 2.0](src/assembly/licenses/xmlresolver-LICENSE.txt), section 7
   "Disclaimer of Warranty" and section 8 "Limitation of Liability".
 
+[NOTICE.txt](NOTICE.txt) carries a short version of this statement. It is part of every
+JAR and of the release ZIP, together with the licences.
+
 ### Support and contributions
 
 Patches are always welcome: please send a
@@ -429,6 +432,25 @@ There are two GitHub Actions
    1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
        e.g. "*git tag -sm v13.0.1-BETA v13.0.1-BETA*" # using -s to sign the tag & -m is taking the next parameter as message
    2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
+
+## Publishing to Maven Central
+
+Maven Central accepts a release such as `13.0.1-BETA` only if every file is signed with GPG.
+The profile `central-release` signs the POM and all JARs:
+
+~~~ bash
+mvn -Prelease-check,central-release deploy
+~~~
+
+This builds and tests the release, runs the release check, signs the files and uploads them to the
+[Central Portal](https://central.sonatype.com/publishing/deployments). There the release waits for a manual
+click on *Publish*. A published version can neither be replaced nor deleted.
+
+* Run the command without `-B`, so that GPG can ask for the passphrase of the key.
+* The public key must be on a key server that Central reads, such as
+  [keys.openpgp.org](https://keys.openpgp.org) or [keyserver.ubuntu.com](https://keyserver.ubuntu.com).
+* The upload needs a Central Portal token as server `central` in `~/.m2/settings.xml`.
+* A `-SNAPSHOT` version is uploaded by `mvn deploy` alone and needs no signature.
 
 ## Reports to Saxonica and the QT4 Community Group
 

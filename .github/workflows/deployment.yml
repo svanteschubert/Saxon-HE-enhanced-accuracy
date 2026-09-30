@@ -40,6 +40,12 @@ jobs:
         cat > target/release-notes.md <<EOF
         Saxon-HE 13.0 with decimal arithmetic and commercial rounding ("Svanton").
 
+        **This is a proof of concept.** Please test it and compare its results with your existing XSLT processor
+        before any use in production. You use it at your own risk: it comes without warranty under the
+        Mozilla Public License 2.0, see
+        [Status](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy#status-a-proof-of-concept-released-as-beta)
+        in the README.
+
         **Saxon-HE-accuracy-$version.zip** contains the standalone JAR, which needs nothing but Java 25 or newer:
 
         \`\`\`
