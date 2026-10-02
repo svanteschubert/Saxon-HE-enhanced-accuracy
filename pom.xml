@@ -9,7 +9,7 @@
   <artifactId>Saxon-HE-accuracy</artifactId>
   <!-- BETA identifies a pre-release. This non-SNAPSHOT version can be published once.
        Drop the -BETA suffix for the final release. -->
-  <version>13.0.1-BETA</version>
+  <version>13.0.2-BETA</version>
   <name>Saxon-HE - enhanced accuracy using decimal-based floating-point arithmetic</name>
   <packaging>jar</packaging>
   <description>The XSLT and XQuery Processor is using the far more accurate decimal-based floating-point arithmetic and half-up rounding. Reason was the European Norm 16931: where arithmetic should come same results and VAT has to be rounded often by national law half-up.</description>

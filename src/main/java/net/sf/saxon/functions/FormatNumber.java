@@ -753,13 +753,15 @@ public class FormatNumber extends SystemFunction implements Callable, StatefulSy
         @CSharpModifiers(code={"protected", "virtual"})
         private void formatDecimal(BigDecimal dval, StringBuilder fsb) {
             //NOTE: C# has its own version of this code in an overriding subclass
+            // This fork rounds ties away from zero (commercial rounding), as its round() does;
+            // XSLT and F&O specify round-half-to-even here, so 0.285 would become 0.28
             int exponent = 0;
             if (minExponentSize == 0) {
-                dval = dval.setScale(maxFractionPartSize, RoundingMode.HALF_EVEN);
+                dval = dval.setScale(maxFractionPartSize, RoundingMode.HALF_UP);
             } else if (dval.signum() != 0) {
                 exponent = dval.precision() - dval.scale() - scalingFactor;
                 dval = dval.movePointLeft(exponent);
-                dval = dval.setScale(maxFractionPartSize, RoundingMode.HALF_EVEN);
+                dval = dval.setScale(maxFractionPartSize, RoundingMode.HALF_UP);
             }
             BigDecimalValue.decimalToString(dval, fsb);
 

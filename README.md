@@ -47,6 +47,9 @@ rounding and decimal floating-point:
 * `round()` rounds halves away from zero by default (commercial rounding, "kaufmännisches
   Runden"): `round(-2.5)` is −3, not −2. The specified rule remains available as
   `round-half-to-positive-infinity()`.
+* `format-number()` rounds halves away from zero as well: `format-number(0.285, '0.00')`
+  is 0.29, not 0.28 as with the specified round-half-to-even. For half-to-even, call
+  `round-half-to-even()` before formatting.
 * Numbers are calculated in decimal floating-point only. Untyped XML values, `number()`,
   scientific-notation literals and the arithmetic of `version="1.0"` stylesheets use
   `xs:decimal`. Binary floating-point remains only where a stylesheet asks for it
@@ -186,7 +189,7 @@ Without a schema every XML value is untyped, as in each Schematron validation. S
 
 #### Rounding: negative halves
 
-XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. Commercial rounding (German VAT law, EN16931) takes it away from zero: −3. This hits every credit note.
+XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. Commercial rounding (German VAT law, EN16931) takes it away from zero: −3. This hits every credit note. `format-number()` rounds a half to even, so even the positive 0.285 becomes 0.28 instead of 0.29 (R09).
 
 | # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | Svanton (all correct) |
 | --- | --- | --- | ---: | ---: |
@@ -198,6 +201,8 @@ XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. C
 | R06 | `<v qty="-3" price="2.125"/>` | `round(@qty * @price, 2)` | $\color{red}\texttt{-6.37}$ | $\color{green}\texttt{-6.38}$ |
 | R07 | `<v net="-3.50" rate="19"/>` | `round(xs:decimal(@net) * xs:decimal(@rate) div 100, 2)` | $\color{red}\texttt{-0.66}$ | $\color{green}\texttt{-0.67}$ |
 | R08 | – | `format-number(round(-1.005, 2), '0.00')` | $\color{red}\texttt{-1.00}$ | $\color{green}\texttt{-1.01}$ |
+| R09 | `<v net="1.50" rate="19"/>` | `format-number(xs:decimal(@net) * xs:decimal(@rate) div 100, '0.00')` | $\color{red}\texttt{0.28}$ | $\color{green}\texttt{0.29}$ |
+| R10 | `<v net="-1.50" rate="19"/>` | `format-number(xs:decimal(@net) * xs:decimal(@rate) div 100, '0.00')` | $\color{red}\texttt{-0.28}$ | $\color{green}\texttt{-0.29}$ |
 
 #### Division precision
 
@@ -226,7 +231,7 @@ The BETA of this fork is available for testing from Maven Central:
 <dependency>
   <groupId>com.schubert-consulting</groupId>
   <artifactId>Saxon-HE-accuracy</artifactId>
-  <version>13.0.1-BETA</version>
+  <version>13.0.2-BETA</version>
 </dependency>
 ~~~
 
@@ -245,7 +250,7 @@ problems as [GitHub issues](https://github.com/svanteschubert/Saxon-HE-enhanced-
 Starting Svanton with XML Resolver 6.0.23 bundled and Java 25 or newer:
 
 ~~~ bash
-java -jar Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
+java -jar Saxon-HE-accuracy-13.0.2-BETA-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
 ~~~
 
 It is in the ZIP of each [GitHub release](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/releases),
@@ -283,7 +288,7 @@ same EU validator XSLT.
 For a direct Java invocation from the repository root:
 
 ~~~ bash
-java -jar target/Saxon-HE-accuracy-13.0.1-BETA-standalone.jar -s:target/examples/en16931/invoice-2017-ubl.xml -xsl:target/examples/en16931/EN16931-UBL-validation.xslt -o:target/invoice-validation.svrl.xml
+java -jar target/Saxon-HE-accuracy-13.0.2-BETA-standalone.jar -s:target/examples/en16931/invoice-2017-ubl.xml -xsl:target/examples/en16931/EN16931-UBL-validation.xslt -o:target/invoice-validation.svrl.xml
 ~~~
 
 The direct Java command writes XML without printing a summary. A successful command or script
@@ -378,7 +383,8 @@ This Saxon update is achieved by several minor enhancements:
 Both `round(value)` and `round(value, precision)` use ties away from zero,
 including dynamic function calls. Float rounding, large integer overflow, signed
 zero, and extreme rounding precisions are covered by regression tests. The original
-XPath rule remains available as `round-half-to-positive-infinity()`.
+XPath rule remains available as `round-half-to-positive-infinity()`. Since 13.0.2-BETA,
+`format-number()` also rounds ties away from zero instead of half-to-even.
 
 Scientific-notation literals such as `1e-40` now parse as decimals. Decimal
 multiplication is exact; it no longer truncates operands to 34 decimal places.
@@ -435,7 +441,7 @@ ones, writes `target/release-check/report.html`, and fails the build on any mism
 project is involved. To test an already built or downloaded JAR without rebuilding:
 
 ~~~ bash
-mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.1-BETA-standalone.jar
+mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.2-BETA-standalone.jar
 ~~~
 
 See the [comparison report](docs/en16931-comparison.md#release-check-only-jars-xml-and-xslt) for details
@@ -497,12 +503,12 @@ There are two GitHub Actions
    the release check report. A version with `-alpha`, `-beta`, `-BETA`, `-rc` or `-SNAPSHOT` is marked as a pre-release.
    Review the draft on GitHub and publish it yourself. Maven Central is not touched. For instance:
    1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
-       e.g. "*git tag -sm v13.0.1-BETA v13.0.1-BETA*" # using -s to sign the tag & -m is taking the next parameter as message
+       e.g. "*git tag -sm v13.0.2-BETA v13.0.2-BETA*" # using -s to sign the tag & -m is taking the next parameter as message
    2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
 
 ## Publishing to Maven Central
 
-Maven Central accepts a release such as `13.0.1-BETA` only if every file is signed with GPG.
+Maven Central accepts a release such as `13.0.2-BETA` only if every file is signed with GPG.
 The profile `central-release` uses `maven-gpg-plugin` in the `verify` phase to sign the POM,
 main JAR, standalone JAR, sources JAR and Javadoc JAR. To build, test and sign locally:
 

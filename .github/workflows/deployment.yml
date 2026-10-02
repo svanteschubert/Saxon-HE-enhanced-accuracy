@@ -1,6 +1,6 @@
 name: Draft GitHub release on tagging
 
-# Pushing a tag v<version> (the <version> of pom.xml, e.g. v13.0.1-BETA) builds the release,
+# Pushing a tag v<version> (the <version> of pom.xml, e.g. v13.0.2-BETA) builds the release,
 # runs the release check, and creates a *draft* GitHub release with the files below.
 # Review and publish the draft on GitHub yourself. Maven Central is not touched.
 

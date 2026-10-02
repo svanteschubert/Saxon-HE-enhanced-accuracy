@@ -177,6 +177,18 @@
     <stock>-1.00</stock>
     <fork>-1.01</fork>
   </example>
+  <example id="R09" cause="rounding">
+    <input><v net="1.50" rate="19"/></input>
+    <xpath>format-number(xs:decimal(@net) * xs:decimal(@rate) div 100, '0.00')</xpath>
+    <stock>0.28</stock>
+    <fork>0.29</fork>
+  </example>
+  <example id="R10" cause="rounding">
+    <input><v net="-1.50" rate="19"/></input>
+    <xpath>format-number(xs:decimal(@net) * xs:decimal(@rate) div 100, '0.00')</xpath>
+    <stock>-0.28</stock>
+    <fork>-0.29</fork>
+  </example>
   <example id="P01" cause="precision">
     <input><v/></input>
     <xpath>1 div 3</xpath>

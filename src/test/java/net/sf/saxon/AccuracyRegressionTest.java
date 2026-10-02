@@ -134,6 +134,17 @@ public class AccuracyRegressionTest {
         }
 
         @Test
+        @DisplayName("format-number() rounds ties away from zero, not half-to-even")
+        void formatNumberGoesAwayFromZero() throws SaxonApiException {
+            Assertions.assertEquals("0.29", eval("format-number(0.285, '0.00')"));    // stock Saxon-HE: 0.28
+            Assertions.assertEquals("-0.29", eval("format-number(-0.285, '0.00')"));  // stock Saxon-HE: -0.28
+            Assertions.assertEquals("3", eval("format-number(2.5, '0')"));            // stock Saxon-HE: 2
+            Assertions.assertEquals("0.29", eval("format-number(0.285e0, '0.00')"));  // stock Saxon-HE: 0.28
+            Assertions.assertEquals("3", eval("format-number(xs:float(2.5), '0')"));  // stock Saxon-HE: 2
+            Assertions.assertEquals("1.3e0", eval("format-number(1.25, '0.0e0')"));   // stock Saxon-HE: 1.2e0
+        }
+
+        @Test
         @DisplayName("round-half-away-from-zero() is available explicitly, with a scale")
         void explicitFunction() throws SaxonApiException {
             // stock Saxon-HE: XPST0017, no such function
