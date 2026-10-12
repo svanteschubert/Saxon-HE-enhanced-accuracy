@@ -531,6 +531,15 @@ There are two GitHub Actions
 
 ## Publishing to Maven Central
 
+Use Maven **3.9.x** (3.9.2 or newer), preferably **3.9.16**, for the `central-release` profile.
+Check with `mvn --version` before signing or deploying. Maven 3.10 writes `maven-metadata-local.xml`
+into the staging directory, and `central-publishing-maven-plugin` 0.11.0 leaves it in the
+uploaded bundle. Central then rejects the artifact's parent directory with
+`Bundle has content that does NOT have a .pom file`, even though the version directory
+contains the correct POM. The release profile checks the Maven version before building;
+ordinary builds can still use Maven 3.10. After switching from Maven 3.10, use a clean
+build to remove its staging metadata.
+
 Maven Central accepts a release such as `13.0.3-BETA` only if every file is signed with GPG.
 The profile `central-release` uses `maven-gpg-plugin` in the `verify` phase to sign the POM,
 main JAR, standalone JAR, sources JAR and Javadoc JAR. To build, test and sign locally:
@@ -545,7 +554,7 @@ set in an active profile in `~/.m2/settings.xml`. Detached signatures are writte
 The `verify` command does not upload anything. To upload the signed release:
 
 ~~~ bash
-mvn -Prelease-check,central-release deploy -Dgpg.keyname=YOUR_KEY_FINGERPRINT
+mvn -Prelease-check,central-release clean deploy -Dgpg.keyname=YOUR_KEY_FINGERPRINT
 ~~~
 
 This builds and tests the release, runs the release check, signs the files and uploads them to the

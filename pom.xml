@@ -680,6 +680,31 @@
         <id>central-release</id>
         <build>
           <plugins>
+            <!-- Maven 3.10's Resolver writes maven-metadata-local.xml into the staging
+                 directory. Central Publishing 0.11.0 leaves that file in the bundle,
+                 which Central rejects as content without a POM. Ordinary builds may
+                 still use Maven 3.10; signing and publishing use the 3.9 series. -->
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-enforcer-plugin</artifactId>
+              <version>3.6.1</version>
+              <executions>
+                <execution>
+                  <id>enforce-central-maven</id>
+                  <goals>
+                    <goal>enforce</goal>
+                  </goals>
+                  <configuration>
+                    <rules>
+                      <requireMavenVersion>
+                        <version>[3.9.2,3.10-alpha)</version>
+                        <message>The central-release profile requires Maven 3.9.2 or newer in the 3.9 series (use 3.9.16). Maven 3.10 adds local metadata to the Central Publishing 0.11.0 bundle, which Central rejects as content without a POM. Switch Maven versions and run a clean build before deploying.</message>
+                      </requireMavenVersion>
+                    </rules>
+                  </configuration>
+                </execution>
+              </executions>
+            </plugin>
             <plugin>
               <groupId>org.apache.maven.plugins</groupId>
               <artifactId>maven-gpg-plugin</artifactId>
