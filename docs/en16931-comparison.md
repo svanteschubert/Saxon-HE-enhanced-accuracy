@@ -261,8 +261,8 @@ result. A validator that trusts rounded line amounts cannot reveal every error
 in the calculation that produced them. Exponent literals expose one current fork
 benefit; explicit `xs:decimal` XML casts show the portable decimal baseline.
 The fork also deliberately deviates from the specified `xs:double` result of `number()`
-(example B19). It calculates in decimal floating-point, but it is not an IEEE 754
-decimal128 implementation.
+(example B19). It calculates in decimal floating-point with at least the precision of IEEE 754
+decimal128, but it does not implement the decimal128 format.
 
 ## Provenance
 

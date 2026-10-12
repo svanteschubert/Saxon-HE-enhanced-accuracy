@@ -85,10 +85,20 @@ public class AccuracyRegressionTest {
         }
 
         @Test
-        @DisplayName("One-third division has 34 fractional digits (not a decimal128 implementation)")
+        @DisplayName("One-third division has 34 fractional digits")
         void oneThirdDivisionScale() throws SaxonApiException {
             // stock Saxon-HE: 18
             Assertions.assertEquals("34", eval("string-length(substring-after(string(1 div 3), '.'))"));
+        }
+
+        @Test
+        @DisplayName("A small quotient keeps 34 significant digits, the precision of IEEE 754 decimal128")
+        void smallQuotientKeepsSignificantDigits() throws SaxonApiException {
+            // stock Saxon-HE: 0.000000666666666667 (12 significant digits)
+            Assertions.assertEquals("0.0000006666666666666666666666666666666667", eval("2 div 3000000"));
+            // stock Saxon-HE: 6.666666666666667E-7 (binary xs:double)
+            Assertions.assertEquals("0.0000006666666666666666666666666666666667",
+                    eval("xs:untypedAtomic('2') div xs:untypedAtomic('3000000')"));
         }
 
         @Test

@@ -35,6 +35,10 @@ import java.util.regex.Pattern;
 
 public final class BigDecimalValue extends DecimalValue {
 
+    /**
+     * The minimum number of decimal places and of significant digits of a nonterminating
+     * decimal division: 34, the precision of IEEE 754 decimal128.
+     */
     public static final int DIVIDE_PRECISION = 34;
 
     private final BigDecimal value;

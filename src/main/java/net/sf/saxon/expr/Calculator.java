@@ -871,8 +871,21 @@ public abstract class Calculator {
         } catch (ArithmeticException nonTerminating) {
             int scale = Math.max(BigDecimalValue.DIVIDE_PRECISION,
                     Math.addExact(Math.subtractExact(A.scale(), B.scale()), BigDecimalValue.DIVIDE_PRECISION));
-            return A.divide(B, scale, RoundingMode.HALF_UP);
+            // Also keep at least 34 significant digits, the precision of IEEE 754 decimal128,
+            // when the quotient starts with zeros after the decimal point (2 div 3000000).
+            // The quotient's leading digit has at least the exponent exponent(A) - exponent(B) - 1.
+            int significantDigitsScale = Math.addExact(
+                    Math.subtractExact(BigDecimalValue.DIVIDE_PRECISION, leadingDigitExponent(A)),
+                    leadingDigitExponent(B));
+            return A.divide(B, Math.max(scale, significantDigitsScale), RoundingMode.HALF_UP);
         }
+    }
+
+    /**
+     * @return the exponent of the leading digit: 2 for 123.4, -1 for 0.5, 6 for 3E+6
+     */
+    private static int leadingDigitExponent(BigDecimal value) {
+        return Math.subtractExact(Math.subtractExact(value.precision(), value.scale()), 1);
     }
 
     /**
