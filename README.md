@@ -258,6 +258,11 @@ The BETA is for testing, not yet for production: see
 [Status](#status-a-proof-of-concept-released-as-beta). Please report results and
 problems as [GitHub issues](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/issues).
 
+### What's new in 13.0.3-BETA
+
+- Every nonterminating decimal division keeps at least 34 significant digits, the precision of IEEE 754 decimal128. Before, a quotient starting with zeros after the decimal point, such as `2 div 3000000`, kept only 28.
+- The examples [L01 to L04](#ieee-754-decimal-levels) show which IEEE 754 decimal level (decimal32, decimal64, decimal128) a division reaches, on stock Saxon-HE 13.0 and on this release. They are plain XPath 3.0 and run on any validator.
+
 ### Without Maven: the standalone JAR
 
 Starting Svanton with XML Resolver 6.0.23 bundled and Java 25 or newer:
