@@ -244,7 +244,7 @@ The BETA of this fork is available for testing from Maven Central:
 <dependency>
   <groupId>com.schubert-consulting</groupId>
   <artifactId>Saxon-HE-accuracy</artifactId>
-  <version>13.0.2-BETA</version>
+  <version>13.0.3-BETA</version>
 </dependency>
 ~~~
 
@@ -263,7 +263,7 @@ problems as [GitHub issues](https://github.com/svanteschubert/Saxon-HE-enhanced-
 Starting Svanton with XML Resolver 6.0.23 bundled and Java 25 or newer:
 
 ~~~ bash
-java -jar Saxon-HE-accuracy-13.0.2-BETA-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
+java -jar Saxon-HE-accuracy-13.0.3-BETA-standalone.jar -s:input.xml -xsl:stylesheet.xsl -o:output.xml
 ~~~
 
 It is in the ZIP of each [GitHub release](https://github.com/svanteschubert/Saxon-HE-enhanced-accuracy/releases),
@@ -301,7 +301,7 @@ same EU validator XSLT.
 For a direct Java invocation from the repository root:
 
 ~~~ bash
-java -jar target/Saxon-HE-accuracy-13.0.2-BETA-standalone.jar -s:target/examples/en16931/invoice-2017-ubl.xml -xsl:target/examples/en16931/EN16931-UBL-validation.xslt -o:target/invoice-validation.svrl.xml
+java -jar target/Saxon-HE-accuracy-13.0.3-BETA-standalone.jar -s:target/examples/en16931/invoice-2017-ubl.xml -xsl:target/examples/en16931/EN16931-UBL-validation.xslt -o:target/invoice-validation.svrl.xml
 ~~~
 
 The direct Java command writes XML without printing a summary. A successful command or script
@@ -405,7 +405,7 @@ Terminating decimal division is exact. Nonterminating division uses `HALF_UP`
 with scale `max(34, dividend.scale - divisor.scale + 34, 34 - exponent(dividend) + exponent(divisor))`,
 where the exponent is that of the leading digit. The last term keeps at least 34 significant
 digits, the precision of IEEE 754 decimal128, when the quotient starts with zeros after the
-decimal point.
+decimal point. This last term is new in 13.0.3-BETA.
 
 These are `BigDecimal` arithmetic rules with at least the precision of IEEE 754 decimal128,
 not an implementation of the decimal128 format: sums, differences, products and terminating
@@ -459,7 +459,7 @@ ones, writes `target/release-check/report.html`, and fails the build on any mism
 project is involved. To test an already built or downloaded JAR without rebuilding:
 
 ~~~ bash
-mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.2-BETA-standalone.jar
+mvn -Prelease-check antrun:run@release-check -Dsvanton.jar=/absolute/path/to/Saxon-HE-accuracy-13.0.3-BETA-standalone.jar
 ~~~
 
 See the [comparison report](docs/en16931-comparison.md#release-check-only-jars-xml-and-xslt) for details
@@ -521,12 +521,12 @@ There are two GitHub Actions
    the release check report. A version with `-alpha`, `-beta`, `-BETA`, `-rc` or `-SNAPSHOT` is marked as a pre-release.
    Review the draft on GitHub and publish it yourself. Maven Central is not touched. For instance:
    1. **git tag -sm <TAG_MESSAGE> <TAG_LABEL>**</br>
-       e.g. "*git tag -sm v13.0.2-BETA v13.0.2-BETA*" # using -s to sign the tag & -m is taking the next parameter as message
+       e.g. "*git tag -sm v13.0.3-BETA v13.0.3-BETA*" # using -s to sign the tag & -m is taking the next parameter as message
    2. **git push --force --follow-tags --all origin** # pushing with force (as we rebased our feature branch "accuracy-feature") with all tags & all branches to origin (this repo)
 
 ## Publishing to Maven Central
 
-Maven Central accepts a release such as `13.0.2-BETA` only if every file is signed with GPG.
+Maven Central accepts a release such as `13.0.3-BETA` only if every file is signed with GPG.
 The profile `central-release` uses `maven-gpg-plugin` in the `verify` phase to sign the POM,
 main JAR, standalone JAR, sources JAR and Javadoc JAR. To build, test and sign locally:
 
