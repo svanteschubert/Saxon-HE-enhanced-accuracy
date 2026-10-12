@@ -668,7 +668,7 @@
           </plugins>
         </build>
       </profile>
-      <!-- mvn -Prelease-check,central-release deploy
+      <!-- ./mvnw -Prelease-check,central-release clean deploy
            Maven Central accepts a release, that is every version without -SNAPSHOT, only if each
            file is signed. This profile signs the POM and all attached JARs with GPG in the verify
            phase, after the tests and the release check. GPG uses its default secret key, or the one
@@ -698,7 +698,7 @@
                     <rules>
                       <requireMavenVersion>
                         <version>[3.9.2,3.10-alpha)</version>
-                        <message>The central-release profile requires Maven 3.9.2 or newer in the 3.9 series (use 3.9.16). Maven 3.10 adds local metadata to the Central Publishing 0.11.0 bundle, which Central rejects as content without a POM. Switch Maven versions and run a clean build before deploying.</message>
+                        <message>The central-release profile requires Maven 3.9.x. Use ./mvnw instead of mvn to run the pinned Maven 3.9.16. Maven 3.10 adds local metadata to the Central Publishing 0.11.0 bundle, which Central rejects as content without a POM. Use ./mvnw -Prelease-check,central-release clean deploy when deploying.</message>
                       </requireMavenVersion>
                     </rules>
                   </configuration>
