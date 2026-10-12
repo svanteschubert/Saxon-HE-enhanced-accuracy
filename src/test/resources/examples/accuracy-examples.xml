@@ -11,7 +11,10 @@
 
   cause: binary    - binary floating-point (xs:double) instead of decimal arithmetic
          rounding  - round() takes negative halves toward positive infinity, not away from zero
-         precision - decimal division stops at 18 instead of 34 decimal places
+         precision - decimal division stops at 18 decimal places instead of at least 34 decimal
+                     places and 34 significant digits
+         level     - the IEEE 754 decimal level (decimal32: 7, decimal64: 16, decimal128: 34
+                     significant digits) that a nonterminating division reaches
          same      - contrast cases with the same result on both engines
 -->
 <examples>
@@ -206,6 +209,30 @@
     <xpath>1000000000.0 * (1.0 div 3)</xpath>
     <stock>333333333.333333333</stock>
     <fork>333333333.3333333333333333333333333</fork>
+  </example>
+  <example id="L01" cause="level">
+    <input><v a="2" b="3"/></input>
+    <xpath>let $q := xs:decimal(@a div @b) return if (round-half-to-even($q, 34) = 0.6666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 16) = 0.6666666666666667) then 'decimal64' else if (round-half-to-even($q, 7) = 0.6666667) then 'decimal32' else 'below decimal32'</xpath>
+    <stock>decimal32</stock>
+    <fork>decimal128</fork>
+  </example>
+  <example id="L02" cause="level">
+    <input><v/></input>
+    <xpath>let $q := 2 div 3 return if (round-half-to-even($q, 34) = 0.6666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 16) = 0.6666666666666667) then 'decimal64' else if (round-half-to-even($q, 7) = 0.6666667) then 'decimal32' else 'below decimal32'</xpath>
+    <stock>decimal64</stock>
+    <fork>decimal128</fork>
+  </example>
+  <example id="L03" cause="level">
+    <input><v/></input>
+    <xpath>let $q := 2 div 3000000 return if (round-half-to-even($q, 40) = 0.0000006666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 22) = 0.0000006666666666666667) then 'decimal64' else if (round-half-to-even($q, 13) = 0.0000006666667) then 'decimal32' else 'below decimal32'</xpath>
+    <stock>decimal32</stock>
+    <fork>decimal128</fork>
+  </example>
+  <example id="L04" cause="level">
+    <input><v a="2" b="3000000"/></input>
+    <xpath>let $q := xs:decimal(@a div @b) return if (round-half-to-even($q, 40) = 0.0000006666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 22) = 0.0000006666666666666667) then 'decimal64' else if (round-half-to-even($q, 13) = 0.0000006666667) then 'decimal32' else 'below decimal32'</xpath>
+    <stock>decimal64</stock>
+    <fork>decimal128</fork>
   </example>
   <example id="S01" cause="same">
     <input><v a="0.1" b="0.2"/></input>

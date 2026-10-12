@@ -206,13 +206,26 @@ XPath `round()` takes a half toward positive infinity, so −2.5 becomes −2. C
 
 #### Division precision
 
-Stock Saxon stops a nonterminating decimal division after 18 decimal places, the fork after 34.
+Stock Saxon stops a nonterminating decimal division after 18 decimal places. The fork keeps at least 34 decimal places and at least 34 significant digits, the precision of IEEE 754 decimal128.
 
 | # | XML input | XPath | Saxon-HE 13.0 (all incorrect) | Svanton (all correct) |
 | --- | --- | --- | ---: | ---: |
 | P01 | – | `1 div 3` | $\color{red}\texttt{0.333333333333333333}$ | $\color{green}\texttt{0.3333333333333333333333333333333333}$ |
 | P02 | – | `2 div 3` | $\color{red}\texttt{0.666666666666666667}$ | $\color{green}\texttt{0.6666666666666666666666666666666667}$ |
 | P03 | – | `1000000000.0 * (1.0 div 3)` | $\color{red}\texttt{333333333.333333333}$ | $\color{green}\texttt{333333333.3333333333333333333333333}$ |
+
+#### IEEE 754 decimal levels
+
+IEEE 754 defines three decimal floating-point formats: decimal32 with 7, decimal64 with 16 and decimal128 with 34 significant digits. Each test divides two numbers whose quotient never ends and returns the highest level whose number of significant digits the result reaches. The tests are plain XPath 3.0, so they show the level of any validator. Green marks the higher level of the two engines.
+
+| # | XML input | XPath | Saxon-HE 13.0 | Svanton |
+| --- | --- | --- | ---: | ---: |
+| L01 | `<v a="2" b="3"/>` | `let $q := xs:decimal(@a div @b) return if (round-half-to-even($q, 34) = 0.6666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 16) = 0.6666666666666667) then 'decimal64' else if (round-half-to-even($q, 7) = 0.6666667) then 'decimal32' else 'below decimal32'` | $\color{red}\texttt{decimal32}$ | $\color{green}\texttt{decimal128}$ |
+| L02 | – | `let $q := 2 div 3 return if (round-half-to-even($q, 34) = 0.6666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 16) = 0.6666666666666667) then 'decimal64' else if (round-half-to-even($q, 7) = 0.6666667) then 'decimal32' else 'below decimal32'` | $\color{red}\texttt{decimal64}$ | $\color{green}\texttt{decimal128}$ |
+| L03 | – | `let $q := 2 div 3000000 return if (round-half-to-even($q, 40) = 0.0000006666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 22) = 0.0000006666666666666667) then 'decimal64' else if (round-half-to-even($q, 13) = 0.0000006666667) then 'decimal32' else 'below decimal32'` | $\color{red}\texttt{decimal32}$ | $\color{green}\texttt{decimal128}$ |
+| L04 | `<v a="2" b="3000000"/>` | `let $q := xs:decimal(@a div @b) return if (round-half-to-even($q, 40) = 0.0000006666666666666666666666666666666667) then 'decimal128' else if (round-half-to-even($q, 22) = 0.0000006666666666666667) then 'decimal64' else if (round-half-to-even($q, 13) = 0.0000006666667) then 'decimal32' else 'below decimal32'` | $\color{red}\texttt{decimal64}$ | $\color{green}\texttt{decimal128}$ |
+
+In these tests, stock Saxon reaches decimal64 at most: it keeps 18 decimal places and calculates untyped input in binary (L01). The fork keeps at least 34 decimal places and at least 34 significant digits, so it reaches decimal128 even when the quotient starts with zeros after the decimal point (L03, L04).
 
 #### Same result on both engines
 
@@ -389,10 +402,15 @@ XPath rule remains available as `round-half-to-positive-infinity()`. Since 13.0.
 Scientific-notation literals such as `1e-40` now parse as decimals. Decimal
 multiplication is exact; it no longer truncates operands to 34 decimal places.
 Terminating decimal division is exact. Nonterminating division uses `HALF_UP`
-with scale `max(34, dividend.scale - divisor.scale + 34)`.
+with scale `max(34, dividend.scale - divisor.scale + 34, 34 - exponent(dividend) + exponent(divisor))`,
+where the exponent is that of the leading digit. The last term keeps at least 34 significant
+digits, the precision of IEEE 754 decimal128, when the quotient starts with zeros after the
+decimal point.
 
-These are `BigDecimal` arithmetic rules, not an IEEE 754 decimal128 implementation:
-34 decimal places are different from 34 significant digits. The historical invoice
+These are `BigDecimal` arithmetic rules with at least the precision of IEEE 754 decimal128,
+not an implementation of the decimal128 format: sums, differences, products and terminating
+divisions stay exact instead of being rounded to 34 digits, and only a nonterminating division
+is rounded, to at least 34 significant digits (see L01 to L04 in the IEEE 754 decimal levels). The historical invoice
 example above describes a goal; different orders of operations can still give
 different results after nonterminating division.
 
